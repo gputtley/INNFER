@@ -4,6 +4,7 @@ Author: George Uttley
 
 This is a simple example where we try and infer the mass of the top quark from one reconstructed mass like context variable using the bayesflow package.
 """
+
 print("- Importing packages")
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -26,28 +27,51 @@ parser.add_argument('--use-summary-network', help= 'Use a summary network',  act
 parser.add_argument('--use-discrete', help= 'Use discrete true values',  action='store_true')
 parser.add_argument('--add-background', help= 'Add a falling background',  action='store_true')
 parser.add_argument('--load-model', help= 'Load model from file',  action='store_true')
+parser.add_argument('--skip-initial-distribution', help= 'Skip making the initial distribution plots',  action='store_true')
+parser.add_argument('--skip-generation', help= 'Skip making the generation plots',  action='store_true')
+parser.add_argument('--skip-probability', help= 'Skip draw the probability',  action='store_true')
+parser.add_argument('--skip-inference', help= 'Skip performing the inference',  action='store_true')
+parser.add_argument('--extend-likelihood-range', help= 'Extend the plotted likelihood range',  action='store_true')
 
 args = parser.parse_args()
 
 name = "top_mass_basic_example"
+if args.add_background:
+  name += "_with_bkg"
 
 # Hyperparameters for networks
-hyperparameters = {
-  "num_coupling_layer" : 8, #8 (bkg)
-  "units_per_coupling_layer" : 128, #128 (bkg)
-  "activation" : "elu",
-  "dropout" : False,
-  "summary_dimensions" : 1,
-  "epochs" : 5,
-  "batch_size" : 2**9,
-  "early_stopping" : True,
-  "learning_rate" : 1e-3,
-  "coupling_design" : "affine", # affine (no bkg), spline (bkg)
-  "permutation" : "learnable",
-  "decay_rate" : 0.8,  
-  }
-
-latent_dim = 1 # 1 (no bkg), 2 (bkg) - because spline seems broken for 1.
+if args.add_background:
+  hyperparameters = {
+    "num_coupling_layer" : 8,
+    "units_per_coupling_layer" : 128,
+    "activation" : "relu", # seems to work much better than elu
+    "dropout" : True,
+    "summary_dimensions" : 1,
+    "epochs" : 15,
+    "batch_size" : 2**8,
+    "early_stopping" : True,
+    "learning_rate" : 1e-3,
+    "coupling_design" : "spline",
+    "permutation" : "learnable",
+    "decay_rate" : 0.5,  
+    }
+  latent_dim = 2 # This seems broken for latent_dim=1 when using spline
+else:
+  hyperparameters = {
+    "num_coupling_layer" : 8,
+    "units_per_coupling_layer" : 128,
+    "activation" : "relu",
+    "dropout" : True,
+    "summary_dimensions" : 1,
+    "epochs" : 3,
+    "batch_size" : 2**9,
+    "early_stopping" : True,
+    "learning_rate" : 1e-3,
+    "coupling_design" : "affine",
+    "permutation" : "learnable",
+    "decay_rate" : 0.5,  
+    }
+  latent_dim = 1
 
 ### Data generation ###
 print("- Making datasets")
@@ -55,6 +79,7 @@ cent = 172.5
 diff = 7.5
 ranges = [cent-diff,cent+diff]
 array_size = (10**6)
+sig_frac = 0.3
 
 # Define context variables as the top mass
 if not args.use_discrete:
@@ -69,7 +94,7 @@ else:
 
 
 # Define transformed variable X as a reconstructed mass
-def MakeX(C, res=0.01, bkg_frac=0.7):
+def MakeX(C, res=0.01):
   np.random.seed(seed_value)
   if not args.add_background:
     dist = np.random.normal(C, res*C)
@@ -77,7 +102,7 @@ def MakeX(C, res=0.01, bkg_frac=0.7):
     dist = np.empty(len(C))
 
     # signal events
-    num_samples = int(round(len(C) * (1 - bkg_frac)))
+    num_samples = int(round(len(C) * (sig_frac)))
     selected_indices = np.sort(np.random.choice(len(C), num_samples, replace=False))
     remaining_indices = np.setdiff1d(np.arange(len(C)), selected_indices)
     selected_C = C[selected_indices]
@@ -87,7 +112,7 @@ def MakeX(C, res=0.01, bkg_frac=0.7):
     lambda_param = 0.1
     const = 100.0
     bkg_ranges = [160.0,185.0]
-    desired_num_samples = int(round(bkg_frac * len(C)))
+    desired_num_samples = int(round((1-sig_frac) * len(C)))
     bkg_dist = np.empty(desired_num_samples)
     ind = 0
     while ind < desired_num_samples:
@@ -156,29 +181,34 @@ if args.use_summary_network:
 else:
   amortizer = bf.amortizers.AmortizedPosterior(inference_net)
 
-
-# Plot initial inputs
-print("- Plotting initial inputs")
+# Define here because useful for a lot of the next steps
 C_plot = np.linspace(170.0, 175.0, num=6, endpoint=True)
 
-nps = 100000
-nbins = 40
+### Plot initial inputs ##
+if not args.skip_initial_distribution:
+  print("- Plotting initial inputs")
 
-for ind, tv in enumerate(C_plot): # Get binning
-  if ind == 0:
-    td = MakeX(tv*np.ones(nps))
-  else:
-    td = np.concatenate([td,MakeX(tv*np.ones(nps))])
+  nps = 100000
+  nbins = 40
 
-_, bins = np.histogram(td,bins=nbins)
+  for ind, tv in enumerate(C_plot): # Get binning
+    if ind == 0:
+      td = MakeX(tv*np.ones(nps))
+    else:
+      td = np.concatenate([td,MakeX(tv*np.ones(nps))])
 
-for tv in C_plot:
-  plt.plot(bins[:-1], np.histogram(MakeX(tv*np.ones(nps)),bins=bins)[0], label="y="+str(tv))
-plt.xlabel("x")
-plt.ylabel('Events')
-plt.legend()
-plt.savefig("plots/{}_initial_distributions.pdf".format(name))
-print("Created plots/{}_initial_distributions.pdf".format(name))
+  _, bins = np.histogram(td,bins=nbins)
+
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+  for tv in C_plot:
+    plt.plot(bins[:-1], np.histogram(MakeX(tv*np.ones(nps)),bins=bins)[0], label="y="+str(tv))
+  plt.xlabel("x")
+  plt.ylabel('Events')
+  plt.legend()
+  plt.tight_layout()
+  plt.savefig("plots/{}_initial_distributions.pdf".format(name))
+  print("Created plots/{}_initial_distributions.pdf".format(name))
 
 ### Run training or load the model in from file ###
 if not args.load_model:
@@ -235,111 +265,206 @@ else:
 
 
 ### Test closure by using it as a generator ###
-print("- Plotting generated distributions")
+if not args.skip_generation:
+  print("- Plotting generated distributions")
 
-# Parameters for plotting
-n_samples = 100000
-nbins = 20
+  # Parameters for plotting
+  n_samples = 100000
+  nbins = 40
 
-for val in C_plot:
+  for val in C_plot:
 
-  # Set up input dictionary
+    # Set up input dictionary
+    inf_data = {}
+    if args.use_summary_network:
+      inf_data["summary_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1,1)), mean=C_mean, std=C_std)
+    else:
+      inf_data["direct_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1)), mean=C_mean, std=C_std)
+
+    # Make synthetic dataset
+    synth = (amortizer.sample(inf_data, 1)*X_std) + X_mean
+
+    # Get the simulated dataset
+    sim = MakeX(val*np.ones(n_samples))
+
+    # Make the histograms
+    sim_hist, bins = np.histogram(sim,bins=nbins)
+    synth_hist, _ = np.histogram(synth,bins=bins)
+    
+    # Plot synthetic dataset against the simulated dataset
+    plot_histogram_with_ratio(
+      sim_hist, 
+      synth_hist, 
+      bins, 
+      name_1='Simulated', 
+      name_2='Synthetic',
+      xlabel="x",
+      name="plots/{}_synthetic_{}".format(name,str(val).replace(".","p")), 
+      title_right = "y = {}".format(val),
+      density = True,
+      use_stat_err = True,
+      )
+
+
+### Need to integrate the pdf and ensure the integral is 1 ###
+
+# For every true value we need to integrate and renormalise
+def GetNormProb(test_value, data, integral_range=[140.0,200.0], integral_bins=10000, log=False):
+  # Get Integral
+  x_int = np.linspace(integral_range[0],integral_range[1],num=integral_bins)
   inf_data = {}
+  inf_data["parameters"] = Norm(x_int.reshape((len(x_int),1)), mean=X_mean, std=X_std)
   if args.use_summary_network:
-    inf_data["summary_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1,1)), mean=C_mean, std=C_std)
+    inf_data["summary_conditions"] = Norm(test_value*np.ones(len(x_int)).reshape((len(x_int),1,1)), mean=C_mean, std=C_std)
   else:
-    inf_data["direct_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1)), mean=C_mean, std=C_std)
+    inf_data["direct_conditions"] = Norm(test_value*np.ones(len(x_int)).reshape((len(x_int),1)), mean=C_mean, std=C_std)    
+  prob = np.exp(amortizer.log_posterior(inf_data))
+  bin_width = x_int[1] - x_int[0]
+  integral = np.sum(prob * bin_width)
 
-  # Make synthetic dataset
-  synth = (amortizer.sample(inf_data, 1)*X_std) + X_mean
+  # Get unnormalised probability 
+  inf_data = {}
+  inf_data["parameters"] = Norm(data.reshape((len(data),1)), mean=X_mean, std=X_std)
+  if args.use_summary_network:
+    inf_data["summary_conditions"] = Norm(test_value*np.ones(len(data)).reshape((len(data),1,1)), mean=C_mean, std=C_std)
+  else:
+    inf_data["direct_conditions"] = Norm(test_value*np.ones(len(data)).reshape((len(data),1)), mean=C_mean, std=C_std)
+  prob = np.exp(amortizer.log_posterior(inf_data))
 
-  # Get the simulated dataset
-  sim = MakeX(val*np.ones(n_samples))
+  # Normalise probability
+  prob = prob/integral
 
-  # Make the histograms
-  sim_hist, bins = np.histogram(sim,bins=nbins)
-  synth_hist, _ = np.histogram(synth,bins=bins)
+  if log:
+    return np.log(prob)
+  else:
+    return prob
   
-  # Plot synthetic dataset against the simulated dataset
-  plot_histogram_with_ratio(
-    sim_hist, 
-    synth_hist, 
-    bins, 
-    name_1='Simulated', 
-    name_2='Synthetic',
-    xlabel="x",
-    name="plots/{}_synthetic_{}".format(name,str(val).replace(".","p")), 
-    title_right = "y = {}".format(val),
-    density = True,
-    use_stat_err = True,
-    )
+
+### Make a plot of the probabilities of a true value when varying the data ###
+if not args.skip_probability:
+  x_plot = np.linspace(150.0,190.0,num=100)
+  for true_value in C_plot: 
+    prob = GetNormProb(true_value, x_plot)
+    fig, ax = plt.subplots()
+    hep.cms.text("Work in progress",ax=ax)
+    plt.plot(x_plot, prob, linestyle='-')
+    plt.xlabel("x")
+    plt.ylabel('p(x|{})'.format(true_value))
+    plt.tight_layout()
+    plt.savefig("plots/{}_probability_{}.pdf".format(name,str(true_value).replace(".","p")))
+    print("Created plots/{}_probability_{}.pdf".format(name,str(true_value).replace(".","p")))
 
 
 ### Get best fit and draw likelihoods ###
-print("- Getting the best fit value and drawing likelihood scans")
+if not args.skip_inference:
+  print("- Getting the best fit value and drawing likelihood scans")
 
-# Number of events for scan
-test_array_size = 1000
+  # Number of events for scan
+  test_array_size = int(round(1000/sig_frac))
 
-# Inputs for minimisation
-initial_guess = 172.5
-par_ranges = [160,180]
+  # Inputs for minimisation
+  initial_guess = 175.0
+  par_ranges = [160,180]
 
-# Function to get -2deltaLL from a tested context value for a given true value
-def objective_function(c, true_value, shift=0, absolute=False, par_range=None):
-  if par_range != None:
-    if not (c > par_range[0] and c < par_range[1]):
-      return np.inf
-  inf_data = {}
-  inf_data["parameters"] = Norm(MakeX(true_value*np.ones(test_array_size)).reshape((test_array_size,1)), mean=X_mean, std=X_std)
-  if args.use_summary_network:
-    inf_data["summary_conditions"] = Norm(c*np.ones(test_array_size).reshape((test_array_size,1,1)), mean=C_mean, std=C_std)
-  else:
-    inf_data["direct_conditions"] = Norm(c*np.ones(test_array_size).reshape((test_array_size,1)), mean=C_mean, std=C_std)
-  mtnll = -2*amortizer.log_posterior(inf_data).sum()
-  mtnll -= shift
-  if absolute: mtnll = abs(mtnll)
-  return mtnll
+  # Function to get -2deltaLL from a tested context value for a given true value
+  def objective_function(c, true_value, shift=0, absolute=False, par_range=None):
+    if par_range != None:
+      if not (c > par_range[0] and c < par_range[1]):
+        return np.inf
+    true_data = MakeX(true_value*np.ones(test_array_size))
+    true_data = true_data.reshape((len(true_data),1))
+    mtnll = -2*GetNormProb(c, true_data, log=True).sum()
+    mtnll -= shift
+    if absolute: mtnll = abs(mtnll)
+    return mtnll
 
-for true_value in C_plot:
+  for true_value in C_plot:
 
-  # Get best fit
-  result = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,0,False,par_ranges))
+    # Get best fit
+    result = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,0,False,par_ranges))
 
-  # Getting crossings
-  crossings = {
-    0 : result.x[0]
-  }
-  for sigma in [-3,-2,-1,1,2,3]:
+    # Getting crossings
+    crossings = {
+      0 : result.x[0]
+    }
+  
+    for sigma in [-3,-2,-1,1,2,3]:
 
-    # Set ranges to make sure we are getting the up or down crossing
-    if sigma < 0:
-      pr = [par_ranges[0],result.x]
+      # Set ranges to make sure we are getting the up or down crossing
+      if sigma < 0:
+        pr = [par_ranges[0],result.x]
+      else:
+        pr = [result.x,par_ranges[1]]
+
+      # Get crossings
+      crossings[sigma] = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,result.fun+(sigma**2),True,pr)).x[0]
+
+    # Calculate likelihood points
+    n_points = 40
+    if not args.extend_likelihood_range:
+      plot_masses = np.linspace(crossings[-3],crossings[3],num=n_points+1, endpoint=True)
     else:
-      pr = [result.x,par_ranges[1]]
+      plot_masses = np.linspace(cent-diff,cent+diff,num=n_points+1, endpoint=True)
+    plot_m2dlls = [objective_function(c,true_value,shift=result.fun) for c in plot_masses]
 
-    # Get crossings
-    crossings[sigma] = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,result.fun+(sigma**2),True,pr)).x[0]
+    # Draw likelihood
+    plot_likelihood(
+      plot_masses, 
+      plot_m2dlls, 
+      crossings, 
+      name="plots/{}_likelihood_{}".format(name,str(true_value).replace(".","p")), 
+      xlabel="y", 
+      true_value=true_value,
+      cap_at_3=(not args.extend_likelihood_range)
+      )
 
-  # Calculate likelihood points
-  n_points = 20
-  plot_masses = np.linspace(crossings[-3],crossings[3],num=n_points+1, endpoint=True)
-  plot_m2dlls = [objective_function(c,true_value,shift=result.fun) for c in plot_masses]
+    # Print values
+    dp = 3
+    if crossings[0] > true_value:
+      approx_deviation = (crossings[0] - true_value)/(crossings[0]-crossings[-1])
+    else:
+      approx_deviation = (true_value - crossings[0])/(crossings[1]-crossings[0])
+    print("True Value: {}, Calculated Value: {} + {} - {}, Approx. deviation: {}".format(true_value,round(crossings[0],dp),round(crossings[1]-crossings[0],dp),round(crossings[0]-crossings[-1],dp),round(approx_deviation,dp)))
 
-  # Draw likelihood
-  plot_likelihood(
-    plot_masses, 
-    plot_m2dlls, 
-    crossings, 
-    name="plots/{}_likelihood_{}".format(name,str(true_value).replace(".","p")), 
-    xlabel="y", 
-    true_value=true_value,
-    )
 
-  # Print values
-  dp = 3
-  if crossings[0] > true_value:
-    approx_deviation = (crossings[0] - true_value)/(crossings[0]-crossings[-1])
-  else:
-    approx_deviation = (true_value - crossings[0])/(crossings[1]-crossings[0])
-  print("True Value: {}, Calculated Value: {} + {} - {}, Approx. deviation: {}".format(true_value,round(crossings[0],dp),round(crossings[1]-crossings[0],dp),round(crossings[0]-crossings[-1],dp),round(approx_deviation,dp)))
+    # Make plot of initial distributions with the attempted inferred distribution on, as well as generated distribution at the mass points - this should help us see if the inference is working
+    nps = 100000
+    nbins = 40
+    check_plot = [true_value,round(crossings[0],2)]
+    colors = ['red', 'blue', 'green', 'purple']
+
+    for ind, tv in enumerate(check_plot): # Get binning
+      if ind == 0:
+        td = MakeX(tv*np.ones(nps))
+      else:
+        td = np.concatenate([td,MakeX(tv*np.ones(nps))])
+
+    _, bins = np.histogram(td,bins=nbins)
+
+    fig, ax = plt.subplots()
+    hep.cms.text("Work in progress",ax=ax)
+    for ind, tv in enumerate(check_plot):
+      hist = np.histogram(MakeX(tv*np.ones(nps)),bins=bins)[0]
+      plt.plot(bins[:-1], hist/sum(hist), label="y="+str(tv), linestyle='-', color=colors[ind])
+
+    for ind, val in enumerate(check_plot):
+      inf_data = {}
+      if args.use_summary_network:
+        inf_data["summary_conditions"] = Norm(val*np.ones(nps).reshape((nps,1,1)), mean=C_mean, std=C_std)
+      else:
+        inf_data["direct_conditions"] = Norm(val*np.ones(nps).reshape((nps,1)), mean=C_mean, std=C_std)
+      synth = (amortizer.sample(inf_data, 1)*X_std) + X_mean
+      hist = np.histogram(synth,bins=bins)[0]
+      plt.plot(bins[:-1], hist/sum(hist), label="gen y="+str(val), linestyle='--', color=colors[ind])
+
+    inf_dist = MakeX(true_value*np.ones(test_array_size)).reshape((test_array_size,1))
+    inf_hist = np.histogram(inf_dist, bins=bins)[0]
+    inf_hist_err = np.sqrt(inf_hist)
+    plt.errorbar(bins[:-1], inf_hist/sum(inf_hist), yerr=inf_hist_err/sum(inf_hist), label="data y={}".format(true_value), markerfacecolor='none', linestyle='None', fmt='k+')
+    
+    plt.xlabel("x")
+    plt.ylabel('Density')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("plots/{}_inferred_distributions_{}.pdf".format(name,str(true_value).replace(".","p")))
+    print("Created plots/{}_inferred_distributions_{}.pdf".format(name,str(true_value).replace(".","p")))

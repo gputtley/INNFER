@@ -4,7 +4,7 @@ import mplhep as hep
 import copy
 
 hep.style.use("CMS")
-
+   
 def plot_histogram_with_ratio(
       hist_values1, 
       hist_values2, 
@@ -94,7 +94,7 @@ def plot_histogram_with_ratio(
     plt.savefig(name+".pdf")
     plt.close()
 
-def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None):
+def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, cap_at_3=True):
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
   plt.plot(x, y)
@@ -105,15 +105,20 @@ def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None):
         verticalalignment='bottom', horizontalalignment='right',
         transform=ax.transAxes)
 
-  plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
-  plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='red')
-  plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
-  plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='red')
+  if -1 in crossings.keys():  
+    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
+  if -2 in crossings.keys():  
+    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='red')
+  if 1 in crossings.keys():  
+    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
+  if 2 in crossings.keys():  
+    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='red')
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
   
   plt.xlim(x[0],x[-1])
-  plt.ylim(0,9)
+  if cap_at_3:
+    plt.ylim(0,9)
   plt.xlabel(xlabel)
   plt.ylabel(r'$-2\Delta \ln L$')
   print("Created "+name+".pdf")
