@@ -27,18 +27,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 import mplhep as hep
 import tensorflow as tf
+import tensorflow_probability as tfp
 from scipy.stats import chisquare
 from plotting import plot_likelihood, plot_histogram_with_ratio, plot_2d_likelihood
 from scipy.optimize import minimize
-from scipy.integrate import quad
-from TrainerWithWeights import TrainerWithWeights
+from scipy.integrate import simpson
 
+tf.random.set_seed(42) 
 tf.keras.utils.set_random_seed(42)
 hep.style.use("CMS")
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--use-summary-network', help= 'Use a summary network',  action='store_true')
-parser.add_argument('--use-discrete-true-values', help= 'Use discrete true values',  action='store_true')
+parser.add_argument('--use-discrete-true-mass', help= 'Use discrete true mass',  action='store_true')
 parser.add_argument('--use-signal-fraction', help= 'Use the signal fraction as a context parameters, otherwise set to signal_fraction',  action='store_true')
 parser.add_argument('--use-discrete-signal-fraction', help= 'Use discrete signal fractions',  action='store_true')
 parser.add_argument('--add-background', help= 'Add a falling background',  action='store_true')
@@ -51,6 +52,9 @@ parser.add_argument('--skip-sampled-vs-pdf', help= 'Skip draw the sampled distri
 parser.add_argument('--skip-inference', help= 'Skip performing the inference',  action='store_true')
 parser.add_argument('--skip-comparison', help= 'Skip making the comparison plot, if running inference',  action='store_true')
 parser.add_argument('--signal-fraction', help= 'Signal fraction value to take if fixed', type=float, default=0.3)
+parser.add_argument('--only-infer-true-mass', help= 'Only infer this value of the true mass', type=float, default=None)
+parser.add_argument('--only-infer-signal-fraction', help= 'Only infer this value of the signal fraction', type=float, default=None)
+
 
 args = parser.parse_args()
 
@@ -62,6 +66,14 @@ if args.use_signal_fraction:
   name += "_with_sig_frac"
 elif args.add_background:
   name += "_with_bkg"
+
+if args.use_discrete_signal_fraction and args.use_discrete_true_mass:
+  name += "_discrete_sig_frac_and_true_mass"
+elif args.use_discrete_signal_fraction:
+  name += "_discrete_sig_frac"
+elif args.use_discrete_true_mass:
+  name += "_discrete_true_mass"
+
 
 if not os.path.isdir("plots/"+name):
   os.system("mkdir plots/"+name)
@@ -76,7 +88,7 @@ if args.add_background:
     "dropout" : True,
     "mc_dropout" : True,
     "summary_dimensions" : 1, 
-    "epochs" : 1,
+    "epochs" : 5,
     "batch_size" : 2**6, 
     "early_stopping" : True,
     "learning_rate" : 1e-3, 
@@ -94,7 +106,7 @@ else:
     "dropout" : True,
     "mc_dropout" : False,
     "summary_dimensions" : 1,
-    "epochs" : 3,
+    "epochs" : 5,
     "batch_size" : 2**6,
     "early_stopping" : True,
     "learning_rate" : 1e-3,
@@ -129,8 +141,14 @@ class MakeDatasets():
 
     self.discrete_true_mass = False
     self.discrete_sig_frac = False
-    self.discrete_true_mass_number = 16
-    self.discrete_sig_frac_number = 6
+    self.discrete_true_masses = [
+      165.5,166.5,167.5,168.5,169.5,
+      170.5,171.5,172.5,173.5,174.5,
+      175.5,176.5,177.5,178.5,179.5,
+                                 ]
+    self.discrete_sig_fracs = [
+      0.05,0.15,0.25,0.35,0.45
+    ]
 
     self.sig_res = 0.01
     self.bkg_lambda = 0.1
@@ -178,14 +196,14 @@ class MakeDatasets():
     elif not self.discrete_true_mass:
       true_mass = np.random.uniform(self.true_mass_ranges[0], self.true_mass_ranges[1], size=self.array_size)
     else:
-      true_mass = np.random.choice(np.linspace(self.true_mass_ranges[0], self.true_mass_ranges[1], num=self.discrete_true_mass_number), size=self.array_size)
+      true_mass = np.random.choice(self.discrete_true_masses, size=self.array_size)
 
     if self.sig_frac_fixed_value != None:
       sig_frac = self.sig_frac_fixed_value*np.ones(self.array_size)
     elif not self.discrete_sig_frac:
       sig_frac = np.random.uniform(self.sig_frac_ranges[0], self.sig_frac_ranges[1], size=self.array_size)
     else:
-      sig_frac = np.random.choice(np.linspace(self.sig_frac_ranges[0], self.sig_frac_ranges[1], num=self.discrete_sig_frac_number), size=self.array_size)
+      sig_frac = np.random.choice(self.discrete_sig_fracs, size=self.array_size)
 
     if not only_context:
       X = np.array([self.RandomSignalPlusBackgroundEvent(true_mass[ind],sig_frac[ind]) for ind in range(len(true_mass))])
@@ -247,7 +265,7 @@ train_config = {
   "norm_sig_frac" : True,
   "sig_frac_fixed_value" : sig_frac_fixed_value,
   "return_sig_frac" : args.use_signal_fraction,
-  "discrete_true_mass" : args.use_discrete_true_values,
+  "discrete_true_mass" : args.use_discrete_true_mass,
   "discrete_sig_frac" : args.use_discrete_signal_fraction,
 }
 md.SetParameters(train_config)
@@ -307,13 +325,19 @@ else:
   amortizer = bf.amortizers.AmortizedPosterior(inference_net)
 
 # Define here because useful for a lot of the next steps
-true_mass_plot = np.linspace(171.0, 174.0, num=4, endpoint=True)
-if args.use_signal_fraction:
-  sig_frac_plot = np.linspace(0.1, 0.3, num=3, endpoint=True)
-elif not args.add_background:
-  sig_frac_plot = np.array([1.0])
+if args.only_infer_true_mass == None:
+  true_mass_plot = np.linspace(171.0, 174.0, num=4, endpoint=True)
 else:
-  sig_frac_plot = np.array([args.signal_fraction])
+  true_mass_plot = [args.only_infer_true_mass]
+if args.only_infer_signal_fraction == None:
+  if args.use_signal_fraction:
+    sig_frac_plot = np.linspace(0.1, 0.3, num=3, endpoint=True)
+  elif not args.add_background:
+    sig_frac_plot = np.array([1.0])
+  else:
+    sig_frac_plot = np.array([args.signal_fraction])
+else:
+  sig_frac_plot = [args.only_infer_signal_fraction]
 
 ### Plot initial inputs ##
 if not args.skip_initial_distribution:
@@ -567,9 +591,11 @@ def GetProb(true_mass, sig_frac, data, integral_bins=100, log=False):
     md.SetParameters(prob_config)
     inf_data = md.GetDatasets(only_context=True) 
     inf_data["parameters"] = md.Normalise(data.reshape((len(data),1)), md.X_mean, md.X_std)[0]
+    tf.random.set_seed(42)
     prob = np.exp(amortizer.log_posterior(inf_data))/md.X_std
 
   elif latent_dim == 2:
+    #start_time = time.time()
     prob_config = {
       "array_size" : len(data)*integral_bins,
       "true_mass_fixed_value" : true_mass,
@@ -583,92 +609,51 @@ def GetProb(true_mass, sig_frac, data, integral_bins=100, log=False):
     md.SetParameters(prob_config)
     inf_data = md.GetDatasets(only_context=True)
     norm_data = md.Normalise(data, md.X_mean, md.X_std)[0]
-    gauss = np.linspace(-4.0,4.0,num=integral_bins)
+    gauss = np.linspace(-5, 5, integral_bins)
     x2, x1 = np.meshgrid(gauss, norm_data)
     inf_data["parameters"] = np.column_stack((x1.ravel(), x2.ravel()))
+    tf.random.set_seed(42)
     p = np.exp(amortizer.log_posterior(inf_data))/md.X_std
     prob = np.array([])
     for i in range(len(data)):
       start_idx = i * integral_bins
       end_idx = (i + 1) * integral_bins
-      #print(inf_data["parameters"][start_idx:end_idx,:])
-      prob = np.append(prob,sum(p[start_idx:end_idx]))
-    bin_width = gauss[1] - gauss[0]
-    prob = prob * bin_width
+      prob = np.append(prob,simpson(p[start_idx:end_idx], gauss))
+
+    #end_time = time.time()
+    #elapsed_time = end_time - start_time
+    #print(f"Elapsed time for integrating: {elapsed_time} seconds")
+
   if log:
     return np.log(prob)
   else:
     return prob
     
-
 ### Need to integrate the pdf and ensure the integral is 1 ###
-def GetNormProb(true_mass, sig_frac, data, integral_range=[140.0,200.0], integral_bins=10000, log=False, norm=True):
-
-  if norm:
-    # Get Integral
-    integral_config = {
-      "array_size" : integral_bins,
-      "true_mass_fixed_value" : true_mass,
-      "sig_frac_fixed_value" : sig_frac,
-      "for_training" : False,
-      "for_inference" : True,
-      "norm_true_mass" : True,
-      "norm_sig_frac" : True,
-      "norm_X" : True,
-    }
-    md.SetParameters(integral_config)
-    inf_data = md.GetDatasets(only_context=True)  
-    x_int = np.linspace(integral_range[0],integral_range[1],num=integral_bins).reshape(integral_bins,1)
-    inf_data["parameters"] = md.Normalise(x_int, md.X_mean, md.X_std)[0]
-    if latent_dim == 2:
-      inf_data["parameters"] = np.column_stack((inf_data["parameters"].flatten(), np.zeros(len(inf_data["parameters"].flatten()))))
-
-    #print(inf_data)
-    prob = np.exp(amortizer.log_posterior(inf_data))/md.X_std
-    bin_width = x_int[1] - x_int[0]
-    integral = np.sum(prob * bin_width)
-    #print("Integral of ({},{}):".format(true_mass,sig_frac),integral)
-
-  prob_config = {
-    "array_size" : len(data),
-    "true_mass_fixed_value" : true_mass,
-    "sig_frac_fixed_value" : sig_frac,
-    "for_inference" : True,
-    "norm_true_mass" : True,
-    "norm_sig_frac" : True,
-    "norm_X" : True,
-  }
-  md.SetParameters(prob_config)
-  inf_data = md.GetDatasets(only_context=True) 
-  # Get unnormalised probability 
-  inf_data["parameters"] = md.Normalise(data.reshape((len(data),1)), md.X_mean, md.X_std)[0]
-  if latent_dim == 2:
-    inf_data["parameters"] = np.column_stack((inf_data["parameters"].flatten(), np.zeros(len(inf_data["parameters"].flatten()))))
-  prob = np.exp(amortizer.log_posterior(inf_data))/md.X_std
-
-  if norm:
-    # Normalise probability
-    prob = prob/integral
-
+def GetNormProb(true_mass, sig_frac, data, integral_range=[145.0,200.0], integral_bins=200, log=False, norm=True):
+  int_data = np.linspace(integral_range[0],integral_range[1],num=integral_bins)
+  p = GetProb(true_mass, sig_frac, int_data)
+  integral = simpson(p, int_data)
+  prob = GetProb(true_mass, sig_frac, data)/integral
   if log:
     return np.log(prob)
   else:
     return prob
-  
+    
 ### Make a plot of the probabilities of a true value when varying the data also with the sampled density ###
 if not args.skip_probability:
   print("- Making probability plots")
-  x_plot = np.linspace(160.0,185.0,num=100)
+  x_plot = np.linspace(145.0,200.0,num=100)
   for tm in true_mass_plot:
     for sf in sig_frac_plot:
       tm = round(tm,1)
       sf = round(sf,1)
       #prob = GetNormProb(tm, sf, x_plot[:-1])
       prob = GetProb(tm, sf, x_plot[:-1])
+      print(" - Integral =", simpson(prob,x_plot[:-1]))
       fig, ax = plt.subplots()
       hep.cms.text("Work in progress",ax=ax)
       plt.plot(x_plot[:-1], prob, linestyle='-', color="blue", label="Probability")
-
       generator_config = {
         "array_size" : 100000,
         "true_mass_fixed_value" : tm,
@@ -684,7 +669,8 @@ if not args.skip_probability:
       synth = (amortizer.sample(inf_data, 1)[:,0,0]*md.X_std) + md.X_mean
       synth_hist,synth_bins = np.histogram(synth,bins=x_plot,density=True)
 
-      plt.plot(x_plot[:-1], synth_hist, linestyle='-', color="red", label="Sampled Density")
+      bin_centers = [i+(x_plot[1]-x_plot[0])/2 for i in x_plot[:-1]]
+      plt.plot(bin_centers, synth_hist, linestyle='-', color="red", label="Sampled Density")
 
       plt.legend()
 
@@ -741,11 +727,11 @@ if not args.skip_inference:
           if not (params[i] > par_range[i][0] and params[i] < par_range[i][1]):
             return np.inf
       
-    #mtnll = -2*GetNormProb(true_mass, sig_frac, data, log=True, norm=True).sum()
+    #mtnll = -2*GetNormProb(true_mass, sig_frac, data, log=True).sum()
     mtnll = -2*GetProb(true_mass, sig_frac, data, log=True).sum()
     mtnll -= shift
     if absolute: mtnll = abs(mtnll)
-    print(true_mass, sig_frac, params, mtnll)
+    #print(true_mass, sig_frac, params, mtnll)
     #end_time = time.time()
     #elapsed_time = end_time - start_time
     #print(f"Elapsed time: {elapsed_time} seconds")
@@ -765,13 +751,13 @@ if not args.skip_inference:
         "norm_true_mass" : True,
         "norm_sig_frac" : True,
         "norm_X" : False,
-        "random_seed" : 72,
+        "random_seed" : np.random.RandomState().randint(0, 100),
       }
       md.SetParameters(data_config)
       data = md.GetDatasets()
       data = data["X"]
 
-      minimise_options = {'xatol': 1e-5, 'fatol': 1e-5, 'maxiter': 50}
+      minimise_options = {'xatol': 0.001, 'fatol': 0.001, 'maxiter': 20}
       minimise_tolerence = 0.1
 
       #print(initial_guess)
@@ -848,8 +834,8 @@ if not args.skip_inference:
         print("   - True Value: {}, Calculated Value: {} + {} - {}, Approx. deviation: {}".format(true_value,round(crossings[0],dp),round(crossings[1]-crossings[0],dp),round(crossings[0]-crossings[-1],dp),round(approx_deviation,dp)))
 
         # Calculate likelihood points
-        n_points = 40
-        estimated_sigma_shown = 5
+        n_points = 20
+        estimated_sigma_shown = 3
         lower_plot = crossings[0]-(estimated_sigma_shown*(crossings[0]-crossings[-1]))
         higher_plot = crossings[0]+(estimated_sigma_shown*(crossings[1]-crossings[0]))
         plot_poi = np.linspace(lower_plot,higher_plot,num=n_points+1, endpoint=True)
@@ -873,7 +859,7 @@ if not args.skip_inference:
           name="plots/{}/{}_likelihood_{}".format(name,name,true_extra_name+prof_extra_name), 
           xlabel=xlabel, 
           true_value=true_value,
-          cap_at=16
+          cap_at=9
           )
 
       if not args.skip_comparison:
@@ -986,10 +972,6 @@ if not args.skip_inference:
         vals = []
         for yind, yp in enumerate(y_range):
           vals.append([objective_function([xp,yp], data, shift=result.fun, par_range=[None,None]) for xp in x_range])
-
-        #for xind, xp in enumerate(x_range):
-        #  for yind, yp in enumerate(y_range):
-        #    print(xp,yp,vals[yind][xind])
 
         plot_2d_likelihood(
           x_range, 
