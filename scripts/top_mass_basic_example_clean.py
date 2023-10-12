@@ -48,13 +48,11 @@ parser.add_argument('--skip-initial-distribution', help= 'Skip making the initia
 parser.add_argument('--skip-closure', help= 'Skip making the closure plots',  action='store_true')
 parser.add_argument('--skip-generation', help= 'Skip making the generation plots',  action='store_true')
 parser.add_argument('--skip-probability', help= 'Skip draw the probability',  action='store_true')
-parser.add_argument('--skip-sampled-vs-pdf', help= 'Skip draw the sampled distribution vs the pdf',  action='store_true')
 parser.add_argument('--skip-inference', help= 'Skip performing the inference',  action='store_true')
 parser.add_argument('--skip-comparison', help= 'Skip making the comparison plot, if running inference',  action='store_true')
 parser.add_argument('--signal-fraction', help= 'Signal fraction value to take if fixed', type=float, default=0.3)
 parser.add_argument('--only-infer-true-mass', help= 'Only infer this value of the true mass', type=float, default=None)
 parser.add_argument('--only-infer-signal-fraction', help= 'Only infer this value of the signal fraction', type=float, default=None)
-
 
 args = parser.parse_args()
 
@@ -88,11 +86,11 @@ if args.add_background:
     "dropout" : True,
     "mc_dropout" : True,
     "summary_dimensions" : 1, 
-    "epochs" : 5,
+    "epochs" : 15,
     "batch_size" : 2**6, 
     "early_stopping" : True,
     "learning_rate" : 1e-3, 
-    "coupling_design" : "spline", 
+    "coupling_design" : "interleaved", 
     "permutation" : "learnable", 
     "decay_rate" : 0.5,
     }
@@ -106,7 +104,7 @@ else:
     "dropout" : True,
     "mc_dropout" : False,
     "summary_dimensions" : 1,
-    "epochs" : 5,
+    "epochs" : 10,
     "batch_size" : 2**6,
     "early_stopping" : True,
     "learning_rate" : 1e-3,
@@ -643,7 +641,7 @@ def GetNormProb(true_mass, sig_frac, data, integral_range=[145.0,200.0], integra
 ### Make a plot of the probabilities of a true value when varying the data also with the sampled density ###
 if not args.skip_probability:
   print("- Making probability plots")
-  x_plot = np.linspace(145.0,200.0,num=100)
+  x_plot = np.linspace(155.0,190.0,num=100)
   for tm in true_mass_plot:
     for sf in sig_frac_plot:
       tm = round(tm,1)
@@ -757,7 +755,7 @@ if not args.skip_inference:
       data = md.GetDatasets()
       data = data["X"]
 
-      minimise_options = {'xatol': 0.001, 'fatol': 0.001, 'maxiter': 20}
+      minimise_options = {'xatol': 0.0001, 'fatol': 0.0001, 'maxiter': 30}
       minimise_tolerence = 0.1
 
       #print(initial_guess)
@@ -959,8 +957,8 @@ if not args.skip_inference:
       if args.use_signal_fraction:
         print(" - Drawing 2d likelihood")
 
-        n_points = 30
-        estimated_sigma_shown = 5
+        n_points = 20
+        estimated_sigma_shown = 4
         x_lower_plot = crossings_for_2d['sig_frac'][0]-(estimated_sigma_shown*(crossings_for_2d['sig_frac'][0]-crossings_for_2d['sig_frac'][-1]))
         x_higher_plot = crossings_for_2d['sig_frac'][0]+(estimated_sigma_shown*(crossings_for_2d['sig_frac'][1]-crossings_for_2d['sig_frac'][0]))
         y_lower_plot = crossings_for_2d['true_mass'][0]-(estimated_sigma_shown*(crossings_for_2d['true_mass'][0]-crossings_for_2d['true_mass'][-1]))
@@ -977,7 +975,7 @@ if not args.skip_inference:
           x_range, 
           y_range, 
           vals, 
-          name="plots/{}/{}_2d_likelihood_{}.pdf".format(name,name,true_extra_name), 
+          name="plots/{}/{}_2d_likelihood_{}".format(name,name,true_extra_name), 
           xlabel="top mass", 
           ylabel="signal fraction", 
           best_fit=[result.x[0],result.x[1]], 
