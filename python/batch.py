@@ -11,7 +11,7 @@ class Batch():
     self.cores = 1
     self.job_name = "job.sh"
     self.store_output = True
-    self.store_error = False
+    self.store_error = True
     self.dry_run = False
 
   def Run(self):
@@ -30,9 +30,9 @@ class Batch():
       error_log = "/dev/null"
     if not self.dry_run:
       if self.cores>1: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -pe hep.pe {self.cores} -l h_rt=0:{self.running_hours}:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
+        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
       else: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -l h_rt=0:{self.running_hours}:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
+        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
 
   def _CreateJob(self, cmd_list):
     if os.path.exists(self.job_name): os.system(f'rm {self.job_name}')
@@ -44,7 +44,7 @@ class Batch():
   def _CreateBatchJob(self, cmd_list):
     base_cmds = [
       "#!/bin/bash",
-      "conda activate",
+      "conda activate innfer_env",
       "source env.sh",
       "ulimit -s unlimited",
     ]

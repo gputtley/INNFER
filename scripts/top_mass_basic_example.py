@@ -79,7 +79,7 @@ if args.submit != None:
   exit()
 
 print("- Importing packages")
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import bayesflow as bf
 import numpy as np
 import mplhep as hep
@@ -183,7 +183,7 @@ md.SetParameters(test_config)
 test = md.GetDatasets()
 
 val_config = {
-  "fix_bkg_events" : True,
+  "fix_bkg_events" : args.use_signal_fraction,
   "random_seed" : 26, 
   "discrete_true_mass" : True,
   "discrete_true_masses" : [float(i) for i in args.plot_true_masses.split(",")],
@@ -288,7 +288,7 @@ if not args.skip_inference:
   else:
     initial_guess = np.array([172.5])
 
-  inference.n_events_in_toy=100
+  inference.n_events_in_toy=1000
   inference.GetBestFit(initial_guess)
   inference.GetProfiledIntervals()
   inference.PrintBestFitAndIntervals()

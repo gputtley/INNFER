@@ -314,7 +314,7 @@ class Inference():
         name = label_list[0]
     return name
   
-  def Draw2DLikelihoods(self, data_key="val", use_intervals_for_range=True, est_n_sigmas_shown=4, plot_range=[[0.0,1.0],[0.0,1.0]], n_points_per_dim=10):
+  def Draw2DLikelihoods(self, data_key="val", use_intervals_for_range=True, est_n_sigmas_shown=4, plot_range=[[0.0,1.0],[0.0,1.0]], n_points_per_dim=20):
 
       unique_rows = np.unique(self.data_processor.data[data_key]["Y"], axis=0)
       for ur in unique_rows: 
