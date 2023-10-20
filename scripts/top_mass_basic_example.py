@@ -2,469 +2,300 @@
 Title: Top mass basic example:
 Author: George Uttley
 
-This is a simple example where we try and infer the mass of the top quark from one reconstructed mass like context variable using the bayesflow package.
+This is a simple example where we try and infer the mass of the top quark 
+from one reconstructed mass like context variable using the bayesflow package.
+
+The code can perform 3 main running schemes:
+1)  Inferring the top mass from just the Gaussian signal
+2)  Inferring the top mass from a Gaussian signal on top of an exponentially 
+    falling background.
+3)  Inferring the top mass and the signal fraction from a Gaussian signal on top 
+    of an exponentially falling background.
+
+There are also sub options for running using discrete input values and for
+changing the input signal fractions, in the case of 2.
 """
 
-print("- Importing packages")
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import argparse
-import bayesflow as bf
-import numpy as np
-import matplotlib.pyplot as plt
-import mplhep as hep
-import tensorflow as tf
-from plotting import plot_likelihood, plot_histogram_with_ratio
-from scipy.optimize import minimize
-
-seed_value = 42
-np.random.seed(seed_value)
-tf.random.set_seed(seed_value)
-hep.style.use("CMS")
+import os
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--use-summary-network', help= 'Use a summary network',  action='store_true')
-parser.add_argument('--use-discrete', help= 'Use discrete true values',  action='store_true')
+parser.add_argument('--use-discrete-true-mass', help= 'Use discrete true mass',  action='store_true')
+parser.add_argument('--use-signal-fraction', help= 'Use the signal fraction as a context parameters, otherwise set to signal_fraction',  action='store_true')
+parser.add_argument('--use-discrete-signal-fraction', help= 'Use discrete signal fractions',  action='store_true')
 parser.add_argument('--add-background', help= 'Add a falling background',  action='store_true')
 parser.add_argument('--load-model', help= 'Load model from file',  action='store_true')
 parser.add_argument('--skip-initial-distribution', help= 'Skip making the initial distribution plots',  action='store_true')
+parser.add_argument('--skip-closure', help= 'Skip making the closure plots',  action='store_true')
 parser.add_argument('--skip-generation', help= 'Skip making the generation plots',  action='store_true')
 parser.add_argument('--skip-probability', help= 'Skip draw the probability',  action='store_true')
 parser.add_argument('--skip-inference', help= 'Skip performing the inference',  action='store_true')
-parser.add_argument('--extend-likelihood-range', help= 'Extend the plotted likelihood range',  action='store_true')
-
+parser.add_argument('--skip-comparison', help= 'Skip making the comparison plot, if running inference',  action='store_true')
+parser.add_argument('--signal-fraction', help= 'Signal fraction value to take if fixed', type=float, default=0.3)
+parser.add_argument('--only-infer-true-mass', help= 'Only infer this value of the true mass', type=float, default=None)
+parser.add_argument('--only-infer-signal-fraction', help= 'Only infer this value of the signal fraction', type=float, default=None)
+parser.add_argument('--add-true-pdf', help= 'Add true pdf in the most simplest case to prob and lkld plot',  action='store_true')
+parser.add_argument('--plot-true-masses', help= 'True masses to plot', type=str, default="171.0,172.0,173.0,174.0")
+parser.add_argument('--plot-signal-fractions', help= 'True masses to plot', type=str, default="0.1,0.2,0.3")
+parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
 args = parser.parse_args()
 
-name = "top_mass_basic_example"
-if args.add_background:
-  name += "_with_bkg"
+### Set running information ###
+if args.use_signal_fraction:
+  args.add_background = True
+if args.add_true_pdf and args.add_background:
+  print("WARNING: Adding the true pdf is not compatible with adding the background")
+  args.add_true_pdf = False
 
-# Hyperparameters for networks
-if args.add_background:
-  hyperparameters = {
-    "num_coupling_layer" : 8,
-    "units_per_coupling_layer" : 128,
-    "activation" : "relu", # seems to work much better than elu
-    "dropout" : True,
-    "summary_dimensions" : 1,
-    "epochs" : 15,
-    "batch_size" : 2**8,
-    "early_stopping" : True,
-    "learning_rate" : 1e-3,
-    "coupling_design" : "spline",
-    "permutation" : "learnable",
-    "decay_rate" : 0.5,  
+### Make name ###
+name = "top_mass_basic_example"
+if args.use_signal_fraction:
+  name += "_with_sig_frac"
+elif args.add_background:
+  name += "_with_bkg"
+if args.use_discrete_signal_fraction and args.use_discrete_true_mass:
+  name += "_discrete_sig_frac_and_true_mass"
+elif args.use_discrete_signal_fraction:
+  name += "_discrete_sig_frac"
+elif args.use_discrete_true_mass:
+  name += "_discrete_true_mass"
+if not os.path.isdir("plots/"+name):
+  os.system("mkdir plots/"+name)
+
+### Submit to batch ###
+if args.submit != None:
+  import sys
+  from batch import Batch
+  argsparse_list = [i for i in sys.argv if "--submit" not in i]
+  sub = Batch()
+  sub.cmds = ["python3 " + " ".join(argsparse_list)]
+  sub.submit_to = args.submit
+  inds = [int(f.split(name+"_")[1].split(".sh")[0]) for f in os.listdir("jobs") if f.startswith(name+"_") and ".sh" in f]
+  inds += [0]
+  ind = max(inds) + 1
+  sub.job_name = "jobs/" + name + "_" + str(ind) + ".sh"
+  sub.dry_run = False
+  sub.Run()
+  exit()
+
+print("- Importing packages")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import bayesflow as bf
+import numpy as np
+import mplhep as hep
+import tensorflow as tf
+from data_processor import DataProcessor
+from model import Model
+from inference import Inference
+
+tf.random.set_seed(42) 
+tf.keras.utils.set_random_seed(42)
+hep.style.use("CMS")
+
+### Data generation ###
+print("- Making datasets")
+class MakeDatasets():
+  def __init__(self):
+    self.array_size = 10**6
+    self.return_sig_frac = False
+    self.true_mass_ranges = [165.0,180.0]
+    self.sig_frac_ranges = [0.0,0.5]
+    self.discrete_true_mass = False
+    self.discrete_sig_frac = False
+    self.discrete_true_masses = [
+      165.5,166.5,167.5,168.5,169.5,
+      170.5,171.5,172.5,173.5,174.5,
+      175.5,176.5,177.5,178.5,179.5,
+    ]
+    self.discrete_sig_fracs = [
+      0.05,0.15,0.25,0.35,0.45
+    ]
+    self.fix_bkg_events = False # for discrete only
+    self.sig_res = 0.01
+    self.bkg_lambda = 0.1
+    self.bkg_const = 160.0
+    self.bkg_ranges = [160.0,185.0]
+    self.random_seed = 42
+    
+  def SetParameters(self,config_dict):
+    for key, value in config_dict.items():
+      setattr(self, key, value)
+
+  def RandomSignalPlusBackgroundEvent(self, mass, sig_frac):
+    if np.random.rand() < sig_frac:
+      x = np.random.normal(mass, self.sig_res*mass)
+    else:
+      x = np.random.exponential(scale=1/self.bkg_lambda) + self.bkg_const
+      while x < self.bkg_ranges[0] or x > self.bkg_ranges[1]:
+        x = np.random.exponential(scale=1/self.bkg_lambda) + self.bkg_const 
+    return x
+
+  def GetDatasets(self):
+    np.random.seed(self.random_seed)
+
+    if not self.discrete_true_mass:
+      true_mass = np.random.uniform(self.true_mass_ranges[0], self.true_mass_ranges[1], size=self.array_size)
+    else:
+      true_mass = np.random.choice(self.discrete_true_masses, size=self.array_size)
+    if not self.discrete_sig_frac:
+      sig_frac = np.random.uniform(self.sig_frac_ranges[0], self.sig_frac_ranges[1], size=self.array_size)
+    else:
+      if not self.fix_bkg_events:
+        sig_frac = np.random.choice(self.discrete_sig_fracs, size=self.array_size)
+      else:
+        probs = [1/(1-s) for s in self.discrete_sig_fracs]
+        norm_probs = [p/sum(probs) for p in probs]
+        sig_frac = np.random.choice(self.discrete_sig_fracs, size=self.array_size, p=norm_probs)
+
+    true_mass = true_mass.reshape((len(true_mass),1))
+    sig_frac = sig_frac.reshape((len(sig_frac),1))
+    if self.return_sig_frac:
+      context = np.concatenate((true_mass, sig_frac), axis=1)
+    else:
+      context = true_mass
+    X = np.array([self.RandomSignalPlusBackgroundEvent(true_mass[ind][0],sig_frac[ind][0]) for ind in range(len(true_mass))])
+    X = X.reshape(len(X),1)
+    return_dict = {
+      "X" : X,
+      "Y" : context,
     }
-  latent_dim = 2 # This seems broken for latent_dim=1 when using spline
+    return return_dict
+
+### Make train, test and validation datasets ###
+md = MakeDatasets()
+if args.use_signal_fraction:
+  md.discrete_sig_frac = args.use_discrete_signal_fraction
+  md.return_sig_frac = True
+elif args.add_background:
+  md.discrete_sig_frac = True
+  md.discrete_sig_fracs = [args.signal_fraction]
 else:
-  hyperparameters = {
+  md.discrete_sig_frac = True
+  md.discrete_sig_fracs = [1.0]
+md.discrete_true_mass = args.use_discrete_true_mass
+
+train_config = {"random_seed" : 24}
+md.SetParameters(train_config)
+train = md.GetDatasets()
+
+test_config = {"random_seed" : 25}
+md.SetParameters(test_config)
+test = md.GetDatasets()
+
+val_config = {
+  "fix_bkg_events" : True,
+  "random_seed" : 26, 
+  "discrete_true_mass" : True,
+  "discrete_true_masses" : [float(i) for i in args.plot_true_masses.split(",")],
+  "array_size" : 10**7
+  }
+if args.use_signal_fraction:
+  val_config["discrete_sig_frac"] = True,
+  val_config["discrete_sig_fracs"] = [float(i) for i in args.plot_signal_fractions.split(",")]
+md.SetParameters(val_config)
+val = md.GetDatasets()
+
+data = DataProcessor(
+  {
+    "train" : train,
+    "test" : test,
+    "val" : val,
+  }
+)
+data.standardise_data = {"X":True,"Y":True}
+
+### Plot initial inputs ###
+if not args.skip_initial_distribution:
+  data.plot_dir = f"plots/{name}"
+  data.PlotUniqueY(data_key="val")
+
+### Set up model and training parameters ###
+if args.add_background:
+  parameters = {
     "num_coupling_layer" : 8,
     "units_per_coupling_layer" : 128,
+    "num_dense_layers" : 4,
     "activation" : "relu",
     "dropout" : True,
+    "mc_dropout" : True,
+    "summary_dimensions" : 1, 
+    "epochs" : 15,
+    "batch_size" : 2**6, 
+    "early_stopping" : True,
+    "learning_rate" : 1e-3, 
+    "coupling_design" : "interleaved", 
+    "permutation" : "learnable", 
+    "decay_rate" : 0.5,
+    }
+else:
+  parameters = {
+    "num_coupling_layers" : 8,
+    "units_per_coupling_layer" : 128,
+    "num_dense_layers" : 1,
+    "activation" : "relu",
+    "dropout" : True,
+    "mc_dropout" : False,
     "summary_dimensions" : 1,
-    "epochs" : 3,
-    "batch_size" : 2**9,
+    "epochs" : 10,
+    "batch_size" : 2**6,
     "early_stopping" : True,
     "learning_rate" : 1e-3,
     "coupling_design" : "affine",
     "permutation" : "learnable",
-    "decay_rate" : 0.5,  
+    "decay_rate" : 0.5,
     }
-  latent_dim = 1
 
-### Data generation ###
-print("- Making datasets")
-cent = 172.5
-diff = 7.5
-ranges = [cent-diff,cent+diff]
-array_size = (10**6)
-sig_frac = 0.3
+model = Model(data, options=parameters)
+model.plot_dir = f"plots/{name}"
+print("- Building model")
+model.BuildModel()
 
-# Define context variables as the top mass
-if not args.use_discrete:
-  C = np.random.uniform(ranges[0], ranges[1], size=array_size)
-else:
-  C = np.array([])
-  n_stochastic = 15
-  for c in np.linspace(ranges[0]+0.5, ranges[1]-0.5, num=n_stochastic):
-    C = np.concatenate((C,c*np.ones(int(round(array_size/n_stochastic)))))
-  np.random.shuffle(C)
-  C = C[:array_size]
-
-
-# Define transformed variable X as a reconstructed mass
-def MakeX(C, res=0.01):
-  np.random.seed(seed_value)
-  if not args.add_background:
-    dist = np.random.normal(C, res*C)
-  else:
-    dist = np.empty(len(C))
-
-    # signal events
-    num_samples = int(round(len(C) * (sig_frac)))
-    selected_indices = np.sort(np.random.choice(len(C), num_samples, replace=False))
-    remaining_indices = np.setdiff1d(np.arange(len(C)), selected_indices)
-    selected_C = C[selected_indices]
-    dist[selected_indices] = np.random.normal(selected_C, res*selected_C)
-
-    # background events
-    lambda_param = 0.1
-    const = 100.0
-    bkg_ranges = [160.0,185.0]
-    desired_num_samples = int(round((1-sig_frac) * len(C)))
-    bkg_dist = np.empty(desired_num_samples)
-    ind = 0
-    while ind < desired_num_samples:
-      # Generate exponential samples
-      rand_uniform = np.random.uniform(0, 1, desired_num_samples * 2)  # Generate more samples than needed
-      exponential_samples = -1 / lambda_param * np.log(1 - rand_uniform) + const
-
-      # Filter and select samples within the range
-      mask = (exponential_samples > bkg_ranges[0]) & (exponential_samples < bkg_ranges[1])
-      valid_samples = exponential_samples[mask]
-
-      remaining_space = desired_num_samples - ind
-      num_valid_samples = min(remaining_space, valid_samples.shape[0])
-
-      bkg_dist[ind:ind + num_valid_samples] = valid_samples[:num_valid_samples]
-      ind += num_valid_samples
-
-    # Resize the array if necessary
-    dist[remaining_indices] = bkg_dist[:desired_num_samples]
-  return dist
-
-X = MakeX(C)
-
-def Norm(x, mean=None, std=None):
-  if mean == None or std == None:
-    return ((x-x.mean())/x.std()).astype(np.float32), x.mean(), x.std()
-  else:
-    return ((x-mean)/std).astype(np.float32)
-
-X, X_mean, X_std = Norm(X)
-C, C_mean, C_std = Norm(C)
-
-# Set up input in the format bayesflow takes it in
-train = {}
-test = {}
-
-train["prior_draws"] = X[:int(array_size/2)].reshape(int(array_size/2),1)
-test["prior_draws"] = X[int(array_size/2):].reshape(int(array_size/2),1)
-
-if args.use_summary_network: # The extra dimension is needed to use a summary network
-  train["sim_data"] = C[:int(array_size/2)].reshape(int(array_size/2),1,1)
-  test["sim_data"] = C[int(array_size/2):].reshape(int(array_size/2),1,1)
-else:
-  train["sim_data"] = C[:int(array_size/2)].reshape(int(array_size/2),1)
-  test["sim_data"] = C[int(array_size/2):].reshape(int(array_size/2),1)
-
-# Set up models
-print("- Setting up models")
-inference_net = bf.networks.InvertibleNetwork(
-  num_params=latent_dim,
-  num_coupling_layers=hyperparameters["num_coupling_layer"],
-  permutation=hyperparameters["permutation"],
-  coupling_design=hyperparameters["coupling_design"],
-  coupling_settings={
-    "dense_args": dict(
-      kernel_regularizer=None, 
-      units=hyperparameters["units_per_coupling_layer"], 
-      activation=hyperparameters["activation"]), 
-    "dropout": hyperparameters["dropout"],
-    },
-  )
-
-if args.use_summary_network:
-  summary_net = bf.networks.DeepSet(summary_dim=hyperparameters["summary_dimensions"]) 
-  amortizer = bf.amortizers.AmortizedPosterior(inference_net, summary_net)
-else:
-  amortizer = bf.amortizers.AmortizedPosterior(inference_net)
-
-# Define here because useful for a lot of the next steps
-C_plot = np.linspace(170.0, 175.0, num=6, endpoint=True)
-
-### Plot initial inputs ##
-if not args.skip_initial_distribution:
-  print("- Plotting initial inputs")
-
-  nps = 100000
-  nbins = 40
-
-  for ind, tv in enumerate(C_plot): # Get binning
-    if ind == 0:
-      td = MakeX(tv*np.ones(nps))
-    else:
-      td = np.concatenate([td,MakeX(tv*np.ones(nps))])
-
-  _, bins = np.histogram(td,bins=nbins)
-
-  fig, ax = plt.subplots()
-  hep.cms.text("Work in progress",ax=ax)
-  for tv in C_plot:
-    plt.plot(bins[:-1], np.histogram(MakeX(tv*np.ones(nps)),bins=bins)[0], label="y="+str(tv))
-  plt.xlabel("x")
-  plt.ylabel('Events')
-  plt.legend()
-  plt.tight_layout()
-  plt.savefig("plots/{}_initial_distributions.pdf".format(name))
-  print("Created plots/{}_initial_distributions.pdf".format(name))
-
-### Run training or load the model in from file ###
 if not args.load_model:
-  # Set up trainer
-  print("- Training model")
-  if args.use_summary_network: 
-    config = None
-  else:
-    def config(forward_dict):
-      out_dict = {}
-      out_dict["direct_conditions"] = forward_dict["sim_data"]
-      out_dict["parameters"] = forward_dict["prior_draws"]
-      return out_dict
-    
-  trainer = bf.trainers.Trainer(amortizer=amortizer, configurator=config, default_lr=hyperparameters["learning_rate"], memory=False)
-
-  # Train model
-  lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    trainer.default_lr, 
-    decay_steps=int(len(train["prior_draws"])/hyperparameters["batch_size"]), 
-    decay_rate=hyperparameters["decay_rate"]
-  )
-  history = trainer.train_offline(
-    train, 
-    epochs=hyperparameters["epochs"], 
-    batch_size=hyperparameters["batch_size"], 
-    validation_sims=test, 
-    early_stopping=hyperparameters["early_stopping"],
-    optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
-  )
-  
-  # Plot the loss
-  f = bf.diagnostics.plot_losses(history["train_losses"], history["val_losses"])
-  f.savefig("plots/{}_loss.pdf".format(name))
-
-
-  # Save the weights to file
-  inference_net.save_weights("models/inference_net_{}.h5".format(name))
-  if args.use_summary_network:
-    summary_net.save_weights("models/summary_net_{}.h5".format(name))
-
+  ### Run training ###
+  print("- Running training")
+  model.BuildTrainer()
+  model.Train()
+  model.Save(name=f"models/{name}.h5")
 else:
+  ### Load in weights ###
+  print("- Loading weights")
+  model.Load(name=f"models/{name}.h5")
 
-  # Load model in from file
-  print("- Loading model")
-  if not args.use_summary_network:
-    _ = inference_net(train["prior_draws"],train["sim_data"])
-    inference_net.load_weights("models/inference_net_{}.h5".format(name))
-  else:
-    sum = summary_net(train["sim_data"])
-    summary_net.load_weights("models/summary_net_{}.h5".format(name))
-    _ = inference_net(train["prior_draws"],sum)
-    inference_net.load_weights("models/inference_net_{}.h5".format(name))
+### Do validation steps ###
+inference = Inference(model, data)
+inference.plot_dir = f"plots/{name}"
 
+### Test closure by applying train and test context back and using it as a generator ###
+if not args.skip_closure:
+  print("- Plotting closure")
+  inference.PlotClosure()
 
-### Test closure by using it as a generator ###
+### Test closure by using it as a generator for individual context values ###
 if not args.skip_generation:
   print("- Plotting generated distributions")
+  inference.PlotGeneration()
 
-  # Parameters for plotting
-  n_samples = 100000
-  nbins = 40
-
-  for val in C_plot:
-
-    # Set up input dictionary
-    inf_data = {}
-    if args.use_summary_network:
-      inf_data["summary_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1,1)), mean=C_mean, std=C_std)
-    else:
-      inf_data["direct_conditions"] = Norm(val*np.ones(n_samples).reshape((n_samples,1)), mean=C_mean, std=C_std)
-
-    # Make synthetic dataset
-    synth = (amortizer.sample(inf_data, 1)*X_std) + X_mean
-
-    # Get the simulated dataset
-    sim = MakeX(val*np.ones(n_samples))
-
-    # Make the histograms
-    sim_hist, bins = np.histogram(sim,bins=nbins)
-    synth_hist, _ = np.histogram(synth,bins=bins)
-    
-    # Plot synthetic dataset against the simulated dataset
-    plot_histogram_with_ratio(
-      sim_hist, 
-      synth_hist, 
-      bins, 
-      name_1='Simulated', 
-      name_2='Synthetic',
-      xlabel="x",
-      name="plots/{}_synthetic_{}".format(name,str(val).replace(".","p")), 
-      title_right = "y = {}".format(val),
-      density = True,
-      use_stat_err = True,
-      )
-
-
-### Need to integrate the pdf and ensure the integral is 1 ###
-
-# For every true value we need to integrate and renormalise
-def GetNormProb(test_value, data, integral_range=[140.0,200.0], integral_bins=10000, log=False):
-  # Get Integral
-  x_int = np.linspace(integral_range[0],integral_range[1],num=integral_bins)
-  inf_data = {}
-  inf_data["parameters"] = Norm(x_int.reshape((len(x_int),1)), mean=X_mean, std=X_std)
-  if args.use_summary_network:
-    inf_data["summary_conditions"] = Norm(test_value*np.ones(len(x_int)).reshape((len(x_int),1,1)), mean=C_mean, std=C_std)
-  else:
-    inf_data["direct_conditions"] = Norm(test_value*np.ones(len(x_int)).reshape((len(x_int),1)), mean=C_mean, std=C_std)    
-  prob = np.exp(amortizer.log_posterior(inf_data))
-  bin_width = x_int[1] - x_int[0]
-  integral = np.sum(prob * bin_width)
-
-  # Get unnormalised probability 
-  inf_data = {}
-  inf_data["parameters"] = Norm(data.reshape((len(data),1)), mean=X_mean, std=X_std)
-  if args.use_summary_network:
-    inf_data["summary_conditions"] = Norm(test_value*np.ones(len(data)).reshape((len(data),1,1)), mean=C_mean, std=C_std)
-  else:
-    inf_data["direct_conditions"] = Norm(test_value*np.ones(len(data)).reshape((len(data),1)), mean=C_mean, std=C_std)
-  prob = np.exp(amortizer.log_posterior(inf_data))
-
-  # Normalise probability
-  prob = prob/integral
-
-  if log:
-    return np.log(prob)
-  else:
-    return prob
-  
-
-### Make a plot of the probabilities of a true value when varying the data ###
+### Make a plot of the probabilities of a true value when varying the data also with the sampled density ###
 if not args.skip_probability:
-  x_plot = np.linspace(150.0,190.0,num=100)
-  for true_value in C_plot: 
-    prob = GetNormProb(true_value, x_plot)
-    fig, ax = plt.subplots()
-    hep.cms.text("Work in progress",ax=ax)
-    plt.plot(x_plot, prob, linestyle='-')
-    plt.xlabel("x")
-    plt.ylabel('p(x|{})'.format(true_value))
-    plt.tight_layout()
-    plt.savefig("plots/{}_probability_{}.pdf".format(name,str(true_value).replace(".","p")))
-    print("Created plots/{}_probability_{}.pdf".format(name,str(true_value).replace(".","p")))
-
-
+  print("- Making probability plots")
+  inference.PlotProbAndSampleDensityFor1DX()
+  
 ### Get best fit and draw likelihoods ###
 if not args.skip_inference:
-  print("- Getting the best fit value and drawing likelihood scans")
+  print("- Getting the best fit value from a single toy and drawing likelihood scans")
+  if args.use_signal_fraction:
+    initial_guess = np.array([172.5,0.2])
+  else:
+    initial_guess = np.array([172.5])
 
-  # Number of events for scan
-  test_array_size = int(round(1000/sig_frac))
+  inference.n_events_in_toy=100
+  inference.GetBestFit(initial_guess)
+  inference.GetProfiledIntervals()
+  inference.PrintBestFitAndIntervals()
+  inference.Draw1DLikelihoods()
 
-  # Inputs for minimisation
-  initial_guess = 175.0
-  par_ranges = [160,180]
+  if not args.skip_comparison:
+    inference.DrawComparison()
 
-  # Function to get -2deltaLL from a tested context value for a given true value
-  def objective_function(c, true_value, shift=0, absolute=False, par_range=None):
-    if par_range != None:
-      if not (c > par_range[0] and c < par_range[1]):
-        return np.inf
-    true_data = MakeX(true_value*np.ones(test_array_size))
-    true_data = true_data.reshape((len(true_data),1))
-    mtnll = -2*GetNormProb(c, true_data, log=True).sum()
-    mtnll -= shift
-    if absolute: mtnll = abs(mtnll)
-    return mtnll
-
-  for true_value in C_plot:
-
-    # Get best fit
-    result = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,0,False,par_ranges))
-
-    # Getting crossings
-    crossings = {
-      0 : result.x[0]
-    }
-  
-    for sigma in [-3,-2,-1,1,2,3]:
-
-      # Set ranges to make sure we are getting the up or down crossing
-      if sigma < 0:
-        pr = [par_ranges[0],result.x]
-      else:
-        pr = [result.x,par_ranges[1]]
-
-      # Get crossings
-      crossings[sigma] = minimize(objective_function, initial_guess, method='Nelder-Mead', args=(true_value,result.fun+(sigma**2),True,pr)).x[0]
-
-    # Calculate likelihood points
-    n_points = 40
-    if not args.extend_likelihood_range:
-      plot_masses = np.linspace(crossings[-3],crossings[3],num=n_points+1, endpoint=True)
-    else:
-      plot_masses = np.linspace(cent-diff,cent+diff,num=n_points+1, endpoint=True)
-    plot_m2dlls = [objective_function(c,true_value,shift=result.fun) for c in plot_masses]
-
-    # Draw likelihood
-    plot_likelihood(
-      plot_masses, 
-      plot_m2dlls, 
-      crossings, 
-      name="plots/{}_likelihood_{}".format(name,str(true_value).replace(".","p")), 
-      xlabel="y", 
-      true_value=true_value,
-      cap_at_3=(not args.extend_likelihood_range)
-      )
-
-    # Print values
-    dp = 3
-    if crossings[0] > true_value:
-      approx_deviation = (crossings[0] - true_value)/(crossings[0]-crossings[-1])
-    else:
-      approx_deviation = (true_value - crossings[0])/(crossings[1]-crossings[0])
-    print("True Value: {}, Calculated Value: {} + {} - {}, Approx. deviation: {}".format(true_value,round(crossings[0],dp),round(crossings[1]-crossings[0],dp),round(crossings[0]-crossings[-1],dp),round(approx_deviation,dp)))
-
-
-    # Make plot of initial distributions with the attempted inferred distribution on, as well as generated distribution at the mass points - this should help us see if the inference is working
-    nps = 100000
-    nbins = 40
-    check_plot = [true_value,round(crossings[0],2)]
-    colors = ['red', 'blue', 'green', 'purple']
-
-    for ind, tv in enumerate(check_plot): # Get binning
-      if ind == 0:
-        td = MakeX(tv*np.ones(nps))
-      else:
-        td = np.concatenate([td,MakeX(tv*np.ones(nps))])
-
-    _, bins = np.histogram(td,bins=nbins)
-
-    fig, ax = plt.subplots()
-    hep.cms.text("Work in progress",ax=ax)
-    for ind, tv in enumerate(check_plot):
-      hist = np.histogram(MakeX(tv*np.ones(nps)),bins=bins)[0]
-      plt.plot(bins[:-1], hist/sum(hist), label="y="+str(tv), linestyle='-', color=colors[ind])
-
-    for ind, val in enumerate(check_plot):
-      inf_data = {}
-      if args.use_summary_network:
-        inf_data["summary_conditions"] = Norm(val*np.ones(nps).reshape((nps,1,1)), mean=C_mean, std=C_std)
-      else:
-        inf_data["direct_conditions"] = Norm(val*np.ones(nps).reshape((nps,1)), mean=C_mean, std=C_std)
-      synth = (amortizer.sample(inf_data, 1)*X_std) + X_mean
-      hist = np.histogram(synth,bins=bins)[0]
-      plt.plot(bins[:-1], hist/sum(hist), label="gen y="+str(val), linestyle='--', color=colors[ind])
-
-    inf_dist = MakeX(true_value*np.ones(test_array_size)).reshape((test_array_size,1))
-    inf_hist = np.histogram(inf_dist, bins=bins)[0]
-    inf_hist_err = np.sqrt(inf_hist)
-    plt.errorbar(bins[:-1], inf_hist/sum(inf_hist), yerr=inf_hist_err/sum(inf_hist), label="data y={}".format(true_value), markerfacecolor='none', linestyle='None', fmt='k+')
-    
-    plt.xlabel("x")
-    plt.ylabel('Density')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("plots/{}_inferred_distributions_{}.pdf".format(name,str(true_value).replace(".","p")))
-    print("Created plots/{}_inferred_distributions_{}.pdf".format(name,str(true_value).replace(".","p")))
+  if args.use_signal_fraction:
+    inference.Draw2DLikelihoods()

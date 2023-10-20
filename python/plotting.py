@@ -7,6 +7,40 @@ import mplhep as hep
 
 hep.style.use("CMS")
    
+def plot_histograms(
+      bins,
+      hists,
+      hist_names,
+      colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+      linestyles = ["-"]*100,
+      title_right = "",
+      name = "hists.pdf",
+      x_label = "",
+      y_label = "",
+      error_bar_hists = [],
+      error_bar_hist_errs = [],
+      error_bar_names = [],
+    ):
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+
+  for ind, hist in enumerate(hists):
+    plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind])
+
+  for ind, hist in enumerate(error_bar_hists):
+    plt.errorbar(bins, hist, yerr=error_bar_hist_errs[ind], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='k+')
+
+  ax.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes)
+
+  plt.xlabel(x_label)
+  plt.ylabel(y_label)
+  plt.legend()
+  plt.tight_layout()
+  plt.savefig(name+".pdf")
+  print("Created {}.pdf".format(name))
+
 def plot_histogram_with_ratio(
       hist_values1, 
       hist_values2, 
@@ -103,29 +137,38 @@ def plot_histogram_with_ratio(
     plt.savefig(name+".pdf")
     plt.close()
 
-def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, cap_at=9):
+def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, cap_at=9, other_lklds={}, label="", title_right=""):
 
   if cap_at != None:
+    sel_inds = []
     x_plot = []
     y_plot = []
     for ind, i in enumerate(y):
       if i < cap_at:
         x_plot.append(x[ind])
         y_plot.append(i)
+        sel_inds.append(ind)
     x = x_plot
     y = y_plot
     y_max = cap_at
   else:
     y_max = max(y)
+    sel_inds = range(len(y))
 
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
-  plt.plot(x, y)
+  plt.plot(x, y, label=label)
+
+  colors = ["green", "blue", "red"]
+  ind = 0
+  for k, v in other_lklds.items():
+     plt.plot(x, np.array(v)[np.array(sel_inds)], label=k, color=colors[ind])
+     ind += 1
 
   if true_value != None:
     plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
 
-    ax.text(1.0, 1.0, "True Value: {}".format(true_value),
+    ax.text(1.0, 1.0, title_right,
         verticalalignment='bottom', horizontalalignment='right',
         transform=ax.transAxes)
 
@@ -140,6 +183,8 @@ def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, ca
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
   
+  plt.legend()
+
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)
   plt.xlabel(xlabel)
