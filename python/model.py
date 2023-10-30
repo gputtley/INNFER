@@ -1,7 +1,7 @@
 import bayesflow as bf
 import tensorflow as tf
 from data_processor import DataProcessor
-
+from innfer_trainer import InnferTrainer
 
 class Model():
 
@@ -91,7 +91,8 @@ class Model():
       out_dict["parameters"] = forward_dict["prior_draws"]
       return out_dict
 
-    self.trainer = bf.trainers.Trainer(amortizer=self.amortizer, configurator=config, default_lr=self.learning_rate, memory=False)
+    #self.trainer = bf.trainers.Trainer(amortizer=self.amortizer, configurator=config, default_lr=self.learning_rate, memory=False)
+    self.trainer = InnferTrainer(amortizer=self.amortizer, configurator=config, default_lr=self.learning_rate, memory=False)
 
     if self.lr_scheduler_name == "ExponentialDecay":
       self.lr_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -103,7 +104,7 @@ class Model():
       print("ERROR: lr_schedule not valid.")
 
     if self.optimizer_name == "Adam":
-      self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+      self.optimizer = tf.keras.optimizers.Adam(self.lr_scheduler)
     else:
       print("ERROR: optimizer not valid.")
 
@@ -122,7 +123,16 @@ class Model():
 
     data = self.data_processor.PreProcess(purpose="training") 
 
-    history = self.trainer.train_offline(
+    #history = self.trainer.train_offline(
+    #  data["train"], 
+    #  epochs=self.epochs, 
+    #  batch_size=self.batch_size, 
+    #  validation_sims=data["test"] if "test" in data.keys() else None, 
+    #  early_stopping=self.early_stopping,
+    #  optimizer=self.optimizer,
+    #)
+
+    history = self.trainer.train_innfer(
       data["train"], 
       epochs=self.epochs, 
       batch_size=self.batch_size, 
@@ -130,6 +140,7 @@ class Model():
       early_stopping=self.early_stopping,
       optimizer=self.optimizer,
     )
+
     if self.plot_loss:
       if "test" in data.keys():
         f = bf.diagnostics.plot_losses(history["train_losses"], history["val_losses"])

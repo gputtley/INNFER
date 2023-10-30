@@ -32,8 +32,6 @@ parser.add_argument('--skip-probability', help= 'Skip draw the probability',  ac
 parser.add_argument('--skip-inference', help= 'Skip performing the inference',  action='store_true')
 parser.add_argument('--skip-comparison', help= 'Skip making the comparison plot, if running inference',  action='store_true')
 parser.add_argument('--signal-fraction', help= 'Signal fraction value to take if fixed', type=float, default=0.3)
-parser.add_argument('--only-infer-true-mass', help= 'Only infer this value of the true mass', type=float, default=None)
-parser.add_argument('--only-infer-signal-fraction', help= 'Only infer this value of the signal fraction', type=float, default=None)
 parser.add_argument('--add-true-pdf', help= 'Add true pdf in the most simplest case to prob and lkld plot',  action='store_true')
 parser.add_argument('--plot-true-masses', help= 'True masses to plot', type=str, default="171.0,172.0,173.0,174.0")
 parser.add_argument('--plot-signal-fractions', help= 'True masses to plot', type=str, default="0.1,0.2,0.3")
@@ -70,11 +68,16 @@ if args.submit != None:
   sub = Batch()
   sub.cmds = ["python3 " + " ".join(argsparse_list)]
   sub.submit_to = args.submit
-  inds = [int(f.split(name+"_")[1].split(".sh")[0]) for f in os.listdir("jobs") if f.startswith(name+"_") and ".sh" in f]
+  inds = []
+  for f in os.listdir("jobs"): 
+    if f.startswith(name+"_") and ".sh" in f:
+      if f.split(name+"_")[1].split(".sh")[0].isdigit():
+        inds.append(int(f.split(name+"_")[1].split(".sh")[0]))
   inds += [0]
   ind = max(inds) + 1
   sub.job_name = "jobs/" + name + "_" + str(ind) + ".sh"
   sub.dry_run = False
+  if args.use_signal_fraction: sub.running_hours = 8
   sub.Run()
   exit()
 
@@ -203,11 +206,16 @@ data = DataProcessor(
   }
 )
 data.standardise_data = {"X":True,"Y":True}
+data.X_columns = ["Reconstructed Mass"]
+data.Y_columns = ["True Mass"]
+if args.use_signal_fraction: 
+  data.Y_columns += ["SignalFraction"]
 
 ### Plot initial inputs ###
 if not args.skip_initial_distribution:
   data.plot_dir = f"plots/{name}"
   data.PlotUniqueY(data_key="val")
+  data.PlotYDistribution(data_key="train")
 
 ### Set up model and training parameters ###
 if args.add_background:
@@ -224,9 +232,14 @@ if args.add_background:
     "early_stopping" : True,
     "learning_rate" : 1e-3, 
     "coupling_design" : "interleaved", 
-    "permutation" : "learnable", 
-    "decay_rate" : 0.5,
+    "permutation" : "learnable",
+    "optimizer_name" : "Adam",
+    "lr_scheduler_name" : "ExponentialDecay",
     }
+  parameters["lr_scheduler_options"] = {
+    "decay_rate" : 0.5,
+    "decay_steps" : int(len(data.data["train"]["X"])/parameters["batch_size"]),    
+  }
 else:
   parameters = {
     "num_coupling_layers" : 8,
@@ -242,8 +255,13 @@ else:
     "learning_rate" : 1e-3,
     "coupling_design" : "affine",
     "permutation" : "learnable",
-    "decay_rate" : 0.5,
+    "optimizer_name" : "Adam",
+    "lr_scheduler_name" : "ExponentialDecay",
     }
+  parameters["lr_scheduler_options"] = {
+    "decay_rate" : 0.5,
+    "decay_steps" : int(len(data.data["train"]["X"])/parameters["batch_size"]),    
+  }
 
 model = Model(data, options=parameters)
 model.plot_dir = f"plots/{name}"
@@ -275,27 +293,50 @@ if not args.skip_generation:
   print("- Plotting generated distributions")
   inference.PlotGeneration()
 
+### Define the true pdf for validation ###
+def TruePDF(x, input):
+  std_dev = md.sig_res * input[0]
+  mean = input[0]
+  sig_pdf = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(x - mean)**2 / (2 * std_dev**2))
+  if not args.add_background:
+    return sig_pdf
+  def BkgPDFUnNorm(x):
+    return md.bkg_lambda*np.exp(-md.bkg_lambda*(x-md.bkg_const))
+  int_space = np.linspace(md.bkg_ranges[0],md.bkg_ranges[1],num=100)
+  bkg_pdf_unnorm = BkgPDFUnNorm(int_space)
+  integral = np.sum(bkg_pdf_unnorm) * (int_space[1]-int_space[0])
+  bkg_pdf = BkgPDFUnNorm(x)/integral
+  if args.use_signal_fraction:
+    return (input[1]*sig_pdf) + ((1-input[1])*bkg_pdf)
+  else:
+    return (args.signal_fraction*sig_pdf) + ((1-args.signal_fraction)*bkg_pdf)
+
 ### Make a plot of the probabilities of a true value when varying the data also with the sampled density ###
 if not args.skip_probability:
   print("- Making probability plots")
-  inference.PlotProbAndSampleDensityFor1DX()
+  inference.PlotProbAndSampleDensityFor1DX(true_pdf=TruePDF)
   
 ### Get best fit and draw likelihoods ###
 if not args.skip_inference:
-  print("- Getting the best fit value from a single toy and drawing likelihood scans")
+  print("- Running toy inference")
   if args.use_signal_fraction:
     initial_guess = np.array([172.5,0.2])
   else:
     initial_guess = np.array([172.5])
 
   inference.n_events_in_toy=1000
+  print("- Getting best fit values")
   inference.GetBestFit(initial_guess)
+  print("- Getting intervals")
   inference.GetProfiledIntervals()
   inference.PrintBestFitAndIntervals()
-  inference.Draw1DLikelihoods()
+  print("- Drawing 1D likelihoods")
+  inference.Draw1DLikelihoods(true_pdf=TruePDF)
 
   if not args.skip_comparison:
+    print("- Drawing comparison plots")
     inference.DrawComparison()
 
   if args.use_signal_fraction:
+    print("- Drawing 2D likelihoods")
     inference.Draw2DLikelihoods()

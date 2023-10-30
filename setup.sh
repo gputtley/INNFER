@@ -9,4 +9,5 @@ conda create --name innfer_env python=3.11
 conda activate innfer_env
 pip3 install bayesflow
 pip3 install mplhep
+pip3 install uproot
 popd

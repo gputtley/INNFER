@@ -8,7 +8,7 @@ To import the github repository, clone with the following command.
 git clone https://github.com/gputtley/INNFER.git
 ```
 
-Then to set up the conda environment for running this repository run this command. You will need to click **enter** and **yes** through all prompts. For the conda installation license hit **q** to go the end of the file and then you can fit **enter**. 
+Then to set up the conda environment for running this repository run this command. You will need to click `enter` and `yes` through all prompts. For the conda installation license hit `q` to go the end of the file and then you can fit `enter`. 
 
 ```
 source setup.sh
@@ -30,7 +30,19 @@ python3 scripts/top_mass_basic_example.py
 ```
 
 There are a number of running options within the script, such as to add a background and vary the signal yield.
-For longer jobs you may want to parallelise parts of the job a batch, such as on an SGE cluster. For this you can run the following commands.
+For longer jobs you may want to parallelise parts of the job a batch, such as on an SGE cluster. 
+
+For instance, to run with the `--add-background` option, you can use the following commands.
+```
+python3 scripts/top_mass_basic_example.py --submit="SGE" --add-background --skip-closure --skip-probability --skip-generation --skip-inference
+```
+```
+for mass in 171.0 172.0 173.0 174.0; do
+  python3 scripts/top_mass_basic_example.py --submit="SGE" --add-background --skip-initial-distribution --load-model --plot-true-masses=${mass}
+done
+```
+
+To run with the `--use-signal-fraction` on a cluster, you can use the following commands.
 
 ```
 python3 scripts/top_mass_basic_example.py --submit="SGE" --use-signal-fraction --skip-closure --skip-probability --skip-generation --skip-inference

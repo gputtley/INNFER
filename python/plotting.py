@@ -20,26 +20,34 @@ def plot_histograms(
       error_bar_hists = [],
       error_bar_hist_errs = [],
       error_bar_names = [],
+      anchor_y_at_0 = False,
+      drawstyle = "default"
     ):
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
 
   for ind, hist in enumerate(hists):
-    plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind])
+    plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle)
 
   for ind, hist in enumerate(error_bar_hists):
-    plt.errorbar(bins, hist, yerr=error_bar_hist_errs[ind], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='k+')
+    non_empty_bins = hist != 0
+    plt.errorbar(bins[non_empty_bins], hist[non_empty_bins], yerr=error_bar_hist_errs[ind][non_empty_bins], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='k+')
 
   ax.text(1.0, 1.0, title_right,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax.transAxes)
 
+  if anchor_y_at_0:
+    ax.set_ylim(bottom=0, top=1.2*max(np.max(hist) for hist in hists))
+
   plt.xlabel(x_label)
   plt.ylabel(y_label)
-  plt.legend()
+  if not all(item is None for item in hist_names):
+    plt.legend()
   plt.tight_layout()
   plt.savefig(name+".pdf")
   print("Created {}.pdf".format(name))
+  plt.close()
 
 def plot_histogram_with_ratio(
       hist_values1, 

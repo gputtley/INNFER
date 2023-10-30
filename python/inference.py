@@ -35,7 +35,7 @@ class Inference():
     preprocessed_data["direct_conditions"] = preprocessed_data["direct_conditions"].astype(np.float32)
 
     synth = self.model.amortizer.sample(preprocessed_data, 1)
-    synth = self.data_processor.UnStandardise(synth[:,:,0])
+    synth = self.data_processor.UnStandardise(synth[:,0,:])
 
     return synth
 
@@ -62,14 +62,14 @@ class Inference():
           bins, 
           name_1='Simulated', 
           name_2='Synthetic',
-          xlabel=f"x[{col}]",
-          name=f"{self.plot_dir}/closure_{dk}_x{col}", 
+          xlabel=self.data_processor.X_columns[col],
+          name=f"{self.plot_dir}/closure_{dk}_{self.data_processor.X_columns[col].replace(' ','')}", 
           title_right = dk.capitalize(),
           density = True,
           use_stat_err = True,
           )
   
-  def PlotGeneration(self, data_key="val", n_bins=40):
+  def PlotGeneration(self, data_key="val", n_bins=40, ignore_quantile=0.0):
 
     unique_rows = np.unique(self.data_processor.data[data_key]["Y"], axis=0)
     for ur in unique_rows:
@@ -80,7 +80,13 @@ class Inference():
       synth = self.Sample(from_row=ur)
 
       for col in range(self.data_processor.data[data_key]["X"].shape[1]):
-        sim_hist, bins  = np.histogram(X_cut[:,col], bins=n_bins)
+
+        trimmed_data = X_cut[:,col]
+        lower_value = np.quantile(trimmed_data, ignore_quantile)
+        upper_value = np.quantile(trimmed_data, 1-ignore_quantile)
+        trimmed_data = trimmed_data[(trimmed_data >= lower_value) & (trimmed_data <= upper_value)]
+
+        sim_hist, bins  = np.histogram(trimmed_data, bins=n_bins)
         synth_hist, _  = np.histogram(synth[:,col], bins=bins)
         
         file_extra_name = self._GetYName(ur, purpose="file")
@@ -92,14 +98,14 @@ class Inference():
           bins, 
           name_1='Simulated', 
           name_2='Synthetic',
-          xlabel=f"x[{col}]",
-          name=f"{self.plot_dir}/generation_x{col}_y{file_extra_name}", 
+          xlabel=self.data_processor.X_columns[col],
+          name=f"{self.plot_dir}/generation_{self.data_processor.X_columns[col].replace(' ','')}_y_{file_extra_name}", 
           title_right = f"y={plot_extra_name}",
           density = True,
           use_stat_err = True,
           )
         
-  def PlotProbAndSampleDensityFor1DX(self, data_key="val", n_bins=40):
+  def PlotProbAndSampleDensityFor1DX(self, data_key="val", n_bins=40, true_pdf=None):
 
     unique_rows = np.unique(self.data_processor.data[data_key]["Y"], axis=0)
     for ur in unique_rows:
@@ -111,14 +117,21 @@ class Inference():
       file_extra_name = self._GetYName(ur, purpose="file")
       plot_extra_name = self._GetYName(ur, purpose="plot")
 
+      if true_pdf != None:
+        true_pdf_hist = [[true_pdf(x,ur) for x in bin_centers]]
+        add_name = ["True PDF"]
+      else:
+        true_pdf_hist = []
+        add_name = []
+
       plot_histograms(
         bin_centers,
-        [prob_hist,synth_hist],
-        ["Probability", "Sampled Density"],
+        [prob_hist,synth_hist]+true_pdf_hist,
+        ["Learned PDF", "Sampled Density"]+add_name,
         title_right = "",
-        name = f"{self.plot_dir}/probability_x_y{file_extra_name}",
+        name = f"{self.plot_dir}/probability_{self.data_processor.X_columns[0].replace(' ','')}_y_{file_extra_name}",
         x_label = "x",
-        y_label = f"p(x|{plot_extra_name})",
+        y_label = f"p(x|{plot_extra_name.replace('(','').replace('(','')})",
       )
 
   def _GetProb(self, data, row, integrate_over_dummy=False, integral_ranges=[-4.0,4.0], integral_bins=100):
@@ -161,8 +174,12 @@ class Inference():
       matching_rows = np.all(self.data_processor.data[data_key]["Y"] == ur, axis=1)
       X_cut = self.data_processor.data[data_key]["X"][matching_rows]
       rng = np.random.RandomState(seed=self.seed_for_toy)
-      random_indices = rng.choice(X_cut.shape[0], self.n_events_in_toy, replace=False)
-      toy = X_cut[random_indices]
+      if self.n_events_in_toy <= len(X_cut):
+        random_indices = rng.choice(X_cut.shape[0], self.n_events_in_toy, replace=False)
+        toy = X_cut[random_indices]
+      else:
+        print("WARNING: Not enough stats for requested toy.")
+        toy = X_cut
       return toy
 
   def _NLL(self, row, data, shift=0, absolute=False, bounds=None, freeze=[]):
@@ -229,7 +246,7 @@ class Inference():
         print(" >> Varying column:", col)
         print(f"   >> Result: {round(best_fit,precision)} + {round(up,precision)} - {round(down,precision)}")
 
-  def Draw1DLikelihoods(self, data_key="val", use_intervals_for_range=True, est_n_sigmas_shown=3, plot_range=[0.0,1.0], n_points=20):
+  def Draw1DLikelihoods(self, data_key="val", use_intervals_for_range=True, est_n_sigmas_shown=3, plot_range=[0.0,1.0], n_points=20, true_pdf=None):
   
     unique_rows = np.unique(self.data_processor.data[data_key]["Y"], axis=0)
     for ur in unique_rows: 
@@ -246,6 +263,13 @@ class Inference():
         for x in X:
           nll.append(self._NLL(np.array([x]), data, shift=self.best_fits[tuple(ur)].fun, absolute=False, bounds=None, freeze=freeze))  
 
+        other_lklds = {}
+        if true_pdf != None:
+          plot_true_m2dlls = [-2*np.sum(np.log(true_pdf(data,np.array([x])))) for x in X]
+          min_plot_true_m2dlls = np.min(plot_true_m2dlls)
+          plot_true_m2dlls = [p - min_plot_true_m2dlls for p in plot_true_m2dlls]
+          other_lklds = {"True": plot_true_m2dlls}
+
         file_extra_name = self._GetYName(ur, purpose="file")
         plot_extra_name = self._GetYName(ur, purpose="plot")
 
@@ -253,12 +277,13 @@ class Inference():
           X, 
           nll, 
           {-1:self.crossings[tuple(ur)][col]["-1"].x[0], 1 : self.crossings[tuple(ur)][col]["+1"].x[0]}, 
-          name=f"{self.plot_dir}/likelihood_1d_y{col}_truey{file_extra_name}", 
-          xlabel=f"y[{col}]", 
+          name=f"{self.plot_dir}/likelihood_1d_{self.data_processor.Y_columns[col].replace(' ','')}_true_{file_extra_name}", 
+          xlabel=self.data_processor.Y_columns[col], 
           true_value=ur[col],
           title_right=f"y={plot_extra_name}",
           cap_at=est_n_sigmas_shown**2,
           label = "Inferred",
+          other_lklds = other_lklds,
           )
         
   def DrawComparison(self,data_key="val",n_bins=40):
@@ -281,8 +306,10 @@ class Inference():
         for col in range(self.data_processor.data[data_key]["X"].shape[1]):
 
           data_hist, bins = np.histogram(data[:,col], bins=n_bins)
-          data_uncert_hist = np.sqrt(data_hist)/sum(data_hist)
-          data_hist = data_hist/sum(data_hist)
+          data_uncert_hist = np.sqrt(data_hist)
+          integral = np.sum(data_hist) * (bins[1]-bins[0])
+          data_hist = data_hist/integral
+          data_uncert_hist = data_uncert_hist/integral
 
           synth_true_hist, _ = np.histogram(synth_true[:,col], bins=bins, density=True)
           synth_bf_hist, _ = np.histogram(synth_bf[:,col], bins=bins, density=True)
@@ -295,8 +322,8 @@ class Inference():
             colors = ["blue","red","red"],
             linestyles = ["--","--","-"],
             title_right = "",
-            name=f"{self.plot_dir}/comparison_x{col}_y{file_extra_name}", 
-            x_label = f"x[{col}]",
+            name=f"{self.plot_dir}/comparison_{self.data_processor.X_columns[col].replace(' ','')}_true_{file_extra_name}", 
+            x_label = self.data_processor.X_columns[col],
             y_label = "Density",
             error_bar_hists = [data_hist],
             error_bar_hist_errs = [data_uncert_hist],
@@ -341,9 +368,9 @@ class Inference():
           X, 
           Y, 
           nll, 
-          name=f"{self.plot_dir}/likelihood_2d_truey{file_extra_name}", 
-          xlabel="y[0]", 
-          ylabel="y[1]", 
+          name=f"{self.plot_dir}/likelihood_2d_true_{file_extra_name}", 
+          xlabel=self.data_processor.Y_columns[0], 
+          ylabel=self.data_processor.Y_columns[1], 
           best_fit=best_fit, 
           true_value=[ur[0],ur[1]], 
           title_right=f"y={plot_extra_name_true}"
