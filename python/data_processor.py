@@ -54,19 +54,6 @@ class DataProcessor():
       data[dk]["X"] = np.column_stack((data[dk]["X"].flatten(), np.random.normal(0.0, 1.0, (len(data[dk]["X"].flatten()),))))
     return data
 
-  #def SmearDiscrete(self, data, data_key="train", feature_type="Y", n_vars_for_discrete=40):
-
-  #  for col in range(data[data_key][feature_type].shape[1]):
-  #    unique_vals = np.sort(np.unique(data[data_key][feature_type][:,col], axis=0))
-  #    if len(unique_vals) < n_vars_for_discrete:
-  #      rand_ranges = []
-  #      for ind, val in enumerate(unique_vals):
-  #        if ind == 0:
-  #          rand_ranges.append([unique_vals[]])
-
-
-
-
   def PreProcess(self, purpose=None, only_context=False):
 
     # Data to return, this means the initial data is unchanged by the class
