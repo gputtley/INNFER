@@ -1,0 +1,21 @@
+name: ggHtoTauTauMass
+files:
+  susy_signal: data/susy_samples.parquet
+  dy_background: data/dy_samples.parquet  
+variables:
+  - m_vis
+  - pt_1
+  - pt_2
+  - met
+  - eta_1
+  - eta_2
+pois:
+  - mass
+nuisances:
+  - tau_id
+preprocess:
+  standardise: all
+  train_test_val_split: 0.3:0.3:0.4
+  equalise_y_wts: True
+data_file:
+  - data/susy_95_plus_bkg_sample.parquet
