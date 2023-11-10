@@ -57,8 +57,8 @@ def plot_histogram_with_ratio(
       name_2='Histogram 2',
       xlabel="",
       name="fig", 
-      errors_1=0, 
-      errors_2=0, 
+      errors_1=None, 
+      errors_2=None, 
       title_right="",
       density=False,
       use_stat_err=False,
@@ -69,9 +69,9 @@ def plot_histogram_with_ratio(
     hist_values1 = hist_values1.astype(np.float64)
     hist_values2 = hist_values2.astype(np.float64)
 
-    if errors_1 == 0:
+    if errors_1 is None:
        errors_1 = 0*hist_values1
-    if errors_2 == 0:
+    if errors_2 is None:
        errors_2 = 0*hist_values2   
 
     if use_stat_err:

@@ -3,7 +3,9 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 class DataLoader():
-
+  """
+  DataLoader class for loading datasets in from a parquet file.
+  """
   def __init__(self, parquet_file_name, batch_size=1024):
     """
     Initialize the DataLoader.
@@ -18,7 +20,8 @@ class DataLoader():
     self.generator = None
     self.batch_num = 0
     self.num_rows = self.parquet_file.metadata.num_rows
-    self.num_columns = len(self.parquet_file.schema.names)
+    self.columns = [str(i) for i in self.parquet_file.schema.names]
+    self.num_columns = len(self.columns)
     self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
 
   def LoadNextBatch(self):
@@ -45,7 +48,14 @@ class DataLoader():
       data = pd.concat([data,self.LoadNextBatch()], ignore_index=True)
     return data
 
+  def ChangeBatchSize(self, batch_size):
+    """
+    Changes the size of the loader batch.
 
-    
+    Args:
+        batch_size (int): The new batch size.
+    """
+    self.batch_size = batch_size
+    self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
 
 

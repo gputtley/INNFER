@@ -2,13 +2,30 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import bayesflow as bf
 import tensorflow as tf
+import numpy as np
+import pandas as pd
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
+from preprocess import PreProcess
+from plotting import plot_histograms
 
 class Network():
-
+  """
+  Network class for building and training Bayesian neural networks.
+  """
   def __init__(self, X_train, Y_train, wt_train, X_test, Y_test, wt_test, options={}):
+    """
+    Initialize the Network instance.
 
+    Args:
+        X_train (str): Path to the training data for features.
+        Y_train (str): Path to the training data for target variables.
+        wt_train (str): Path to the training data for weights.
+        X_test (str): Path to the test data for features.
+        Y_test (str): Path to the test data for target variables.
+        wt_test (str): Path to the test data for weights.
+        options (dict): Additional options for customization.
+    """
     # Model parameters
     self.coupling_design = "affine"
     self.units_per_coupling_layer = 128
@@ -34,6 +51,9 @@ class Network():
     self.plot_loss = True
     self.plot_dir = "plots"
 
+    # Data parameters
+    self.data_parameters = {}
+
     self._SetOptions(options)
 
     # Model and trainer store
@@ -43,22 +63,30 @@ class Network():
     self.lr_scheduler = None
     
     # Data parquet files
-    self.big_batch_size = 100000
     self.X_train = DataLoader(X_train, batch_size=self.batch_size)
     self.Y_train = DataLoader(Y_train, batch_size=self.batch_size)
     self.wt_train = DataLoader(wt_train, batch_size=self.batch_size)
-    self.X_test = DataLoader(X_test, batch_size=self.big_batch_size)
-    self.Y_test = DataLoader(Y_test, batch_size=self.big_batch_size)
-    self.wt_test = DataLoader(wt_test, batch_size=self.big_batch_size)
+    self.X_test = DataLoader(X_test, batch_size=self.batch_size)
+    self.Y_test = DataLoader(Y_test, batch_size=self.batch_size)
+    self.wt_test = DataLoader(wt_test, batch_size=self.batch_size)
 
+    # Other
+    self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["affine","interleaved"])
 
   def _SetOptions(self, options):
+    """
+    Set options for the Network instance.
 
+    Args:
+        options (dict): Dictionary of options to set.
+    """
     for key, value in options.items():
       setattr(self, key, value)
 
   def BuildModel(self):
-
+    """
+    Build the conditional invertible neural network model.
+    """
     latent_dim = self.X_train.num_columns
 
     settings = {
@@ -88,7 +116,9 @@ class Network():
     self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net)
 
   def BuildTrainer(self):
-
+    """
+    Build the trainer for training the model.
+    """
     def config(forward_dict):
       out_dict = {}
       out_dict["direct_conditions"] = forward_dict["sim_data"]
@@ -112,18 +142,30 @@ class Network():
       print("ERROR: optimizer not valid.")
 
   def Save(self, name="model.h5"):
+    """
+    Save the trained model weights.
 
+    Args:
+        name (str): Name of the file to save the model weights.
+    """
     self.inference_net.save_weights(name)
 
   def Load(self, name="model.h5"):
+    """
+    Load the model weights.
 
+    Args:
+        name (str): Name of the file containing the model weights.
+    """
     self.BuildModel()
     _ = self.inference_net(self.X_train.LoadNextBatch().to_numpy(),self.Y_train.LoadNextBatch().to_numpy())
     self.inference_net.load_weights(name)
 
-  def Train(self, name="loss.pdf"):
-
-    history = self.trainer.train_innfer(
+  def Train(self):
+    """
+    Train the conditional invertible neural network.
+    """
+    self.trainer.train_innfer(
       X_train=self.X_train,
       Y_train=self.Y_train,
       wt_train=self.wt_train,
@@ -134,8 +176,73 @@ class Network():
       batch_size=self.batch_size, 
       early_stopping=self.early_stopping,
       optimizer=self.optimizer,
+      fix_1d_spline=self.fix_1d_spline,
     )
 
-    #if self.plot_loss:
-    #  f = bf.diagnostics.plot_losses(history["train_losses"], history["val_losses"])
-    #  f.savefig(f"{self.plot_dir}/{name}")
+    if self.plot_loss:
+      plot_histograms(
+        range(len(self.trainer.loss_history._total_train_loss)),
+        [self.trainer.loss_history._total_train_loss, self.trainer.loss_history._total_val_loss],
+        ["Train", "Test"],
+        title_right = "",
+        name = f"{self.plot_dir}/loss",
+        x_label = "Epochs",
+        y_label = "Loss"
+      )
+
+  def Sample(self, Y, columns=None, n_events=10**5):
+    """
+    Generate synthetic data samples.
+
+    Args:
+        Y (np.ndarray): Input data for generating synthetic samples.
+        columns (list): List of columns to consider from Y.
+        n_events (int): Number of synthetic events to generate.
+
+    Returns:
+        np.ndarray: Synthetic data samples.
+    """
+    if columns is not None:
+      column_indices = [columns.index(col) for col in self.Y_train.columns]
+      Y = Y[:,column_indices]
+    if len(Y) == 1: Y = np.tile(Y, (n_events, 1))
+    pp = PreProcess()
+    pp.parameters = self.data_parameters
+    Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
+    data = {
+      "direct_conditions" : Y.astype(np.float32)
+    }
+    synth = self.amortizer.sample(data, 1)[:,0,:]
+    synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.X_train.columns)).to_numpy()
+    return synth
+
+  def Probability(self, X, Y, y_columns=None, seed=42):
+    """
+    Calculate probabilities for given data.
+
+    Args:
+        X (np.ndarray): Input data for features.
+        Y (np.ndarray): Input data for target variables.
+        y_columns (list): List of columns to consider from Y.
+        seed (int): Seed for reproducibility.
+
+    Returns:
+        np.ndarray: Probabilities for the given data.
+    """
+    if y_columns is not None:
+      column_indices = [y_columns.index(col) for col in self.Y_train.columns]
+      Y = Y[:,column_indices]
+    if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
+
+    pp = PreProcess()
+    pp.parameters = self.data_parameters
+    X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns)).to_numpy()
+    Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
+    data = {
+      "parameters" : X.astype(np.float32),
+      "direct_conditions" : Y.astype(np.float32),
+    }
+    tf.random.set_seed(seed)
+    prob = np.exp(self.model.amortizer.log_posterior(data))
+    prob = pp.UnTransformProb(prob)
+    return prob
