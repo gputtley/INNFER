@@ -72,6 +72,7 @@ class Network():
 
     # Other
     self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["affine","interleaved"])
+    self.disable_tqdm = False
 
   def _SetOptions(self, options):
     """
@@ -177,6 +178,7 @@ class Network():
       early_stopping=self.early_stopping,
       optimizer=self.optimizer,
       fix_1d_spline=self.fix_1d_spline,
+      disable_tqdm=self.disable_tqdm,
     )
 
     if self.plot_loss:

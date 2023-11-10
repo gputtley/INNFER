@@ -4,8 +4,8 @@ num_dense_layers: 4
 activation: "relu"
 dropout: True
 mc_dropout: True
-epochs: 1
-batch_size: 2048
+epochs: 10
+batch_size: 64
 early_stopping: True
 learning_rate: 0.001
 coupling_design: "interleaved"

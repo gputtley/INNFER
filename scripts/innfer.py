@@ -1,8 +1,10 @@
 import argparse
 import yaml
 import os
+import sys
 import pandas as pd
 import numpy as np
+from batch import Batch
 from itertools import product
 from preprocess import PreProcess
 from network import Network
@@ -14,6 +16,7 @@ parser.add_argument('--architecture', help= 'Config for running',  default="conf
 parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
 parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["PreProcess","Train","Validation","Inference"])
 parser.add_argument('--specific', help= 'Run for a specific file_name', type=str, default=None)
+parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
 args = parser.parse_args()
 
 if args.cfg is None:
@@ -44,7 +47,15 @@ pp = {}
 
 for file_name, parquet_name in cfg["files"].items():
 
+  # Skip if condition not met
   if args.specific != None and args.specific != file_name: continue
+
+  # Submit to batch
+  if args.submit != None:
+    cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific' not in i])} --specific={file_name} --disable-tqdm"
+    sub = Batch(options={"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/innfer_{args.step.lower()}_{cfg['name']}_{file_name}.sh"})
+    sub.Run()
+    continue
 
   ### PreProcess Data ###
   if args.step == "PreProcess":
@@ -107,6 +118,7 @@ for file_name, parquet_name in cfg["files"].items():
     ### Train or load networks ###
     if args.step == "Train":
       print("- Training model")
+      networks[file_name].disable_tqdm =  args.disable_tqdm
       networks[file_name].BuildTrainer()
       networks[file_name].Train()
       networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
