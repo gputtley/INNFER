@@ -1,5 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import copy
 import bayesflow as bf
 import tensorflow as tf
 import numpy as np
@@ -89,6 +90,10 @@ class Network():
     Build the conditional invertible neural network model.
     """
     latent_dim = self.X_train.num_columns
+
+    # fix 1d latent space for spline and affine
+    if latent_dim == 1 and self.coupling_design in ["spline","affine"]:
+      latent_dim = 2
 
     settings = {
       "dense_args": dict(
@@ -245,6 +250,13 @@ class Network():
       "direct_conditions" : Y.astype(np.float32),
     }
     tf.random.set_seed(seed)
-    prob = np.exp(self.model.amortizer.log_posterior(data))
+    prob = np.exp(self.amortizer.log_posterior(data))
     prob = pp.UnTransformProb(prob)
+
+    # convert 0 prob to 1 to prevent errors, can happen for outlier events, setting to 1 will ignore the event
+    if np.count_nonzero(prob == 0) > 0:
+      print("WARNING: Zero probability found, set to one to avoid error.")
+      zero_indices = np.where(prob == 0)
+      prob[zero_indices] = 1.0
+
     return prob

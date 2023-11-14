@@ -1,6 +1,7 @@
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
+from likelihood import Likelihood
 from plotting import plot_histograms, plot_histogram_with_ratio
 import bayesflow as bf
 import tensorflow as tf
@@ -22,6 +23,7 @@ class Validation():
         options (dict): Dictionary of options for the validation process.
     """
     self.model = model
+    self.model_name = "model"
     self.data_parameters = {}
     self.data_dir = "./data/"
     self.plot_dir = "./plots/"
@@ -41,7 +43,18 @@ class Validation():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def PlotGeneration(self, row, columns=None, data_key="val", n_bins=40, ignore_quantile=0.01):
+  def _GetXAndWts(self, row, columns=None, data_key="val", tolerance=1e-6):
+
+    X, Y, wt = self.pp.LoadSplitData(dataset=data_key, get=["X","Y","wt"])
+    if columns is None:
+      columns = self.data_parameters["Y_columns"]
+    row = np.array(list(row))
+    matching_rows = np.all(np.isclose(Y.to_numpy(), row, rtol=tolerance, atol=tolerance), axis=1)
+    X = X.to_numpy()[matching_rows]
+    wt = wt.to_numpy()[matching_rows]
+    return X, wt
+
+  def PlotGeneration(self, row, columns=None, data_key="val", n_bins=40, ignore_quantile=0.01, tolerance=1e-6):
     """
     Plot generation comparison between simulated and synthetic data for a given row.
 
@@ -52,19 +65,7 @@ class Validation():
         n_bins (int): Number of bins for histogram plotting.
         ignore_quantile (float): Fraction of data to ignore from both ends during histogram plotting.
     """
-    X, Y, wt = self.pp.LoadSplitData(dataset=data_key, get=["X","Y","wt"])
-    
-    if columns is None:
-      columns = self.data_parameters["Y_columns"]
-
-    row = np.array(list(row))
-
-    matching_rows = np.all(Y.to_numpy() == row, axis=1)
-    X = X.to_numpy()[matching_rows]
-    wt = wt.to_numpy()[matching_rows]
-    del Y
-    gc.collect()
-
+    X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
     synth = self.model.Sample(np.array([list(row)]), columns=columns)
 
     for col in range(X.shape[1]):
@@ -115,3 +116,24 @@ class Validation():
       else:
         name = label_list[0]
     return name
+  
+  def PlotUnbinnedLikelihood(self, row, columns=None, data_key="val", n_points=40, tolerance=1e-6, n_asimov_events=1000.0):
+
+    X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
+    lkld = Likelihood(
+      {"pdfs":{self.model_name:self.model}}, 
+      type="unbinned", 
+      data_parameters={
+        self.model_name:{
+          "X_columns" : self.data_parameters["X_columns"],
+          "Y_columns" : self.data_parameters["Y_columns"]
+        },
+      }
+    )
+    X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
+    wt *= (n_asimov_events/np.sum(wt))
+
+    print(lkld.Run(X,np.array([200,0.0]), wts=wt, return_ln=True))
+    print(lkld.Run(X,np.array([300.0,0.0]), wts=wt, return_ln=True))
+    print(lkld.Run(X,np.array([400.0,0.0]), wts=wt, return_ln=True))
+    print(lkld.Run(X,np.array([500.0,0.0]), wts=wt, return_ln=True))

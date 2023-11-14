@@ -9,20 +9,30 @@ from itertools import product
 from preprocess import PreProcess
 from network import Network
 from validation import Validation
+from benchmarks import Benchmarks
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c','--cfg', help= 'Config for running',  default=None)
+parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg"])
 parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
 parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
 parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["PreProcess","Train","Validation","Inference"])
 parser.add_argument('--specific', help= 'Run for a specific file_name', type=str, default=None)
 parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
+parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
 args = parser.parse_args()
 
-if args.cfg is None:
-  raise ValueError("The --cfg is required.")
+if args.cfg is None and args.benchmark is None:
+  raise ValueError("The --cfg or --benchmark is required.")
 if args.step is None:
   raise ValueError("The --step is required.")
+
+if args.benchmark:
+  benchmark = Benchmarks(name=args.benchmark)
+  if args.step == "PreProcess":
+    benchmark.MakeDataset()
+    benchmark.MakeConfig()
+  args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
 
 with open(args.cfg, 'r') as yaml_file:
   cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -35,7 +45,6 @@ if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['na
 if not os.path.isdir(f"plots/{cfg['name']}"): os.system(f"mkdir plots/{cfg['name']}")
 for file_name, _ in cfg["files"].items():
   if not os.path.isdir(f"data/{cfg['name']}/{file_name}"): os.system(f"mkdir data/{cfg['name']}/{file_name}")
-  if not os.path.isdir(f"models/{cfg['name']}/{file_name}"): os.system(f"mkdir models/{cfg['name']}/{file_name}")
   if not os.path.isdir(f"plots/{cfg['name']}/{file_name}"): os.system(f"mkdir plots/{cfg['name']}/{file_name}")  
 
 if cfg["preprocess"]["standardise"] == "all":
@@ -53,7 +62,8 @@ for file_name, parquet_name in cfg["files"].items():
   # Submit to batch
   if args.submit != None:
     cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific' not in i])} --specific={file_name} --disable-tqdm"
-    sub = Batch(options={"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/innfer_{args.step.lower()}_{cfg['name']}_{file_name}.sh"})
+    options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/innfer_{args.step.lower()}_{cfg['name']}_{file_name}.sh", "sge_queue":args.sge_queue}
+    sub = Batch(options=options)
     sub.Run()
     continue
 
@@ -128,11 +138,18 @@ for file_name, parquet_name in cfg["files"].items():
     ### Do validation of trained model ###
     if args.step == "Validation":
       print("- Performing validation")
-      val = Validation(networks[file_name], options={"data_parameters":parameters[file_name],"data_dir":f"data/{cfg['name']}/{file_name}"})
-      val.plot_dir = f"plots/{cfg['name']}/{file_name}"
+      val = Validation(
+        networks[file_name], 
+        options={
+          "data_parameters":parameters[file_name],
+          "data_dir":f"data/{cfg['name']}/{file_name}",
+          "plot_dir":f"plots/{cfg['name']}/{file_name}",
+          "model_name":file_name
+          }
+        )
       networks[file_name].data_parameters = parameters[file_name]
 
-      # Make generation plots
+      # Loop through unique values of all pois and unique values of a single nuisance
       pois = [poi for poi in cfg["pois"] if poi in parameters[file_name]["Y_columns"]]
       unique_values_for_pois = [parameters[file_name]["unique_Y_values"][poi] for poi in pois]
       nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters[file_name]["Y_columns"]]
@@ -141,10 +158,14 @@ for file_name, parquet_name in cfg["files"].items():
         for ind, nuisance in enumerate(nuisances):
           nuisance_values = unique_values_for_nuisances[ind]
           for nuisance_value in nuisance_values:
+            print(poi_values, nuisance_value)
             other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
             row = np.array(list(poi_values)+[nuisance_value]+[0]*len(other_nuisances))
             columns = pois+[nuisance]+other_nuisances
-            val.PlotGeneration(row, columns=columns)
+            # Plot synthetic vs simulated comparison
+            #val.PlotGeneration(row, columns=columns)
+            # Plot unbinned likelihood closure
+            val.PlotUnbinnedLikelihood(row, columns=columns)
 
   ### Do inference on data ###
   if args.step == "Inference":

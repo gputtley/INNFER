@@ -20,6 +20,7 @@ class Batch():
     self.store_output = True
     self.store_error = True
     self.dry_run = False
+    self.sge_queue = "hep.q"
     self._SetOptions(options)
 
   def _SetOptions(self, options):
@@ -46,17 +47,19 @@ class Batch():
     self._CreateBatchJob(self.cmds)
     if self.store_output:
       output_log = self.job_name.replace('.sh','_output.log')
+      if os.path.exists(output_log): os.system(f'rm {output_log}')
     else:
       output_log = "/dev/null"
     if self.store_error:
       error_log = self.job_name.replace('.sh','_error.log')
+      if os.path.exists(error_log): os.system(f'rm {error_log}')
     else:
       error_log = "/dev/null"
     if not self.dry_run:
       if self.cores>1: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
+        os.system(f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
       else: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q hep.q -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
+        os.system(f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
 
   def _CreateJob(self, cmd_list):
     """

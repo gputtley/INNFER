@@ -227,7 +227,7 @@ class PreProcess():
     Returns:
         float: The untransformed probability.
     """    
-    for column_name in self.Y_columns:
+    for column_name in self.parameters["Y_columns"]:
       if column_name in self.parameters["standardisation"]:
         prob *= self.parameters["standardisation"][column_name]["std"]
     return prob 
