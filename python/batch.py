@@ -56,10 +56,11 @@ class Batch():
     else:
       error_log = "/dev/null"
     if not self.dry_run:
-      if self.cores>1: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
-      else: 
-        os.system(f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}')
+      if self.cores>1:
+        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+      else:
+        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+      os.system(sub_cmd)
 
   def _CreateJob(self, cmd_list):
     """
@@ -83,7 +84,6 @@ class Batch():
     """
     base_cmds = [
       "#!/bin/bash",
-      "conda activate innfer_env",
       "source env.sh",
       "ulimit -s unlimited",
     ]

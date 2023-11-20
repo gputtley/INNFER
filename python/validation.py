@@ -1,14 +1,8 @@
-from data_loader import DataLoader
-from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
 from likelihood import Likelihood
-from plotting import plot_histograms, plot_histogram_with_ratio
-import bayesflow as bf
-import tensorflow as tf
-import pandas as pd
+from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood
 import numpy as np
 import copy
-import gc
 
 class Validation():
   """
@@ -65,6 +59,7 @@ class Validation():
         n_bins (int): Number of bins for histogram plotting.
         ignore_quantile (float): Fraction of data to ignore from both ends during histogram plotting.
     """
+    print(">> Producing generation plots")
     X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
     synth = self.model.Sample(np.array([list(row)]), columns=columns)
 
@@ -99,7 +94,7 @@ class Validation():
         errors_2=np.sqrt(synth_hist),
         )
 
-  def _GetYName(self, ur, purpose="plot"):
+  def _GetYName(self, ur, purpose="plot", round_to=2):
     """
     Get a formatted label for a given unique row.
 
@@ -107,7 +102,7 @@ class Validation():
         ur (list): List representing the unique row.
         purpose (str): Purpose of the label, either "plot" or "file
     """
-    label_list = [str(i) for i in ur] 
+    label_list = [str(round(i,round_to)) for i in ur] 
     if purpose == "file":
       name = "_".join([i.replace(".","p").replace("-","m") for i in label_list])
     elif purpose == "plot":
@@ -117,7 +112,7 @@ class Validation():
         name = label_list[0]
     return name
   
-  def PlotUnbinnedLikelihood(self, row, columns=None, data_key="val", n_points=40, tolerance=1e-6, n_asimov_events=1000.0):
+  def PlotUnbinnedLikelihood(self, row, initial_guess, columns=None, data_key="val", n_bins=40, ignore_quantile=0.01, tolerance=1e-6, n_asimov_events=1000.0, true_pdf=None):
 
     X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
     lkld = Likelihood(
@@ -133,7 +128,89 @@ class Validation():
     X, wt = self._GetXAndWts(row, columns=columns, data_key=data_key, tolerance=tolerance)
     wt *= (n_asimov_events/np.sum(wt))
 
-    print(lkld.Run(X,np.array([200,0.0]), wts=wt, return_ln=True))
-    print(lkld.Run(X,np.array([300.0,0.0]), wts=wt, return_ln=True))
-    print(lkld.Run(X,np.array([400.0,0.0]), wts=wt, return_ln=True))
-    print(lkld.Run(X,np.array([500.0,0.0]), wts=wt, return_ln=True))
+    print(">> Getting best fit")
+    lkld.GetBestFit(X, np.array(initial_guess), wts=wt)
+
+    if columns == None:
+      columns = self.data_parameters["Y_columns"]
+
+    # Plot likelihood scan
+    print(">> Runnning scan")
+    for ind, col in enumerate(columns):
+      x, y, crossings = lkld.MakeScanInSeries(X, col, wts=wt)
+      print(f"{col}: {lkld.best_fit[ind]} + {crossings[1]-lkld.best_fit[ind]} - {lkld.best_fit[ind]-crossings[-1]}")
+      file_extra_name = self._GetYName(row, purpose="file")
+      plot_extra_name = self._GetYName(row, purpose="plot")
+
+      # make true likelihood
+      other_lkld = {}
+      if true_pdf is not None:
+        nlls = []
+        for x_val in x:
+          nll = 0
+          for data_ind, data in enumerate(X):
+            test_row = copy.deepcopy(lkld.best_fit)
+            test_row[ind] = x_val
+            nll += -2*np.log(true_pdf(data,test_row)**wt.flatten()[data_ind])
+          nlls.append(nll)
+
+        true_nll = 0
+        for data_ind, data in enumerate(X):
+          true_nll += -2*np.log(true_pdf(data,row)**wt.flatten()[data_ind])
+
+        nlls = [nll - true_nll for nll in nlls]
+        other_lkld = {"True":nlls}
+
+      plot_likelihood(
+        x, 
+        y, 
+        crossings, 
+        name=f"{self.plot_dir}/likelihood_{col}_y_{file_extra_name}", 
+        xlabel=col, 
+        true_value=row[ind],
+        title_right=f"y={plot_extra_name}",
+        cap_at=9,
+        label="Inferred",
+        other_lklds=other_lkld,
+      )
+    
+    # Plot comparison of best fit learned distribution and the true distribution
+    print(">> Drawing comparisons")
+    synth_true = self.model.Sample(np.array([list(row)]), columns=columns)
+    synth_best_fit = self.model.Sample(np.array([list(lkld.best_fit)]), columns=columns)
+
+    for col in range(X.shape[1]):
+      trimmed_X = X[:,col]
+      lower_value = np.quantile(trimmed_X, ignore_quantile)
+      upper_value = np.quantile(trimmed_X, 1-ignore_quantile)
+      trimmed_indices = ((trimmed_X >= lower_value) & (trimmed_X <= upper_value))
+      trimmed_X = trimmed_X[trimmed_indices]
+      trimmed_wt = wt[trimmed_indices].flatten()
+      sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
+      sim_hist_err_sq, _  = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
+      synth_true_hist, _  = np.histogram(synth_true[:,col], bins=bins)
+      synth_best_fit_hist, _  = np.histogram(synth_best_fit[:,col], bins=bins)
+
+      sim_hist_err_sq = sim_hist_err_sq/np.sum(sim_hist)
+      sim_hist = sim_hist/np.sum(sim_hist)
+      synth_true_hist = synth_true_hist/np.sum(synth_true_hist)
+      synth_best_fit_hist = synth_best_fit_hist/np.sum(synth_best_fit_hist)
+
+      file_extra_name = self._GetYName(row, purpose="file")
+      plot_extra_name_true = self._GetYName(row, purpose="plot")
+      plot_extra_name_bf = self._GetYName(lkld.best_fit, purpose="plot")
+
+      plot_histograms(
+        bins[:-1],
+        [synth_best_fit_hist,synth_true_hist],
+        [f"Learned y={plot_extra_name_bf}",f"Learned y={plot_extra_name_true}"],
+        colors = ["blue","red",],
+        linestyles = ["-","-"],
+        title_right = "",
+        x_label=self.data_parameters["X_columns"][col],
+        name=f"{self.plot_dir}/comparison_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
+        y_label = "Density",
+        error_bar_hists = [sim_hist],
+        error_bar_hist_errs = [sim_hist_err_sq],
+        error_bar_names = [f"Data y={plot_extra_name_true}"],
+      )

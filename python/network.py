@@ -72,7 +72,7 @@ class Network():
     self.wt_test = DataLoader(wt_test, batch_size=self.batch_size)
 
     # Other
-    self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["affine","interleaved"])
+    self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["spline","interleaved"])
     self.disable_tqdm = False
 
   def _SetOptions(self, options):
@@ -92,7 +92,8 @@ class Network():
     latent_dim = self.X_train.num_columns
 
     # fix 1d latent space for spline and affine
-    if latent_dim == 1 and self.coupling_design in ["spline","affine"]:
+    if self.fix_1d_spline:
+      print("WARNING: Running fix for 1D latent space for spline and affine couplings. Code may take longer to run.")
       latent_dim = 2
 
     settings = {
@@ -164,7 +165,9 @@ class Network():
         name (str): Name of the file containing the model weights.
     """
     self.BuildModel()
-    _ = self.inference_net(self.X_train.LoadNextBatch().to_numpy(),self.Y_train.LoadNextBatch().to_numpy())
+    _ = self.inference_net(self.X_train.LoadNextBatch().to_numpy(), self.Y_train.LoadNextBatch().to_numpy())
+    self.X_train.batch_num = 0
+    self.Y_train.batch_num = 0
     self.inference_net.load_weights(name)
 
   def Train(self):
@@ -197,7 +200,7 @@ class Network():
         y_label = "Loss"
       )
 
-  def Sample(self, Y, columns=None, n_events=10**5):
+  def Sample(self, Y, columns=None, n_events=10**6):
     """
     Generate synthetic data samples.
 
@@ -220,6 +223,10 @@ class Network():
       "direct_conditions" : Y.astype(np.float32)
     }
     synth = self.amortizer.sample(data, 1)[:,0,:]
+
+    if self.fix_1d_spline:
+      synth = synth[:,0].reshape(-1,1)
+
     synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.X_train.columns)).to_numpy()
     return synth
 
@@ -236,6 +243,7 @@ class Network():
     Returns:
         np.ndarray: Probabilities for the given data.
     """
+
     if y_columns is not None:
       column_indices = [y_columns.index(col) for col in self.Y_train.columns]
       Y = Y[:,column_indices]
@@ -249,14 +257,12 @@ class Network():
       "parameters" : X.astype(np.float32),
       "direct_conditions" : Y.astype(np.float32),
     }
+    
+    if self.fix_1d_spline:
+      data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
+
     tf.random.set_seed(seed)
     prob = np.exp(self.amortizer.log_posterior(data))
     prob = pp.UnTransformProb(prob)
-
-    # convert 0 prob to 1 to prevent errors, can happen for outlier events, setting to 1 will ignore the event
-    if np.count_nonzero(prob == 0) > 0:
-      print("WARNING: Zero probability found, set to one to avoid error.")
-      zero_indices = np.where(prob == 0)
-      prob[zero_indices] = 1.0
 
     return prob

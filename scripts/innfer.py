@@ -2,22 +2,19 @@ import argparse
 import yaml
 import os
 import sys
-import pandas as pd
-import numpy as np
-from batch import Batch
 from itertools import product
-from preprocess import PreProcess
-from network import Network
-from validation import Validation
-from benchmarks import Benchmarks
+from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop
+
+print("Running INNFER")
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c','--cfg', help= 'Config for running',  default=None)
 parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg"])
 parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
 parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
-parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["PreProcess","Train","Validation","Inference"])
-parser.add_argument('--specific', help= 'Run for a specific file_name', type=str, default=None)
+parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["PreProcess","Train","Validate","Infer"])
+parser.add_argument('--specific-file', help= 'Run for a specific file_name', type=str, default=None)
+parser.add_argument('--specific-ind', help= 'Run for a specific indices when doing validation', type=str, default=None)
 parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
 parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
 args = parser.parse_args()
@@ -28,6 +25,7 @@ if args.step is None:
   raise ValueError("The --step is required.")
 
 if args.benchmark:
+  from benchmarks import Benchmarks
   benchmark = Benchmarks(name=args.benchmark)
   if args.step == "PreProcess":
     benchmark.MakeDataset()
@@ -57,12 +55,13 @@ pp = {}
 for file_name, parquet_name in cfg["files"].items():
 
   # Skip if condition not met
-  if args.specific != None and args.specific != file_name: continue
+  if args.specific_file != None and args.specific_file != file_name: continue
 
   # Submit to batch
-  if args.submit != None:
-    cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific' not in i])} --specific={file_name} --disable-tqdm"
+  if args.step in ["PreProcess","Train"] and args.submit is not None:
+    cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i])} --specific-file={file_name} --disable-tqdm"
     options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/innfer_{args.step.lower()}_{cfg['name']}_{file_name}.sh", "sge_queue":args.sge_queue}
+    from batch import Batch
     sub = Batch(options=options)
     sub.Run()
     continue
@@ -72,101 +71,98 @@ for file_name, parquet_name in cfg["files"].items():
     print("- Preprocessing data")
 
     # PreProcess the dataset
+    from preprocess import PreProcess
     pp[file_name] = PreProcess(parquet_name, cfg["variables"], cfg["pois"]+cfg["nuisances"], options=cfg["preprocess"])
     pp[file_name].output_dir = f"data/{cfg['name']}/{file_name}"
     pp[file_name].plot_dir = f"plots/{cfg['name']}/{file_name}"
     pp[file_name].Run()
 
     # Run plots varying the pois across the variables
-    for poi in cfg["pois"]:
-      nuisance_freeze = {k:0 for k in cfg["nuisances"]}
-      other_pois = [v for v in cfg["pois"] if v != poi and v in pp[file_name].parameters["unique_Y_values"]]
-      unique_values_for_other_pois = [pp[file_name].parameters["unique_Y_values"][other_poi] for other_poi in other_pois]
-      for other_poi_values in list(product(*unique_values_for_other_pois)):
-        poi_freeze = {other_pois[ind]: val for ind, val in enumerate(other_poi_values)}
-        if len(poi_freeze.keys())>0:
-          poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
-        else:
-          poi_freeze_name = ""
-        pp[file_name].PlotX(poi, freeze={**nuisance_freeze, **poi_freeze}, dataset="train", extra_name=poi_freeze_name)
-
+    for info in GetPOILoop(cfg, pp[file_name].parameters):
+      pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="train", extra_name=info["extra_name"])
+        
     # Run plots varying the nuisances across the variables for each unique value of the pois
-    for nuisance in cfg["nuisances"]:
-      nuisance_freeze={k:0 for k in cfg["nuisances"] if k != nuisance}
-      pois = [v for v in cfg["pois"] if v in pp[file_name].parameters["unique_Y_values"]]
-      unique_values_for_pois = [pp[file_name].parameters["unique_Y_values"][poi] for poi in pois]
-      for poi_values in list(product(*unique_values_for_pois)):
-        poi_freeze = {pois[ind]: val for ind, val in enumerate(poi_values)}
-        if len(poi_freeze.keys())>0:
-          poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
-        else:
-          poi_freeze_name = ""
-        pp[file_name].PlotX(nuisance, freeze={**nuisance_freeze, **poi_freeze}, dataset="train", extra_name=poi_freeze_name)
-
+    for info in GetNuisanceLoop(cfg, pp[file_name].parameters):
+      pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=info["extra_name"])
+        
     # Run plots of the distribution of the context features
     pp[file_name].PlotY(dataset="train")
 
 
   ### Training, validation and inference ####
-  if args.step in ["Train","Validation","Inference"]:
+  if args.step in ["Train","Validate","Infer"]:
 
     with open(f"data/{cfg['name']}/{file_name}/parameters.yaml", 'r') as yaml_file:
       parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    networks[file_name] = Network(
-      f"data/{cfg['name']}/{file_name}/X_train.parquet",
-      f"data/{cfg['name']}/{file_name}/Y_train.parquet", 
-      f"data/{cfg['name']}/{file_name}/wt_train.parquet", 
-      f"data/{cfg['name']}/{file_name}/X_test.parquet",
-      f"data/{cfg['name']}/{file_name}/Y_test.parquet", 
-      f"data/{cfg['name']}/{file_name}/wt_test.parquet",
-      options=architecture)
-    
-    networks[file_name].plot_dir = f"plots/{cfg['name']}/{file_name}"
-    networks[file_name].BuildModel()
+    if args.submit is None:
 
-    ### Train or load networks ###
-    if args.step == "Train":
-      print("- Training model")
-      networks[file_name].disable_tqdm =  args.disable_tqdm
-      networks[file_name].BuildTrainer()
-      networks[file_name].Train()
-      networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
-    else:
-      networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")    
+      if args.step != "Train":
+        with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      from network import Network
+      networks[file_name] = Network(
+        f"data/{cfg['name']}/{file_name}/X_train.parquet",
+        f"data/{cfg['name']}/{file_name}/Y_train.parquet", 
+        f"data/{cfg['name']}/{file_name}/wt_train.parquet", 
+        f"data/{cfg['name']}/{file_name}/X_test.parquet",
+        f"data/{cfg['name']}/{file_name}/Y_test.parquet", 
+        f"data/{cfg['name']}/{file_name}/wt_test.parquet",
+        options=architecture)
+      
+      networks[file_name].plot_dir = f"plots/{cfg['name']}/{file_name}"
+      networks[file_name].BuildModel()
+
+      ### Train or load networks ###
+      if args.step == "Train":
+        print("- Training model")
+        networks[file_name].disable_tqdm =  args.disable_tqdm
+        networks[file_name].BuildTrainer()
+        networks[file_name].Train()
+        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
+        with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
+          yaml.dump(architecture, file)
+      else:
+        networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")    
   
     ### Do validation of trained model ###
-    if args.step == "Validation":
+    if args.step == "Validate":
       print("- Performing validation")
-      val = Validation(
-        networks[file_name], 
-        options={
-          "data_parameters":parameters[file_name],
-          "data_dir":f"data/{cfg['name']}/{file_name}",
-          "plot_dir":f"plots/{cfg['name']}/{file_name}",
-          "model_name":file_name
-          }
-        )
-      networks[file_name].data_parameters = parameters[file_name]
+      if args.submit is None:
+        from validation import Validation
+        val = Validation(
+          networks[file_name], 
+          options={
+            "data_parameters":parameters[file_name],
+            "data_dir":f"data/{cfg['name']}/{file_name}",
+            "plot_dir":f"plots/{cfg['name']}/{file_name}",
+            "model_name":file_name
+            }
+          )
+        networks[file_name].data_parameters = parameters[file_name]
 
-      # Loop through unique values of all pois and unique values of a single nuisance
-      pois = [poi for poi in cfg["pois"] if poi in parameters[file_name]["Y_columns"]]
-      unique_values_for_pois = [parameters[file_name]["unique_Y_values"][poi] for poi in pois]
-      nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters[file_name]["Y_columns"]]
-      unique_values_for_nuisances = [parameters[file_name]["unique_Y_values"][nuisance] for nuisance in nuisances]
-      for poi_values in list(product(*unique_values_for_pois)):
-        for ind, nuisance in enumerate(nuisances):
-          nuisance_values = unique_values_for_nuisances[ind]
-          for nuisance_value in nuisance_values:
-            print(poi_values, nuisance_value)
-            other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
-            row = np.array(list(poi_values)+[nuisance_value]+[0]*len(other_nuisances))
-            columns = pois+[nuisance]+other_nuisances
-            # Plot synthetic vs simulated comparison
-            #val.PlotGeneration(row, columns=columns)
-            # Plot unbinned likelihood closure
-            val.PlotUnbinnedLikelihood(row, columns=columns)
+      for ind, info in enumerate(GetValidateLoop(cfg, parameters[file_name])):
+
+        if args.specific_ind != None and args.specific_ind != str(ind): continue
+
+        print(f" - Columns: {info['columns']}")
+        print(f" - Values: {info['row']}")
+
+        # Submit to batch
+        if args.submit is not None:
+          cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-ind'not in i])} --specific-file={file_name} --specific-ind={ind}"
+          options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/innfer_{args.step.lower()}_{cfg['name']}_{file_name}_{ind}.sh", "sge_queue":args.sge_queue}
+          from batch import Batch
+          sub = Batch(options=options)
+          sub.Run()
+          continue
+
+        # Plot synthetic vs simulated comparison
+        val.PlotGeneration(info["row"], columns=info["columns"])
+        # Plot unbinned likelihood closure and best fit learned distributions
+        val.PlotUnbinnedLikelihood(info["row"], info["initial_best_fit_guess"], columns=info["columns"], true_pdf=(None if args.benchmark is None else benchmark.GetPDF))
 
   ### Do inference on data ###
-  if args.step == "Inference":
+  if args.step == "Infer":
     print("- Performing inference")

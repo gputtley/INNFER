@@ -31,6 +31,8 @@ class PreProcess():
     self.standardise = []
     self.train_test_val_split = "0.3:0.3:0.4"
     self.equalise_y_wts = False
+    self.train_test_y_vals = {}
+    self.validation_y_vals = {}
     self.parameters = {}
     self.output_dir = "data/"
     self.plot_dir = "plots/"
@@ -76,6 +78,13 @@ class PreProcess():
     test_df = test_df.reset_index(drop=True)
     val_df = val_df.reset_index(drop=True)
 
+    for k, v in self.train_test_y_vals.items():
+      train_df = train_df[train_df[k].isin(v)]
+      test_df = test_df[test_df[k].isin(v)]
+
+    for k, v in self.validation_y_vals.items():
+      val_df = val_df[val_df[k].isin(v)]
+ 
     del dl, full_dataset, temp_df, unique_vals
     gc.collect()
 
@@ -262,7 +271,7 @@ class PreProcess():
 
     return output
 
-  def PlotX(self, vary, freeze={}, n_bins=40, ignore_quantile=0.01, dataset="train", extra_name=""):
+  def PlotX(self, vary, freeze={}, n_bins=40, ignore_quantile=0.001, dataset="train", extra_name=""):
     """
     Plot histograms for X variables.
 

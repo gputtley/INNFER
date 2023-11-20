@@ -1,28 +1,49 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 import mplhep as hep
 
 hep.style.use("CMS")
    
 def plot_histograms(
-      bins,
-      hists,
-      hist_names,
-      colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
-      linestyles = ["-"]*100,
-      title_right = "",
-      name = "hists.pdf",
-      x_label = "",
-      y_label = "",
-      error_bar_hists = [],
-      error_bar_hist_errs = [],
-      error_bar_names = [],
-      anchor_y_at_0 = False,
-      drawstyle = "default"
-    ):
+    bins,
+    hists,
+    hist_names,
+    colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+    linestyles = ["-"]*100,
+    title_right = "",
+    name = "hists.pdf",
+    x_label = "",
+    y_label = "",
+    error_bar_hists = [],
+    error_bar_hist_errs = [],
+    error_bar_names = [],
+    anchor_y_at_0 = False,
+    drawstyle = "default"
+  ):
+  """
+  Plot histograms with optional error bars.
+
+  Parameters:
+      bins (array-like): Bin edges.
+      hists (list of array-like): List of histogram values.
+      hist_names (list of str): Names for each histogram.
+      colors (list of str, optional): Colors for each histogram. Defaults to Matplotlib color cycle.
+      linestyles (list of str, optional): Linestyles for each histogram. Defaults to solid line.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+      name (str, optional): Name of the output file (without extension). Defaults to "hists.pdf".
+      x_label (str, optional): Label for the x-axis.
+      y_label (str, optional): Label for the y-axis.
+      error_bar_hists (list of array-like, optional): List of histograms for error bars.
+      error_bar_hist_errs (list of array-like, optional): List of errors for each error bar histogram.
+      error_bar_names (list of str, optional): Names for each error bar histogram.
+      anchor_y_at_0 (bool, optional): If True, anchor the y-axis at 0. Defaults to False.
+      drawstyle (str, optional): Drawstyle for the histograms. Defaults to "default".
+
+  Returns:
+      None
+  """
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
 
@@ -50,103 +71,151 @@ def plot_histograms(
   plt.close()
 
 def plot_histogram_with_ratio(
-      hist_values1, 
-      hist_values2, 
-      bin_edges, 
-      name_1='Histogram 1', 
-      name_2='Histogram 2',
-      xlabel="",
-      name="fig", 
-      errors_1=None, 
-      errors_2=None, 
-      title_right="",
-      density=False,
-      use_stat_err=False,
-      ):
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-    bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
+    hist_values1, 
+    hist_values2, 
+    bin_edges, 
+    name_1='Histogram 1', 
+    name_2='Histogram 2',
+    xlabel="",
+    name="fig", 
+    errors_1=None, 
+    errors_2=None, 
+    title_right="",
+    density=False,
+    use_stat_err=False,
+  ):
+  """
+  Plot two histograms along with their ratio.
 
-    hist_values1 = hist_values1.astype(np.float64)
-    hist_values2 = hist_values2.astype(np.float64)
+  Parameters:
+      hist_values1 (array-like): Values for the first histogram.
+      hist_values2 (array-like): Values for the second histogram.
+      bin_edges (array-like): Bin edges.
+      name_1 (str, optional): Name for the first histogram.
+      name_2 (str, optional): Name for the second histogram.
+      xlabel (str, optional): Label for the x-axis.
+      name (str, optional): Name of the output file (without extension). Defaults to "fig".
+      errors_1 (array-like, optional): Errors for the first histogram.
+      errors_2 (array-like, optional): Errors for the second histogram.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+      density (bool, optional): If True, normalize histograms to unit area. Defaults to False.
+      use_stat_err (bool, optional): If True, use square root of hist_values as errors. Defaults to False.
 
-    if errors_1 is None:
-       errors_1 = 0*hist_values1
-    if errors_2 is None:
-       errors_2 = 0*hist_values2   
+  Returns:
+      None
+  """
+  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+  bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
 
-    if use_stat_err:
-        errors_1 = np.sqrt(hist_values1)
-        errors_2 = np.sqrt(hist_values2)
+  hist_values1 = hist_values1.astype(np.float64)
+  hist_values2 = hist_values2.astype(np.float64)
 
-    if density:
-        hist1_norm = hist_values1.sum()
-        hist2_norm = hist_values2.sum()
-        hist_values1 *= 1/hist1_norm
-        hist_values2 *= 1/hist2_norm
-        errors_1 *= 1/hist1_norm
-        errors_2 *= 1/hist2_norm
+  if errors_1 is None:
+      errors_1 = 0*hist_values1
+  if errors_2 is None:
+      errors_2 = 0*hist_values2   
 
-    # Plot the histograms on the top pad
-    ax1.bar(bin_edges[:-1], hist_values1, width=np.diff(bin_edges), align='edge', alpha=1.0, label=name_1, color=(248/255,206/255,104/255), edgecolor=None)
-    step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
-    step_histvals = np.append(np.insert(hist_values1,0,0.0),0.0)
-    ax1.step(step_edges, step_histvals, color='black')
-    ax1.set_xlim([bin_edges[0],bin_edges[-1]])
-    ax1.fill_between(bin_edges[:],np.append(hist_values1,hist_values1[-1])-np.append(errors_1,errors_1[-1]),np.append(hist_values1,hist_values1[-1])+np.append(errors_1,errors_1[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+  if use_stat_err:
+      errors_1 = np.sqrt(hist_values1)
+      errors_2 = np.sqrt(hist_values2)
 
-    # Plot the other histogram as markers with error bars
-    ax1.errorbar(bin_centers, hist_values2, yerr=errors_2, fmt='o', label=name_2, color="black")
+  if density:
+      hist1_norm = hist_values1.sum()
+      hist2_norm = hist_values2.sum()
+      hist_values1 *= 1/hist1_norm
+      hist_values2 *= 1/hist2_norm
+      errors_1 *= 1/hist1_norm
+      errors_2 *= 1/hist2_norm
 
-    # Get the current handles and labels of the legend
-    handles, labels = ax1.get_legend_handles_labels()
+  # Plot the histograms on the top pad
+  ax1.bar(bin_edges[:-1], hist_values1, width=np.diff(bin_edges), align='edge', alpha=1.0, label=name_1, color=(248/255,206/255,104/255), edgecolor=None)
+  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
+  step_histvals = np.append(np.insert(hist_values1,0,0.0),0.0)
+  ax1.step(step_edges, step_histvals, color='black')
+  ax1.set_xlim([bin_edges[0],bin_edges[-1]])
+  ax1.fill_between(bin_edges[:],np.append(hist_values1,hist_values1[-1])-np.append(errors_1,errors_1[-1]),np.append(hist_values1,hist_values1[-1])+np.append(errors_1,errors_1[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
 
-    # Reverse the order of handles and labels
-    handles = handles[::-1]
-    labels = labels[::-1]
+  # Plot the other histogram as markers with error bars
+  ax1.errorbar(bin_centers, hist_values2, yerr=errors_2, fmt='o', label=name_2, color="black")
 
-    # Create the reversed legend
-    ax1.legend(handles, labels)
+  # Get the current handles and labels of the legend
+  handles, labels = ax1.get_legend_handles_labels()
 
-    #ax1.legend()
-    ax1.set_ylabel('Density')
-    hep.cms.text("Work in progress",ax=ax1)
+  # Reverse the order of handles and labels
+  handles = handles[::-1]
+  labels = labels[::-1]
 
-    ax1.text(1.0, 1.0, title_right,
-        verticalalignment='bottom', horizontalalignment='right',
-        transform=ax1.transAxes)
+  # Create the reversed legend
+  ax1.legend(handles, labels)
 
-    # Compute the ratio of the histograms
-    zero_indices = np.where(hist_values1 == 0)
-    for i in zero_indices: hist_values1[i] = 1.0
+  #ax1.legend()
+  ax1.set_ylabel('Density')
+  hep.cms.text("Work in progress",ax=ax1)
 
-    ratio = np.divide(hist_values2,hist_values1)
-    ratio_errors_1 = np.divide(errors_1,hist_values1)
-    ratio_errors_2 = np.divide(errors_2,hist_values1)
+  ax1.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes)
 
-    for i in zero_indices:
-       ratio[i] = 0.0
-       ratio_errors_1[i] = 0.0
-       ratio_errors_2[i] = 0.0
+  # Compute the ratio of the histograms
+  zero_indices = np.where(hist_values1 == 0)
+  for i in zero_indices: hist_values1[i] = 1.0
 
-    # Plot the ratio on the bottom pad
-    ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=name_2, color="black")
+  ratio = np.divide(hist_values2,hist_values1)
+  ratio_errors_1 = np.divide(errors_1,hist_values1)
+  ratio_errors_2 = np.divide(errors_2,hist_values1)
 
-    ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
-    ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
-    ax2.set_xlabel(xlabel)
-    ax2.set_ylabel('Ratio')
-    ax2.set_ylim([0.5,1.5])
+  for i in zero_indices:
+      ratio[i] = 0.0
+      ratio_errors_1[i] = 0.0
+      ratio_errors_2[i] = 0.0
 
-    # Adjust spacing between subplots
-    plt.subplots_adjust(hspace=0.1)
+  # Plot the ratio on the bottom pad
+  ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=name_2, color="black")
 
-    # Show the plot
-    print("Created "+name+".pdf")
-    plt.savefig(name+".pdf")
-    plt.close()
+  ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+  ax2.set_xlabel(xlabel)
+  ax2.set_ylabel('Ratio')
+  ax2.set_ylim([0.5,1.5])
 
-def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, cap_at=9, other_lklds={}, label="", title_right=""):
+  # Adjust spacing between subplots
+  plt.subplots_adjust(hspace=0.1)
 
+  # Show the plot
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+def plot_likelihood(
+    x, 
+    y, 
+    crossings, 
+    name="lkld", 
+    xlabel="", 
+    true_value=None, 
+    cap_at=9, 
+    other_lklds={}, 
+    label="", 
+    title_right=""
+  ):
+  """
+  Plot likelihood curve.
+
+  Parameters:
+      x (array-like): X-axis values.
+      y (array-like): Y-axis values.
+      crossings (dict): Dictionary containing special points in the likelihood curve.
+      name (str, optional): Name of the output file (without extension). Defaults to "lkld".
+      xlabel (str, optional): Label for the x-axis.
+      true_value (float, optional): True value to be marked on the plot.
+      cap_at (float, optional): Cap the y-axis at this value. Defaults to 9.
+      other_lklds (dict, optional): Additional likelihood curves to be overlaid.
+      label (str, optional): Label for the likelihood curve.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+
+  Returns:
+      None
+  """
   if cap_at != None:
     sel_inds = []
     x_plot = []
@@ -191,7 +260,11 @@ def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, ca
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
   
-  plt.legend()
+  plt.legend(loc='upper right')
+
+  if -1 in crossings.keys() and 1 in crossings.keys():
+    text = f'Result: {round(crossings[0],2)} + {round(crossings[1]-crossings[0],2)} - {round(crossings[0]-crossings[-1],2)}'
+    ax.text(0.05, 0.95, text, transform=ax.transAxes, va='top', ha='left')
 
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)
@@ -202,8 +275,34 @@ def plot_likelihood(x, y, crossings, name="lkld", xlabel="", true_value=None, ca
   plt.close()
 
 
-def plot_2d_likelihood(x, y, z, name="lkld_2d", xlabel="", ylabel="", best_fit=None, true_value=None, title_right=""):
+def plot_2d_likelihood(
+    x, 
+    y, 
+    z, 
+    name="lkld_2d", 
+    xlabel="", 
+    ylabel="", 
+    best_fit=None, 
+    true_value=None, 
+    title_right=""
+  ):
+  """
+  Plot 2D likelihood surface.
 
+  Parameters:
+      x (array-like): X-axis values.
+      y (array-like): Y-axis values.
+      z (array-like): Z-axis values (likelihood).
+      name (str, optional): Name of the output file (without extension). Defaults to "lkld_2d".
+      xlabel (str, optional): Label for the x-axis.
+      ylabel (str, optional): Label for the y-axis.
+      best_fit (tuple, optional): Coordinates of the best-fit point.
+      true_value (tuple, optional): Coordinates of the true value to be marked on the plot.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+
+  Returns:
+      None
+  """
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
 

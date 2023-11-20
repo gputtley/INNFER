@@ -5,22 +5,38 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 class Benchmarks():
-
+  """
+  A class for generating synthetic datasets and configurations for benchmarks.
+  """
   def __init__(self, name="Gaussian", parameters={}):
+    """
+    Initialize the Benchmarks class.
 
+    Args:
+        name (str): Name of the benchmark.
+        parameters (dict): Additional parameters for the benchmark.
+    """
     self.name = name
     self.model_parameters = {
       "Gaussian": {
-        "signal_resolution" : 0.1,
-        "true_masses" : [170.0,171.0,172.0,173.0,174.0,175.0],
+        "signal_resolution" : 0.01,
+        "true_masses" : [
+          166.0,167.0,168.0,169.0,170.0,
+          170.5,171.0,171.5,172.0,172.5,173.0,173.5,174.0,174.5,175.0,
+          176.0,177.0,178.0,179.0,180.0,
+        ]
       },
       "GaussianWithExpBkg": {
-        "signal_resolution" : 0.1,
+        "signal_resolution" : 0.01,
         "signal_fraction" : 0.3,
         "background_ranges" : [160.0,185.0],
         "background_lambda" : 0.1,
         "background_constant" : 160.0,
-        "true_masses" : [170.0,171.0,172.0,173.0,174.0,175.0],
+        "true_masses" : [
+          166.0,167.0,168.0,169.0,170.0,
+          170.5,171.0,171.5,172.0,172.5,173.0,173.5,174.0,174.5,175.0,
+          176.0,177.0,178.0,179.0,180.0,
+        ]
       }
     }
     self.saved_parameters = {}
@@ -31,7 +47,13 @@ class Benchmarks():
 
 
   def GetPDF(self, X, Y):
+    """
+    Initialize the Benchmarks class.
 
+    Args:
+        name (str): Name of the benchmark.
+        parameters (dict): Additional parameters for the benchmark.
+    """
     if isinstance(X, float) or isinstance(X, int): X = np.array([X])
     if isinstance(Y, float) or isinstance(Y, int): Y = np.array([Y])
 
@@ -56,7 +78,12 @@ class Benchmarks():
       return (self.model_parameters[self.name]["signal_fraction"]*sig_pdf) + ((1-self.model_parameters[self.name]["signal_fraction"])*bkg_pdf)
 
   def MakeDataset(self):
+    """
+    Generate synthetic datasets based on the benchmark type.
 
+    Returns:
+        None
+    """
     if self.name == "Gaussian":
 
       Y = np.random.choice(self.model_parameters[self.name]["true_masses"], size=self.array_size)
@@ -85,7 +112,12 @@ class Benchmarks():
     pq.write_table(table, parquet_file_path)
 
   def MakeConfig(self):
+    """
+    Generate configuration files for benchmarks.
 
+    Returns:
+        None
+    """
     if self.name == "Gaussian" or self.name == "GaussianWithExpBkg":
 
       cfg = {
@@ -97,7 +129,19 @@ class Benchmarks():
         "preprocess" : {
           "standardise" : "all",
           "train_test_val_split" : "0.3:0.3:0.4",
-          "equalise_y_wts" : False,          
+          "equalise_y_wts" : True,
+          "train_test_y_vals" : {
+            "true_mass" : [
+              166.0,167.0,168.0,169.0,170.0,
+              171.0,172.0,173.0,174.0,175.0,
+              176.0,177.0,178.0,179.0,180.0,              
+            ]
+          },
+          "validation_y_vals" : {
+            "true_mass" : [
+              171.0,171.5,172.0,172.5,173.0,173.5,174.0,174.5,175.0,
+            ]
+          }
         },
         "inference" : {},
         "data_file" : None
