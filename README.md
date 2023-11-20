@@ -44,7 +44,11 @@ There is no actual data to infer on in the benchmark scenarios, so this step can
 
 ## Running from Dataset
 
-To run from a dataset the input file must be a parquet file. Alongside the parquet file, a yaml config file must be provided. This config should include all the relevant running options and the location of the parquet file. An example of how this should look is shown below.
+To run from a dataset the input file must be a parquet file. The parquet file should be a flat datasets of X and Y variables (as well as weights) as columns and events as rows. The dataset should then looks something like this.
+
+![Data example](data/data_example.png)
+
+Alongside the parquet file, a yaml config file must be provided. This config should include all the relevant running options and the location of the parquet file. An example of how this should look is shown below.
 
 ```
 name: ggHtoTauTauMass
@@ -73,6 +77,20 @@ inference:
     tau_id: "Gaussian"
 data_file:
   - data/susy_95_plus_bkg_sample.parquet
+```
+
+From this, INNFER can then be run with the following commands.
+```
+python3 scripts/innfer.py --step="PreProcess" --cfg="configs/run/susy_example.yaml"
+```
+```
+python3 scripts/innfer.py --step="Train" --cfg="configs/run/susy_example.yaml"
+```
+```
+python3 scripts/innfer.py --step="Validate" --cfg="configs/run/susy_example.yaml"
+```
+```
+python3 scripts/innfer.py --step="Infer" --cfg="configs/run/susy_example.yaml"
 ```
 
 ## Structure of Code
