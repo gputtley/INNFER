@@ -25,6 +25,7 @@ Running INNFER happens in 4 stages:
 * Train
 * Validate
 * Infer
+
 Each of these steps are run through the `scripts/innfer.py` code, with the `--step` option matching the relevant stage of running.
 
 ## Running from Benchmark
@@ -32,12 +33,16 @@ Each of these steps are run through the `scripts/innfer.py` code, with the `--st
 The simple example of inferring the top mass from a mass resolution like variable can be run from the benchmark class with this command.
 ```
 python3 scripts/innfer.py --step="PreProcess" --benchark="Gaussian"
+```
+```
 python3 scripts/innfer.py --step="Train" --benchark="Gaussian" --architecture="configs/architecture/simple.yaml"
+```
+```
 python3 scripts/innfer.py --step="Validate" --benchark="Gaussian"
 ```
 There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`.
 
-## Running from dataset
+## Running from Dataset
 
 To run from a dataset the input file must be a parquet file. Alongside the parquet file, a yaml config file must be provided. This config should include all the relevant running options and the location of the parquet file. An example of how this should look is shown below.
 
@@ -70,30 +75,30 @@ data_file:
   - data/susy_95_plus_bkg_sample.parquet
 ```
 
-## Structure of code
+## Structure of Code
 
 The code is built off of the several classes in the `python` directory. A brief explanation of each one is shown below.
 
-# Batch
+### Batch
 This class is used to submit the jobs to the requested cluster. This is currently only set up for an SGE cluster. TO DO: Add condor submission options.
 
-# Benchmarks
+### Benchmarks
 This class includes the information of all benchmark scenarios. It can generate the datasets, provide the probability density function and make the yaml running config.
 
-# DataLoader
+### DataLoader
 This class is used to load in the dataset from a parquet file. It is set up to load in batches so not to exhaust the memory usage when training.
 
-# InnferTrainer
+### InnferTrainer
 This class is an extension of the BayesFlow Trainer class. It allows training from parquet files, as well as batch resampling.
 
-# Likelihood
+### Likelihood
 This class stores the likelihood. It can be used for scans and minimisation.
 
-# Network
+### Network
 This class works with the BayesFlow amortizer class. It helps build and train the models, as well as return the probabilities of a given events and sampling to produce new datasets.
 
-# PreProcess
+### PreProcess
 This class preprocesses the input dataset. It returns datasets split by train, test and validation, as well as X, Y and wt. It will also perform any data transformations, such as standardisation, asked for in the running config.
 
-# Validation
+### Validation
 This class performs validation on the trained networks. It can create plots of synthetic vs simulated data, as well as drawing the likelihood scans for each required Y values.
