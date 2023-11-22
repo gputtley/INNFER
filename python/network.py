@@ -251,6 +251,7 @@ class Network():
 
     pp = PreProcess()
     pp.parameters = self.data_parameters
+    X_untransformed = copy.deepcopy(X)
     X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns)).to_numpy()
     Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
     data = {
@@ -264,5 +265,13 @@ class Network():
     tf.random.set_seed(seed)
     prob = np.exp(self.amortizer.log_posterior(data))
     prob = pp.UnTransformProb(prob)
+
+    if np.any(prob == 0):
+      print("WARNING: Zero probabilities found. Setting to 1.")
+      indices = np.where(prob == 0)
+      prob[indices] = 1
+      print("Problem Row(s):")
+      print(self.X_train.columns)
+      print(X_untransformed[indices])
 
     return prob

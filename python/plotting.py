@@ -264,7 +264,7 @@ def plot_likelihood(
 
   if -1 in crossings.keys() and 1 in crossings.keys():
     text = f'Result: {round(crossings[0],2)} + {round(crossings[1]-crossings[0],2)} - {round(crossings[0]-crossings[-1],2)}'
-    ax.text(0.05, 0.95, text, transform=ax.transAxes, va='top', ha='left')
+    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left')
 
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)

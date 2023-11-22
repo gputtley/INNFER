@@ -61,11 +61,14 @@ class PreProcess():
 
     self.parameters["unique_Y_values"] = {}
     for col in full_dataset[Y_columns].columns:
-      unique_vals = full_dataset.loc[:,[col]].drop_duplicates()
-      if len(unique_vals) < 20:
-        self.parameters["unique_Y_values"][col] = sorted([float(i) for i in unique_vals.to_numpy().flatten()])
+      if col not in self.validation_y_vals:
+        unique_vals = full_dataset.loc[:,[col]].drop_duplicates()
+        if len(unique_vals) < 20:
+          self.parameters["unique_Y_values"][col] = sorted([float(i) for i in unique_vals.to_numpy().flatten()])
+        else:
+          self.parameters["unique_Y_values"][col] = None
       else:
-        self.parameters["unique_Y_values"][col] = None
+        self.parameters["unique_Y_values"][col] = self.validation_y_vals[col]
 
     train_ratio = float(self.train_test_val_split.split(":")[0])
     test_ratio = float(self.train_test_val_split.split(":")[1])
@@ -85,7 +88,7 @@ class PreProcess():
     for k, v in self.validation_y_vals.items():
       val_df = val_df[val_df[k].isin(v)]
  
-    del dl, full_dataset, temp_df, unique_vals
+    del dl, full_dataset, temp_df
     gc.collect()
 
     self.parameters["standardisation"] = {}

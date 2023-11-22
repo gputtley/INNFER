@@ -20,7 +20,7 @@ class DataLoader():
     self.generator = None
     self.batch_num = 0
     self.num_rows = self.parquet_file.metadata.num_rows
-    self.columns = [str(i) for i in self.parquet_file.schema.names]
+    self.columns = [str(i) for i in self.parquet_file.schema.names if i != '__index_level_0__']
     self.num_columns = len(self.columns)
     self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
 
