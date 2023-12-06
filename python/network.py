@@ -9,6 +9,7 @@ from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
 from plotting import plot_histograms
+from scipy import integrate
 
 class Network():
   """
@@ -212,25 +213,25 @@ class Network():
     Returns:
         np.ndarray: Synthetic data samples.
     """
+    Y = np.array(Y)
+    if Y.ndim == 1 or len(Y) == 1: Y = np.tile(Y, (n_events, 1))
     if columns is not None:
-      column_indices = [columns.index(col) for col in self.Y_train.columns]
+      column_indices = [columns.index(col) for col in self.data_parameters["Y_columns"]]
       Y = Y[:,column_indices]
-    if len(Y) == 1: Y = np.tile(Y, (n_events, 1))
     pp = PreProcess()
     pp.parameters = self.data_parameters
-    Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
+    Y = pp.TransformData(pd.DataFrame(Y, columns=self.data_parameters["Y_columns"])).to_numpy()
     data = {
       "direct_conditions" : Y.astype(np.float32)
     }
     synth = self.amortizer.sample(data, 1)[:,0,:]
-
     if self.fix_1d_spline:
       synth = synth[:,0].reshape(-1,1)
 
-    synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.X_train.columns)).to_numpy()
+    synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
     return synth
 
-  def Probability(self, X, Y, y_columns=None, seed=42):
+  def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False):
     """
     Calculate probabilities for given data.
 
@@ -262,16 +263,69 @@ class Network():
     if self.fix_1d_spline:
       data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
+    # Get probabilities
     tf.random.set_seed(seed)
-    prob = np.exp(self.amortizer.log_posterior(data))
-    prob = pp.UnTransformProb(prob)
+    log_prob = self.amortizer.log_posterior(data)
+    log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
-    if np.any(prob == 0):
-      print("WARNING: Zero probabilities found. Setting to 1.")
-      indices = np.where(prob == 0)
-      prob[indices] = 1
+    if self.fix_1d_spline:
+      log_prob += np.log(np.sqrt(2*np.pi))
+
+    # Do checks
+    if np.any(log_prob == -np.inf) and change_zero_prob:
+      print("WARNING: Zero probabilities found.")
+      indices = np.where(log_prob == -np.inf)
+      print("Problem Row(s):")
+      print(self.X_train.columns)
+      print(X_untransformed[indices])
+    if np.any(np.isnan(log_prob)):
+      print("WARNING: NaN probabilities found.")
+      indices = np.isnan(log_prob)
+      log_prob[indices] = -np.inf
       print("Problem Row(s):")
       print(self.X_train.columns)
       print(X_untransformed[indices])
 
-    return prob
+    # Change probs
+    if change_zero_prob:
+      indices = np.where(log_prob == -np.inf)
+      log_prob[indices] = 1
+
+    if return_log_prob:
+      return log_prob
+    else:
+      return np.exp(log_prob)
+  
+  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10, n_samples=10**5, ignore_quantile=0.001, method="histogramdd"):
+
+    synth = self.Sample(Y, columns=y_columns, n_events=n_samples)
+
+    if method == "histogramdd":
+
+      for col in range(synth.shape[1]):
+        lower_value = np.quantile(synth[:,col], ignore_quantile)
+        upper_value = np.quantile(synth[:,col], 1-ignore_quantile)
+        trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
+        synth = synth[trimmed_indices,:]
+
+      _, edges = np.histogramdd(synth, bins=n_integral_bins)
+      bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
+      meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
+      unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
+
+      probs = self.Probability(unique_values, Y, change_zero_prob=False)
+      bin_volumes = np.prod(np.diff(edges)[:,0], axis=None)
+      integral = np.sum(probs) * bin_volumes
+
+    elif method == "scipy":
+
+      ranges = []
+      for col in range(synth.shape[1]):
+        ranges.append([np.quantile(synth[:,col], ignore_quantile),np.quantile(synth[:,col], 1-ignore_quantile)])
+
+      def IntegrateFunc(*args):
+        return self.Probability(np.array([list(args)]), Y, change_zero_prob=False)
+      
+      integral, _ = integrate.nquad(IntegrateFunc, ranges)
+
+    print(f"Integral for Y is {integral}")

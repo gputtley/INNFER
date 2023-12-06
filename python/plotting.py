@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
 import mplhep as hep
+import seaborn as sns
 
 hep.style.use("CMS")
    
@@ -339,4 +340,122 @@ def plot_2d_likelihood(
   plt.ylabel(ylabel)
   print("Created "+name+".pdf")
   plt.savefig("{}.pdf".format(name))
+  plt.close()
+
+
+def plot_stacked_histogram_with_ratio(
+    data_hist, 
+    stack_hist_dict, 
+    bin_edges, 
+    data_name='Data', 
+    xlabel="",
+    ylabel="Events",
+    name="fig", 
+    data_errors=None, 
+    stack_hist_errors=None, 
+    title_right="",
+    use_stat_err=False,
+    axis_text="",
+  ):
+
+  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+  bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
+
+  data_hist = data_hist.astype(np.float64)
+  for k, v in stack_hist_dict.items():
+    stack_hist_dict[k] = v.astype(np.float64)
+
+  total_stack_hist = np.sum(list(stack_hist_dict.values()), axis=0)
+
+  if data_errors is None:
+      data_errors = 0*data_hist
+  if stack_hist_errors is None:
+      stack_hist_errors = 0*total_stack_hist   
+
+  if use_stat_err:
+      data_errors = np.sqrt(data_hist)
+      stack_hist_errors = np.sqrt(total_stack_hist)
+
+  # Plot the histograms on the top pad
+  rgb_palette = sns.color_palette("Set2", 8)
+  for ind, (k, v) in enumerate(stack_hist_dict.items()):
+    if ind == 0:
+      bottom = None
+    else:
+       bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
+
+    ax1.bar(
+       bin_edges[:-1], 
+       v, 
+       bottom=bottom,
+       width=np.diff(bin_edges), 
+       align='edge', 
+       alpha=1.0, 
+       label=k, 
+       color=tuple(x for x in rgb_palette[ind]), 
+       edgecolor=None
+      )
+
+  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
+  summed_stack_hist = np.zeros(len(total_stack_hist))
+  for k, v in stack_hist_dict.items():
+    summed_stack_hist += v
+    step_histvals = np.append(np.insert(summed_stack_hist,0,0.0),0.0)
+    ax1.step(step_edges, step_histvals, color='black')
+
+  ax1.set_xlim([bin_edges[0],bin_edges[-1]])
+
+  ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+
+  # Plot the other histogram as markers with error bars
+  ax1.errorbar(bin_centers, data_hist, yerr=data_errors, fmt='o', label=data_name, color="black")
+
+  # Get the current handles and labels of the legend
+  handles, labels = ax1.get_legend_handles_labels()
+
+  # Reverse the order of handles and labels
+  handles = handles[::-1]
+  labels = labels[::-1]
+
+  # Create the reversed legend
+  ax1.legend(handles, labels, loc='upper right')
+
+  #ax1.legend()
+  ax1.set_ylabel(ylabel)
+  hep.cms.text("Work in progress",ax=ax1)
+
+  ax1.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes)
+
+  ax1.text(0.03, 0.96, axis_text, transform=ax1.transAxes, va='top', ha='left')
+
+  # Compute the ratio of the histograms
+  zero_indices = np.where(total_stack_hist == 0)
+  for i in zero_indices: total_stack_hist[i] = 1.0
+
+  ratio = np.divide(data_hist,total_stack_hist)
+  ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
+  ratio_errors_2 = np.divide(data_errors,total_stack_hist)
+
+  for i in zero_indices:
+      ratio[i] = 0.0
+      ratio_errors_1[i] = 0.0
+      ratio_errors_2[i] = 0.0
+
+  # Plot the ratio on the bottom pad
+  ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
+
+  ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+  ax2.set_xlabel(xlabel)
+  ax2.set_ylabel('Ratio')
+  ax2.set_ylim([0.5,1.5])
+
+  # Adjust spacing between subplots
+  plt.subplots_adjust(hspace=0.1)
+
+  # Show the plot
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf")
   plt.close()

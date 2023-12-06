@@ -56,10 +56,14 @@ class Batch():
     else:
       error_log = "/dev/null"
     if not self.dry_run:
-      if self.cores>1:
-        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+      if self.sge_queue != "gpu.q":
+        if self.cores>1:
+          sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+        else:
+          sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
       else:
-        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+        if self.running_hours < 24: self.running_hours = 24
+        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -cwd {self.job_name}'
       os.system(sub_cmd)
 
   def _CreateJob(self, cmd_list):

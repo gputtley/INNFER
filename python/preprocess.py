@@ -82,11 +82,13 @@ class PreProcess():
     val_df = val_df.reset_index(drop=True)
 
     for k, v in self.train_test_y_vals.items():
-      train_df = train_df[train_df[k].isin(v)]
-      test_df = test_df[test_df[k].isin(v)]
+      if k in train_df.columns:
+        train_df = train_df[train_df[k].isin(v)]
+        test_df = test_df[test_df[k].isin(v)]
 
     for k, v in self.validation_y_vals.items():
-      val_df = val_df[val_df[k].isin(v)]
+      if k in val_df.columns:
+        val_df = val_df[val_df[k].isin(v)]
  
     del dl, full_dataset, temp_df
     gc.collect()
@@ -111,6 +113,10 @@ class PreProcess():
     wt_train_df = train_df[["wt"]]
     wt_test_df = test_df[["wt"]]
     wt_val_df = val_df[["wt"]]      
+
+    pq.write_table(pa.Table.from_pandas(wt_train_df), self.output_dir+"/wt_nominal_train.parquet")
+    pq.write_table(pa.Table.from_pandas(wt_test_df), self.output_dir+"/wt_nominal_test.parquet")
+    pq.write_table(pa.Table.from_pandas(wt_val_df), self.output_dir+"/wt_nominal_val.parquet")
 
     if self.equalise_y_wts:
       wt_train_df = self.EqualiseYWeights(Y_train_df, wt_train_df)
@@ -182,20 +188,22 @@ class PreProcess():
     Returns:
         pd.DataFrame: DataFrame with equalized weights.
     """
-    unique_rows = Y.drop_duplicates()
 
-    sum_weights = []
-    for _, ur in unique_rows.iterrows():
-      matching_rows = (Y == ur).all(axis=1)
-      sum_weights.append(float(wt[matching_rows].sum().iloc[0]))
-    max_sum_weights = max(sum_weights)
+    if len(Y.columns) > 0:
+      unique_rows = Y.drop_duplicates()
 
-    ind = 0
-    for _, ur in unique_rows.iterrows():
-      if sum_weights[ind] == 0: continue
-      matching_rows = (Y == ur).all(axis=1)
-      wt.loc[matching_rows,:] = (max_sum_weights / sum_weights[ind]) * wt.loc[matching_rows,:]
-      ind += 1
+      sum_weights = []
+      for _, ur in unique_rows.iterrows():
+        matching_rows = (Y == ur).all(axis=1)
+        sum_weights.append(float(wt[matching_rows].sum().iloc[0]))
+      max_sum_weights = max(sum_weights)
+
+      ind = 0
+      for _, ur in unique_rows.iterrows():
+        if sum_weights[ind] == 0: continue
+        matching_rows = (Y == ur).all(axis=1)
+        wt.loc[matching_rows,:] = (max_sum_weights / sum_weights[ind]) * wt.loc[matching_rows,:]
+        ind += 1
 
     return wt
 
@@ -229,7 +237,7 @@ class PreProcess():
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
     return data   
 
-  def UnTransformProb(self, prob):
+  def UnTransformProb(self, prob, log_prob=False):
     """
     Untransform probabilities.
 
@@ -239,12 +247,15 @@ class PreProcess():
     Returns:
         float: The untransformed probability.
     """    
-    for column_name in self.parameters["Y_columns"]:
+    for column_name in self.parameters["X_columns"]:
       if column_name in self.parameters["standardisation"]:
-        prob *= self.parameters["standardisation"][column_name]["std"]
+        if not log_prob:
+          prob /= self.parameters["standardisation"][column_name]["std"]
+        else:
+          prob -= np.log(self.parameters["standardisation"][column_name]["std"])
     return prob 
 
-  def LoadSplitData(self, dataset="train", get=["X","Y","wt"]):
+  def LoadSplitData(self, dataset="train", get=["X","Y","wt"], use_nominal_wt=False):
     """
     Load split data (X, Y, and weights) from the preprocessed files.
 
@@ -269,7 +280,10 @@ class PreProcess():
       output.append(Y_data)
 
     if "wt" in get:
-      wt_dl = DataLoader(f"{self.output_dir}/wt_{dataset}.parquet")
+      if not use_nominal_wt:
+        wt_dl = DataLoader(f"{self.output_dir}/wt_{dataset}.parquet")
+      else:
+        wt_dl = DataLoader(f"{self.output_dir}/wt_nominal_{dataset}.parquet")
       output.append(wt_dl.LoadFullDataset())
 
     return output

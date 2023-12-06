@@ -1,5 +1,6 @@
 import copy
 import yaml
+import time
 import numpy as np
 from scipy.optimize import minimize
 
@@ -65,6 +66,11 @@ class Likelihood():
 
     return lkld_val
 
+  def _LogSumExpTrick(self, ln_a, ln_b):
+    mask = ln_b > ln_a
+    ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
+    return ln_a + np.log1p(np.exp(ln_b - ln_a))
+
   def Unbinned(self, X, Y, wts=None, return_ln=False):
     """
     Computes the likelihood for unbinned data.
@@ -79,39 +85,57 @@ class Likelihood():
         float: The likelihood value.
 
     """
-    lkld_per_x = np.zeros(len(X))
+
     Y = list(Y)
 
+    first_loop = True
+    sum_rate_params = 0.0
     for name, pdf in self.models["pdfs"].items():
 
       if "mu_"+name in self.Y_columns:
         rate_param = Y[self.Y_columns.index("mu_"+name)]
       else:
         rate_param = 1.0
+      if rate_param == 0.0: continue
+      sum_rate_params += rate_param
 
-      lkld_per_x += rate_param * pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns)
+      # Get rate times probability
+      log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+      ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
+      # Sum together probabilities of different files
+      if first_loop:
+        ln_lklds = copy.deepcopy(ln_lklds_with_rate_params)
+        first_loop = False
+      else:
+        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
+
+    # Rescale so total pdf integrate to 1
+    ln_lklds -= np.log(sum_rate_params)
+
+    # Weight the events
     if wts is not None:
-      lkld_per_x = lkld_per_x**wts.flatten()
-    
+      ln_lklds = wts.flatten()*ln_lklds
 
-    ln_lkld = np.log(lkld_per_x).sum()
+    # Product the events
+    ln_lkld = ln_lklds.sum()
 
+    # Add constraints
     if "nuisance_constraints" in self.parameters.keys():
-      for k, v in self.parameters.items():
+      for k, v in self.parameters["nuisance_constraints"].items():
         if v == "Gaussian":
           constraint = self._Gaussian(Y[self.Y_columns.index(k)])
         elif v == "LogNormal":
           constraint = self._LogNormal(Y[self.Y_columns.index(k)])
         ln_lkld += np.log(constraint)
 
-
+    print(f">> Y={Y}, lnL={ln_lkld}")
     if return_ln:
       return ln_lkld
     else:
       return np.exp(ln_lkld)
 
-  def UnbinnedExtended(self, X, Y, wts=None):
+  def UnbinnedExtended(self, X, Y, wts=None, return_ln=False):
     """
     Computes the extended likelihood for unbinned data.
 
@@ -125,12 +149,60 @@ class Likelihood():
         float: The likelihood value.
 
     """
-    print("- Building unbinned extended likelihood")
+    Y = list(Y)
 
-  def _Gaussian(x):
+    first_loop = True
+    sum_rate_params = 0.0
+    for name, pdf in self.models["pdfs"].items():
+
+      if "mu_"+name in self.Y_columns:
+        rate_param = Y[self.Y_columns.index("mu_"+name)]
+      else:
+        rate_param = 1.0
+      if rate_param == 0.0: continue
+      sum_rate_params += rate_param
+
+      # Get rate times probability
+      log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+      # NEED TO PUT YIELD SCALING FUNCTIONS HERE
+      ln_lklds_with_rate_params = np.log(rate_param) + log_p
+
+      # Sum together probabilities of different files
+      if first_loop:
+        ln_lklds = copy.deepcopy(ln_lklds_with_rate_params)
+        first_loop = False
+      else:
+        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
+
+    # NEED TO PUT NEGATIVE EXPONENTIAL OF YIELD SCALING FUNCTIONS
+
+    # Weight the events
+    if wts is not None:
+      ln_lklds = wts.flatten()*ln_lklds
+
+    # Product the events
+    ln_lkld = ln_lklds.sum()
+
+    # Add constraints
+    if "nuisance_constraints" in self.parameters.keys():
+      for k, v in self.parameters["nuisance_constraints"].items():
+        if v == "Gaussian":
+          constraint = self._Gaussian(Y[self.Y_columns.index(k)])
+        elif v == "LogNormal":
+          constraint = self._LogNormal(Y[self.Y_columns.index(k)])
+        ln_lkld += np.log(constraint)
+
+    print(f">> Y={Y}, lnL={ln_lkld}")
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
+
+
+  def _Gaussian(self, x):
     return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2)
 
-  def _LogNormal(x):
+  def _LogNormal(self, x):
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
   def GetBestFit(self, X, initial_guess, wts=None):
@@ -159,20 +231,16 @@ class Likelihood():
       m1p1_vals = {}
       fin = True
       for sign in [1,-1]:
-        print("Sign:", sign)
         Y = copy.deepcopy(self.best_fit)
         step = max(self.best_fit[col_index]*initial_step_fraction,min_step)
-        print("Step:",step)
         Y[col_index] = self.best_fit[col_index] + sign*step
         nll = -2*self.Run(X, Y, wts=wts, return_ln=True) - self.best_fit_nll
         if nll < 0.0:
           self.best_fit[col_index] = Y[col_index]
           self.best_fit_nll += nll
           fin = False
-          print("Resetting best fit:", self.best_fit[col_index])
           break
         est_sig = np.sqrt(nll)
-        print("Est Sig:", est_sig)
         m1p1_vals[sign] = step/est_sig
       if fin: nll_could_be_neg = False
 
@@ -185,9 +253,9 @@ class Likelihood():
 
     self.GetBestFit(X, np.array(initial_guess), wts=wt)
     dump = {
-      "row" : row.tolist(),
+      "row" : [float(i) for i in row],
       "columns": self.Y_columns, 
-      "best_fit": self.best_fit.tolist(), 
+      "best_fit": [float(i) for i in self.best_fit], 
       "best_fit_nll": float(self.best_fit_nll)
       }
     print(dump)
@@ -199,7 +267,7 @@ class Likelihood():
 
     scan_values = self.GetScanXValues(X, col, wts=wt)
     dump = {
-      "row" : row.tolist(),
+      "row" : [float(i) for i in row],
       "columns" : self.Y_columns, 
       "varied_column" : col,
       "scan_values" : scan_values
@@ -216,7 +284,7 @@ class Likelihood():
     Y[col_index] = col_val
     nll = -2*self.Run(X, Y, wts=wt, return_ln=True) - self.best_fit_nll
     dump = {
-      "row" : row.tolist(),
+      "row" : [float(i) for i in row],
       "columns" : self.Y_columns, 
       "varied_column" : col,
       "nlls": [float(nll)], 
@@ -339,5 +407,6 @@ class Likelihood():
         tuple: Best-fit parameters and the corresponding function value.
 
     """
-    minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.1, options={'xatol': 0.001, 'fatol': 0.1, 'maxiter': 20})
+    minimisation = minimize(func, initial_guess, method='Nelder-Mead')
+    #minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'maxiter': 20})
     return minimisation.x, minimisation.fun

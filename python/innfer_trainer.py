@@ -196,3 +196,4 @@ class InnferTrainer(bf.trainers.Trainer):
       X_data = X_data[resampled_indices]
       Y_data = Y_data[resampled_indices]
       return {"parameters" : X_data, "direct_conditions" : Y_data}
+      #return {"parameters" : X_data}

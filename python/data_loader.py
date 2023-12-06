@@ -31,10 +31,13 @@ class DataLoader():
     Returns:
         pd.DataFrame: The next batch of data as a Pandas DataFrame.
     """
-    if self.batch_num == 0:
-      self.generator = self.parquet_file.iter_batches(batch_size=self.batch_size)
-    self.batch_num = (self.batch_num + 1) % self.num_batches
-    return next(self.generator).to_pandas()
+    if self.num_rows > 0:
+      if self.batch_num == 0:
+        self.generator = self.parquet_file.iter_batches(batch_size=self.batch_size)
+      self.batch_num = (self.batch_num + 1) % self.num_batches
+      return next(self.generator).to_pandas()
+    else:
+      return pd.DataFrame(index=range(self.batch_size))
 
   def LoadFullDataset(self):
     """
