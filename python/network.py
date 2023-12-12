@@ -94,7 +94,7 @@ class Network():
 
     # fix 1d latent space for spline and affine
     if self.fix_1d_spline:
-      print("WARNING: Running fix for 1D latent space for spline and affine couplings. Code may take longer to run.")
+      print("WARNING: Running fix for 1D latent space for spline and interleaved couplings. Code may take longer to run.")
       latent_dim = 2
 
     settings = {
@@ -231,7 +231,7 @@ class Network():
     synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
     return synth
 
-  def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False):
+  def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False, run_normalise=True):
     """
     Calculate probabilities for given data.
 
@@ -248,6 +248,7 @@ class Network():
     if y_columns is not None:
       column_indices = [y_columns.index(col) for col in self.Y_train.columns]
       Y = Y[:,column_indices]
+    Y_initial = copy.deepcopy(Y)
     if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
 
     pp = PreProcess()
@@ -268,8 +269,9 @@ class Network():
     log_prob = self.amortizer.log_posterior(data)
     log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
-    if self.fix_1d_spline:
-      log_prob += np.log(np.sqrt(2*np.pi))
+    if self.fix_1d_spline and run_normalise:
+      log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=False))
+      #log_prob += np.log(np.sqrt(2*np.pi)) # quicker but doesn't always work if you do not close the added dimension
 
     # Do checks
     if np.any(log_prob == -np.inf) and change_zero_prob:
@@ -296,8 +298,22 @@ class Network():
     else:
       return np.exp(log_prob)
   
-  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10, n_samples=10**5, ignore_quantile=0.001, method="histogramdd"):
+  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=1000, n_samples=10**5, ignore_quantile=0.0001, method="histogramdd", verbose=True):
+    """
+    Computes the integral of the probability density function over a specified range.
 
+    Args:
+        Y (array): The values of the model parameters for which the probability integral is computed.
+        y_columns (list): List of column names corresponding to the model parameters (optional).
+        n_integral_bins (int): Number of bins used for the integral calculation (default is 1000).
+        n_samples (int): Number of samples used for generating synthetic data (default is 10**5).
+        ignore_quantile (float): Fraction of extreme values to ignore when computing the integral (default is 0.0001).
+        method (str): The method used for integration, either "histogramdd" or "scipy" (default is "histogramdd").
+        verbose (bool): Whether to print the computed integral value (default is True).
+
+    Returns:
+        float: The computed integral of the probability density function.
+    """
     synth = self.Sample(Y, columns=y_columns, n_events=n_samples)
 
     if method == "histogramdd":
@@ -313,7 +329,7 @@ class Network():
       meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
       unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
 
-      probs = self.Probability(unique_values, Y, change_zero_prob=False)
+      probs = self.Probability(unique_values, Y, change_zero_prob=False, run_normalise=False)
       bin_volumes = np.prod(np.diff(edges)[:,0], axis=None)
       integral = np.sum(probs) * bin_volumes
 
@@ -328,4 +344,5 @@ class Network():
       
       integral, _ = integrate.nquad(IntegrateFunc, ranges)
 
-    print(f"Integral for Y is {integral}")
+    if verbose: print(f"Integral for Y is {integral}")
+    return integral

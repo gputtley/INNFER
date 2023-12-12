@@ -62,17 +62,30 @@ class Benchmarks():
 
 
   def GetPDF(self, file_name):
+    """
+    Get a PDF function based on the specified benchmark and file name.
+
+    Args:
+        file_name (str): Name of the file.
+
+    Returns:
+        function: PDF function for the specified benchmark and file.
+    """
     def return_pdf(X, Y):
       return self.PDF(X,Y,file_name)
     return return_pdf
 
   def PDF(self, X, Y, file_name):
     """
-    Initialize the Benchmarks class.
+    Calculate the probability density function (PDF) for a given X, Y, and file name.
 
     Args:
-        name (str): Name of the benchmark.
-        parameters (dict): Additional parameters for the benchmark.
+        X (array-like): Values of the X variable.
+        Y (array-like): Values of the Y variable.
+        file_name (str): Name of the file.
+
+    Returns:
+        array-like: PDF values.
     """
     if isinstance(X, float) or isinstance(X, int): X = np.array([X])
     if isinstance(Y, float) or isinstance(Y, int): Y = np.array([Y])
@@ -128,9 +141,6 @@ class Benchmarks():
   def MakeDataset(self):
     """
     Generate synthetic datasets based on the benchmark type.
-
-    Returns:
-        None
     """
     if self.name == "Gaussian":
 
@@ -218,9 +228,6 @@ class Benchmarks():
   def MakeConfig(self):
     """
     Generate configuration files for benchmarks.
-
-    Returns:
-        None
     """
     if self.name == "Gaussian" or self.name == "GaussianWithExpBkg":
 

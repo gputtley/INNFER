@@ -1,7 +1,7 @@
 name: ggHtoTauTauMass
 files:
-  susy_signal: data/susy_samples.parquet
-  dy_background: data/dy_samples.parquet  
+  dy_background: data/dy_samples_v2.parquet  
+  susy_signal: data/susy_samples_v2.parquet
 variables:
   - m_vis
   - pt_1
@@ -17,5 +17,21 @@ preprocess:
   standardise: all
   train_test_val_split: 0.3:0.3:0.4
   equalise_y_wts: True
+  validation_y_vals:
+    "tau_id":
+      - -1.2
+      - 0.0
+      - 1.2
+inference:
+  rate_parameters:
+    - susy_signal
+  nuisance_constraints:
+    tau_id: "Gaussian"
+validation:
+  rate_parameter_vals:
+    susy_signal:
+      - 0.2
+      - 0.6
+      - 1.0
 data_file:
   - data/susy_95_plus_bkg_sample.parquet

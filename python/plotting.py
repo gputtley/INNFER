@@ -41,9 +41,6 @@ def plot_histograms(
       error_bar_names (list of str, optional): Names for each error bar histogram.
       anchor_y_at_0 (bool, optional): If True, anchor the y-axis at 0. Defaults to False.
       drawstyle (str, optional): Drawstyle for the histograms. Defaults to "default".
-
-  Returns:
-      None
   """
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
@@ -101,9 +98,6 @@ def plot_histogram_with_ratio(
       title_right (str, optional): Text to be displayed at the top-right corner of the plot.
       density (bool, optional): If True, normalize histograms to unit area. Defaults to False.
       use_stat_err (bool, optional): If True, use square root of hist_values as errors. Defaults to False.
-
-  Returns:
-      None
   """
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
@@ -213,9 +207,6 @@ def plot_likelihood(
       other_lklds (dict, optional): Additional likelihood curves to be overlaid.
       label (str, optional): Label for the likelihood curve.
       title_right (str, optional): Text to be displayed at the top-right corner of the plot.
-
-  Returns:
-      None
   """
   if cap_at != None:
     sel_inds = []
@@ -237,7 +228,7 @@ def plot_likelihood(
   hep.cms.text("Work in progress",ax=ax)
   plt.plot(x, y, label=label)
 
-  colors = ["green", "blue", "red"]
+  colors = ["green", "red", "blue"]
   ind = 0
   for k, v in other_lklds.items():
      plt.plot(x, np.array(v)[np.array(sel_inds)], label=k, color=colors[ind])
@@ -253,11 +244,11 @@ def plot_likelihood(
   if -1 in crossings.keys():  
     plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
   if -2 in crossings.keys():  
-    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='red')
+    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
   if 1 in crossings.keys():  
     plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
   if 2 in crossings.keys():  
-    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='red')
+    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
   
@@ -300,9 +291,6 @@ def plot_2d_likelihood(
       best_fit (tuple, optional): Coordinates of the best-fit point.
       true_value (tuple, optional): Coordinates of the true value to be marked on the plot.
       title_right (str, optional): Text to be displayed at the top-right corner of the plot.
-
-  Returns:
-      None
   """
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
@@ -357,7 +345,23 @@ def plot_stacked_histogram_with_ratio(
     use_stat_err=False,
     axis_text="",
   ):
+  """
+  Plot a stacked histogram with a ratio plot.
 
+  Args:
+      data_hist (array-like): Histogram values for the data.
+      stack_hist_dict (dict): Dictionary of histogram values for stacked components.
+      bin_edges (array-like): Bin edges for the histograms.
+      data_name (str, optional): Label for the data histogram (default is 'Data').
+      xlabel (str, optional): Label for the x-axis (default is '').
+      ylabel (str, optional): Label for the y-axis (default is 'Events').
+      name (str, optional): Name of the output plot file without extension (default is 'fig').
+      data_errors (array-like, optional): Errors for the data histogram (default is None).
+      stack_hist_errors (array-like, optional): Errors for the stacked histograms (default is None).
+      title_right (str, optional): Text to be displayed on the upper right corner of the plot (default is '').
+      use_stat_err (bool, optional): If True, use statistical errors for the data and stacked histograms (default is False).
+      axis_text (str, optional): Text to be displayed on the bottom left corner of the plot (default is '').
+  """
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
 

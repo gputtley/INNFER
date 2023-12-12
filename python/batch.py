@@ -37,6 +37,12 @@ class Batch():
     """
     Run the batch job based on the specified submission system.
     """
+    split_directory = self.job_name.split("/")
+    for ind in range(len(split_directory)-1):
+      directory = "/".join(split_directory[:ind+1])
+      if not os.path.isdir(directory):
+        os.system(f"mkdir {directory}")
+
     if self.submit_to == "SGE":
       self.RunSGE()
 

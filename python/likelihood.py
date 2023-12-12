@@ -3,6 +3,7 @@ import yaml
 import time
 import numpy as np
 from scipy.optimize import minimize
+from plotting import plot_likelihood, plot_histograms
 
 class Likelihood():
   """
@@ -45,7 +46,7 @@ class Likelihood():
     return Y_columns
 
 
-  def Run(self, X, Y, wts=None, return_ln=False):
+  def Run(self, X, Y, wts=None, return_ln=False, before_sum=False):
     """
     Evaluates the likelihood for given data.
 
@@ -60,9 +61,9 @@ class Likelihood():
 
     """
     if self.type == "unbinned":
-      lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln)
+      lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
     elif self.type == "unbinned_extended":
-      lkld_val = self.UnbinnedExtended(X, Y, wts=wts, return_ln=return_ln)
+      lkld_val = self.UnbinnedExtended(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
 
     return lkld_val
 
@@ -71,7 +72,7 @@ class Likelihood():
     ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
 
-  def Unbinned(self, X, Y, wts=None, return_ln=False):
+  def Unbinned(self, X, Y, wts=None, return_ln=False, before_sum=False):
     """
     Computes the likelihood for unbinned data.
 
@@ -116,6 +117,9 @@ class Likelihood():
     # Weight the events
     if wts is not None:
       ln_lklds = wts.flatten()*ln_lklds
+
+    if before_sum:
+      return ln_lklds
 
     # Product the events
     ln_lkld = ln_lklds.sum()
@@ -200,9 +204,27 @@ class Likelihood():
 
 
   def _Gaussian(self, x):
+    """
+    Computes the Gaussian distribution.
+
+    Args:
+        x (float): The input value.
+
+    Returns:
+        float: The Gaussian distribution value.
+    """
     return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2)
 
   def _LogNormal(self, x):
+    """
+    Computes the Log-Normal distribution.
+
+    Args:
+        x (float): The input value.
+
+    Returns:
+        float: The Log-Normal distribution value.
+    """
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
   def GetBestFit(self, X, initial_guess, wts=None):
@@ -217,14 +239,27 @@ class Likelihood():
     """
     def NLL(Y): 
       nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
-      #print(Y, nll)
       return nll
     result = self.Minimise(NLL, initial_guess)
     self.best_fit = result[0]
     self.best_fit_nll = result[1]
 
   def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=5, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
+    """
+    Computes the scan values for a given column.
 
+    Args:
+        X (array): The independent variables.
+        column (str): The column name for the parameter to be scanned.
+        wts (array): The weights for the data points (optional).
+        estimated_sigmas_shown (int): Number of estimated sigmas to be shown in the scan (default is 5).
+        estimated_sigma_step (float): Step size for estimated sigmas in the scan (default is 0.2).
+        initial_step_fraction (float): Fraction of the initial value to use as the step size (default is 0.001).
+        min_step (float): Minimum step size (default is 0.1).
+
+    Returns:
+        list: The scan values.
+    """
     col_index = self.Y_columns.index(column)
     nll_could_be_neg = True
     while nll_could_be_neg:
@@ -250,7 +285,16 @@ class Likelihood():
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
   def GetAndWriteBestFitToYaml(self, X, row, initial_guess, wt=None, filename="best_fit.yaml"):
+    """
+    Finds the best-fit parameters and writes them to a YAML file.
 
+    Args:
+        X (array): The independent variables.
+        row (array): The row values.
+        initial_guess (array): Initial values for the model parameters.
+        wt (array): The weights for the data points (optional).
+        filename (str): The name of the YAML file (default is "best_fit.yaml").
+    """
     self.GetBestFit(X, np.array(initial_guess), wts=wt)
     dump = {
       "row" : [float(i) for i in row],
@@ -264,7 +308,16 @@ class Likelihood():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
   def GetAndWriteScanRangesToYaml(self, X, row, col, wt=None, filename="scan_ranges.yaml"):
+    """
+    Computes the scan ranges for a given column and writes them to a YAML file.
 
+    Args:
+        X (array): The independent variables.
+        row (array): The row values.
+        col (str): The column name for the parameter to be scanned.
+        wt (array): The weights for the data points (optional).
+        filename (str): The name of the YAML file (default is "scan_ranges.yaml").
+    """
     scan_values = self.GetScanXValues(X, col, wts=wt)
     dump = {
       "row" : [float(i) for i in row],
@@ -278,7 +331,17 @@ class Likelihood():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
   def GetAndWriteNLLToYaml(self, X, row, col, col_val, wt=None, filename="nlls.yaml"):
-    
+    """
+    Computes the negative log likelihood (NLL) for a given column value and writes it to a YAML file.
+
+    Args:
+        X (array): The independent variables.
+        row (array): The row values.
+        col (str): The column name for the parameter.
+        col_val (float): The column value.
+        wt (array): The weights for the data points (optional).
+        filename (str): The name of the YAML file (default is "nlls.yaml").
+    """    
     col_index = self.Y_columns.index(col)
     Y = copy.deepcopy(self.best_fit)
     Y[col_index] = col_val
@@ -321,7 +384,6 @@ class Likelihood():
         x_scan[sign] = [self.best_fit[col_index]]
         y_scan[sign] = [0.0]
         Y = copy.deepcopy(self.best_fit)
-        #print("Sign", sign)
         # initial guess
         step = self.best_fit[col_index]*initial_step_fraction
         Y[col_index] = self.best_fit[col_index] + sign*step
@@ -334,7 +396,6 @@ class Likelihood():
           for k, v in y_scan.items(): y_scan[k] = [x - nll for x in v]
           fin = False
           break
-        #print("Initial", Y[col_index], nll, step)
         est_sig = np.sqrt(nll)
         if est_sig <= estimated_sigmas_shown:
           x_scan[sign].append(Y[col_index])
@@ -355,7 +416,6 @@ class Likelihood():
             fin = False
             break
           est_sig = np.sqrt(nll) 
-          #print("Other", Y[col_index], nll, step, unit_step, est_sig)
           # add to store
           x_scan[sign].append(Y[col_index])
           y_scan[sign].append(nll)
@@ -391,8 +451,9 @@ class Likelihood():
         sorted_indices = np.argsort(filtered_y)
         filtered_x = filtered_x[sorted_indices]
         filtered_y = filtered_y[sorted_indices]
-        if crossing**2 > min(filtered_y) and crossing**2 < max(filtered_y):
-          values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
+        if len(filtered_y) > 1:
+          if crossing**2 > min(filtered_y) and crossing**2 < max(filtered_y):
+            values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
     return values
 
   def Minimise(self, func, initial_guess):
@@ -407,6 +468,5 @@ class Likelihood():
         tuple: Best-fit parameters and the corresponding function value.
 
     """
-    minimisation = minimize(func, initial_guess, method='Nelder-Mead')
-    #minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'maxiter': 20})
+    minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'maxiter': 20})
     return minimisation.x, minimisation.fun

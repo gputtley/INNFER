@@ -57,11 +57,11 @@ for step, sub_steps in trimmed_steps.items():
 
     if sub_step == None:
       sub_step_option = ""
-      job_files = f"jobs/innfer_{step.lower()}_{cfg['name']}_*.sh"
+      job_files = f"jobs/{cfg['name']}/{step.lower()}/innfer_{step.lower()}_{cfg['name']}_*.sh"
     else:
       print(f"- Running sub-step: {sub_step}")
       sub_step_option = f"--sub-step={sub_step}"
-      job_files = f"jobs/innfer_{step.lower()}_{sub_step.lower()}_{cfg['name']}_*.sh"
+      job_files = f"jobs/{cfg['name']}/{step.lower()}/{sub_step.lower()}/innfer_{step.lower()}_{sub_step.lower()}_{cfg['name']}_*.sh"
 
     # Need to clear log files first
     for file in glob.glob(f"{job_files}"):
@@ -70,7 +70,7 @@ for step, sub_steps in trimmed_steps.items():
       os.system(f"rm {file.replace('.sh','_error.log')}")
 
     if step == "Train":
-      args.option += args.add_train_option
+      args.options += args.add_train_option
 
     cmd = f"python3 scripts/innfer.py {args.options} --cfg={args.cfg} --step={step} {sub_step_option} --submit={args.submit}"
     print(cmd)
@@ -84,6 +84,7 @@ for step, sub_steps in trimmed_steps.items():
       all_jobs_finished = True
       for file in glob.glob(f"{job_files}"):
         log_file = file.replace(".sh","_output.log")
+        print(log_file)
 
         if not os.path.exists(log_file):
           all_jobs_finished = False

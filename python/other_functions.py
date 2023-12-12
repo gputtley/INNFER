@@ -3,37 +3,55 @@ import numpy as np
 from itertools import product
 
 def GetValidateLoop(cfg, parameters_file):
+  """
+  Generate a list of dictionaries representing parameter combinations for validation loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+      parameters_file (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for validation loops.
+  """
   val_loop = []
 
-  if len(parameters_file["Y_columns"]) > 0:
+  pois = [poi for poi in cfg["pois"] if poi in parameters_file["Y_columns"]]
+  unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
+  nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
+  unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
+  initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
+  initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
 
-    pois = [poi for poi in cfg["pois"] if poi in parameters_file["Y_columns"]]
-    unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
-    nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
-    unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
-    initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
-    initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))        
-
-    for poi_values in list(product(*unique_values_for_pois)): 
-      nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
-      for ind, nuisance in enumerate(nuisances_loop):
-        nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
-        for nuisance_value in nuisance_value_loop:
-          other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
-          nuisance_in_row = [] if nuisance is None else [nuisance]
-          nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-          row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-          columns = pois+nuisance_in_row+other_nuisances
-          val_loop.append({
-            "row" : row,
-            "columns" : columns,
-            "initial_best_fit_guess" : initial_best_fit_guess,
-          })
+  for poi_values in list(product(*unique_values_for_pois)): 
+    nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
+    for ind, nuisance in enumerate(nuisances_loop):
+      nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
+      for nuisance_value in nuisance_value_loop:
+        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
+        nuisance_in_row = [] if nuisance is None else [nuisance]
+        nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
+        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
+        columns = pois+nuisance_in_row+other_nuisances
+        val_loop.append({
+          "row" : row,
+          "columns" : columns,
+          "initial_best_fit_guess" : initial_best_fit_guess,
+        })
         
   return val_loop
 
 
 def GetPOILoop(cfg, parameters):
+  """
+  Generate a list of dictionaries representing parameter combinations for POI loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+      parameters (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for POI loops.
+  """
   poi_loop = []
 
   for poi in cfg["pois"]:
@@ -55,6 +73,16 @@ def GetPOILoop(cfg, parameters):
   return poi_loop
 
 def GetNuisanceLoop(cfg, parameters):
+  """
+  Generate a list of dictionaries representing parameter combinations for nuisance loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+      parameters (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for nuisance loops.
+  """
   nuisance_loop = []
 
   for nuisance in cfg["nuisances"]:
@@ -76,6 +104,16 @@ def GetNuisanceLoop(cfg, parameters):
   return nuisance_loop
 
 def GetCombinedValidateLoop(cfg, parameters):
+  """
+  Generate a list of dictionaries representing parameter combinations for combined validation loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
+      parameters (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for combined validation loops.
+  """
   val_loop = []
 
   pois = []
@@ -88,7 +126,7 @@ def GetCombinedValidateLoop(cfg, parameters):
   if "rate_parameters" in cfg["inference"]:
     pois += [f"mu_{rp}" for rp in cfg["inference"]["rate_parameters"]]
     unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in cfg["inference"]["rate_parameters"]]
-    initial_poi_guess += [0.0]*len(pois)
+    initial_poi_guess += [1.0]*len(pois)
 
   for poi in cfg["pois"]:
     pois.append(poi)
@@ -130,7 +168,11 @@ def GetYName(ur, purpose="plot", round_to=2):
 
   Args:
       ur (list): List representing the unique row.
-      purpose (str): Purpose of the label, either "plot" or "file
+      purpose (str): Purpose of the label, either "plot" or "file".
+      round_to (int): Number of decimal places to round the values (default is 2).
+
+  Returns:
+      str: Formatted label for the given unique row.
   """
   if len(ur) > 0:
     label_list = [str(round(i,round_to)) for i in ur] 

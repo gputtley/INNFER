@@ -30,9 +30,11 @@ class PreProcess():
     self.Y_columns = Y_columns
     self.standardise = []
     self.train_test_val_split = "0.3:0.3:0.4"
+    self.remove_quantile = 0.0
     self.equalise_y_wts = False
     self.train_test_y_vals = {}
     self.validation_y_vals = {}
+    self.cut_values = {}
     self.parameters = {}
     self.output_dir = "data/"
     self.plot_dir = "plots/"
@@ -113,6 +115,22 @@ class PreProcess():
     wt_train_df = train_df[["wt"]]
     wt_test_df = test_df[["wt"]]
     wt_val_df = val_df[["wt"]]      
+
+    # Remove outliers
+    for k in X_train_df.columns:
+      self.cut_values[k] = [np.quantile(X_train_df.loc[:,k], self.remove_quantile), np.quantile(X_train_df.loc[:,k], 1-self.remove_quantile)]
+      select_indices = ((X_train_df.loc[:,k]>=self.cut_values[k][0]) & (X_train_df.loc[:,k]<=self.cut_values[k][1]))
+      X_train_df = X_train_df.loc[select_indices,:]
+      Y_train_df = Y_train_df.loc[select_indices,:]
+      wt_train_df = wt_train_df.loc[select_indices,:]
+      select_indices = ((X_test_df.loc[:,k]>=self.cut_values[k][0]) & (X_test_df.loc[:,k]<=self.cut_values[k][1]))
+      X_test_df = X_test_df.loc[select_indices,:]
+      Y_test_df = Y_test_df.loc[select_indices,:]
+      wt_test_df = wt_test_df.loc[select_indices,:]
+      select_indices = ((X_val_df.loc[:,k]>=self.cut_values[k][0]) & (X_val_df.loc[:,k]<=self.cut_values[k][1]))
+      X_val_df = X_val_df.loc[select_indices,:]
+      Y_val_df = Y_val_df.loc[select_indices,:]
+      wt_val_df = wt_val_df.loc[select_indices,:]
 
     pq.write_table(pa.Table.from_pandas(wt_train_df), self.output_dir+"/wt_nominal_train.parquet")
     pq.write_table(pa.Table.from_pandas(wt_test_df), self.output_dir+"/wt_nominal_test.parquet")

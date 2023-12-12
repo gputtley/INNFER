@@ -4,13 +4,13 @@ num_dense_layers: 4
 activation: "relu"
 dropout: True
 mc_dropout: True
-epochs: 10
+epochs: 4
 batch_size: 64
 early_stopping: True
 learning_rate: 0.001
-coupling_design: "interleaved"
+coupling_design: "spline"
 permutation: "learnable"
 optimizer_name: "Adam"
 lr_scheduler_name: "ExponentialDecay"
 lr_scheduler_options:
-  decay_rate: 0.5
+  decay_rate: 0.1

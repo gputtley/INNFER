@@ -87,6 +87,7 @@ for ind, file_name in enumerate(file_names):
   root_file = uproot.open(f"{args.file_location}/{file_name}{args.file_extension}")
   if args.tree_name not in root_file: continue
   tree = root_file[args.tree_name]
+  print(tree)
   df = tree.arrays(library="pd")
   df = df.loc[:,leaves_to_get]
   df = df.rename(columns={'wt': args.weight_name})
