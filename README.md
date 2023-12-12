@@ -20,17 +20,26 @@ source env.sh
 
 ## Running INNFER
 
-Running INNFER happens in 4 stages:
+Running INNFER happens in 5 main stages:
 * PreProcess
 * Train
-* Validate
-* Infer
+* ValidateGeneration
+* ValidateInference
+* Infer (not yet implemented)
 
-Each of these steps are run through the `scripts/innfer.py` code, with the `--step` option matching the relevant stage of running.
+Each of these steps are run through the `scripts/innfer.py` code, with the `--step` option matching the relevant stage of running. The ValidateInference and Infer steps are split into further sub-steps, with the `--sub-step` option, these are:
+* InitialFit
+* Scan
+* Collect
+* Plot
 
 ## Running from Benchmark
 
-The simple example of inferring the top mass from a mass resolution like variable can be run from the benchmark class with this command.
+To initially setup the benchmark scenario data and config file, you can run the following command.
+```
+python3 scripts/innfer.py --step="MakeBenchmark" --benchark="Gaussian"
+```
+This runs simple example of inferring the top mass from a mass resolution like variable. The INNFER workflow is then run with the following commands.
 ```
 python3 scripts/innfer.py --step="PreProcess" --benchark="Gaussian"
 ```
@@ -38,9 +47,21 @@ python3 scripts/innfer.py --step="PreProcess" --benchark="Gaussian"
 python3 scripts/innfer.py --step="Train" --benchark="Gaussian" --architecture="configs/architecture/simple.yaml"
 ```
 ```
-python3 scripts/innfer.py --step="Validate" --benchark="Gaussian"
+python3 scripts/innfer.py --step="ValidateGeneration" --benchark="Gaussian"
 ```
-There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`.
+```
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchark="Gaussian"
+```
+There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`. Running INNFER on a batch is highly recommended in all cases.
 
 ## Running from Dataset
 
@@ -79,19 +100,7 @@ data_file:
   - data/susy_95_plus_bkg_sample.parquet
 ```
 
-From this, INNFER can then be run with the following commands.
-```
-python3 scripts/innfer.py --step="PreProcess" --cfg="configs/run/susy_example.yaml"
-```
-```
-python3 scripts/innfer.py --step="Train" --cfg="configs/run/susy_example.yaml"
-```
-```
-python3 scripts/innfer.py --step="Validate" --cfg="configs/run/susy_example.yaml"
-```
-```
-python3 scripts/innfer.py --step="Infer" --cfg="configs/run/susy_example.yaml"
-```
+From this, the INNFER workflow can then be run with the same commands as in the benchmark case but replacing `--benchark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with the same commands as for ValidateInference but with `--step="Infer"`.
 
 ## Structure of Code
 
