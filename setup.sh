@@ -8,8 +8,11 @@ source files/etc/profile.d/conda.sh
 conda update conda
 conda create --name innfer_env python=3.11
 conda activate innfer_env
+conda activate innfer_env
 pip3 install bayesflow
 pip3 install mplhep
+pip3 install PyYAML
+pip3 install pyarrow
 pip3 install uproot
 rm ./Miniconda3-latest-Linux-x86\_64.sh
 popd
