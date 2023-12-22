@@ -13,4 +13,6 @@ pip3 install bayesflow
 pip3 install mplhep
 pip3 install PyYAML
 pip3 install pyarrow
+pip3 install uproot
+rm ./Miniconda3-latest-Linux-x86\_64.sh
 popd
