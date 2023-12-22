@@ -244,7 +244,6 @@ class Network():
     Returns:
         np.ndarray: Probabilities for the given data.
     """
-
     if y_columns is not None:
       column_indices = [y_columns.index(col) for col in self.Y_train.columns]
       Y = Y[:,column_indices]
@@ -266,6 +265,7 @@ class Network():
 
     # Get probabilities
     tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)
     log_prob = self.amortizer.log_posterior(data)
     log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
@@ -298,7 +298,7 @@ class Network():
     else:
       return np.exp(log_prob)
   
-  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=1000, n_samples=10**5, ignore_quantile=0.0001, method="histogramdd", verbose=True):
+  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.25, method="histogramdd", verbose=True):
     """
     Computes the integral of the probability density function over a specified range.
 
@@ -321,6 +321,10 @@ class Network():
       for col in range(synth.shape[1]):
         lower_value = np.quantile(synth[:,col], ignore_quantile)
         upper_value = np.quantile(synth[:,col], 1-ignore_quantile)
+        if extra_fraction > 0.0:
+          middle_value = np.quantile(synth[:,col], 0.5)
+          lower_value = lower_value - (extra_fraction * (middle_value-lower_value))
+          upper_value = upper_value + (extra_fraction * (upper_value-middle_value))
         trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
         synth = synth[trimmed_indices,:]
 

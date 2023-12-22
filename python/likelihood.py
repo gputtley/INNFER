@@ -3,7 +3,9 @@ import yaml
 import time
 import numpy as np
 from scipy.optimize import minimize
+from scipy.interpolate import RegularGridInterpolator
 from plotting import plot_likelihood, plot_histograms
+from other_functions import GetYName
 
 class Likelihood():
   """
@@ -24,7 +26,10 @@ class Likelihood():
     self.parameters = parameters
     self.data_parameters = data_parameters
     self.Y_columns = self._MakeY()
-    
+    #self.interp = {}
+    #for name in self.models["pdfs"].keys():
+    #  if "yield" in self.data_parameters[name].keys():
+    #    self._BuildInterpolationForYields(name)
     # saved parameters
     self.best_fit = None
     self.best_fit_nll = None
@@ -71,6 +76,39 @@ class Likelihood():
     mask = ln_b > ln_a
     ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
+
+  '''
+  def _BuildInterpolationForYields(self, file_name):
+    
+    if not "all" in self.data_parameters[file_name]["yield"].keys():
+
+      unique_points = []
+      for k, v in self.data_parameters[file_name]["yield"].items():
+        for ind, i in enumerate(k.split("_")):
+          out = float(i.replace("p",".").replace("m","-"))
+          if ind >= len(unique_points):
+            unique_points.append([])
+          if out not in unique_points[ind]:
+            unique_points[ind].append(out)
+
+      unique_points = tuple(sorted(uv) for uv in unique_points)
+      mesh = [np.array(i).flatten() for i in np.meshgrid(*unique_points,indexing="ij")]
+      data = [self.data_parameters[file_name]["yield"][GetYName([col[i] for col in mesh], purpose="file")] for i in range(len(mesh[0]))]
+      data_array_shape = tuple(len(uv) for uv in unique_points)
+      data = np.array(data).reshape(data_array_shape)
+      self.interp[file_name] = RegularGridInterpolator(unique_points, data, method='linear', bounds_error=False, fill_value=np.nan)
+
+    else:
+      self.interp[file_name] = self.data_parameters[file_name]["yield"]["all"]
+  '''
+
+  def _GetYield(self, file_name, Y, y_columns=None):
+    Y = np.array(Y)
+    if y_columns is not None:
+      column_indices = [y_columns.index(col) for col in self.data_parameters[file_name]["Y_columns"]]
+      Y = Y[column_indices]
+    yd = self.models["yields"][file_name](Y)
+    return yd
 
   def Unbinned(self, X, Y, wts=None, return_ln=False, before_sum=False):
     """
@@ -139,7 +177,7 @@ class Likelihood():
     else:
       return np.exp(ln_lkld)
 
-  def UnbinnedExtended(self, X, Y, wts=None, return_ln=False):
+  def UnbinnedExtended(self, X, Y, wts=None, return_ln=False, before_sum=False):
     """
     Computes the extended likelihood for unbinned data.
 
@@ -166,10 +204,9 @@ class Likelihood():
       if rate_param == 0.0: continue
       sum_rate_params += rate_param
 
-      # Get rate times probability
+      # Get rate times yield times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
-      # NEED TO PUT YIELD SCALING FUNCTIONS HERE
-      ln_lklds_with_rate_params = np.log(rate_param) + log_p
+      ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns)) + log_p
 
       # Sum together probabilities of different files
       if first_loop:
@@ -178,15 +215,27 @@ class Likelihood():
       else:
         ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
 
-    # NEED TO PUT NEGATIVE EXPONENTIAL OF YIELD SCALING FUNCTIONS
-
     # Weight the events
     if wts is not None:
       ln_lklds = wts.flatten()*ln_lklds
 
+    if before_sum:
+      return ln_lklds
+
     # Product the events
     ln_lkld = ln_lklds.sum()
 
+    # Add exponential term
+    for name, pdf in self.models["pdfs"].items():
+
+      if "mu_"+name in self.Y_columns:
+        rate_param = Y[self.Y_columns.index("mu_"+name)]
+      else:
+        rate_param = 1.0
+      if rate_param == 0.0: continue
+
+      ln_lkld -= (rate_param * self._GetYield(name, Y, y_columns=self.Y_columns))
+      
     # Add constraints
     if "nuisance_constraints" in self.parameters.keys():
       for k, v in self.parameters["nuisance_constraints"].items():
@@ -195,6 +244,12 @@ class Likelihood():
         elif v == "LogNormal":
           constraint = self._LogNormal(Y[self.Y_columns.index(k)])
         ln_lkld += np.log(constraint)
+
+    # Divide by yield
+    if wts is not None:
+      ln_lkld -= len(X)
+    else:
+      ln_lkld -= np.sum(wts)
 
     print(f">> Y={Y}, lnL={ln_lkld}")
     if return_ln:
@@ -468,5 +523,6 @@ class Likelihood():
         tuple: Best-fit parameters and the corresponding function value.
 
     """
-    minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'maxiter': 20})
+    #minimisation = minimize(func, initial_guess, method='Nelder-Mead')
+    minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01})
     return minimisation.x, minimisation.fun

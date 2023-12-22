@@ -4,6 +4,7 @@ import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
 import mplhep as hep
 import seaborn as sns
+import pandas as pd
 
 hep.style.use("CMS")
    
@@ -460,6 +461,26 @@ def plot_stacked_histogram_with_ratio(
   plt.subplots_adjust(hspace=0.1)
 
   # Show the plot
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+
+def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix", title_right=""):
+   
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+
+  corr_df = pd.DataFrame(correlation_matrix, columns=labels, index=labels)
+  sns.heatmap(corr_df, annot=True, cmap='coolwarm', vmin=-1, vmax=1, linewidths=.5, fmt='.2f', annot_kws={'size': 8})
+
+  ax.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes)
+
+  plt.xticks(fontsize=10)
+  plt.yticks(fontsize=10)
+
   print("Created "+name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()

@@ -4,8 +4,9 @@ import os
 import sys
 import copy
 import numpy as np
-from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetYName
+from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetYName, MakeYieldFunction
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_stacked_histogram_with_ratio
+from functools import partial
 
 print("Running INNFER")
 
@@ -18,12 +19,11 @@ parser.add_argument('--step', help= 'Step to run', type=str, default=None, choic
 parser.add_argument('--specific-file', help= 'Run for a specific file_name', type=str, default=None)
 parser.add_argument('--specific-val-ind', help= 'Run for a specific indices when doing validation', type=str, default=None)
 parser.add_argument('--specific-scan-ind', help= 'Run for a specific indices when doing scans', type=str, default=None)
-parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=10)
+parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=4)
 parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
 parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
 parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot"])
-parser.add_argument('--events-in-combined-toy', help= 'Number of events in the asimov toy', type=int, default=1000)
-parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.',  action='store_true')
+parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
 args = parser.parse_args()
 
 if args.cfg is None and args.benchmark is None:
@@ -73,7 +73,6 @@ for file_name, _ in cfg["files"].items():
   for data_type in ["preprocess","validateinference"]:
     if not os.path.isdir(f"data/{cfg['name']}/{file_name}/{data_type}"): os.system(f"mkdir data/{cfg['name']}/{file_name}/{data_type}")  
  
-
 if cfg["preprocess"]["standardise"] == "all":
   cfg["preprocess"]["standardise"] = cfg["variables"] + cfg["pois"]+cfg["nuisances"]
 
@@ -171,15 +170,17 @@ for file_name, parquet_name in cfg["files"].items():
           networks[file_name], 
           options={
             "data_parameters":parameters[file_name],
+            "pois":cfg["pois"],
+            "nuisances":cfg["nuisances"],
             "data_dir":f"data/{cfg['name']}/{file_name}/preprocess",
             "out_dir":f"data/{cfg['name']}/{file_name}/{args.step.lower()}",
             "plot_dir":f"plots/{cfg['name']}/{file_name}/{args.step.lower()}",
             "model_name":file_name,
-            "lower_validation_stats":args.lower_validation_stats,
+            "lower_validation_stats":args.lower_validation_stats if args.step == "ValidateInference" else None,
             }
           )
-      if len(parameters[file_name]["X_columns"]) == 1 and args.step == "ValidateGeneration":
-        val.DrawProbability(parameters[file_name]["unique_Y_values"][parameters[file_name]["Y_columns"][0]], n_bins=40)
+      #if len(parameters[file_name]["X_columns"]) == 1 and len(parameters[file_name]["Y_columns"]) > 0 and args.step == "ValidateGeneration" and not args.submit:
+      #  val.DrawProbability(parameters[file_name]["unique_Y_values"][parameters[file_name]["Y_columns"][0]], n_bins=40)
 
       for ind, info in enumerate(GetValidateLoop(cfg, parameters[file_name])):
 
@@ -202,8 +203,10 @@ for file_name, parquet_name in cfg["files"].items():
             continue
 
           # Plot synthetic vs simulated comparison
-          #networks[file_name].ProbabilityIntegral(np.array([info["row"]]), y_columns=info["columns"])
+          #networks[file_name].ProbabilityIntegral(np.array([info["row"]]), y_columns=info["columns"], n_integral_bins=int((10**6)**(1/len(parameters[file_name]["X_columns"]))))
           val.PlotGeneration(info["row"], columns=info["columns"])
+          if len(info["columns"]) > 1:
+            val.PlotCorrelationMatrix(info["row"], columns=info["columns"])
 
         elif args.step == "ValidateInference":
 
@@ -314,6 +317,7 @@ for file_name, parquet_name in cfg["files"].items():
             with open(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/best_fit_{ind}.yaml", 'r') as yaml_file:
               best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
             for col in info["columns"]:
+              print(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}.yaml")
               with open(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
                 scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -332,8 +336,11 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
   if args.submit is None:
     from likelihood import Likelihood
     lkld = Likelihood(
-      {"pdfs":{k:networks[k] for k in cfg["files"]}}, 
-      type = "unbinned", 
+      {
+        "pdfs":{k:networks[k] for k in cfg["files"]},
+        "yields":{k:MakeYieldFunction(cfg["pois"], cfg["nuisances"], parameters[k]) for k in cfg["files"]}
+        }, 
+      type = "unbinned_extended", 
       data_parameters = {k: parameters[k] for k in cfg["files"]},
       parameters = cfg["inference"],
     )    
@@ -369,16 +376,22 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
       X = X.to_numpy()
       Y = Y.to_numpy()
       wt = wt.to_numpy()
+      row = [info["row"][info["columns"].index(y)] for y in parameters[file_name]["Y_columns"]]
 
       # Cut dataset
       if Y.shape[1] > 0:
-        row = [info["row"][info["columns"].index(y)] for y in parameters[file_name]["Y_columns"]]
         matching_rows = np.all(np.isclose(Y, np.array(row), rtol=1e-6, atol=1e-6), axis=1)
         X = X[matching_rows]
         wt = wt[matching_rows]
 
       # Scale wt to toy value
-      wt *= float(args.events_in_combined_toy)/(np.sum(wt)*float(len(cfg["files"].keys())))
+      if "yield" in parameters[file_name].keys():
+        if "all" in parameters[file_name]["yield"].keys():
+          sum_wt = parameters[file_name]["yield"]["all"]
+        else:
+          sum_wt = parameters[file_name]["yield"][GetYName(row,purpose="file")]
+        old_sum_wt = np.sum(wt)
+        wt *= sum_wt/old_sum_wt
 
       # Scale wt by the rate parameter value
       if "mu_"+file_name in info["columns"]:
@@ -386,7 +399,14 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         if rp == 0.0: continue
         wt *= rp
 
-      print(file_name,np.sum(wt))
+      if args.lower_validation_stats is not None:
+        if len(X) > args.lower_validation_stats:
+          random_indices = np.random.choice(X.shape[0], args.lower_validation_stats, replace=False)
+          X = X[random_indices,:]
+          sum_wt = np.sum(wt)
+          wt = wt[random_indices,:]
+          new_sum_wt = np.sum(wt)
+          wt *= sum_wt/new_sum_wt
 
       # Combine datasets
       if first_loop:
@@ -402,13 +422,6 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
     total_X = total_X[indices]
     total_wt = total_wt[indices]
 
-    if args.lower_validation_stats:
-      total_X = total_X[:1000,:]
-      sum_wt = np.sum(total_wt)
-      total_wt = total_wt[:1000,:]
-      new_sum_wt = np.sum(total_wt)
-      total_wt *= sum_wt/new_sum_wt
-
     if not os.path.isdir(f"data/{cfg['name']}/combined"): os.system(f"mkdir data/{cfg['name']}/combined")
     out_dir = f"data/{cfg['name']}/combined/{args.step.lower()}/"
     if not os.path.isdir(out_dir): os.system(f"mkdir {out_dir}")
@@ -416,7 +429,9 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
     if args.sub_step == "InitialFit":
       print("- Running initial fit")
 
-      #lkld.Run(total_X, np.array([0.0, 171.5]), wts=total_wt, return_ln=True)
+      #for i in [166.5,169.5,172.5,175.5,178.5]:
+      #  lkld.Run(total_X, np.array([0.5,i]), wts=total_wt, return_ln=True)
+      #exit()
 
       lkld.GetAndWriteBestFitToYaml(total_X, info["row"], info["initial_best_fit_guess"], wt=total_wt, filename=f"{out_dir}/best_fit_{ind}.yaml")
       for col in info["columns"]:
@@ -498,11 +513,13 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
       with open(f"{out_dir}/best_fit_{ind}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      plot_dir = f"plots/{cfg['name']}/combined"/{args.step.lower()}
+
+      if not os.path.exists(f"plots/{cfg['name']}/combined"): os.system(f"mkdir plots/{cfg['name']}/combined")
+      plot_dir = f"plots/{cfg['name']}/combined/{args.step.lower()}"
       if not os.path.exists(plot_dir): os.system(f"mkdir {plot_dir}")
 
       print("- Plotting scans")
-      for col in info["columns"]:
+      for col in info["columns"][::-1]:
         with open(f"{out_dir}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
           scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -515,24 +532,32 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         sum_weight = float(np.sum(total_wt.flatten()))
         if not eff_events == sum_weight:
           other_lkld[r"Inferred N=$N_{eff}$"] = (eff_events/sum_weight)*np.array(scan_results_info["nlls"])
-
+          
         if args.benchmark is not None:
-          true_pdf = benchmark.GetPDF("combined")
-          flat_wt = total_wt.flatten()
+
+          def Probability(X, Y, y_columns=None, k=None, **kwargs):
+            Y = np.array(Y)
+            if y_columns is not None:
+              column_indices = [y_columns.index(col) for col in parameters[k]["Y_columns"]]
+              Y = Y[:,column_indices]
+            if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
+            true_pdf = benchmark.GetPDF(k)
+            prob = np.zeros(len(X))
+            for i in range(len(X)):
+              prob[i] = true_pdf(X[i],Y[i])
+            return np.log(prob)
+          
+          for k in lkld.models["pdfs"].keys():
+            lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
+
           nlls = []
           for x_val in scan_results_info["scan_values"]:
-            nll = 0
-            for data_ind, data in enumerate(total_X):
-              test_row = copy.deepcopy(best_fit_info["best_fit"])
-              test_row[best_fit_info["columns"].index(col)] = x_val
-              nll += -2*np.log(true_pdf(data,test_row)**flat_wt[data_ind])
-            nlls.append(nll)
+            test_row = copy.deepcopy(best_fit_info["row"])
+            test_row[best_fit_info["columns"].index(col)] = x_val
+            nlls.append(-2*lkld.Run(total_X, test_row, wts=total_wt, return_ln=True))
 
-          true_nll = 0
-          for data_ind, data in enumerate(total_X):
-            true_nll += -2*np.log(true_pdf(data,scan_results_info["row"])**flat_wt[data_ind])
-
-          nlls = [nll - true_nll for nll in nlls]
+          min_nll = min(nlls)
+          nlls = [nll - min_nll for nll in nlls]
           other_lkld["True"] = nlls
 
         plot_likelihood(
@@ -549,19 +574,21 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         )
 
       print("- Plotting distributions")
-      total_events = 10**6
-      sum_X_weights = np.sum(total_wt)
 
-      rate_scales = {
-          k: best_fit_info["best_fit"][best_fit_info["columns"].index("mu_" + k)] if "mu_"+k in lkld.Y_columns else 1.0
-          for k in lkld.models["pdfs"].keys()
-      }
-      sum_values = sum(rate_scales.values())
-      rate_scales = {k: v / sum_values for k, v in rate_scales.items()}
-
+      total_events_per_file = 10**6
       synth_datasets = {}
+      synth_weights = {}
       for key, pdf in lkld.models["pdfs"].items():
-        synth_datasets[key] = pdf.Sample(best_fit_info["best_fit"], columns=best_fit_info["columns"], n_events=int(np.round(total_events*rate_scales[key])))
+        synth_weights[key] = np.ones(total_events_per_file)/total_events_per_file
+        if "yield" in parameters[key].keys():
+          func = MakeYieldFunction(cfg["pois"], cfg["nuisances"], parameters[key])
+          scale = func(row)
+          synth_weights[key] *= scale
+        else:
+          synth_weights[key] *= np.sum(total_wt)
+        if "mu_"+key in lkld.Y_columns:
+          synth_weights[key] *= best_fit_info["best_fit"][best_fit_info["columns"].index("mu_" + key)]
+        synth_datasets[key] = pdf.Sample(best_fit_info["best_fit"], columns=best_fit_info["columns"], n_events=total_events_per_file)
 
       for ind, col in enumerate(cfg["variables"]):
         n_bins = 40
@@ -577,13 +604,14 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         data_err_hist, _ = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
         data_err_hist = np.sqrt(data_err_hist)
         synth_hists = {}
-        total_synth_hist = np.zeros(n_bins)
+        total_synth_hist_squared = np.zeros(n_bins)
         for k, v in synth_datasets.items():
-          synth_hist, _ = np.histogram(v[:,ind], bins=bins)
-          total_synth_hist += synth_hist
-          synth_hists[k] = (sum_X_weights/total_events)*synth_hist.astype(float)
-        total_synth_error = np.sqrt(total_synth_hist)
-        total_synth_error *= (sum_X_weights/total_events)
+          synth_hist, _ = np.histogram(v[:,ind], bins=bins, weights=synth_weights[k])
+          total_synth_hist_squared += np.histogram(v[:,ind], bins=bins, weights=synth_weights[k]**2)[0]
+          #synth_hists[k] = (sum_X_weights/total_events)*synth_hist.astype(float)
+          synth_hists[k] = synth_hist.astype(float)
+        total_synth_error = np.sqrt(total_synth_hist_squared)
+        #total_synth_error *= (sum_X_weights/total_events)
 
         file_extra_name = GetYName(best_fit_info["row"], purpose="file")
         plot_extra_name = GetYName(best_fit_info["row"], purpose="plot")

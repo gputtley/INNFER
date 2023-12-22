@@ -1,8 +1,9 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
-from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood
-from other_functions import GetYName
+from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix
+from other_functions import GetYName, MakeYieldFunction
 from scipy.integrate import simpson
+from functools import partial
 import numpy as np
 import copy
 import yaml
@@ -23,10 +24,11 @@ class Validation():
     self.model_name = "model"
     self.data_parameters = {}
     self.lkld = None
-    self.n_asimov_events = 1000.0
+    self.pois = []
+    self.nuisances = []
     self.data_key = "val"
     self.tolerance = 1e-6
-    self.lower_validation_stats = False
+    self.lower_validation_stats = None
     self.data_dir = "./data/"
     self.out_dir = "./data/"
     self.plot_dir = "./plots/"
@@ -35,6 +37,9 @@ class Validation():
     self.pp = PreProcess()
     self.pp.parameters = self.data_parameters
     self.pp.output_dir = self.data_dir
+
+    self.synth = None
+    self.synth_row = None
 
   def _SetOptions(self, options):
     """
@@ -76,12 +81,22 @@ class Validation():
     X = X[indices]
     wt = wt[indices]
 
-    if self.lower_validation_stats:
-      X = X[:1000,:]
-      sum_wt = np.sum(wt)
-      wt = wt[:1000,:]
-      new_sum_wt = np.sum(wt)
-      wt *= sum_wt/new_sum_wt
+    if "yield" in self.data_parameters.keys():
+      if "all" in self.data_parameters["yield"].keys():
+        sum_wt = self.data_parameters["yield"]["all"]
+      else:
+        sum_wt = self.data_parameters["yield"][GetYName(row,purpose="file")]
+      old_sum_wt = np.sum(wt)
+      wt *= sum_wt/old_sum_wt
+
+    if self.lower_validation_stats is not None:
+      if len(X) > self.lower_validation_stats:
+        random_indices = np.random.choice(X.shape[0], self.lower_validation_stats, replace=False)
+        X = X[random_indices,:]
+        sum_wt = np.sum(wt)
+        wt = wt[random_indices,:]
+        new_sum_wt = np.sum(wt)
+        wt *= sum_wt/new_sum_wt
 
     return X, wt
 
@@ -90,12 +105,16 @@ class Validation():
     Build the likelihood object.
     """
     self.lkld = Likelihood(
-      {"pdfs":{self.model_name:self.model}}, 
-      type="unbinned", 
+      {
+        "pdfs":{self.model_name:self.model},
+        "yields":{self.model_name:MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)}
+       }, 
+      type="unbinned_extended", 
       data_parameters={
         self.model_name:{
           "X_columns" : self.data_parameters["X_columns"],
-          "Y_columns" : self.data_parameters["Y_columns"]
+          "Y_columns" : self.data_parameters["Y_columns"],
+          "yield" : self.data_parameters["yield"],
         },
       }
     )
@@ -112,8 +131,6 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     self.lkld.GetAndWriteBestFitToYaml(X, row, initial_guess, wt=wt, filename=f"{self.out_dir}/best_fit_{ind}.yaml")
 
   def GetAndDumpScanRanges(self, row, col, columns=None, ind=0):
@@ -128,8 +145,6 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     self.lkld.GetAndWriteScanRangesToYaml(X, row, col, wt=wt, filename=f"{self.out_dir}/scan_values_{col}_{ind}.yaml")
 
   def GetAndDumpNLL(self, row, col, col_val, columns=None, ind1=0, ind2=0):
@@ -146,9 +161,48 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     self.lkld.GetAndWriteNLLToYaml(X, row, col, col_val, wt=wt, filename=f"{self.out_dir}/scan_results_{col}_{ind1}_{ind2}.yaml")
+
+  def PlotCorrelationMatrix(self, row, columns=None):
+
+    print(">> Producing correlation matrix plots")
+    X, wt = self._GetXAndWts(row, columns=columns)
+    if self.synth == None or self.synth_row != row:
+      synth = self.model.Sample(np.array([list(row)]), columns=columns)
+      self.synth_row = row
+      self.synth = synth
+    else:
+      synth = self.synth
+
+    true_cov_matrix = np.cov(X, aweights=wt.flatten(), rowvar=False)
+    true_corr_matrix = true_cov_matrix / np.sqrt(np.outer(np.diag(true_cov_matrix), np.diag(true_cov_matrix)))
+    
+    synth_cov_matrix = np.cov(synth, rowvar=False)
+    synth_corr_matrix = synth_cov_matrix / np.sqrt(np.outer(np.diag(synth_cov_matrix), np.diag(synth_cov_matrix)))
+
+    file_extra_name = GetYName(row, purpose="file")
+    plot_extra_name = GetYName(row, purpose="plot")
+
+    plot_correlation_matrix(
+      true_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_true_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}"
+    )
+
+    plot_correlation_matrix(
+      synth_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_synth_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}"
+    )
+
+    plot_correlation_matrix(
+      true_corr_matrix-synth_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_subtracted_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}"
+    )
 
 
   def PlotGeneration(self, row, columns=None, n_bins=40, ignore_quantile=0.01):
@@ -164,7 +218,12 @@ class Validation():
     """
     print(">> Producing generation plots")
     X, wt = self._GetXAndWts(row, columns=columns)
-    synth = self.model.Sample(np.array([list(row)]), columns=columns)
+    if self.synth == None or self.synth_row != row:
+      synth = self.model.Sample(np.array([list(row)]), columns=columns)
+      self.synth_row = row
+      self.synth = synth
+    else:
+      synth = self.synth
 
     for col in range(X.shape[1]):
 
@@ -233,7 +292,8 @@ class Validation():
         true_pdf (function): True probability density function used for comparison plots (default is None).
         columns (list): List of column names for likelihood computation. If None, uses Y_columns from data_parameters.
     """
-    print(f"{col}: {crossings[0]} + {crossings[1]-crossings[0]} - {crossings[0]-crossings[-1]}")
+    if 0 in crossings.keys() and 1 in crossings.keys() and -1 in crossings.keys():
+      print(f"{col}: {crossings[0]} + {crossings[1]-crossings[0]} - {crossings[0]-crossings[-1]}")
     if columns == None: columns = self.data_parameters["Y_columns"]
     ind = columns.index(col)
     file_extra_name = GetYName(row, purpose="file")
@@ -242,8 +302,6 @@ class Validation():
     other_lkld = {}
 
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
     total_weight = float(np.sum(wt.flatten()))
     if not eff_events == total_weight:
@@ -251,21 +309,28 @@ class Validation():
 
     # make true likelihood
     if true_pdf is not None:
+      def Probability(X, Y, y_columns=None, k=None, **kwargs):
+        Y = np.array(Y)
+        if y_columns is not None:
+          column_indices = [y_columns.index(col) for col in self.data_parameters["Y_columns"]]
+          Y = Y[:,column_indices]
+        if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
+        prob = np.zeros(len(X))
+        for i in range(len(X)):
+          prob[i] = true_pdf(X[i],Y[i])
+        return np.log(prob)
+      
+      for k in self.lkld.models["pdfs"].keys():
+        self.lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
+
       nlls = []
       for x_val in x:
-        nll = 0
-        for data_ind, data in enumerate(X):
-          test_row = copy.deepcopy(best_fit)
-          test_row[ind] = x_val
-          pdf = true_pdf(data,test_row)
-          nll += -2*np.log(pdf**wt.flatten()[data_ind])
-        nlls.append(nll)
+        test_row = copy.deepcopy(best_fit)
+        test_row[ind] = x_val
+        nlls.append(-2*self.lkld.Run(X, test_row, wts=wt, return_ln=True))
 
-      true_nll = 0
-      for data_ind, data in enumerate(X):
-        true_nll += -2*np.log(true_pdf(data,row)**wt.flatten()[data_ind])
-
-      nlls = [nll - true_nll for nll in nlls]
+      min_nll = min(nlls)
+      nlls = [nll - min_nll for nll in nlls]
       other_lkld["True"] = nlls
 
     plot_likelihood(
@@ -294,8 +359,6 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     synth_true = self.model.Sample(np.array([list(row)]), columns=columns)
     synth_best_fit = self.model.Sample(np.array([list(best_fit)]), columns=columns)
 
@@ -369,7 +432,7 @@ class Validation():
     hists = []
     for y_val in y_vals:
 
-      probs = self.model.Probability(np.array(bins[:-1]).reshape(-1, 1), np.array([y_val]), change_zero_prob=False, normalise=True)
+      probs = self.model.Probability(np.array(bins[:-1]).reshape(-1, 1), np.array([y_val]), change_zero_prob=False)
       integral = simpson(probs, dx=bins[1]-bins[0])
       print(f"Integral for Y is {integral}")
       hists.append(probs)

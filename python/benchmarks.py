@@ -187,13 +187,13 @@ class Benchmarks():
     elif self.name == "GaussianWithExpBkgVaryingYield":
 
       print(">> Making signal events")
-      Y = np.random.choice(self.model_parameters[self.name]["true_masses"], size=int(self.array_size/2))
+      Y = np.random.choice(self.model_parameters[self.name]["true_masses"], size=self.array_size)
       X = np.random.normal(Y, self.model_parameters[self.name]["signal_resolution"]*Y)
       df = pd.DataFrame(
         {
           "reconstructed_mass" : X, 
           "true_mass" : Y, 
-          "wt" : (len(self.model_parameters[self.name]["true_masses"])*float(self.model_parameters[self.name]["toy_signal_events"])/float(self.array_size/2))*np.ones(int(self.array_size/2))
+          "wt" : (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
         }
       )
 
@@ -203,18 +203,19 @@ class Benchmarks():
 
       print(">> Making background events")
       report_percentile = 0.05
-      X_bkg = np.zeros(int(self.array_size/2))
-      for ind in range(int(self.array_size/2)):
+      n_bkg_events = int(self.array_size/len(self.model_parameters[self.name]["true_masses"]))
+      X_bkg = np.zeros(n_bkg_events)
+      for ind in range(n_bkg_events):
         x = np.random.exponential(scale=1/self.model_parameters[self.name]["background_lambda"]) + self.model_parameters[self.name]["background_constant"]
         while x < self.model_parameters[self.name]["background_ranges"][0] or x > self.model_parameters[self.name]["background_ranges"][1]:
           x = np.random.exponential(scale=1/self.model_parameters[self.name]["background_lambda"]) + self.model_parameters[self.name]["background_constant"]
         X_bkg[ind] = x
-        if ind % np.ceil(int(self.array_size/2)*report_percentile) == 0:
-          print(f"{100*round(float(ind)/(self.array_size/2),2)}% Finished")
+        if ind % np.ceil(n_bkg_events*report_percentile) == 0:
+          print(f"{100*round(float(ind)/n_bkg_events,2)}% Finished")
       df = pd.DataFrame(
         {
           "reconstructed_mass" : X_bkg.flatten(), 
-          "wt" : (float(self.model_parameters[self.name]["toy_background_events"])/float(self.array_size/2))*np.ones(int(self.array_size/2))
+          "wt" : (float(self.model_parameters[self.name]["toy_background_events"])/float(n_bkg_events))*np.ones(n_bkg_events)
         }
       )
       df = df.sample(frac=1, random_state=42)
