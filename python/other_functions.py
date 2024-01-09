@@ -1,6 +1,8 @@
 import copy
 import numpy as np
 from itertools import product
+from scipy.interpolate import RegularGridInterpolator
+
 
 def GetValidateLoop(cfg, parameters_file):
   """
@@ -176,7 +178,7 @@ def GetYName(ur, purpose="plot", round_to=2):
   """
   if len(ur) > 0:
     label_list = [str(round(i,round_to)) for i in ur] 
-    if purpose == "file":
+    if purpose in ["file","code"]:
       name = "_".join([i.replace(".","p").replace("-","m") for i in label_list])
     elif purpose == "plot":
       if len(label_list) > 1:
@@ -184,5 +186,164 @@ def GetYName(ur, purpose="plot", round_to=2):
       else:
         name = label_list[0]
   else:
-    name = ""
+    if purpose in ["file","plot"]:
+      name = ""
+    else:
+      name = None
   return name
+
+def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
+
+  # Find initial options
+  #entry_dict = {}
+  #for ind in range(len(parameters["Y_columns"])):
+  #  entry_dict[parameters["Y_columns"][ind]] = sorted(list(set([float(k.split("_")[ind].replace("p",".").replace("m","-")) for k in parameters["yield"].keys()])))
+
+  # Get name to add
+  row_to_add = []
+  for col in parameters["Y_columns"]:
+    if col in poi_vars:
+      row_to_add.append(poi[poi_vars.index(col)])
+    elif col == nuisance:
+      row_to_add.append(nuisance_val)
+    elif col in nuisance_vars:
+      row_to_add.append(0.0)        
+  row_to_add_name = GetYName(row_to_add, purpose="file")
+
+  # Skip if already in list
+  if row_to_add_name in parameters["yield"]: 
+    return return_dict
+
+  # Figure out which dimension to vary
+  missing_col_ind = 0
+  for col_ind, col in enumerate(parameters["Y_columns"]):
+    if not row_to_add[col_ind] in entry_dict[col]:
+      missing_col_ind = copy.deepcopy(col_ind)
+
+  # find closest other val
+  lst = copy.deepcopy(entry_dict[parameters["Y_columns"][missing_col_ind]])
+  if row_to_add[missing_col_ind] in lst: lst.remove(row_to_add[missing_col_ind])
+  x1 = min(lst, key=lambda x: abs(x - row_to_add[missing_col_ind]))
+  lst.remove(x1)
+  x2 = min(lst, key=lambda x: abs(x - row_to_add[missing_col_ind]))
+  row_1_for_line = copy.deepcopy(row_to_add)
+  row_1_for_line[missing_col_ind] = x1
+  row_2_for_line = copy.deepcopy(row_to_add)
+  row_2_for_line[missing_col_ind] = x2
+
+  #print(row_1_for_line, row_2_for_line, row_to_add)
+
+  # Get straight line
+  y1 = parameters["yield"][GetYName(row_1_for_line, purpose="file")]
+  y2 = parameters["yield"][GetYName(row_2_for_line, purpose="file")]
+  m = (y2 - y1) / (x2 - x1)
+  c = y2 - (m * x2)
+  y = (m * row_to_add[missing_col_ind]) + c
+  return_dict[row_to_add_name] = y
+  
+  #print(row_1_for_line, row_2_for_line, row_to_add, y1, y2, y)
+
+  return return_dict
+
+def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
+
+  if not "all" in parameters["yield"].keys():
+
+    # Find initial options
+    orig_dict = {}
+    for ind in range(len(parameters["Y_columns"])):
+      orig_dict[parameters["Y_columns"][ind]] = sorted(list(set([float(k.split("_")[ind].replace("p",".").replace("m","-")) for k in parameters["yield"].keys()])))
+
+    # Extend range
+    val_dict = copy.deepcopy(orig_dict)
+    nuisance_loop = nuisance_vars if len(nuisance_vars) > 0 else [None]
+
+    orig_dict[None] = [None]
+    add_dict = {}
+    if add_overflow > 0.0:
+      for k, v in val_dict.items():
+        col_range = max(v) - min(v)
+        add_dict[k] = [min(v) - (add_overflow*col_range), max(v) + (add_overflow*col_range)]
+        val_dict[k] = sorted(v + add_dict[k])
+      unique_pois = [val_dict[poi] for poi in poi_vars if poi in val_dict.keys()]
+      mesh_pois = list(product(*unique_pois))
+
+      for poi in mesh_pois:
+        for nuisance in nuisance_loop:
+          if nuisance not in orig_dict.keys(): continue
+          # Do inside the nuisance range
+          for nuisance_val in orig_dict[nuisance]:
+            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, parameters["yield"], orig_dict)
+
+      for k, v in add_dict.items():
+        if k in poi_vars:
+          orig_dict[k] += v
+
+      for poi in mesh_pois:
+        for nuisance in nuisance_loop:
+          if nuisance not in add_dict.keys(): continue
+          # Do outside the nuisance range
+          for nuisance_val in add_dict[nuisance]:
+            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, parameters["yield"], orig_dict)
+
+    # Get unique values and mesh
+    unique_points = val_dict.values()
+    mesh = [np.array(i).flatten() for i in np.meshgrid(*unique_points,indexing="ij")]
+
+    #for k, v in parameters["yield"].items():
+    #  print(k,v)
+    #print(unique_points)
+    #exit()
+
+    # Get values
+    data = []
+    for ind in range(len(mesh[0])):
+      row = [mesh[col][ind] for col in range(len(mesh))]
+      row_name = GetYName(row, purpose="file")
+
+      # If exact row exists use that
+      if row_name in parameters["yield"].keys():
+
+        data.append(parameters["yield"][row_name])
+
+      # Else assume uncorrelated and add up changes from the nominal nuisance value
+      else:
+
+        zero_nuisance_row = []
+        for col_ind, col in enumerate(parameters["Y_columns"]):
+          if col in poi_vars:
+            zero_nuisance_row.append(mesh[col_ind][ind])
+          elif col in nuisance_vars:
+            zero_nuisance_row.append(0.0)
+        zero_nuisance_row_name = GetYName(zero_nuisance_row, purpose="file")
+        zero_nuisance_val = parameters["yield"][zero_nuisance_row_name]
+
+        zero_individual_nuisance_vals = []
+        for nuisance in nuisance_loop:
+
+          zero_individual_nuisance_row = []
+          for col_ind, col in enumerate(parameters["Y_columns"]):
+            if col != nuisance:
+              zero_individual_nuisance_row.append(mesh[col_ind][ind])
+            else:
+              zero_individual_nuisance_row.append(0.0)
+          zero_individual_nuisance_row_name = GetYName(zero_individual_nuisance_row, purpose="file")   
+          zero_individual_nuisance_vals.append(parameters["yield"][zero_individual_nuisance_row_name])       
+
+        sum_diff = sum([v-zero_nuisance_val for v in zero_individual_nuisance_vals])
+        data.append(zero_nuisance_val+sum_diff)
+
+    data_array_shape = tuple(len(uv) for uv in unique_points)
+    data = np.array(data).reshape(data_array_shape)
+
+    interp = RegularGridInterpolator(unique_points, data, method='linear', bounds_error=False, fill_value=np.nan)
+
+    def func(x):
+      return interp(x)[0]
+    
+  else:
+    
+    def func(x):
+      return parameters["yield"]["all"]
+
+  return func

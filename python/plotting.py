@@ -2,8 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
+import matplotlib.ticker as ticker
 import mplhep as hep
 import seaborn as sns
+import pandas as pd
+import copy
 
 hep.style.use("CMS")
    
@@ -460,6 +463,242 @@ def plot_stacked_histogram_with_ratio(
   plt.subplots_adjust(hspace=0.1)
 
   # Show the plot
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+
+def plot_stacked_unrolled_2d_histogram_with_ratio(
+    data_hists, 
+    stack_hists_dict, 
+    bin_edges_1d,
+    unrolled_bins,
+    unrolled_bin_name,
+    data_name='Data', 
+    xlabel="",
+    ylabel="Events",
+    name="fig", 
+    data_hists_errors=None, 
+    stack_hists_errors=None, 
+    title_right="",
+    use_stat_err=False,
+    axis_text="",
+  ):
+
+  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
+
+  bin_edges = []
+  for unrolled_ind in range(len(data_hists)):
+    for plot_ind in range(len(bin_edges_1d)-1):
+      bin_edges.append(((bin_edges_1d[-1]-bin_edges_1d[0])*unrolled_ind) + (bin_edges_1d[plot_ind] - bin_edges_1d[0]))
+  bin_edges.append((len(data_hists))*(bin_edges_1d[-1]-bin_edges_1d[0]))
+  bin_edges = [be/(bin_edges_1d[-1]-bin_edges_1d[0]) for be in bin_edges]
+  bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
+
+  # combine data_hists
+  for ind, dh in enumerate(data_hists):
+    if ind == 0:
+      data_hist = copy.deepcopy(dh)
+    else:
+      data_hist = np.concatenate((data_hist, dh))
+
+  # combine data errors
+  if data_hists_errors is not None:
+    for ind, dh in enumerate(data_hists_errors):
+      if ind == 0:
+        data_errors = copy.deepcopy(dh)
+      else:
+        data_errors = np.concatenate((data_errors, dh))
+
+  # combine stack_hists
+  stack_hist_dict = {}
+  for k, v in stack_hists_dict.items():
+    for ind, hist in enumerate(v):
+      if ind == 0:
+        stack_hist_dict[k] = copy.deepcopy(hist)
+      else:
+        stack_hist_dict[k] = np.concatenate((stack_hist_dict[k], hist))
+        
+  # combine stack_hists_errors
+  if stack_hists_errors is not None:
+    for ind, hist in enumerate(stack_hists_errors):
+      if ind == 0:
+        stack_hist_errors = copy.deepcopy(hist)
+      else:
+        stack_hist_errors = np.concatenate((stack_hist_errors, hist))
+
+  data_hist = data_hist.astype(np.float64)
+  for k, v in stack_hist_dict.items():
+    stack_hist_dict[k] = v.astype(np.float64)
+
+  total_stack_hist = np.sum(list(stack_hist_dict.values()), axis=0)
+
+  if data_errors is None:
+      data_errors = 0*data_hist
+  if stack_hist_errors is None:
+      stack_hist_errors = 0*total_stack_hist   
+
+  if use_stat_err:
+      data_errors = np.sqrt(data_hist)
+      stack_hist_errors = np.sqrt(total_stack_hist)
+
+  # Plot the histograms on the top pad
+  rgb_palette = sns.color_palette("Set2", 8)
+  for ind, (k, v) in enumerate(stack_hist_dict.items()):
+    if ind == 0:
+      bottom = None
+    else:
+       bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
+
+    ax1.bar(
+       bin_edges[:-1], 
+       v, 
+       bottom=bottom,
+       width=np.diff(bin_edges), 
+       align='edge', 
+       alpha=1.0, 
+       label=k, 
+       color=tuple(x for x in rgb_palette[ind]), 
+       edgecolor=None
+      )
+
+  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
+  summed_stack_hist = np.zeros(len(total_stack_hist))
+  for k, v in stack_hist_dict.items():
+    summed_stack_hist += v
+    step_histvals = np.append(np.insert(summed_stack_hist,0,0.0),0.0)
+    ax1.step(step_edges, step_histvals, color='black')
+
+  ax1.set_xlim([bin_edges[0],bin_edges[-1]])
+  ax1.set_ylim(0, 1.2*max(np.concatenate((total_stack_hist,data_hist))))
+
+  ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+
+  # Plot the other histogram as markers with error bars
+  ax1.errorbar(bin_centers, data_hist, yerr=data_errors, fmt='o', label=data_name, color="black")
+
+  # Draw lines showing unrolled bin splits
+  for i in range(1,len(data_hists)):
+    ax1.axvline(x=i, color='black', linestyle='-', linewidth=4)
+
+  # Draw text showing unrolled bin splits
+  text_y = 1.1*max(np.concatenate((total_stack_hist,data_hist)))
+  unrolled_bin_name = unrolled_bin_name.replace("_","\_")
+  for i in range(len(data_hists)):
+    text_x = i + 0.5
+
+    unrolled_bin = [unrolled_bins[i], unrolled_bins[i+1]]
+    unrolled_bin = [int(i) if i.is_integer() else i for i in unrolled_bin]
+
+    if unrolled_bin[0] == -np.inf:
+      unrolled_bin_string = rf"${unrolled_bin_name} < {unrolled_bin[1]}$"
+    elif unrolled_bin[1] == np.inf:
+      unrolled_bin_string = rf"${unrolled_bin_name} \geq {unrolled_bin[0]}$"
+    else:
+      unrolled_bin_string = rf"${unrolled_bin[0]} \leq {unrolled_bin_name} < {unrolled_bin[1]}$"
+
+    ax1.text(text_x, text_y, unrolled_bin_string, verticalalignment='center', horizontalalignment='center', fontsize=14)
+
+  # Change x axis labels
+  x_locator = ticker.MaxNLocator(integer=True, nbins=3, prune='both', min_n_ticks=3)
+  x_tick_positions = x_locator.tick_values(bin_edges_1d[0], bin_edges_1d[-1])
+  new_tick_positions = []
+  new_tick_labels = []
+  for unrolled_ind in range(len(data_hists)):
+    for plot_ind in range(len(x_tick_positions)):
+      new_tick_positions.append(unrolled_ind + ((x_tick_positions[plot_ind]-bin_edges_1d[0])/(bin_edges_1d[-1] - bin_edges_1d[0])))
+      new_tick_labels.append(x_tick_positions[plot_ind])
+  new_tick_labels = [int(i) if i.is_integer() else i for i in new_tick_labels]
+
+  ax1.set_xticks(new_tick_positions)
+  ax1.set_xticklabels(new_tick_labels)
+
+  minor_tick_positions = []
+  for i in range(len(new_tick_positions) - 1):
+    minor_tick_positions.extend(np.linspace(new_tick_positions[i], new_tick_positions[i+1], num=4, endpoint=False)[1:])
+
+  while ((2*minor_tick_positions[0])-minor_tick_positions[1]) > 0:
+    minor_tick_positions = [((2*minor_tick_positions[0])-minor_tick_positions[1])] + minor_tick_positions
+
+  while (2*minor_tick_positions[-1]) - minor_tick_positions[-2] < len(data_hists):
+    minor_tick_positions += [(2*minor_tick_positions[-1]) - minor_tick_positions[-2]]
+
+  ax1.set_xticks(minor_tick_positions, minor=True)
+  ax2.set_xticks(minor_tick_positions, minor=True)
+
+  # Get the current handles and labels of the legend
+  handles, labels = ax1.get_legend_handles_labels()
+
+  # Reverse the order of handles and labels
+  handles = handles[::-1]
+  labels = labels[::-1]
+
+  # Create the reversed legend
+  #ax1.legend(handles, labels, loc='upper right', bbox_to_anchor=(1, 1), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+  ax1.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+
+  #ax1.legend()
+  ax1.set_ylabel(ylabel)
+  hep.cms.text("Work in progress",ax=ax1)
+
+  ax1.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes)
+
+  ax1.text(0.03, 0.96, axis_text, transform=ax1.transAxes, va='top', ha='left')
+
+  # Compute the ratio of the histograms
+  zero_indices = np.where(total_stack_hist == 0)
+  for i in zero_indices: total_stack_hist[i] = 1.0
+
+  ratio = np.divide(data_hist,total_stack_hist)
+  ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
+  ratio_errors_2 = np.divide(data_errors,total_stack_hist)
+
+  for i in zero_indices:
+      ratio[i] = 0.0
+      ratio_errors_1[i] = 0.0
+      ratio_errors_2[i] = 0.0
+
+  # Plot the ratio on the bottom pad
+  ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
+
+  ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+  ax2.set_xlabel(xlabel)
+  ax2.set_ylabel('Ratio')
+  ax2.set_ylim([0.5,1.5])
+
+  # Draw lines showing unrolled bin splits
+  for i in range(1,len(data_hists)):
+  #  line_x = i*(bin_edges_1d[-1] - bin_edges_1d[0])
+    ax2.axvline(x=i, color='black', linestyle='-', linewidth=4)
+  ax2.set_xticks(new_tick_positions)
+  ax2.set_xticklabels(new_tick_labels)
+
+  # Adjust spacing between subplots
+  plt.subplots_adjust(hspace=0.1)
+
+  # Show the plot
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf", bbox_inches='tight')
+  plt.close()
+
+def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix", title_right=""):
+   
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+
+  corr_df = pd.DataFrame(correlation_matrix, columns=labels, index=labels)
+  sns.heatmap(corr_df, annot=True, cmap='coolwarm', vmin=-1, vmax=1, linewidths=.5, fmt='.2f', annot_kws={'size': 8})
+
+  ax.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes)
+
+  plt.xticks(fontsize=10)
+  plt.yticks(fontsize=10)
+
   print("Created "+name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()

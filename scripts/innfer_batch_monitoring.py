@@ -3,7 +3,7 @@ import yaml
 import glob
 import os
 import time
-
+import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c','--cfg', help= 'Config for running',  default=None)
@@ -70,9 +70,11 @@ for step, sub_steps in trimmed_steps.items():
       os.system(f"rm {file.replace('.sh','_error.log')}")
 
     if step == "Train":
-      args.options += args.add_train_option
+      options = f"{args.options} {args.add_train_option}"
+    else:
+      options = copy.deepcopy(args.options)
 
-    cmd = f"python3 scripts/innfer.py {args.options} --cfg={args.cfg} --step={step} {sub_step_option} --submit={args.submit}"
+    cmd = f"python3 scripts/innfer.py {options} --cfg={args.cfg} --step={step} {sub_step_option} --submit={args.submit}"
     print(cmd)
     os.system(cmd)
     time.sleep(mins_till_run * 60)
@@ -84,7 +86,6 @@ for step, sub_steps in trimmed_steps.items():
       all_jobs_finished = True
       for file in glob.glob(f"{job_files}"):
         log_file = file.replace(".sh","_output.log")
-        print(log_file)
 
         if not os.path.exists(log_file):
           all_jobs_finished = False

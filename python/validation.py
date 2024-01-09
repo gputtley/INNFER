@@ -1,8 +1,9 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
-from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood
-from other_functions import GetYName
+from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
+from other_functions import GetYName, MakeYieldFunction
 from scipy.integrate import simpson
+from functools import partial
 import numpy as np
 import copy
 import yaml
@@ -23,10 +24,11 @@ class Validation():
     self.model_name = "model"
     self.data_parameters = {}
     self.lkld = None
-    self.n_asimov_events = 1000.0
+    self.pois = []
+    self.nuisances = []
     self.data_key = "val"
     self.tolerance = 1e-6
-    self.lower_validation_stats = False
+    self.lower_validation_stats = None
     self.data_dir = "./data/"
     self.out_dir = "./data/"
     self.plot_dir = "./plots/"
@@ -35,6 +37,9 @@ class Validation():
     self.pp = PreProcess()
     self.pp.parameters = self.data_parameters
     self.pp.output_dir = self.data_dir
+
+    self.synth = None
+    self.synth_row = None
 
   def _SetOptions(self, options):
     """
@@ -76,12 +81,22 @@ class Validation():
     X = X[indices]
     wt = wt[indices]
 
-    if self.lower_validation_stats:
-      X = X[:1000,:]
-      sum_wt = np.sum(wt)
-      wt = wt[:1000,:]
-      new_sum_wt = np.sum(wt)
-      wt *= sum_wt/new_sum_wt
+    if "yield" in self.data_parameters.keys():
+      if "all" in self.data_parameters["yield"].keys():
+        sum_wt = self.data_parameters["yield"]["all"]
+      else:
+        sum_wt = self.data_parameters["yield"][GetYName(row,purpose="file")]
+      old_sum_wt = np.sum(wt)
+      wt *= sum_wt/old_sum_wt
+
+    if self.lower_validation_stats is not None:
+      if len(X) > self.lower_validation_stats:
+        random_indices = np.random.choice(X.shape[0], self.lower_validation_stats, replace=False)
+        X = X[random_indices,:]
+        sum_wt = np.sum(wt)
+        wt = wt[random_indices,:]
+        new_sum_wt = np.sum(wt)
+        wt *= sum_wt/new_sum_wt
 
     return X, wt
 
@@ -90,12 +105,15 @@ class Validation():
     Build the likelihood object.
     """
     self.lkld = Likelihood(
-      {"pdfs":{self.model_name:self.model}}, 
-      type="unbinned", 
+      {
+        "pdfs":{self.model_name:self.model},
+        "yields":{self.model_name:MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)}
+       }, 
+      type="unbinned_extended", 
       data_parameters={
         self.model_name:{
           "X_columns" : self.data_parameters["X_columns"],
-          "Y_columns" : self.data_parameters["Y_columns"]
+          "Y_columns" : self.data_parameters["Y_columns"],
         },
       }
     )
@@ -112,8 +130,10 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
+    #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
+    #for i in loop:
+    #  self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
+    #exit()
     self.lkld.GetAndWriteBestFitToYaml(X, row, initial_guess, wt=wt, filename=f"{self.out_dir}/best_fit_{ind}.yaml")
 
   def GetAndDumpScanRanges(self, row, col, columns=None, ind=0):
@@ -128,11 +148,9 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     self.lkld.GetAndWriteScanRangesToYaml(X, row, col, wt=wt, filename=f"{self.out_dir}/scan_values_{col}_{ind}.yaml")
 
-  def GetAndDumpNLL(self, row, col, col_val, columns=None, ind1=0, ind2=0):
+  def GetAndDumpScan(self, row, col, col_val, columns=None, ind1=0, ind2=0):
     """
     Get and dump negative log-likelihood to a YAML file.
 
@@ -146,9 +164,48 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
-    self.lkld.GetAndWriteNLLToYaml(X, row, col, col_val, wt=wt, filename=f"{self.out_dir}/scan_results_{col}_{ind1}_{ind2}.yaml")
+    self.lkld.GetAndWriteScanToYaml(X, row, col, col_val, wt=wt, filename=f"{self.out_dir}/scan_results_{col}_{ind1}_{ind2}.yaml")
+
+  def PlotCorrelationMatrix(self, row, columns=None):
+
+    print(">> Producing correlation matrix plots")
+    X, wt = self._GetXAndWts(row, columns=columns)
+    if self.synth is None or self.synth_row != row:
+      synth = self.model.Sample(np.array([list(row)]), columns=columns)
+      self.synth_row = row
+      self.synth = synth
+    else:
+      synth = self.synth
+
+    true_cov_matrix = np.cov(X, aweights=wt.flatten(), rowvar=False)
+    true_corr_matrix = true_cov_matrix / np.sqrt(np.outer(np.diag(true_cov_matrix), np.diag(true_cov_matrix)))
+    
+    synth_cov_matrix = np.cov(synth, rowvar=False)
+    synth_corr_matrix = synth_cov_matrix / np.sqrt(np.outer(np.diag(synth_cov_matrix), np.diag(synth_cov_matrix)))
+
+    file_extra_name = GetYName(row, purpose="file")
+    plot_extra_name = GetYName(row, purpose="plot")
+
+    plot_correlation_matrix(
+      true_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_true_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}" if plot_extra_name != "" else ""
+    )
+
+    plot_correlation_matrix(
+      synth_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_synth_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}" if plot_extra_name != "" else ""
+    )
+
+    plot_correlation_matrix(
+      true_corr_matrix-synth_corr_matrix, 
+      self.data_parameters["X_columns"], 
+      name=f"{self.plot_dir}/correlation_matrix_subtracted_y_{file_extra_name}",
+      title_right=f"y={plot_extra_name}" if plot_extra_name != "" else ""
+    )
 
 
   def PlotGeneration(self, row, columns=None, n_bins=40, ignore_quantile=0.01):
@@ -164,7 +221,18 @@ class Validation():
     """
     print(">> Producing generation plots")
     X, wt = self._GetXAndWts(row, columns=columns)
-    synth = self.model.Sample(np.array([list(row)]), columns=columns)
+    if self.synth is None or self.synth_row != row:
+      synth = self.model.Sample(np.array([list(row)]), columns=columns)
+      self.synth_row = row
+      self.synth = synth
+    else:
+      synth = self.synth
+    
+    if "yield" in self.data_parameters.keys():
+      yf = MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)
+      synth_wt = (yf(row)/len(synth)) * np.ones(len(synth))
+    else:
+      synth_wt = (np.sum(wt)/len(synth)) * np.ones(len(synth))
 
     for col in range(X.shape[1]):
 
@@ -177,26 +245,138 @@ class Validation():
 
       sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
       sim_hist_err_sq, _  = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
-      synth_hist, _  = np.histogram(synth[:,col], bins=bins)
-      
+      sim_hist_err = np.sqrt(sim_hist_err_sq)
+      synth_hist, _  = np.histogram(synth[:,col], weights=synth_wt, bins=bins)
+      synth_hist_err_sq, _  = np.histogram(synth[:,col], weights=synth_wt**2, bins=bins)
+      synth_hist_err = np.sqrt(synth_hist_err_sq)
+
       file_extra_name = GetYName(row, purpose="file")
       plot_extra_name = GetYName(row, purpose="plot")
 
-      plot_histogram_with_ratio(
-        sim_hist, 
-        synth_hist, 
-        bins, 
-        name_1='Simulated', 
-        name_2='Synthetic',
-        xlabel=self.data_parameters["X_columns"][col],
-        name=f"{self.plot_dir}/generation_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
-        title_right = f"y={plot_extra_name}",
-        density = True,
-        use_stat_err = False,
-        errors_1=np.sqrt(sim_hist_err_sq), 
-        errors_2=np.sqrt(synth_hist),
-        )
+      #plot_histogram_with_ratio(
+      #  sim_hist, 
+      #  synth_hist, 
+      #  bins, 
+      #  name_1='Simulated', 
+      #  name_2='Synthetic',
+      #  xlabel=self.data_parameters["X_columns"][col],
+      #  name=f"{self.plot_dir}/generation_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
+      #  title_right = f"y={plot_extra_name}",
+      #  density = False,
+      #  use_stat_err = False,
+      #  errors_1=np.sqrt(sim_hist_err_sq), 
+      #  errors_2=np.sqrt(synth_hist),
+      #  )
       
+      plot_stacked_histogram_with_ratio(
+        sim_hist, 
+        {"Synthetic" : synth_hist}, 
+        bins, 
+        data_name='Simulated', 
+        xlabel=self.data_parameters["X_columns"][col],
+        ylabel="Events",
+        name=f"{self.plot_dir}/generation_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
+        data_errors=sim_hist_err, 
+        stack_hist_errors=synth_hist_err, 
+        title_right=f"y={plot_extra_name}",
+        use_stat_err=False,
+        axis_text="",
+        )
+
+  def Plot2DUnrolledGeneration(self, row, columns=None, n_unrolled_bins=5, n_bins=10, ignore_quantile=0.01, sf_diff=2):
+    print(">> Producing 2d unrolled generation plots")
+    X, wt = self._GetXAndWts(row, columns=columns)
+    if self.synth is None or self.synth_row != row:
+      synth = self.model.Sample(np.array([list(row)]), columns=columns)
+      self.synth_row = row
+      self.synth = synth
+    else:
+      synth = self.synth
+
+    unrolled_bins = []
+    plot_bins = []
+    for col in range(X.shape[1]):
+      synth_column = synth[:,col]
+
+      # Find unrolled equal stat rounded bins
+      diff = np.quantile(synth_column, 0.75) - np.quantile(synth_column, 0.25)
+      significant_figures = sf_diff - int(np.floor(np.log10(abs(diff)))) - 1
+      rounded_number = round(diff, significant_figures)
+      decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
+      unrolled_bins.append([round(np.quantile(synth_column, i/n_unrolled_bins), min(decimal_places,significant_figures)) for i in range(1,n_unrolled_bins)])
+      unrolled_bins[col] = [-np.inf] + unrolled_bins[col] + [np.inf]
+
+      # Find equally spaced plotted bins after ignoring quantile
+      lower_value = np.quantile(synth_column, ignore_quantile)
+      upper_value = np.quantile(synth_column, 1-ignore_quantile)
+      trimmed_indices = ((synth_column >= lower_value) & (synth_column <= upper_value))
+      trimmed_X = synth_column[trimmed_indices]
+      _, bins  = np.histogram(trimmed_X, bins=n_bins)
+      plot_bins.append(list(bins))      
+
+    for plot_col in range(X.shape[1]):
+      for unrolled_col in range(X.shape[1]):
+        if plot_col == unrolled_col: continue
+        synth_hists = []
+        synth_err_hists = []
+        X_hists = []
+        X_err_hists = []
+        #unrolled_bin_strings = []
+        for unrolled_bin_ind in range(n_unrolled_bins):
+          unrolled_bin = [unrolled_bins[unrolled_col][unrolled_bin_ind], unrolled_bins[unrolled_col][unrolled_bin_ind+1]]
+
+          #unrolled_col_name = self.data_parameters["X_columns"][unrolled_col]
+          #if unrolled_bin[0] == -np.inf:
+          #  unrolled_bin_string = rf"${unrolled_col_name} < {unrolled_bin[1]}$"
+          #elif unrolled_bin[1] == np.inf:
+          #  unrolled_bin_string = rf"${unrolled_col_name} \geq {unrolled_bin[0]}$"
+          #else:
+          #  unrolled_bin_string = rf"${unrolled_bin[0]} \geq {unrolled_col_name} < {unrolled_bin[1]}$"
+          #unrolled_bin_strings.append(unrolled_bin_string)
+
+          synth_unrolled_bin_indices = ((synth[:,unrolled_col] >= unrolled_bin[0]) & (synth[:,unrolled_col] < unrolled_bin[1]))
+          synth_unrolled_bin = synth[synth_unrolled_bin_indices]
+
+          X_unrolled_bin_indices = ((X[:,unrolled_col] >= unrolled_bin[0]) & (X[:,unrolled_col] < unrolled_bin[1]))
+          X_unrolled_bin = X[X_unrolled_bin_indices]
+          wt_unrolled_bin = wt[X_unrolled_bin_indices].flatten()
+          synth_hist, _  = np.histogram(synth_unrolled_bin[:,plot_col], bins=plot_bins[plot_col])
+          synth_hist_err = np.sqrt(synth_hist)
+          X_hist, _  = np.histogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin, bins=plot_bins[plot_col])
+          X_hist_err_sq, _  = np.histogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin**2, bins=bins)
+          X_hist_err = np.sqrt(X_hist_err_sq)
+
+          sum_synth_hist = float(np.sum(synth_hist))
+          sum_X_hist = float(np.sum(X_hist))
+          synth_hist = synth_hist/sum_synth_hist
+          synth_hist_err = synth_hist_err/sum_synth_hist
+          X_hist = X_hist/sum_X_hist
+          X_hist_err = X_hist_err/sum_X_hist
+
+          synth_hists.append(synth_hist)
+          synth_err_hists.append(synth_hist_err)
+          X_hists.append(X_hist)
+          X_err_hists.append(X_hist_err)
+
+        plot_extra_name = GetYName(row, purpose="plot")
+        file_extra_name = GetYName(row, purpose="file")
+
+        plot_stacked_unrolled_2d_histogram_with_ratio(
+          X_hists, 
+          {"Synthetic": synth_hists}, 
+          plot_bins[plot_col],
+          unrolled_bins[col],
+          self.data_parameters["X_columns"][unrolled_col],
+          data_name='Simulated', 
+          xlabel=self.data_parameters["X_columns"][plot_col],
+          name=f"{self.plot_dir}/generation_unrolled_2d_{self.data_parameters['X_columns'][plot_col]}_{self.data_parameters['X_columns'][unrolled_col]}_y_{file_extra_name}", 
+          data_hists_errors=X_err_hists, 
+          stack_hists_errors=synth_err_hists, 
+          title_right=f"y={plot_extra_name}" if plot_extra_name != "" else "",
+          use_stat_err=False,
+          ylabel = "Density",
+        )
+
   def _GetYName(self, ur, purpose="plot", round_to=2):
     """
     Get a formatted label for a given unique row.
@@ -233,7 +413,8 @@ class Validation():
         true_pdf (function): True probability density function used for comparison plots (default is None).
         columns (list): List of column names for likelihood computation. If None, uses Y_columns from data_parameters.
     """
-    print(f"{col}: {crossings[0]} + {crossings[1]-crossings[0]} - {crossings[0]-crossings[-1]}")
+    if 0 in crossings.keys() and 1 in crossings.keys() and -1 in crossings.keys():
+      print(f"{col}: {crossings[0]} + {crossings[1]-crossings[0]} - {crossings[0]-crossings[-1]}")
     if columns == None: columns = self.data_parameters["Y_columns"]
     ind = columns.index(col)
     file_extra_name = GetYName(row, purpose="file")
@@ -242,8 +423,6 @@ class Validation():
     other_lkld = {}
 
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
     total_weight = float(np.sum(wt.flatten()))
     if not eff_events == total_weight:
@@ -251,21 +430,28 @@ class Validation():
 
     # make true likelihood
     if true_pdf is not None:
+      def Probability(X, Y, y_columns=None, k=None, **kwargs):
+        Y = np.array(Y)
+        if y_columns is not None:
+          column_indices = [y_columns.index(col) for col in self.data_parameters["Y_columns"]]
+          Y = Y[:,column_indices]
+        if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
+        prob = np.zeros(len(X))
+        for i in range(len(X)):
+          prob[i] = true_pdf(X[i],Y[i])
+        return np.log(prob)
+      
+      for k in self.lkld.models["pdfs"].keys():
+        self.lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
+
       nlls = []
       for x_val in x:
-        nll = 0
-        for data_ind, data in enumerate(X):
-          test_row = copy.deepcopy(best_fit)
-          test_row[ind] = x_val
-          pdf = true_pdf(data,test_row)
-          nll += -2*np.log(pdf**wt.flatten()[data_ind])
-        nlls.append(nll)
+        test_row = copy.deepcopy(best_fit)
+        test_row[ind] = x_val
+        nlls.append(-2*self.lkld.Run(X, test_row, wts=wt, return_ln=True))
 
-      true_nll = 0
-      for data_ind, data in enumerate(X):
-        true_nll += -2*np.log(true_pdf(data,row)**wt.flatten()[data_ind])
-
-      nlls = [nll - true_nll for nll in nlls]
+      min_nll = min(nlls)
+      nlls = [nll - min_nll for nll in nlls]
       other_lkld["True"] = nlls
 
     plot_likelihood(
@@ -275,7 +461,7 @@ class Validation():
       name=f"{self.plot_dir}/likelihood_{col}_y_{file_extra_name}", 
       xlabel=col, 
       true_value=row[ind],
-      title_right=f"y={plot_extra_name}",
+      title_right=f"y={plot_extra_name}" if plot_extra_name != "" else "",
       cap_at=9,
       label="Inferred N="+str(int(round(total_weight))),
       other_lklds=other_lkld,
@@ -294,8 +480,6 @@ class Validation():
     """
     if columns == None: columns = self.data_parameters["Y_columns"]
     X, wt = self._GetXAndWts(row, columns=columns)
-    if self.n_asimov_events is not None:
-      wt *= (self.n_asimov_events/np.sum(wt))
     synth_true = self.model.Sample(np.array([list(row)]), columns=columns)
     synth_best_fit = self.model.Sample(np.array([list(best_fit)]), columns=columns)
 
@@ -369,7 +553,7 @@ class Validation():
     hists = []
     for y_val in y_vals:
 
-      probs = self.model.Probability(np.array(bins[:-1]).reshape(-1, 1), np.array([y_val]), change_zero_prob=False, normalise=True)
+      probs = self.model.Probability(np.array(bins[:-1]).reshape(-1, 1), np.array([y_val]), change_zero_prob=False)
       integral = simpson(probs, dx=bins[1]-bins[0])
       print(f"Integral for Y is {integral}")
       hists.append(probs)
