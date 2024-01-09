@@ -4,6 +4,7 @@ import copy
 import numpy as np
 import bayesflow as bf
 import tensorflow as tf
+import wandb
 from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
@@ -91,6 +92,13 @@ class InnferTrainer(bf.trainers.Trainer):
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
 
+               metrics = {
+                  "train/train_loss": loss,
+                  "train/epoch": ep,
+                  "lr": lr,
+               }
+               wandb.log(metrics)
+
          
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
@@ -154,6 +162,7 @@ class InnferTrainer(bf.trainers.Trainer):
       val_loss_str = loss_to_string(ep, val_loss)
       logger = logging.getLogger()
       logger.info(val_loss_str)
+      wandb.log(val_loss)
 
    def _config_early_stopping(self, early_stopping, **kwargs):
       """

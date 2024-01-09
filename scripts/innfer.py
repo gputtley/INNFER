@@ -4,6 +4,7 @@ import os
 import sys
 import copy
 import numpy as np
+import wandb
 from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetYName, MakeYieldFunction
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_stacked_histogram_with_ratio
 from functools import partial
@@ -61,6 +62,7 @@ with open(args.cfg, 'r') as yaml_file:
 
 with open(args.architecture, 'r') as yaml_file:
   architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  run = wandb.init(project='INNFER', config=architecture)
 
 if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")
 if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['name']}")
@@ -153,6 +155,7 @@ for file_name, parquet_name in cfg["files"].items():
         networks[file_name].BuildTrainer()
         networks[file_name].Train()
         networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
+        wandb.finish()
         with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
           yaml.dump(architecture, file)
       else:
