@@ -19,7 +19,7 @@ parser.add_argument('--step', help= 'Step to run', type=str, default=None, choic
 parser.add_argument('--specific-file', help= 'Run for a specific file_name', type=str, default=None)
 parser.add_argument('--specific-val-ind', help= 'Run for a specific indices when doing validation', type=str, default=None)
 parser.add_argument('--specific-scan-ind', help= 'Run for a specific indices when doing scans', type=str, default=None)
-parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=4)
+parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=1)
 parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
 parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
 parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot"])
@@ -107,11 +107,14 @@ for file_name, parquet_name in cfg["files"].items():
 
     # Run plots varying the pois across the variables
     for info in GetPOILoop(cfg, pp[file_name].parameters):
-      pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="train", extra_name=info["extra_name"])
+      pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train')
+      pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test')
+      pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val')
+
         
     # Run plots varying the nuisances across the variables for each unique value of the pois
     for info in GetNuisanceLoop(cfg, pp[file_name].parameters):
-      pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=info["extra_name"])
+      pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train')
         
     # Run plots of the distribution of the context features
     pp[file_name].PlotY(dataset="train")
@@ -205,7 +208,8 @@ for file_name, parquet_name in cfg["files"].items():
           # Plot synthetic vs simulated comparison
           #networks[file_name].ProbabilityIntegral(np.array([info["row"]]), y_columns=info["columns"], n_integral_bins=int((10**6)**(1/len(parameters[file_name]["X_columns"]))))
           val.PlotGeneration(info["row"], columns=info["columns"])
-          if len(info["columns"]) > 1:
+          if len(parameters[file_name]["X_columns"]) > 1:
+            val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"])
             val.PlotCorrelationMatrix(info["row"], columns=info["columns"])
 
         elif args.step == "ValidateInference":
@@ -231,6 +235,7 @@ for file_name, parquet_name in cfg["files"].items():
             if args.sub_step == "InitialFit":
 
               print("- Running initial fit")
+
               # Get the best fit
               val.GetAndDumpBestFit(info["row"], info["initial_best_fit_guess"], ind=ind)
               # Get scan ranges
@@ -262,7 +267,8 @@ for file_name, parquet_name in cfg["files"].items():
 
                 if not (args.specific_scan_ind != None and args.specific_scan_ind != str(job_ind)):
                   if args.submit is None:
-                    val.GetAndDumpNLL(info["row"], col, scan_value, ind1=ind, ind2=point_ind)
+                    #val.GetAndDumpNLL(info["row"], col, scan_value, ind1=ind, ind2=point_ind)
+                    val.GetAndDumpScan(info["row"], col, scan_value, ind1=ind, ind2=point_ind)
 
                 if ((point_ind+1) % args.scan_points_per_job == 0) or (point_ind == len(scan_values_info["scan_values"])-1):
                   # Submit to batch
@@ -429,10 +435,12 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
     if args.sub_step == "InitialFit":
       print("- Running initial fit")
 
-      #for i in [166.5,169.5,172.5,175.5,178.5]:
+      
+      #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
+      #for i in loop:
       #  lkld.Run(total_X, np.array([0.5,i]), wts=total_wt, return_ln=True)
       #exit()
-
+      
       lkld.GetAndWriteBestFitToYaml(total_X, info["row"], info["initial_best_fit_guess"], wt=total_wt, filename=f"{out_dir}/best_fit_{ind}.yaml")
       for col in info["columns"]:
         lkld.GetAndWriteScanRangesToYaml(total_X, info["row"], col, wt=total_wt, filename=f"{out_dir}/scan_ranges_{col}_{ind}.yaml")
@@ -461,7 +469,9 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
 
           if not (args.specific_scan_ind != None and args.specific_scan_ind != str(job_ind)):
             if args.submit is None:
-              lkld.GetAndWriteNLLToYaml(total_X, info["row"], col, scan_value, wt=total_wt, filename=f"{out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml")
+              #lkld.GetAndWriteNLLToYaml(total_X, info["row"], col, scan_value, wt=total_wt, filename=f"{out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml")
+              lkld.GetAndWriteScanToYaml(total_X, info["row"], col, scan_value, wt=total_wt, filename=f"{out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml")
+
 
           if ((point_ind+1) % args.scan_points_per_job == 0) or (point_ind == len(scan_values_info["scan_values"])-1):
             # Submit to batch

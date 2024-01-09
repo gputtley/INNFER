@@ -31,7 +31,7 @@ defaults = {
 }
 
 input = {
-  "data/topmass_ttbar_mass_v2.parquet" : {
+  "data/topmass_ttbar_mass_v2.parquet" : { 
     "data/top_mc/ttbar_1665_2016_muon.root" : {
       **defaults,
       "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 1.0, "era" : 2016}
@@ -68,6 +68,18 @@ input = {
       **defaults,
       "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 1.0, "era" : 2018}
     },
+    "data/top_mc/ttbar_2016_muon.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2016}
+    },
+    "data/top_mc/ttbar_2017_muon.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2017}
+    },
+    "data/top_mc/ttbar_2018_muon.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2018}
+    },   
     "data/top_mc/ttbar_1735_2016_muon.root" : {
       **defaults,
       "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 1.0, "era" : 2016}
@@ -140,6 +152,18 @@ input = {
       **defaults,
       "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 0.0, "era" : 2018}
     },
+    "data/top_mc/ttbar_2016_elec.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2016}
+    },
+    "data/top_mc/ttbar_2017_elec.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2017}
+    },
+    "data/top_mc/ttbar_2018_elec.root" : {
+      **defaults,
+      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2018}
+    },   
     "data/top_mc/ttbar_1735_2016_elec.root" : {
       **defaults,
       "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 0.0, "era" : 2016}

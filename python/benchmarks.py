@@ -153,6 +153,11 @@ class Benchmarks():
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*float(self.model_parameters[self.name]["toy_signal_events"])/float(self.array_size))*np.ones(int(self.array_size))
         }
       )
+
+      # Rescale weights so all are equivalent
+      for mass in self.model_parameters[self.name]["true_masses"]:
+        df.loc[(df.loc[:,"true_mass"] == mass), "wt"] *= float(self.model_parameters[self.name]["toy_signal_events"]) / float(np.sum(df.loc[(df.loc[:,"true_mass"] == mass), "wt"]))
+
       table = pa.Table.from_pandas(df)
       parquet_file_path = f"data/{self.name}.parquet"
       pq.write_table(table, parquet_file_path)
@@ -168,7 +173,7 @@ class Benchmarks():
         x = np.random.exponential(scale=1/self.model_parameters[self.name]["background_lambda"]) + self.model_parameters[self.name]["background_constant"]
         while x < self.model_parameters[self.name]["background_ranges"][0] or x > self.model_parameters[self.name]["background_ranges"][1]:
           x = np.random.exponential(scale=1/self.model_parameters[self.name]["background_lambda"]) + self.model_parameters[self.name]["background_constant"]
-        X_bkg[ind] = np.append(X_bkg, x)
+        X_bkg[ind] = x
       X = np.vstack((X_signal.reshape(-1,1),X_bkg.reshape(-1,1)))
       df = pd.DataFrame(
         {
@@ -177,6 +182,10 @@ class Benchmarks():
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*float(self.model_parameters[self.name]["toy_signal_events"])/float(signal_entries))*np.ones(int(self.array_size))
         }
       )
+      # Rescale weights so all are equivalent
+      for mass in self.model_parameters[self.name]["true_masses"]:
+        df.loc[(df.loc[:,"true_mass"] == mass), "wt"] *= float(self.model_parameters[self.name]["toy_signal_events"]) / float(self.model_parameters[self.name]["signal_fraction"] * np.sum(df.loc[(df.loc[:,"true_mass"] == mass), "wt"]))
+
       df = df.sample(frac=1, random_state=42)
       df = df.reset_index(drop=True)
 
@@ -196,6 +205,10 @@ class Benchmarks():
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
         }
       )
+
+      # Rescale weights so all are equivalent
+      for mass in self.model_parameters[self.name]["true_masses"]:
+        df.loc[(df.loc[:,"true_mass"] == mass), "wt"] *= float(self.model_parameters[self.name]["toy_signal_events"]) / float(np.sum(df.loc[(df.loc[:,"true_mass"] == mass), "wt"]))
 
       table = pa.Table.from_pandas(df)
       parquet_file_path = f"data/{self.name}_Gaussian.parquet"

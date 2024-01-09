@@ -178,7 +178,7 @@ def GetYName(ur, purpose="plot", round_to=2):
   """
   if len(ur) > 0:
     label_list = [str(round(i,round_to)) for i in ur] 
-    if purpose == "file":
+    if purpose in ["file","code"]:
       name = "_".join([i.replace(".","p").replace("-","m") for i in label_list])
     elif purpose == "plot":
       if len(label_list) > 1:
@@ -186,7 +186,10 @@ def GetYName(ur, purpose="plot", round_to=2):
       else:
         name = label_list[0]
   else:
-    name = ""
+    if purpose in ["file","plot"]:
+      name = ""
+    else:
+      name = None
   return name
 
 def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):

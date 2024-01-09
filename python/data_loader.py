@@ -46,9 +46,15 @@ class DataLoader():
     Returns:
         pd.DataFrame: The full dataset as a Pandas DataFrame.
     """
+    orig_batch_size = int(self.batch_size)
+    orig_num_batches = int(self.num_batches)
+    self.batch_size = int(self.num_rows)
+    self.num_batches = 1
     data = self.LoadNextBatch()
     for _ in range(1, self.num_batches):
       data = pd.concat([data,self.LoadNextBatch()], ignore_index=True)
+    self.batch_size = int(orig_batch_size)
+    self.num_batches = int(orig_num_batches)
     return data
 
   def ChangeBatchSize(self, batch_size):

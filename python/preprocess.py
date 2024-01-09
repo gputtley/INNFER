@@ -56,15 +56,18 @@ class PreProcess():
     """
     Execute the data preprocessing pipeline.
     """
+    print(">> Loading full dataset.")
     dl = DataLoader(self.parquet_file_name)
     full_dataset = dl.LoadFullDataset()
 
     # Get X and Y column names
+    print(">> Getting columns from dataset.")
     Y_columns = [element for element in self.Y_columns if element in dl.columns]
     self.parameters["X_columns"] = self.X_columns
     self.parameters["Y_columns"] = Y_columns
 
     # Get unique values for validation
+    print(">> Finding unique values for validation.")
     self.parameters["unique_Y_values"] = {}
     for col in full_dataset[Y_columns].columns:
       if col not in self.validation_y_vals:
@@ -77,6 +80,7 @@ class PreProcess():
         self.parameters["unique_Y_values"][col] = self.validation_y_vals[col]
 
     # Get sum of weights for each unique y combination
+    print(">> Finding sum of weights for each unique y combination.")
     self.parameters["yield"] = {}
     if len(Y_columns) > 0:
       unique_rows = full_dataset.loc[:,Y_columns].drop_duplicates()
@@ -88,6 +92,7 @@ class PreProcess():
       self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:,"wt"]))
 
     # Train test split
+    print(">> Train/Test/Val splitting the data.")
     train_ratio = float(self.train_test_val_split.split(":")[0])
     test_ratio = float(self.train_test_val_split.split(":")[1])
     val_ratio = float(self.train_test_val_split.split(":")[2])   
@@ -103,6 +108,7 @@ class PreProcess():
     val_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[2])
 
     # Remove some Y combinations from train, test and val datasets
+    print(">> Removing some Y combinations.")
     for k, v in self.train_test_y_vals.items():
       if k in train_df.columns:
         train_df = train_df[train_df[k].isin(v)]
@@ -115,17 +121,20 @@ class PreProcess():
     gc.collect()
 
     # Get standardisation parameters
+    print(">> Getting standardisation parameters.")
     self.parameters["standardisation"] = {}
     for column_name in train_df.columns:
       if column_name in self.standardise:
         self.parameters["standardisation"][column_name] = self.GetStandardisationParameters(train_df.loc[:,column_name])
 
     # Transform data
+    print(">> Transforming data.")
     train_df = self.TransformData(train_df)
     test_df = self.TransformData(test_df)
     val_df = self.TransformData(val_df)
 
     # Split in X, Y and wt
+    print(">> Splitting X, Y and wt datasets.")
     X_train_df = train_df[self.X_columns]
     X_test_df = test_df[self.X_columns]
     X_val_df = val_df[self.X_columns]
@@ -137,6 +146,7 @@ class PreProcess():
     wt_val_df = val_df[["wt"]]      
 
     # Remove outliers
+    print(">> Removing outliers.")
     for k in X_train_df.columns:
       self.cut_values[k] = [np.quantile(X_train_df.loc[:,k], self.remove_quantile), np.quantile(X_train_df.loc[:,k], 1-self.remove_quantile)]
       select_indices = ((X_train_df.loc[:,k]>=self.cut_values[k][0]) & (X_train_df.loc[:,k]<=self.cut_values[k][1]))
@@ -152,18 +162,15 @@ class PreProcess():
       Y_val_df = Y_val_df.loc[select_indices,:]
       wt_val_df = wt_val_df.loc[select_indices,:]
 
-    # Write nominal weights
-    #pq.write_table(pa.Table.from_pandas(wt_train_df), self.output_dir+"/wt_nominal_train.parquet")
-    #pq.write_table(pa.Table.from_pandas(wt_test_df), self.output_dir+"/wt_nominal_test.parquet")
-    #pq.write_table(pa.Table.from_pandas(wt_val_df), self.output_dir+"/wt_nominal_val.parquet")
-
     # Equalise weights in each unique y values
     if self.equalise_y_wts:
+      print(">> Equalising Y weights.")
       wt_train_df = self.EqualiseYWeights(Y_train_df, wt_train_df)
       wt_test_df = self.EqualiseYWeights(Y_test_df, wt_test_df)
       wt_val_df = self.EqualiseYWeights(Y_val_df, wt_val_df)
 
     # Write parquet files
+    print(">> Writing parquet.")
     pq.write_table(pa.Table.from_pandas(X_train_df), self.output_dir+"/X_train.parquet")
     pq.write_table(pa.Table.from_pandas(X_test_df), self.output_dir+"/X_test.parquet")
     pq.write_table(pa.Table.from_pandas(X_val_df), self.output_dir+"/X_val.parquet")
@@ -175,6 +182,7 @@ class PreProcess():
     pq.write_table(pa.Table.from_pandas(wt_val_df), self.output_dir+"/wt_val.parquet")
 
     # Write data parameters
+    print(">> Writing parameters yaml.")
     with open(self.output_dir+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(self.parameters, yaml_file, default_flow_style=False)        
 
@@ -362,9 +370,14 @@ class PreProcess():
             final_condition = final_condition & col_condition
     if final_condition is not None:
       indices = Y_data[final_condition].index
-      X_data = X_data.iloc[indices].reset_index(drop=True)
-      Y_data = Y_data.iloc[indices].reset_index(drop=True)
-      wt_data = wt_data.iloc[indices].reset_index(drop=True)
+      X_data = X_data.iloc[indices]
+      Y_data = Y_data.iloc[indices]
+      wt_data = wt_data.iloc[indices]
+    
+    #X_data = X_data.reindex(range(len(X_data)))
+    X_data = X_data.reset_index(drop=True)
+    Y_data = Y_data.reset_index(drop=True)
+    wt_data = wt_data.reset_index(drop=True)
 
     # Loop through X variables
     for col in X_data.columns:

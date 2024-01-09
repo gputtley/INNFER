@@ -6,12 +6,13 @@ from scipy.optimize import minimize
 from scipy.interpolate import RegularGridInterpolator
 from plotting import plot_likelihood, plot_histograms
 from other_functions import GetYName
+from pprint import pprint
 
 class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, type="unbinned", parameters={}, data_parameters={}):
+  def __init__(self, models, type="unbinned_extended", parameters={}, data_parameters={}):
     """
     Initializes a Likelihood object.
 
@@ -26,10 +27,6 @@ class Likelihood():
     self.parameters = parameters
     self.data_parameters = data_parameters
     self.Y_columns = self._MakeY()
-    #self.interp = {}
-    #for name in self.models["pdfs"].keys():
-    #  if "yield" in self.data_parameters[name].keys():
-    #    self._BuildInterpolationForYields(name)
     # saved parameters
     self.best_fit = None
     self.best_fit_nll = None
@@ -65,6 +62,7 @@ class Likelihood():
         float: The likelihood value.
 
     """
+
     if self.type == "unbinned":
       lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
     elif self.type == "unbinned_extended":
@@ -110,7 +108,7 @@ class Likelihood():
     yd = self.models["yields"][file_name](Y)
     return yd
 
-  def Unbinned(self, X, Y, wts=None, return_ln=False, before_sum=False):
+  def Unbinned(self, X, Y, wts=None, return_ln=False, before_sum=False, verbose=True):
     """
     Computes the likelihood for unbinned data.
 
@@ -160,7 +158,7 @@ class Likelihood():
       return ln_lklds
 
     # Product the events
-    ln_lkld = ln_lklds.sum()
+    ln_lkld = np.sum(ln_lklds, dtype=np.float128)
 
     # Add constraints
     if "nuisance_constraints" in self.parameters.keys():
@@ -171,13 +169,15 @@ class Likelihood():
           constraint = self._LogNormal(Y[self.Y_columns.index(k)])
         ln_lkld += np.log(constraint)
 
-    print(f">> Y={Y}, lnL={ln_lkld}")
+    if verbose:
+      print(f">> Y={Y}, lnL={ln_lkld}")
+
     if return_ln:
       return ln_lkld
     else:
       return np.exp(ln_lkld)
 
-  def UnbinnedExtended(self, X, Y, wts=None, return_ln=False, before_sum=False):
+  def UnbinnedExtended(self, X, Y, wts=None, return_ln=False, before_sum=False, verbose=True):
     """
     Computes the extended likelihood for unbinned data.
 
@@ -191,10 +191,10 @@ class Likelihood():
         float: The likelihood value.
 
     """
+    start_time = time.time()
     Y = list(Y)
 
     first_loop = True
-    sum_rate_params = 0.0
     for name, pdf in self.models["pdfs"].items():
 
       if "mu_"+name in self.Y_columns:
@@ -202,7 +202,6 @@ class Likelihood():
       else:
         rate_param = 1.0
       if rate_param == 0.0: continue
-      sum_rate_params += rate_param
 
       # Get rate times yield times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
@@ -223,10 +222,11 @@ class Likelihood():
       return ln_lklds
 
     # Product the events
-    ln_lkld = ln_lklds.sum()
+    ln_lkld = np.sum(ln_lklds, dtype=np.float128)
 
-    # Add exponential term
-    for name, pdf in self.models["pdfs"].items():
+    # Add poisson term
+    total_rate = 0.0
+    for name, pdf in self.models["yields"].items():
 
       if "mu_"+name in self.Y_columns:
         rate_param = Y[self.Y_columns.index("mu_"+name)]
@@ -234,8 +234,10 @@ class Likelihood():
         rate_param = 1.0
       if rate_param == 0.0: continue
 
-      ln_lkld -= (rate_param * self._GetYield(name, Y, y_columns=self.Y_columns))
+      total_rate += (rate_param * self._GetYield(name, Y, y_columns=self.Y_columns))
       
+    ln_lkld -= total_rate
+
     # Add constraints
     if "nuisance_constraints" in self.parameters.keys():
       for k, v in self.parameters["nuisance_constraints"].items():
@@ -245,19 +247,17 @@ class Likelihood():
           constraint = self._LogNormal(Y[self.Y_columns.index(k)])
         ln_lkld += np.log(constraint)
 
-    # Divide by yield
-    if wts is not None:
-      ln_lkld -= len(X)
-    else:
-      ln_lkld -= np.sum(wts)
+    end_time = time.time()
 
-    print(f">> Y={Y}, lnL={ln_lkld}")
+    if verbose:
+      print(f">> Y={Y}, lnL={ln_lkld}, time={round(end_time-start_time,2)}")
+
     if return_ln:
       return ln_lkld
     else:
       return np.exp(ln_lkld)
 
-
+      
   def _Gaussian(self, x):
     """
     Computes the Gaussian distribution.
@@ -282,7 +282,7 @@ class Likelihood():
     """
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
-  def GetBestFit(self, X, initial_guess, wts=None):
+  def GetBestFit(self, X, initial_guess, wts=None, method="low_stat_high_stat", freeze={}):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -292,14 +292,67 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
-    def NLL(Y): 
-      nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
-      return nll
-    result = self.Minimise(NLL, initial_guess)
-    self.best_fit = result[0]
-    self.best_fit_nll = result[1]
+    if method == "nominal":
 
-  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=5, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
+      def NLL(Y): 
+        nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
+        return nll
+      result = self.Minimise(NLL, initial_guess, freeze=freeze)
+
+    elif method == "increasing_stats":
+
+      class NLL:
+        def __init__(self, lkld, full_X, wts=None, start_stats=100, steps_till_full=40):
+          self.lkld = lkld
+          self.full_X = full_X
+          self.full_wts = wts
+          self.start_stats = start_stats
+          self.steps_till_full = steps_till_full
+          self.sum_wts = np.sum(self.full_wts)
+          self.iteration = 0
+
+        def objective(self,Y):
+          random_indices = np.random.choice(self.full_X.shape[0], int(self.start_stats + self.iteration*((len(self.full_X) - self.start_stats)/self.steps_till_full)), replace=False)
+          X = self.full_X[random_indices,:]
+          wts = self.full_wts[random_indices,:]
+          new_sum_wt = np.sum(wts)
+          wts *= self.sum_wts/new_sum_wt
+          if self.iteration != self.steps_till_full:
+            self.iteration += 1
+          nll = -2*self.lkld.Run(X, Y, wts=wts, return_ln=True)
+          return nll
+               
+      nll = NLL(self, X, wts=wts)
+      result = self.Minimise(nll.objective, initial_guess, freeze=freeze)
+
+    elif method == "low_stat_high_stat":
+
+      def NLL(Y): 
+        nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
+        return nll
+      
+      stats = 1000
+
+      original_stats = len(X)
+      random_indices = np.random.choice(original_stats, stats, replace=False)
+      lowstat_X = X[random_indices,:]
+      if wts is not None:
+        old_sum_wts = np.sum(wts)
+        lowstat_wts = wts[random_indices,:]
+        new_sum_wt = np.sum(lowstat_wts)
+        lowstat_wts *= old_sum_wts/new_sum_wt
+      else:
+        lowstat_wts = (original_stats/stats)*np.ones(original_stats)
+
+      def NLL_lowstat(Y):
+        nll = -2*self.Run(lowstat_X, Y, wts=lowstat_wts, return_ln=True)
+        return nll
+      
+      result = self.Minimise(NLL, initial_guess, method="low_stat_high_stat", func_low_stat=NLL_lowstat, freeze=freeze)
+
+    return result
+
+  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
     """
     Computes the scan values for a given column.
 
@@ -350,14 +403,16 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    self.GetBestFit(X, np.array(initial_guess), wts=wt)
+    result = self.GetBestFit(X, np.array(initial_guess), wts=wt)
+    self.best_fit = result[0]
+    self.best_fit_nll = result[1]
     dump = {
       "row" : [float(i) for i in row],
       "columns": self.Y_columns, 
       "best_fit": [float(i) for i in self.best_fit], 
       "best_fit_nll": float(self.best_fit_nll)
       }
-    print(dump)
+    pprint(dump)
     print(f">> Created {filename}")
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
@@ -380,10 +435,43 @@ class Likelihood():
       "varied_column" : col,
       "scan_values" : scan_values
     }
-    print(dump)
+    pprint(dump)
     print(f">> Created {filename}")
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
+
+  def GetAndWriteScanToYaml(self, X, row, col, col_val, wt=None, filename="scan.yaml"):
+
+    col_index = self.Y_columns.index(col)
+    Y = copy.deepcopy(self.best_fit)
+    Y[col_index] = col_val
+    if len(self.Y_columns) > 1:
+      print(f">> Profiled fit for {col}={col_val}")
+      freeze = {col : col_val}
+      result = self.GetBestFit(X, Y, wts=wt, method="nominal", freeze=freeze)
+      dump = {
+        "row" : [float(i) for i in row],
+        "columns" : self.Y_columns, 
+        "varied_column" : col,
+        "nlls": [float(result[1] - self.best_fit_nll)],
+        "profiled_columns" : [k for k in self.Y_columns if k != col],
+        "profiled_values" : [float(i) for i in result[0]],
+        "scan_values" : [float(col_val)],
+      }
+    else:
+      result = -2*self.Run(X, Y, wts=wt, return_ln=True)   
+      dump = {
+        "row" : [float(i) for i in row],
+        "columns" : self.Y_columns, 
+        "varied_column" : col,
+        "nlls": [float(result - self.best_fit_nll)],
+        "scan_values" : [float(col_val)],
+      }
+
+    pprint(dump)
+    print(f">> Created {filename}")
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)  
 
   def GetAndWriteNLLToYaml(self, X, row, col, col_val, wt=None, filename="nlls.yaml"):
     """
@@ -408,6 +496,7 @@ class Likelihood():
       "nlls": [float(nll)], 
       "scan_values" : [float(col_val)],
     }
+    print(dump)
     print(f">> Created {filename}")
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)  
@@ -511,7 +600,7 @@ class Likelihood():
             values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
     return values
 
-  def Minimise(self, func, initial_guess):
+  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}):
     """
     Minimizes the given function using numerical optimization.
 
@@ -523,6 +612,33 @@ class Likelihood():
         tuple: Best-fit parameters and the corresponding function value.
 
     """
-    #minimisation = minimize(func, initial_guess, method='Nelder-Mead')
-    minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01})
-    return minimisation.x, minimisation.fun
+    if len(list(freeze.keys())) > 0:
+
+      initial_guess_before = copy.deepcopy(initial_guess)
+      initial_guess = [initial_guess_before[ind] for ind, col in enumerate(self.Y_columns) if col not in freeze.keys()]
+      old_func = func
+
+      def func(x):
+        extended_x = []
+        x_ind = 0
+        for col in self.Y_columns:
+          if col in freeze.keys():
+            extended_x.append(freeze[col])
+          else:
+            extended_x.append(x[x_ind])
+            x_ind += 1
+        return old_func(extended_x)
+
+
+    if method == "scipy":
+      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01})
+      return minimisation.x, minimisation.fun
+    
+    elif method == "low_stat_high_stat":
+      print(">> Doing low stat minimisation first.")
+      low_stat_minimisation = minimize(func_low_stat, initial_guess, method='Nelder-Mead', tol=1.0, options={'xatol': 0.001, 'fatol': 1.0})
+      for k in self.models["pdfs"].keys():
+        self.models["pdfs"][k].probability_store = {}
+      print(">> Doing high stat minimisation.")
+      minimisation = minimize(func, low_stat_minimisation.x, method='Nelder-Mead', tol=0.1, options={'xatol': 0.001, 'fatol': 0.1})
+      return minimisation.x, minimisation.fun

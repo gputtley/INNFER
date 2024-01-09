@@ -10,6 +10,7 @@ from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
 from plotting import plot_histograms
 from scipy import integrate
+from other_functions import GetYName
 
 class Network():
   """
@@ -75,6 +76,7 @@ class Network():
     # Other
     self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["spline","interleaved"])
     self.disable_tqdm = False
+    self.probability_store = {}
 
   def _SetOptions(self, options):
     """
@@ -250,48 +252,60 @@ class Network():
     Y_initial = copy.deepcopy(Y)
     if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
 
-    pp = PreProcess()
-    pp.parameters = self.data_parameters
-    X_untransformed = copy.deepcopy(X)
-    X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns)).to_numpy()
-    Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
-    data = {
-      "parameters" : X.astype(np.float32),
-      "direct_conditions" : Y.astype(np.float32),
-    }
-    
-    if self.fix_1d_spline:
-      data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
+    Y_name = GetYName(Y_initial.flatten(), purpose="file", round_to=18)
 
-    # Get probabilities
-    tf.random.set_seed(seed)
-    tf.keras.utils.set_random_seed(seed)
-    log_prob = self.amortizer.log_posterior(data)
-    log_prob = pp.UnTransformProb(log_prob, log_prob=True)
+    if Y_name in self.probability_store.keys():
 
-    if self.fix_1d_spline and run_normalise:
-      log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=False))
-      #log_prob += np.log(np.sqrt(2*np.pi)) # quicker but doesn't always work if you do not close the added dimension
+      log_prob = self.probability_store[Y_name]
 
-    # Do checks
-    if np.any(log_prob == -np.inf) and change_zero_prob:
-      print("WARNING: Zero probabilities found.")
-      indices = np.where(log_prob == -np.inf)
-      print("Problem Row(s):")
-      print(self.X_train.columns)
-      print(X_untransformed[indices])
-    if np.any(np.isnan(log_prob)):
-      print("WARNING: NaN probabilities found.")
-      indices = np.isnan(log_prob)
-      log_prob[indices] = -np.inf
-      print("Problem Row(s):")
-      print(self.X_train.columns)
-      print(X_untransformed[indices])
+    else:
 
-    # Change probs
-    if change_zero_prob:
-      indices = np.where(log_prob == -np.inf)
-      log_prob[indices] = 1
+      pp = PreProcess()
+      pp.parameters = self.data_parameters
+      X_untransformed = copy.deepcopy(X)
+      X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns)).to_numpy()
+      Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
+      data = {
+        "parameters" : X.astype(np.float32),
+        "direct_conditions" : Y.astype(np.float32),
+      }
+      
+      if self.fix_1d_spline:
+        data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
+
+      # Get probabilities
+      tf.random.set_seed(seed)
+      tf.keras.utils.set_random_seed(seed)
+      log_prob = self.amortizer.log_posterior(data)
+      log_prob = pp.UnTransformProb(log_prob, log_prob=True)
+
+      if self.fix_1d_spline and run_normalise:
+        log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=False))
+        #log_prob += np.log(np.sqrt(2*np.pi)) # quicker but doesn't always work if you do not close the added dimension
+
+      # Do checks
+      if np.any(log_prob == -np.inf) and change_zero_prob:
+        print("WARNING: Zero probabilities found.")
+        indices = np.where(log_prob == -np.inf)
+        print("Problem Row(s):")
+        print(self.X_train.columns)
+        print(X_untransformed[indices])
+      if np.any(np.isnan(log_prob)):
+        print("WARNING: NaN probabilities found.")
+        indices = np.isnan(log_prob)
+        log_prob[indices] = -np.inf
+        print("Problem Row(s):")
+        print(self.X_train.columns)
+        print(X_untransformed[indices])
+
+      # Change probs
+      if change_zero_prob:
+        indices = np.where(log_prob == -np.inf)
+        log_prob[indices] = 1
+
+      if len(self.probability_store.keys()) > 5:
+        del self.probability_store[list(self.probability_store.keys())[0]]
+      self.probability_store[Y_name] = copy.deepcopy(log_prob)
 
     if return_log_prob:
       return log_prob
