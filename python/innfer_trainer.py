@@ -92,12 +92,12 @@ class InnferTrainer(bf.trainers.Trainer):
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
 
-               metrics = {
-                  "train/train_loss": loss,
-                  "train/epoch": ep,
-                  "lr": lr,
-               }
-               wandb.log(metrics)
+         metrics = {
+            "train/train_loss": loss,
+            "train/epoch": ep,
+            "lr": lr,
+         }
+         wandb.log(metrics)
 
          
          # Store and compute validation loss, if specified
@@ -162,7 +162,7 @@ class InnferTrainer(bf.trainers.Trainer):
       val_loss_str = loss_to_string(ep, val_loss)
       logger = logging.getLogger()
       logger.info(val_loss_str)
-      wandb.log(val_loss)
+      wandb.log({"val_loss": val_loss})
 
    def _config_early_stopping(self, early_stopping, **kwargs):
       """
