@@ -1,0 +1,18 @@
+
+- Building network
+- Training model
+WARNING: Running fix for 1D latent space for spline and interleaved couplings. Code may take longer to run.
+INFO:root:Trainer initialization: No generative model provided. Only offline learning mode is available!
+Training epoch 1:   0%|                                                                                                                           | 0/10536 [00:39<?, ?it/s]
+Traceback (most recent call last):
+  File "/Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/scripts/innfer.py", line 160, in <module>
+    networks[file_name].Train()
+  File "/Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/python/network.py", line 180, in Train
+    self.trainer.train_innfer(
+  File "/Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/python/innfer_trainer.py", line 91, in train_innfer
+    disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/trinitystenhouse/opt/anaconda3/envs/innfer_env/lib/python3.11/site-packages/bayesflow/helper_functions.py", line 143, in format_loss_string
+    disp_str += f",LR: {lr:.2E}"
+                ^^^^^^^^^^^^^^^^
+TypeError: unsupported format string passed to numpy.ndarray.__format__

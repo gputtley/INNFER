@@ -60,8 +60,10 @@ if args.benchmark:
 with open(args.cfg, 'r') as yaml_file:
   cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+# TODO check how to get this in a format for sweep
 with open(args.architecture, 'r') as yaml_file:
   architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  #sweep_id = wandb.sweep(sweep=architecture, project="sweep") # comment out if not sweeping
   run = wandb.init(project='INNFER', config=architecture)
 
 if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")
@@ -69,14 +71,16 @@ if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['na
 if not os.path.isdir(f"plots/{cfg['name']}"): os.system(f"mkdir plots/{cfg['name']}")
 for file_name, _ in cfg["files"].items():
   if not os.path.isdir(f"data/{cfg['name']}/{file_name}"): os.system(f"mkdir data/{cfg['name']}/{file_name}")
-  if not os.path.isdir(f"plots/{cfg['name']}/{file_name}"): os.system(f"mkdir plots/{cfg['name']}/{file_name}")  
-  for plot_type in ["preprocess","train","validategeneration","validateinference"]:
-    if not os.path.isdir(f"plots/{cfg['name']}/{file_name}/{plot_type}"): os.system(f"mkdir plots/{cfg['name']}/{file_name}/{plot_type}")  
-  for data_type in ["preprocess","validateinference"]:
-    if not os.path.isdir(f"data/{cfg['name']}/{file_name}/{data_type}"): os.system(f"mkdir data/{cfg['name']}/{file_name}/{data_type}")  
- 
+  if not os.path.isdir(f"plots/{cfg['name']}/{file_name}"): os.system(f"mkdir plots/{cfg['name']}/{file_name}")
+  for plot_type in ["preprocess", "train", "validategeneration", "validateinference"]:
+    if not os.path.isdir(f"plots/{cfg['name']}/{file_name}/{plot_type}"): os.system(
+      f"mkdir plots/{cfg['name']}/{file_name}/{plot_type}")
+  for data_type in ["preprocess", "validateinference"]:
+    if not os.path.isdir(f"data/{cfg['name']}/{file_name}/{data_type}"): os.system(
+      f"mkdir data/{cfg['name']}/{file_name}/{data_type}")
+
 if cfg["preprocess"]["standardise"] == "all":
-  cfg["preprocess"]["standardise"] = cfg["variables"] + cfg["pois"]+cfg["nuisances"]
+  cfg["preprocess"]["standardise"] = cfg["variables"] + cfg["pois"] + cfg["nuisances"]
 
 networks = {}
 parameters = {}
@@ -113,11 +117,11 @@ for file_name, parquet_name in cfg["files"].items():
       pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test')
       pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val')
 
-        
+
     # Run plots varying the nuisances across the variables for each unique value of the pois
     for info in GetNuisanceLoop(cfg, pp[file_name].parameters):
       pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train')
-        
+
     # Run plots of the distribution of the context features
     pp[file_name].PlotY(dataset="train")
 
@@ -138,20 +142,20 @@ for file_name, parquet_name in cfg["files"].items():
       from network import Network
       networks[file_name] = Network(
         f"data/{cfg['name']}/{file_name}/preprocess/X_train.parquet",
-        f"data/{cfg['name']}/{file_name}/preprocess/Y_train.parquet", 
-        f"data/{cfg['name']}/{file_name}/preprocess/wt_train.parquet", 
+        f"data/{cfg['name']}/{file_name}/preprocess/Y_train.parquet",
+        f"data/{cfg['name']}/{file_name}/preprocess/wt_train.parquet",
         f"data/{cfg['name']}/{file_name}/preprocess/X_test.parquet",
-        f"data/{cfg['name']}/{file_name}/preprocess/Y_test.parquet", 
+        f"data/{cfg['name']}/{file_name}/preprocess/Y_test.parquet",
         f"data/{cfg['name']}/{file_name}/preprocess/wt_test.parquet",
         options=architecture)
-      
+
       networks[file_name].plot_dir = f"plots/{cfg['name']}/{file_name}/{args.step.lower()}"
 
       ### Train or load networks ###
       if args.step == "Train":
         print("- Training model")
         networks[file_name].BuildModel()
-        networks[file_name].disable_tqdm =  args.disable_tqdm
+        networks[file_name].disable_tqdm = args.disable_tqdm
         networks[file_name].BuildTrainer()
         networks[file_name].Train()
         networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
@@ -161,29 +165,29 @@ for file_name, parquet_name in cfg["files"].items():
       else:
         print("- Loading model")
         networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-        networks[file_name].data_parameters = parameters[file_name]    
-  
+        networks[file_name].data_parameters = parameters[file_name]
+
     if args.specific_file == "combined": continue
 
     ### Do validation of trained model ###
-    if args.step in ["ValidateGeneration","ValidateInference"]:
+    if args.step in ["ValidateGeneration", "ValidateInference"]:
 
       print("- Performing validation")
 
       if args.submit is None:
         from validation import Validation
         val = Validation(
-          networks[file_name], 
+          networks[file_name],
           options={
-            "data_parameters":parameters[file_name],
-            "pois":cfg["pois"],
-            "nuisances":cfg["nuisances"],
-            "data_dir":f"data/{cfg['name']}/{file_name}/preprocess",
-            "out_dir":f"data/{cfg['name']}/{file_name}/{args.step.lower()}",
-            "plot_dir":f"plots/{cfg['name']}/{file_name}/{args.step.lower()}",
-            "model_name":file_name,
-            "lower_validation_stats":args.lower_validation_stats if args.step == "ValidateInference" else None,
-            }
+            "data_parameters": parameters[file_name],
+            "pois": cfg["pois"],
+            "nuisances": cfg["nuisances"],
+            "data_dir": f"data/{cfg['name']}/{file_name}/preprocess",
+            "out_dir": f"data/{cfg['name']}/{file_name}/{args.step.lower()}",
+            "plot_dir": f"plots/{cfg['name']}/{file_name}/{args.step.lower()}",
+            "model_name": file_name,
+            "lower_validation_stats": args.lower_validation_stats if args.step == "ValidateInference" else None,
+          }
           )
       #if len(parameters[file_name]["X_columns"]) == 1 and len(parameters[file_name]["Y_columns"]) > 0 and args.step == "ValidateGeneration" and not args.submit:
       #  val.DrawProbability(parameters[file_name]["unique_Y_values"][parameters[file_name]["Y_columns"][0]], n_bins=40)
@@ -263,7 +267,7 @@ for file_name, parquet_name in cfg["files"].items():
 
               # Load scan ranges
               with open(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_values_{col}_{ind}.yaml", 'r') as yaml_file:
-                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
               # Run scans
               for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
@@ -290,12 +294,14 @@ for file_name, parquet_name in cfg["files"].items():
             for col in info["columns"]:
               # Load scan ranges
               with open(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_values_{col}_{ind}.yaml", 'r') as yaml_file:
-                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
               # Load scan results
               scan_results = {"nlls":[],"scan_values":[]}
-              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):      
-                with open(f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}_{point_ind}.yaml", 'r') as yaml_file:
+              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
+                with open(
+                        f"data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}_{point_ind}.yaml",
+                        'r') as yaml_file:
                   scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
                 if point_ind == 0:
                   scan_results["row"] = scan_results_info["row"]
@@ -316,8 +322,9 @@ for file_name, parquet_name in cfg["files"].items():
               with open(filename, 'w') as yaml_file:
                 yaml.dump(scan_results, yaml_file, default_flow_style=False)
               # Remove per point yaml files
-              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]): 
-                os.system(f"rm data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}_{point_ind}.yaml")
+              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
+                os.system(
+                  f"rm data/{cfg['name']}/{file_name}/{args.step.lower()}/scan_results_{col}_{ind}_{point_ind}.yaml")
 
           if args.sub_step == "Plot":
 
@@ -346,16 +353,16 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
     from likelihood import Likelihood
     lkld = Likelihood(
       {
-        "pdfs":{k:networks[k] for k in cfg["files"]},
-        "yields":{k:MakeYieldFunction(cfg["pois"], cfg["nuisances"], parameters[k]) for k in cfg["files"]}
-        }, 
-      type = "unbinned_extended", 
-      data_parameters = {k: parameters[k] for k in cfg["files"]},
-      parameters = cfg["inference"],
-    )    
+        "pdfs": {k: networks[k] for k in cfg["files"]},
+        "yields": {k: MakeYieldFunction(cfg["pois"], cfg["nuisances"], parameters[k]) for k in cfg["files"]}
+      },
+      type="unbinned_extended",
+      data_parameters={k: parameters[k] for k in cfg["files"]},
+      parameters=cfg["inference"],
+    )
 
   # Loop through validation iterations
-  for ind, info in enumerate(GetCombinedValidateLoop(cfg, parameters)):  
+  for ind, info in enumerate(GetCombinedValidateLoop(cfg, parameters)):
 
     if args.specific_val_ind != None and args.specific_val_ind != str(ind): continue
 
@@ -364,7 +371,9 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
 
     if args.submit is not None and args.sub_step != "Scan":
       cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i])} --specific-file=combined --specific-val-ind={ind}"
-      options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step.lower()}/{args.sub_step.lower()}/innfer_{args.step.lower()}_{args.sub_step.lower()}_{cfg['name']}_combined_{ind}.sh", "sge_queue":args.sge_queue}
+      options = {"submit_to": args.submit, "cmds": [cmd],
+                 "job_name": f"jobs/{cfg['name']}/{args.step.lower()}/{args.sub_step.lower()}/innfer_{args.step.lower()}_{args.sub_step.lower()}_{cfg['name']}_combined_{ind}.sh",
+                 "sge_queue": args.sge_queue}
       from batch import Batch
       sub = Batch(options=options)
       sub.Run()
@@ -438,12 +447,12 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
     if args.sub_step == "InitialFit":
       print("- Running initial fit")
 
-      
+
       #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
       #for i in loop:
       #  lkld.Run(total_X, np.array([0.5,i]), wts=total_wt, return_ln=True)
       #exit()
-      
+
       lkld.GetAndWriteBestFitToYaml(total_X, info["row"], info["initial_best_fit_guess"], wt=total_wt, filename=f"{out_dir}/best_fit_{ind}.yaml")
       for col in info["columns"]:
         lkld.GetAndWriteScanRangesToYaml(total_X, info["row"], col, wt=total_wt, filename=f"{out_dir}/scan_ranges_{col}_{ind}.yaml")
@@ -465,7 +474,7 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
 
         # Load scan ranges
         with open(f"{out_dir}/scan_ranges_{col}_{ind}.yaml", 'r') as yaml_file:
-          scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+          scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
         # Run scans
         for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
@@ -492,11 +501,11 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
       for col in info["columns"]:
         # Load scan ranges
         with open(f"{out_dir}/scan_ranges_{col}_{ind}.yaml", 'r') as yaml_file:
-          scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+          scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
         # Load scan results
         scan_results = {"nlls":[],"scan_values":[]}
-        for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):      
+        for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
           with open(f"{out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml", 'r') as yaml_file:
             scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
           if point_ind == 0:
@@ -518,7 +527,7 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         with open(filename, 'w') as yaml_file:
           yaml.dump(scan_results, yaml_file, default_flow_style=False)
         # Remove per point yaml files
-        for point_ind, scan_value in enumerate(scan_values_info["scan_values"]): 
+        for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
           os.system(f"rm {out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml")
 
     elif args.sub_step == "Plot":
@@ -545,7 +554,7 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         sum_weight = float(np.sum(total_wt.flatten()))
         if not eff_events == sum_weight:
           other_lkld[r"Inferred N=$N_{eff}$"] = (eff_events/sum_weight)*np.array(scan_results_info["nlls"])
-          
+
         if args.benchmark is not None:
 
           def Probability(X, Y, y_columns=None, k=None, **kwargs):
@@ -559,7 +568,7 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
             for i in range(len(X)):
               prob[i] = true_pdf(X[i],Y[i])
             return np.log(prob)
-          
+
           for k in lkld.models["pdfs"].keys():
             lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
 
@@ -574,10 +583,10 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
           other_lkld["True"] = nlls
 
         plot_likelihood(
-          scan_results_info["scan_values"], 
-          scan_results_info["nlls"], 
-          scan_results_info["crossings"], 
-          name=f"{plot_dir}/likelihood_{col}_y_{file_extra_name}", 
+          scan_results_info["scan_values"],
+          scan_results_info["nlls"],
+          scan_results_info["crossings"],
+          name=f"{plot_dir}/likelihood_{col}_y_{file_extra_name}",
           xlabel=col,
           true_value=scan_results_info["row"][scan_results_info["columns"].index(col)],
           title_right=f"y={plot_extra_name}",
@@ -631,14 +640,14 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
         bf_plot_extra_name = GetYName(best_fit_info["best_fit"], purpose="plot")
 
         plot_stacked_histogram_with_ratio(
-          data_hist, 
-          synth_hists, 
-          bins, 
-          data_name='Data', 
+          data_hist,
+          synth_hists,
+          bins,
+          data_name='Data',
           xlabel=col,
-          name=f"{plot_dir}/comparison_{col}_y_{file_extra_name}", 
-          data_errors=data_err_hist, 
-          stack_hist_errors=total_synth_error, 
+          name=f"{plot_dir}/comparison_{col}_y_{file_extra_name}",
+          data_errors=data_err_hist,
+          stack_hist_errors=total_synth_error,
           title_right=f"y={plot_extra_name}",
           use_stat_err=False,
           axis_text=f"Best Fit y={bf_plot_extra_name}"

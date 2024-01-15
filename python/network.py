@@ -118,10 +118,10 @@ class Network():
     self.inference_net = bf.networks.InvertibleNetwork(
       num_params=latent_dim,
       num_coupling_layers=self.num_coupling_layers,
-      permutation=self.permutation,
+      permutation="learnable",  # TODO fix this properly rather than hardcoding
       coupling_design=self.coupling_design,
       coupling_settings=settings
-      )
+    )
 
     self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net)
 

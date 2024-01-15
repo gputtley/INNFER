@@ -1,0 +1,35 @@
+name: architecture search for Gaussian benchmark
+description: try different parameters to optimise Gaussian benchmark
+program: /scripts/innfer_sweep.py
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  activation:
+    values: [ "relu" ]
+  learning_rate:
+    values: [ 0.01, 0.1 ]
+  optimizer_name:
+    values: [ "Adam" ]
+  num_coupling_layer:
+    values: [ 4, 8 ]
+  units_per_coupling_layer:
+    values: [ 64, 128 ]
+  num_dense_layers:
+    values: [ 2, 4 ]
+  batch_size: 64
+  dropout: True
+  mc_dropout: True
+  lr_scheduler_name: "ExponentialDecay"
+  lr_scheduler_options:
+    decay_rate: 0.5
+  early_stopping: True
+  coupling_design: "interleaved"
+  permutation: "learnable"
+  epochs: 10
+#command:
+#  - ${env}
+#  - ${interpreter}
+#  - ${program}
+#  - --step="Train" --benchmark="Gaussian"

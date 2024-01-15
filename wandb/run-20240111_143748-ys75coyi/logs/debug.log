@@ -1,0 +1,26 @@
+2024-01-11 14:37:48,426 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Current SDK version is 0.16.2
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Configure stats pid to 26941
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Loading settings from /Users/trinitystenhouse/.config/wandb/settings
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Loading settings from /Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/wandb/settings
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Loading settings from environment variables: {'project': 'sweep'}
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'scripts/innfer.py', 'program_abspath': '/Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/scripts/innfer.py', 'program': '/Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/scripts/innfer.py'}
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:_log_setup():526] Logging user logs to /Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/wandb/run-20240111_143748-ys75coyi/logs/debug.log
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:_log_setup():527] Logging internal logs to /Users/trinitystenhouse/Documents/University_MSci/2023-4/UROP_HEP/INNFER/wandb/run-20240111_143748-ys75coyi/logs/debug-internal.log
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:init():566] calling init triggers
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:init():573] wandb.init called with sweep_config: {}
+config: {}
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:init():616] starting backend
+2024-01-11 14:37:48,427 INFO    MainThread:26941 [wandb_init.py:init():620] setting up manager
+2024-01-11 14:37:48,429 INFO    MainThread:26941 [backend.py:_multiprocessing_setup():105] multiprocessing start_methods=spawn,fork,forkserver, using: spawn
+2024-01-11 14:37:48,430 INFO    MainThread:26941 [wandb_init.py:init():628] backend started and connected
+2024-01-11 14:37:48,435 INFO    MainThread:26941 [wandb_init.py:init():720] updated telemetry
+2024-01-11 14:37:48,459 INFO    MainThread:26941 [wandb_init.py:init():753] communicating run to backend with 90.0 second timeout
+2024-01-11 14:37:48,953 INFO    MainThread:26941 [wandb_run.py:_on_init():2254] communicating current version
+2024-01-11 14:37:50,036 INFO    MainThread:26941 [wandb_run.py:_on_init():2263] got version response 
+2024-01-11 14:37:50,036 INFO    MainThread:26941 [wandb_init.py:init():804] starting run threads in backend
+2024-01-11 14:37:59,765 INFO    MainThread:26941 [wandb_run.py:_console_start():2233] atexit reg
+2024-01-11 14:37:59,766 INFO    MainThread:26941 [wandb_run.py:_redirect():2088] redirect: wrap_raw
+2024-01-11 14:37:59,769 INFO    MainThread:26941 [wandb_run.py:_redirect():2153] Wrapping output streams.
+2024-01-11 14:37:59,769 INFO    MainThread:26941 [wandb_run.py:_redirect():2178] Redirects installed.
+2024-01-11 14:37:59,771 INFO    MainThread:26941 [wandb_init.py:init():847] run started, returning control to user process
+2024-01-11 14:41:03,718 WARNING MsgRouterThr:26941 [router.py:message_loop():77] message_loop has been closed
