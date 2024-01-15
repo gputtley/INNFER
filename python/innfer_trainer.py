@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 import wandb
 from bayesflow.helper_classes import EarlyStopper
-from bayesflow.helper_functions import backprop_step, extract_current_lr, loss_to_string
+from bayesflow.helper_functions import backprop_step, extract_current_lr, loss_to_string, format_loss_string
 from tqdm.autonotebook import tqdm
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
@@ -89,9 +89,16 @@ class InnferTrainer(bf.trainers.Trainer):
                     input_dict = self._load_resampled_batch(X_train, Y_train, wt_train)
                     loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
                     self.loss_history.add_entry(ep, loss)
-                    # avg_dict = self.loss_history.get_running_losses(ep)
+                    avg_dict = self.loss_history.get_running_losses(ep)
                     lr = extract_current_lr(self.optimizer)
-                    # disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
+
+                    # debugging this line of code
+                    print(ep, type(ep))
+                    print(bi, type(bi))
+                    print(loss, type(loss))
+                    print(avg_dict, type(avg_dict))
+                    print(lr, type(lr))
+                    disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                     ##print(disp_str)
                     # p_bar.set_postfix_str(disp_str)
                     p_bar.update(1)
@@ -117,6 +124,8 @@ class InnferTrainer(bf.trainers.Trainer):
         if not reuse_optimizer:
             self.optimizer = None
 
+        print("finished loop")
+        wandb.finish()
         return self.loss_history.get_plottable()
 
     def _get_epoch_loss(self, X, Y, wt, batch_size=1000000, **kwargs):

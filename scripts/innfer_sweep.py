@@ -282,14 +282,6 @@ def main():
 
                 print("- Building network")
                 run = wandb.init()
-                print((sweep_architecture["parameters"]["num_coupling_layer"]))
-                print(type(sweep_architecture["parameters"]["num_coupling_layer"]))
-                print((sweep_architecture["parameters"]["units_per_coupling_layer"]))
-                print(type(sweep_architecture["parameters"]["units_per_coupling_layer"]))
-                print((sweep_architecture["parameters"]["num_dense_layers"]))
-                print(type(sweep_architecture["parameters"]["num_dense_layers"]))
-                print((sweep_architecture["parameters"]["learning_rate"]))
-                print(type(sweep_architecture["parameters"]["learning_rate"]))
                 from network import Network
                 networks[file_name] = Network(
                     f"data/{cfg['name']}/{file_name}/preprocess/X_train.parquet",
@@ -309,8 +301,8 @@ def main():
                     networks[file_name].disable_tqdm = args.disable_tqdm
                     networks[file_name].BuildTrainer()
                     networks[file_name].Train()
+                    print("exited trainer")
                     networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
-                    wandb.finish()
                     with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                         yaml.dump(sweep_architecture, file)
                 else:
@@ -835,4 +827,4 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-wandb.agent(sweep_id, function=main, count=2)
+wandb.agent(sweep_id, function=main, count=1)

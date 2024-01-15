@@ -177,8 +177,10 @@ for file_name, parquet_name in cfg["files"].items():
                 networks[file_name].disable_tqdm = args.disable_tqdm
                 networks[file_name].BuildTrainer()
                 networks[file_name].Train()
-                networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
                 wandb.finish()
+                print("saving")
+                networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
+
                 with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                     yaml.dump(architecture, file)
             else:
