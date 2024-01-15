@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--cfg', help='Config for running', default=None)
 parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None,
                     choices=["Gaussian", "GaussianWithExpBkg", "GaussianWithExpBkgVaryingYield"])
-# parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
+parser.add_argument('--architecture', help='Config for running', default="configs/architecture/default.yaml")
 parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
 parser.add_argument('--step', help='Step to run', type=str, default=None,
                     choices=["MakeBenchmark", "PreProcess", "Train", "ValidateGeneration", "ValidateInference",
@@ -33,90 +33,6 @@ parser.add_argument('--sub-step', help='Sub-step to run for ValidateInference or
                     default="InitialFit", choices=["InitialFit", "Scan", "Collect", "Plot"])
 parser.add_argument('--lower-validation-stats', help='Lowers the validation stats, so code will run faster.', type=int,
                     default=None)
-
-# add params for sweep
-parser.add_argument(
-    "--method",
-    type=str,
-    default="bayes",
-    help="method for sweep search")
-parser.add_argument(
-    "--activation",
-    type=str,
-    default="relu",
-    help="activation function")
-parser.add_argument(
-    "--learning_rate",
-    type=float,
-    default=0.01,
-    help="learning rate")
-parser.add_argument(
-    "--optimizer_name",
-    type=str,
-    default="Adam",
-    help="optimizer")
-parser.add_argument(
-    "--num_coupling_layer",
-    type=int,
-    default=4,
-    help="num_coupling_layer")
-parser.add_argument(
-    "--units_per_coupling_layer",
-    type=int,
-    default=64,
-    help="units_per_coupling_layer")
-parser.add_argument(
-    "--num_dense_layers",
-    type=int,
-    default=2,
-    help="num_dense_layers")
-parser.add_argument(
-    "--batch_size",
-    type=int,
-    default=64,
-    help="batch size")
-parser.add_argument(
-    "--dropout",
-    type=bool,
-    default=True,
-    help="dropout")
-parser.add_argument(
-    "--mc_dropout",
-    type=bool,
-    default=True,
-    help="mc dropout")
-parser.add_argument(
-    "--lr_scheduler_name",
-    type=str,
-    default="ExponentialDecay",
-    help="lr_scheduler_name")
-parser.add_argument(
-    "--lr_scheduler_options",
-    type=dict,
-    default={
-        "decay_rate": 0.5,
-    },
-    help="lr_scheduler_options")
-parser.add_argument(
-    "--early_stopping",
-    type=bool,
-    default=True,
-    help="early_stopping")
-parser.add_argument(
-    "--coupling_design",
-    type=str,
-    default="interleaved",
-    help="coupling_design")
-parser.add_argument(
-    "--permutation",
-    type=str,
-    default="learnable",
-    help="permutation")
-parser.add_argument(
-    "--epochs",
-    type=int,
-    default=10,
-    help="epochs")
 
 args = parser.parse_args()
 
@@ -156,49 +72,16 @@ if args.benchmark:
 with open(args.cfg, 'r') as yaml_file:
     cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-# TODO check how to get this in a format for sweep
-# with open(args.architecture, 'r') as yaml_file:
-#  architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
-#  print(architecture)
-
+with open(args.architecture, 'r') as yaml_file:
+    architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    print(architecture.keys)
 sweep_architecture = {
-    "method": args.method,
-    "metric": {"name": "val_loss", "goal": "minimize"},
+    "method": architecture["method"],
+    "metric": architecture["metric"],
 }
-
-parameters_dict = {
-    'num_coupling_layer': {"values": [2, 4]},
-    'units_per_coupling_layer': {"values": [64, 128]},
-    'num_dense_layers': {"values": [4, 8]},
-    'learning_rate': {"values": [0.1, 0.0001]},
-}
-sweep_architecture['parameters'] = parameters_dict
-
-parameters_dict.update({
-    'activation': {
-        "value": args.activation},
-    'optimizer_name': {
-        "value": "Adam"},
-    'coupling_design': {
-        'value': args.coupling_design},
-    'batch_size': {
-        "value": args.batch_size},
-    'early_stopping': {
-        "value": args.early_stopping},
-    'epochs': {
-        "value": args.epochs},
-    'dropout': {
-        "value": args.dropout},
-    'mc_dropout': {
-        "value": args.mc_dropout},
-    'lr_scheduler_name': {
-        "value": args.lr_scheduler_name},
-    'lr_scheduler_options': {
-        "value": args.lr_scheduler_options}
-})
+sweep_architecture['parameters'] = architecture["parameters"]
 
 sweep_id = wandb.sweep(sweep=sweep_architecture, project="sweep")  # comment out if not sweeping
-
 
 def main():
     if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")

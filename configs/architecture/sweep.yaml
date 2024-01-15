@@ -7,27 +7,35 @@ metric:
   goal: minimize
 parameters:
   activation:
-    values: [ "relu" ]
+    value: [ "relu" ]
   learning_rate:
     values: [ 0.01, 0.1 ]
   optimizer_name:
-    values: [ "Adam" ]
+    value: [ "Adam" ]
   num_coupling_layer:
     values: [ 4, 8 ]
   units_per_coupling_layer:
     values: [ 64, 128 ]
   num_dense_layers:
     values: [ 2, 4 ]
-  batch_size: 64
-  dropout: True
-  mc_dropout: True
-  lr_scheduler_name: "ExponentialDecay"
+  batch_size:
+    value: 64
+  dropout:
+    value: True
+  mc_dropout:
+    value: True
+  lr_scheduler_name:
+    value: "ExponentialDecay"
   lr_scheduler_options:
-    decay_rate: 0.5
-  early_stopping: True
-  coupling_design: "interleaved"
-  permutation: "learnable"
-  epochs: 10
+    value: { decay_rate: 0.5 }
+  early_stopping:
+    value: True
+  coupling_design:
+    value: "interleaved"
+  permutation:
+    value: "learnable"
+  epochs:
+    value: 10
 #command:
 #  - ${env}
 #  - ${interpreter}
