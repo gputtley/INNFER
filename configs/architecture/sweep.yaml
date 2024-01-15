@@ -27,7 +27,9 @@ parameters:
   lr_scheduler_name:
     value: "ExponentialDecay"
   lr_scheduler_options:
-    value: { decay_rate: 0.5 }
+    parameters:
+      decay_rate:
+        values: [ 0.2, 0.5, 0.7 ]
   early_stopping:
     value: True
   coupling_design:
