@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 import wandb
 from bayesflow.helper_classes import EarlyStopper
-from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
+from bayesflow.helper_functions import backprop_step, extract_current_lr, loss_to_string
 from tqdm.autonotebook import tqdm
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
@@ -69,44 +69,34 @@ class InnferTrainer(bf.trainers.Trainer):
             _backprop_step = tf.function(backprop_step, reduce_retracing=True)
         else:
             _backprop_step = backprop_step
-        print("-setup optimizer")
         self._setup_optimizer(optimizer, epochs, X_train.num_batches)
-        print("-loss hist init")
         self.loss_history.start_new_run()
         self.loss_history._total_train_loss = []
-        print("-get loss")
         loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
         self.loss_history._total_train_loss.append(float(loss))
-        print("-get val loss")
         val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, **kwargs)
         self.loss_history.add_val_entry(0, val_loss)
 
         # Create early stopper, if conditions met, otherwise None returned
-        print("-make early stopper")
         early_stopper = self._config_early_stopping(early_stopping, **kwargs)
 
-        print("-Begin loop")
         # Loop through epochs
         for ep in range(1, epochs + 1):
             with tqdm(total=X_train.num_batches, desc=f"Training epoch {ep}", disable=disable_tqdm) as p_bar:
                 # Loop through dataset
                 for bi in range(1, X_train.num_batches + 1):
-                    print("-Batches")
                     # Perform one training step and obtain current loss value
                     input_dict = self._load_resampled_batch(X_train, Y_train, wt_train)
-                    print(input_dict)
-                    print("-train step")
                     loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
-                    print("-add to loss")
                     self.loss_history.add_entry(ep, loss)
-                    avg_dict = self.loss_history.get_running_losses(ep)
+                    # avg_dict = self.loss_history.get_running_losses(ep)
                     lr = extract_current_lr(self.optimizer)
-                    disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
-                    p_bar.set_postfix_str(disp_str)
+                    # disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
+                    ##print(disp_str)
+                    # p_bar.set_postfix_str(disp_str)
                     p_bar.update(1)
-            print("-compute metrics")
+
             metrics = {
-                "val_loss": val_loss,
                 "train/train_loss": loss,
                 "train/epoch": ep,
                 "lr": lr,
@@ -175,6 +165,8 @@ class InnferTrainer(bf.trainers.Trainer):
         val_loss_str = loss_to_string(ep, val_loss)
         logger = logging.getLogger()
         logger.info(val_loss_str)
+        metrics = {"val_loss": val_loss}
+        wandb.log(metrics)
 
     def _config_early_stopping(self, early_stopping, **kwargs):
         """

@@ -162,48 +162,41 @@ with open(args.cfg, 'r') as yaml_file:
 #  print(architecture)
 
 sweep_architecture = {
-    "method": "random",  # args.method,
+    "method": args.method,
     "metric": {"name": "val_loss", "goal": "minimize"},
-    "parameters": {
-        "num_coupling_layer": {"values": [2, 4]},
-        "units_per_coupling_layer": {"values": [64, 128]},
-        "num_dense_layers": {"values": [4, 8]},
-        "learning_rate": {"values": [0.1, 0.0001]},
-    }
 }
 
-"""""
 parameters_dict = {
     'num_coupling_layer': {"values": [2, 4]},
     'units_per_coupling_layer': {"values": [64, 128]},
     'num_dense_layers': {"values": [4, 8]},
     'learning_rate': {"values": [0.1, 0.0001]},
 }
-# sweep_architecture['parameters'] = parameters_dict
+sweep_architecture['parameters'] = parameters_dict
 
 parameters_dict.update({
-  'activation': {
-    "value": args.activation},
-  'optimizer_name': {
-    "value": "Adam"},
-  'coupling_design': {
-    'value': args.coupling_design},
-  'batch_size': {
-    "value": args.batch_size},
-  'early_stopping': {
-    "value": args.early_stopping},
-  'epochs': {
-    "value": args.epochs},
-  'dropout': {
-    "value": args.dropout},
-  'mc_dropout': {
-    "value": args.mc_dropout},
-  'lr_scheduler_name': {
-    "value": args.lr_scheduler_name},
-  'lr_scheduler_options': {
-    "value": args.lr_scheduler_options}
+    'activation': {
+        "value": args.activation},
+    'optimizer_name': {
+        "value": "Adam"},
+    'coupling_design': {
+        'value': args.coupling_design},
+    'batch_size': {
+        "value": args.batch_size},
+    'early_stopping': {
+        "value": args.early_stopping},
+    'epochs': {
+        "value": args.epochs},
+    'dropout': {
+        "value": args.dropout},
+    'mc_dropout': {
+        "value": args.mc_dropout},
+    'lr_scheduler_name': {
+        "value": args.lr_scheduler_name},
+    'lr_scheduler_options': {
+        "value": args.lr_scheduler_options}
 })
-"""""
+
 sweep_id = wandb.sweep(sweep=sweep_architecture, project="sweep")  # comment out if not sweeping
 
 
@@ -313,13 +306,9 @@ def main():
                 if args.step == "Train":
                     print("- Training model")
                     networks[file_name].BuildModel()
-                    print("- tqdm")
                     networks[file_name].disable_tqdm = args.disable_tqdm
-                    print("- Building Trainer")
                     networks[file_name].BuildTrainer()
-                    print("- Train")
                     networks[file_name].Train()
-                    print("- Save")
                     networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
                     wandb.finish()
                     with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
