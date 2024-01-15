@@ -827,4 +827,4 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-wandb.agent(sweep_id, function=main, count=1)
+wandb.agent(sweep_id, function=main, count=5)
