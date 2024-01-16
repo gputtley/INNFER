@@ -105,5 +105,3 @@ for step, sub_steps in trimmed_steps.items():
 
       if all_jobs_finished: break
 
-
-# new branch
