@@ -83,6 +83,7 @@ sweep_architecture['parameters'] = architecture["parameters"]
 
 sweep_id = wandb.sweep(sweep=sweep_architecture, project="sweep")  # comment out if not sweeping
 
+
 def main():
     if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")
     if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['name']}")
@@ -710,4 +711,4 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-wandb.agent(sweep_id, function=main, count=5)
+wandb.agent(sweep_id, function=main, count=10)
