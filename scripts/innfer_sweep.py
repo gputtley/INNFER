@@ -106,7 +106,6 @@ def main():
     parameters = {}
     pp = {}
 
-    print(args.use_wandb)
     if args.use_wandb:
         run = wandb.init()
     for file_name, parquet_name in cfg["files"].items():
@@ -194,6 +193,7 @@ def main():
 
                     vals = []
                     for file in os.listdir(f"models/{cfg['name']}/"):
+                        print(file)
                         print(float(file[-8:-3]))
                         vals.append(float(file[-8:-3]))
 
@@ -201,10 +201,12 @@ def main():
                     print(min_val, 'min')
 
                     if val < min_val:
-                        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
+                        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{str(val)[0:5]}.h5")
                         with open(f"models/{cfg['name']}/architectures/{file_name}_architecture_{str(val)[0:5]}.yaml",
                                   'w') as file:
                             yaml.dump(sweep_architecture, file)
+                    else:
+                        pass
 
                 else:
                     print("- Loading model")
@@ -731,7 +733,7 @@ print(sweep_id)
 sweep = wandb.agent(sweep_id, function=main, count=3)
 
 # Get best run parameters
-best_run = sweep.best_run()
+best_run = sweep_architecture.best_run()
 best_val_loss = best_run.summary["val_loss"]
 print(best_val_loss)
 # networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{run.config}.h5")
