@@ -200,7 +200,7 @@ class Network():
             disable_tqdm=self.disable_tqdm,
             use_wandb=self.use_wandb
         )
-        print(self.use_wandb, 'self use wandb')
+
         if self.plot_loss:
             plot_histograms(
                 range(len(self.trainer.loss_history._total_train_loss)),

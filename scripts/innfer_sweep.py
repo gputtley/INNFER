@@ -193,7 +193,6 @@ def main():
                     val = run.summary["val_loss"]
 
                     vals = []
-                    min_val = 1
 
                     for root, dirs, files in os.walk(f"models/{cfg['name']}/"):
                         if ".h5" not in root:
@@ -203,9 +202,12 @@ def main():
                                     print(file)
                                     print(float(file[-8:-3]))
                                     vals.append(float(file[-8:-3]))
-
-                    min_val = np.min(vals)
-                    print(min_val, 'min')
+                    print(vals)
+                    if len(vals) < 1:
+                        min_val = 1
+                    else:
+                        min_val = np.min(vals)
+                        print(min_val, 'min')
 
                     if val < min_val:
                         networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{str(val)[0:5]}.h5")
@@ -752,20 +754,21 @@ min_val = np.min(vals)
 print(min_val, 'min')
 
 folder_path = f"models/{cfg['name']}/"
-folder_path_architecture = f"models/{cfg['name']}/architecture/"
+folder_path_architecture = f"models/{cfg['name']}/architectures/"
 
 
-def delete_useless_files(folder_path, min_value):
+def delete_useless_files(folder_path, min_value, type):
     if os.path.exists(folder_path) and os.path.isdir(folder_path):
         # Verifies the existence of the directory
 
         # Get all files in the directory
         all_files = glob.glob(os.path.join(folder_path, '*'))
+        print(all_files)
 
         # Iterate over the files and delete those that are not in files_to_keep
         for clean_up in all_files:
             print(clean_up)
-            if os.path.isfile(clean_up) and not clean_up.endswith(f'{min_value}.h5'):
+            if os.path.isfile(clean_up) and not clean_up.endswith(f'{min_value}.{type}'):
                 os.remove(clean_up)
 
         print("Successfully cleaned")
@@ -773,5 +776,5 @@ def delete_useless_files(folder_path, min_value):
         print(f"Directory '{folder_path}' does not exist.")
 
 
-delete_useless_files(folder_path, min_val)
-delete_useless_files(folder_path_architecture, min_val)
+delete_useless_files(folder_path, min_val, 'h5')
+delete_useless_files(folder_path_architecture, min_val, 'yaml')
