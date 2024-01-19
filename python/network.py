@@ -30,6 +30,7 @@ class Network():
             X_test (str): Path to the test data for features.
             Y_test (str): Path to the test data for target variables.
             wt_test (str): Path to the test data for weights.
+            use_wandb (bool): Flag to disable use of live logger in training.
             options (dict): Additional options for customization.
         """
         # Model parameters
@@ -79,6 +80,7 @@ class Network():
         # Other
         self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["spline", "interleaved"])
         self.disable_tqdm = False
+        self.use_wandb = False
         self.probability_store = {}
 
     def _SetOptions(self, options):
@@ -141,7 +143,7 @@ class Network():
             return out_dict
 
         self.trainer = InnferTrainer(amortizer=self.amortizer, configurator=config, default_lr=self.learning_rate,
-                                     memory=False)
+                                     memory=False, use_wandb=self.use_wandb)
 
         if self.lr_scheduler_name == "ExponentialDecay":
             self.lr_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -196,8 +198,9 @@ class Network():
             optimizer=self.optimizer,
             fix_1d_spline=self.fix_1d_spline,
             disable_tqdm=self.disable_tqdm,
+            use_wandb=self.use_wandb
         )
-
+        print(self.use_wandb, 'self use wandb')
         if self.plot_loss:
             plot_histograms(
                 range(len(self.trainer.loss_history._total_train_loss)),

@@ -33,6 +33,7 @@ parser.add_argument('--sub-step', help='Sub-step to run for ValidateInference or
                     default="InitialFit", choices=["InitialFit", "Scan", "Collect", "Plot"])
 parser.add_argument('--lower-validation-stats', help='Lowers the validation stats, so code will run faster.', type=int,
                     default=None)
+parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
 args = parser.parse_args()
 
 if args.cfg is None and args.benchmark is None:
@@ -74,7 +75,8 @@ with open(args.cfg, 'r') as yaml_file:
 with open(args.architecture, 'r') as yaml_file:
     architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-run = wandb.init(project='INNFER', config=architecture)
+if args.use_wandb:
+    run = wandb.init(project='INNFER', config=architecture)
 
 if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")
 if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['name']}")
@@ -174,12 +176,14 @@ for file_name, parquet_name in cfg["files"].items():
                 print("- Training model")
                 networks[file_name].BuildModel()
                 networks[file_name].disable_tqdm = args.disable_tqdm
+                networks[file_name].use_wandb = args.use_wandb
                 networks[file_name].BuildTrainer()
                 networks[file_name].Train()
-                wandb.finish()
+
                 print("saving")
                 networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
-
+                if args.use_wandb:
+                    wandb.finish()
                 with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                     yaml.dump(architecture, file)
             else:

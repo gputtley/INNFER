@@ -31,6 +31,7 @@ class InnferTrainer(bf.trainers.Trainer):
             batch_size,
             save_checkpoint=True,
             optimizer=None,
+            use_wandb=True,
             reuse_optimizer=False,
             early_stopping=False,
             use_autograph=True,
@@ -52,6 +53,7 @@ class InnferTrainer(bf.trainers.Trainer):
            batch_size (int): Batch size for training.
            save_checkpoint (bool): Flag to save checkpoints during training.
            optimizer (tf.keras.optimizers.Optimizer): Optimizer for training.
+           use_wandb (bool): Flag to disable use of live logger.
            reuse_optimizer (bool): Flag to reuse optimizer.
            early_stopping (bool): Flag to enable early stopping.
            use_autograph (bool): Flag to use Autograph for faster execution.
@@ -102,19 +104,19 @@ class InnferTrainer(bf.trainers.Trainer):
                         print(disp_str)
                         p_bar.set_postfix_str(disp_str)
                     p_bar.update(1)
-
-            metrics = {
-                "train/train_loss": loss,
-                "train/epoch": ep,
-                "lr": lr,
-            }
-            wandb.log(metrics)
+            if use_wandb:
+                metrics = {
+                    "train/train_loss": loss,
+                    "train/epoch": ep,
+                    "lr": lr,
+                }
+                wandb.log(metrics)
 
             # Store and compute validation loss, if specified
             self._save_trainer(save_checkpoint)
             loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
             self.loss_history._total_train_loss.append(float(loss))
-            self._validation(ep, X_test, Y_test, wt_test, **kwargs)
+            val_loss = self._validation(ep, X_test, Y_test, wt_test, use_wandb, **kwargs)
 
             # Check early stopping, if specified
             if self._check_early_stopping(early_stopper):
@@ -125,7 +127,6 @@ class InnferTrainer(bf.trainers.Trainer):
             self.optimizer = None
 
         print("finished loop")
-        wandb.finish()
         return self.loss_history.get_plottable()
 
     def _get_epoch_loss(self, X, Y, wt, batch_size=1000000, **kwargs):
@@ -158,7 +159,7 @@ class InnferTrainer(bf.trainers.Trainer):
         wt.ChangeBatchSize(wt_old_batch_size)
         return loss
 
-    def _validation(self, ep, X_test, Y_test, wt_test, **kwargs):
+    def _validation(self, ep, X_test, Y_test, wt_test, use_wandb, **kwargs):
         """
         Helper method to compute the validation loss(es).
 
@@ -174,8 +175,13 @@ class InnferTrainer(bf.trainers.Trainer):
         val_loss_str = loss_to_string(ep, val_loss)
         logger = logging.getLogger()
         logger.info(val_loss_str)
-        metrics = {"val_loss": val_loss}
-        wandb.log(metrics)
+
+        if use_wandb:
+            metrics = {"val_loss": val_loss}
+            wandb.log(metrics)
+            wandb.run.summary["val_loss"] = val_loss
+
+        return val_loss
 
     def _config_early_stopping(self, early_stopping, **kwargs):
         """

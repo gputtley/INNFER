@@ -33,7 +33,8 @@ parser.add_argument('--sub-step', help='Sub-step to run for ValidateInference or
                     default="InitialFit", choices=["InitialFit", "Scan", "Collect", "Plot"])
 parser.add_argument('--lower-validation-stats', help='Lowers the validation stats, so code will run faster.', type=int,
                     default=None)
-
+# TODO implement this
+parser.add_argument('--use-wandb', help='Use wandb for logging.', type=bool, default=True)
 args = parser.parse_args()
 
 if args.cfg is None and args.benchmark is None:
@@ -74,7 +75,7 @@ with open(args.cfg, 'r') as yaml_file:
 
 with open(args.architecture, 'r') as yaml_file:
     architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    print(architecture.keys)
+
 sweep_architecture = {
     "method": architecture["method"],
     "metric": architecture["metric"],
@@ -105,7 +106,9 @@ def main():
     parameters = {}
     pp = {}
 
-    run = wandb.init()
+    print(args.use_wandb)
+    if args.use_wandb:
+        run = wandb.init()
     for file_name, parquet_name in cfg["files"].items():
 
         # Skip if condition not met
@@ -160,9 +163,8 @@ def main():
             if args.submit is None:
 
                 if args.step != "Train":
-                    # with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'r') as yaml_file:
-                    #  architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
-                    print("you fucked it")
+                    with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'r') as yaml_file:
+                        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
                 print("- Building network")
                 run = wandb.init()
@@ -183,12 +185,27 @@ def main():
                     print("- Training model")
                     networks[file_name].BuildModel()
                     networks[file_name].disable_tqdm = args.disable_tqdm
+                    networks[file_name].use_wandb = args.use_wandb
                     networks[file_name].BuildTrainer()
                     networks[file_name].Train()
                     print("exited trainer")
-                    networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
-                    with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
-                        yaml.dump(sweep_architecture, file)
+
+                    val = run.summary["val_loss"]
+
+                    vals = []
+                    for file in os.listdir(f"models/{cfg['name']}/"):
+                        print(float(file[-8:-3]))
+                        vals.append(float(file[-8:-3]))
+
+                    min_val = np.min(vals)
+                    print(min_val, 'min')
+
+                    if val < min_val:
+                        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
+                        with open(f"models/{cfg['name']}/architectures/{file_name}_architecture_{str(val)[0:5]}.yaml",
+                                  'w') as file:
+                            yaml.dump(sweep_architecture, file)
+
                 else:
                     print("- Loading model")
                     networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
@@ -711,4 +728,10 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-wandb.agent(sweep_id, function=main, count=10)
+sweep = wandb.agent(sweep_id, function=main, count=3)
+
+# Get best run parameters
+best_run = sweep.best_run()
+best_val_loss = best_run.summary["val_loss"]
+print(best_val_loss)
+# networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{run.config}.h5")

@@ -13,11 +13,11 @@ parameters:
   optimizer_name:
     value: [ "Adam" ]
   num_coupling_layer:
-    values: [ 4, 8, 16 ]
+    values: [ 4, 8, 16, 24, 32 ]
   units_per_coupling_layer:
     values: [ 64, 128, 256 ]
   num_dense_layers:
-    values: [ 2, 4, 8 ]
+    values: [ 1, 2, 4, 8 ]
   batch_size:
     value: 64
   dropout:

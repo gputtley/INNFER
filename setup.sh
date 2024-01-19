@@ -14,5 +14,8 @@ pip3 install mplhep
 pip3 install PyYAML
 pip3 install pyarrow
 pip3 install uproot
+pip3 install wandb
+pip3 install scikit-learn
+pip3 install pandas
 rm ./Miniconda3-latest-Linux-x86\_64.sh
 popd
