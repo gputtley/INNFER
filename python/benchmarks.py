@@ -57,7 +57,7 @@ class Benchmarks():
             }
         }
         self.saved_parameters = {}
-        self.array_size = int(3e4)
+        self.array_size = int(3e6)
 
         for k, v in parameters.items():
             self.model_parameters[name][k] = v
