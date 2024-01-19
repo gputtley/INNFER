@@ -9,4 +9,5 @@ if ! command -v nvidia-smi &> /dev/null ; then
   #export TF_ENABLE_ONEDNN_OPTS=0
 fi
 ulimit -s unlimited
-conda activate innfer_env
+source miniconda/files/etc/profile.d/conda.sh
+conda activate miniconda/files/envs/innfer_env

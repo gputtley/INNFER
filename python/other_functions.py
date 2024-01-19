@@ -247,6 +247,8 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
 
 def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
+  parameters = copy.deepcopy(parameters)
+
   if not "all" in parameters["yield"].keys():
 
     # Find initial options
