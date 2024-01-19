@@ -750,7 +750,7 @@ for root, dirs, files in os.walk(f"models/{cfg['name']}/"):
                 print(float(file[-8:-3]))
                 vals.append(float(file[-8:-3]))
 
-min_val = np.min(vals)
+min_val = min(vals)
 print(min_val, 'min')
 
 folder_path = f"models/{cfg['name']}/"
