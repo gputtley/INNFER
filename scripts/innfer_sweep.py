@@ -206,7 +206,7 @@ def main():
                     if len(vals) < 1:
                         min_val = 1
                     else:
-                        min_val = np.min(vals)
+                        min_val = min(vals)
                         print(min_val, 'min')
 
                     if val < min_val:
@@ -739,7 +739,7 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-sweep = wandb.agent(sweep_id, function=main, count=1)
+sweep = wandb.agent(sweep_id, function=main, count=10)
 
 vals = []
 for root, dirs, files in os.walk(f"models/{cfg['name']}/"):
