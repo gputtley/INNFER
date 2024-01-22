@@ -319,7 +319,7 @@ class Likelihood():
     """
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
-  def GetBestFit(self, X, initial_guess, wts=None, method="nominal", freeze={}, initial_step_size=0.05):
+  def GetBestFit(self, X, initial_guess, wts=None, method="low_stat_high_stat", freeze={}, initial_step_size=0.05):
     """
     Finds the best-fit parameters using numerical optimization.
 
