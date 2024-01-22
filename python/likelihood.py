@@ -22,7 +22,7 @@ class Likelihood():
         parameters (dict): A dictionary containing model parameters (default is an empty dictionary).
         data_parameters (dict): A dictionary containing data parameters (default is an empty dictionary).
     """
-    self.type = type # unbinned, unbinned_extended
+    self.type = type # unbinned, unbinned_extended, binned_extended
     self.models = models
     self.parameters = parameters
     self.data_parameters = data_parameters
@@ -67,6 +67,8 @@ class Likelihood():
       lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
     elif self.type == "unbinned_extended":
       lkld_val = self.UnbinnedExtended(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
+    elif self.type == "binned_extended":
+      lkld_val = self.BinnedExtended(X, Y, wts=wts, return_ln=return_ln)
 
     return lkld_val
 
@@ -74,31 +76,6 @@ class Likelihood():
     mask = ln_b > ln_a
     ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
-
-  '''
-  def _BuildInterpolationForYields(self, file_name):
-    
-    if not "all" in self.data_parameters[file_name]["yield"].keys():
-
-      unique_points = []
-      for k, v in self.data_parameters[file_name]["yield"].items():
-        for ind, i in enumerate(k.split("_")):
-          out = float(i.replace("p",".").replace("m","-"))
-          if ind >= len(unique_points):
-            unique_points.append([])
-          if out not in unique_points[ind]:
-            unique_points[ind].append(out)
-
-      unique_points = tuple(sorted(uv) for uv in unique_points)
-      mesh = [np.array(i).flatten() for i in np.meshgrid(*unique_points,indexing="ij")]
-      data = [self.data_parameters[file_name]["yield"][GetYName([col[i] for col in mesh], purpose="file")] for i in range(len(mesh[0]))]
-      data_array_shape = tuple(len(uv) for uv in unique_points)
-      data = np.array(data).reshape(data_array_shape)
-      self.interp[file_name] = RegularGridInterpolator(unique_points, data, method='linear', bounds_error=False, fill_value=np.nan)
-
-    else:
-      self.interp[file_name] = self.data_parameters[file_name]["yield"]["all"]
-  '''
 
   def _GetYield(self, file_name, Y, y_columns=None):
     Y = np.array(Y)
@@ -257,6 +234,66 @@ class Likelihood():
     else:
       return np.exp(ln_lkld)
 
+  def BinnedExtended(self, X, Y, wts=None, return_ln=False, verbose=True):
+    """
+    Computes the extended likelihood for binned data.
+
+    Args:
+        X (array): The independent variables.
+        Y (array): The model parameters.
+        wts (array): The weights for the data points (optional).
+        return_ln (bool): Whether to return the natural logarithm of the likelihood (optional).
+
+    Returns:
+        float: The likelihood value.
+
+    """
+    start_time = time.time()
+    Y = list(Y)
+
+    # Make data histogram
+    data_hist, _ = np.histogram(X, weights=wts, bins=self.models["bin_edges"])
+    data_hist = data_hist.astype(np.float64)
+    #print(data_hist)
+    ln_lkld = 0.0
+
+    for bin_number in range(len(self.models["bin_edges"])-1):
+
+      yield_sum = 0.0
+
+      for name, yields in self.models["bin_yields"].items():
+
+        if "mu_"+name in self.Y_columns:
+          rate_param = Y[self.Y_columns.index("mu_"+name)]
+        else:
+          rate_param = 1.0
+        if rate_param == 0.0: continue
+
+        # Get rate times yield times probability
+        yield_sum += (yields[bin_number](Y) * rate_param)
+
+      #print(bin_number, yield_sum, data_hist[bin_number])
+      ln_lkld += ((data_hist[bin_number]*np.log(yield_sum)) - yield_sum)
+
+    # Add constraints
+    if "nuisance_constraints" in self.parameters.keys():
+      for k, v in self.parameters["nuisance_constraints"].items():
+        if v == "Gaussian":
+          constraint = self._Gaussian(Y[self.Y_columns.index(k)])
+        elif v == "LogNormal":
+          constraint = self._LogNormal(Y[self.Y_columns.index(k)])
+        ln_lkld += np.log(constraint)
+
+    end_time = time.time()
+
+    if verbose:
+      print(f">> Y={Y}, lnL={ln_lkld}, time={round(end_time-start_time,2)}")
+
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
+
       
   def _Gaussian(self, x):
     """
@@ -282,7 +319,7 @@ class Likelihood():
     """
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
-  def GetBestFit(self, X, initial_guess, wts=None, method="low_stat_high_stat", freeze={}):
+  def GetBestFit(self, X, initial_guess, wts=None, method="low_stat_high_stat", freeze={}, initial_step_size=0.05):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -297,7 +334,7 @@ class Likelihood():
       def NLL(Y): 
         nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
         return nll
-      result = self.Minimise(NLL, initial_guess, freeze=freeze)
+      result = self.Minimise(NLL, initial_guess, freeze=freeze, initial_step_size=initial_step_size)
 
     elif method == "increasing_stats":
 
@@ -308,14 +345,14 @@ class Likelihood():
           self.full_wts = wts
           self.start_stats = start_stats
           self.steps_till_full = steps_till_full
-          self.sum_wts = np.sum(self.full_wts)
+          self.sum_wts = np.sum(self.full_wts, dtype=np.float128)
           self.iteration = 0
 
         def objective(self,Y):
           random_indices = np.random.choice(self.full_X.shape[0], int(self.start_stats + self.iteration*((len(self.full_X) - self.start_stats)/self.steps_till_full)), replace=False)
           X = self.full_X[random_indices,:]
           wts = self.full_wts[random_indices,:]
-          new_sum_wt = np.sum(wts)
+          new_sum_wt = np.sum(wts, dtype=np.float128)
           wts *= self.sum_wts/new_sum_wt
           if self.iteration != self.steps_till_full:
             self.iteration += 1
@@ -337,9 +374,9 @@ class Likelihood():
       random_indices = np.random.choice(original_stats, stats, replace=False)
       lowstat_X = X[random_indices,:]
       if wts is not None:
-        old_sum_wts = np.sum(wts)
+        old_sum_wts = np.sum(wts, dtype=np.float128)
         lowstat_wts = wts[random_indices,:]
-        new_sum_wt = np.sum(lowstat_wts)
+        new_sum_wt = np.sum(lowstat_wts, dtype=np.float128)
         lowstat_wts *= old_sum_wts/new_sum_wt
       else:
         lowstat_wts = (original_stats/stats)*np.ones(original_stats)
@@ -352,7 +389,7 @@ class Likelihood():
 
     return result
 
-  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
+  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
     """
     Computes the scan values for a given column.
 
@@ -448,7 +485,7 @@ class Likelihood():
     if len(self.Y_columns) > 1:
       print(f">> Profiled fit for {col}={col_val}")
       freeze = {col : col_val}
-      result = self.GetBestFit(X, Y, wts=wt, method="nominal", freeze=freeze)
+      result = self.GetBestFit(X, Y, wts=wt, method="nominal", freeze=freeze, initial_step_size=0.001)
       dump = {
         "row" : [float(i) for i in row],
         "columns" : self.Y_columns, 
@@ -459,7 +496,7 @@ class Likelihood():
         "scan_values" : [float(col_val)],
       }
     else:
-      result = -2*self.Run(X, Y, wts=wt, return_ln=True)   
+      result = -2*self.Run(X, Y, wts=wt, return_ln=True)
       dump = {
         "row" : [float(i) for i in row],
         "columns" : self.Y_columns, 
@@ -600,7 +637,7 @@ class Likelihood():
             values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
     return values
 
-  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}):
+  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}, initial_step_size=0.02):
     """
     Minimizes the given function using numerical optimization.
 
@@ -612,6 +649,8 @@ class Likelihood():
         tuple: Best-fit parameters and the corresponding function value.
 
     """
+
+    # freeze
     if len(list(freeze.keys())) > 0:
 
       initial_guess_before = copy.deepcopy(initial_guess)
@@ -629,16 +668,34 @@ class Likelihood():
             x_ind += 1
         return old_func(extended_x)
 
+    # get initial simplex
+    n = len(initial_guess)
+    initial_simplex = [initial_guess]
+    for i in range(n):
+      row = copy.deepcopy(initial_guess)
+      row[i] += initial_step_size * max(row[i], 1.0)
+      initial_simplex.append(row)
 
+    # minimisation
     if method == "scipy":
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01})
+      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
       return minimisation.x, minimisation.fun
     
     elif method == "low_stat_high_stat":
       print(">> Doing low stat minimisation first.")
-      low_stat_minimisation = minimize(func_low_stat, initial_guess, method='Nelder-Mead', tol=1.0, options={'xatol': 0.001, 'fatol': 1.0})
-      for k in self.models["pdfs"].keys():
-        self.models["pdfs"][k].probability_store = {}
+      low_stat_minimisation = minimize(func_low_stat, initial_guess, method='Nelder-Mead', tol=1.0, options={'xatol': 0.001, 'fatol': 1.0, 'initial_simplex': initial_simplex})
+      if "pdf" in self.models.keys():
+        for k in self.models["pdfs"].keys():
+          self.models["pdfs"][k].probability_store = {}
       print(">> Doing high stat minimisation.")
-      minimisation = minimize(func, low_stat_minimisation.x, method='Nelder-Mead', tol=0.1, options={'xatol': 0.001, 'fatol': 0.1})
+
+      # reget initial simplex
+      n = len(low_stat_minimisation.x)
+      initial_simplex = [low_stat_minimisation.x]
+      for i in range(n):
+        row = copy.deepcopy(low_stat_minimisation.x)
+        row[i] += 0.1* initial_step_size * max(row[i], 1.0) # 10% of initial simplex
+        initial_simplex.append(row)
+
+      minimisation = minimize(func, low_stat_minimisation.x, method='Nelder-Mead', tol=0.1, options={'xatol': 0.001, 'fatol': 0.1, 'initial_simplex': initial_simplex})
       return minimisation.x, minimisation.fun

@@ -293,29 +293,29 @@ for output_file, input_files in input.items():
   nan_rows = total_df[total_df.isna().any(axis=1)]
   total_df = total_df.dropna()
 
-  total_df.loc[:,"sub12_E"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"]
-  total_df.loc[:,"sub12_px"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"]
-  total_df.loc[:,"sub12_py"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"]
-  total_df.loc[:,"sub12_pz"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"]
-  total_df.loc[:,"sub12_mass"] = np.sqrt(total_df.loc[:,"sub12_E"]**2 - total_df.loc[:,"sub12_px"]**2 - total_df.loc[:,"sub12_py"]**2 - total_df.loc[:,"sub12_pz"]**2)
+  total_df.loc[:,"sub12_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"]
+  total_df.loc[:,"sub12_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"]
+  total_df.loc[:,"sub12_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"]
+  total_df.loc[:,"sub12_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"]
+  total_df.loc[:,"sub12_mass_rec"] = np.sqrt(total_df.loc[:,"sub12_E_rec"]**2 - total_df.loc[:,"sub12_px_rec"]**2 - total_df.loc[:,"sub12_py_rec"]**2 - total_df.loc[:,"sub12_pz_rec"]**2)
 
-  total_df.loc[:,"sub13_E"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub13_px"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub13_py"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub13_pz"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub13_mass"] = np.sqrt(total_df.loc[:,"sub13_E"]**2 - total_df.loc[:,"sub13_px"]**2 - total_df.loc[:,"sub13_py"]**2 - total_df.loc[:,"sub13_pz"]**2)
+  total_df.loc[:,"sub13_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub3_E_rec"]
+  total_df.loc[:,"sub13_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub3_px_rec"]
+  total_df.loc[:,"sub13_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub3_py_rec"]
+  total_df.loc[:,"sub13_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
+  total_df.loc[:,"sub13_mass_rec"] = np.sqrt(total_df.loc[:,"sub13_E_rec"]**2 - total_df.loc[:,"sub13_px_rec"]**2 - total_df.loc[:,"sub13_py_rec"]**2 - total_df.loc[:,"sub13_pz_rec"]**2)
 
-  total_df.loc[:,"sub23_E"] = total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub23_px"] = total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub23_py"] = total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub23_pz"] = total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub23_mass"] = np.sqrt(total_df.loc[:,"sub23_E"]**2 - total_df.loc[:,"sub23_px"]**2 - total_df.loc[:,"sub23_py"]**2 - total_df.loc[:,"sub23_pz"]**2)
+  total_df.loc[:,"sub23_E_rec"] = total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
+  total_df.loc[:,"sub23_px_rec"] = total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
+  total_df.loc[:,"sub23_py_rec"] = total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
+  total_df.loc[:,"sub23_pz_rec"] = total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
+  total_df.loc[:,"sub23_mass_rec"] = np.sqrt(total_df.loc[:,"sub23_E_rec"]**2 - total_df.loc[:,"sub23_px_rec"]**2 - total_df.loc[:,"sub23_py_rec"]**2 - total_df.loc[:,"sub23_pz_rec"]**2)
 
-  total_df.loc[:,"sub123_E"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub123_px"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub123_py"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub123_pz"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub123_mass"] = np.sqrt(total_df.loc[:,"sub123_E"]**2 - total_df.loc[:,"sub123_px"]**2 - total_df.loc[:,"sub123_py"]**2 - total_df.loc[:,"sub123_pz"]**2)
+  total_df.loc[:,"sub123_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
+  total_df.loc[:,"sub123_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
+  total_df.loc[:,"sub123_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
+  total_df.loc[:,"sub123_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
+  total_df.loc[:,"sub123_mass_rec"] = np.sqrt(total_df.loc[:,"sub123_E_rec"]**2 - total_df.loc[:,"sub123_px_rec"]**2 - total_df.loc[:,"sub123_py_rec"]**2 - total_df.loc[:,"sub123_pz_rec"]**2)
 
   nan_rows = total_df[total_df.isna().any(axis=1)]
   total_df = total_df.dropna()

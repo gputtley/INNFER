@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+import pandas as pd
 from itertools import product
 from scipy.interpolate import RegularGridInterpolator
 
@@ -177,7 +178,7 @@ def GetYName(ur, purpose="plot", round_to=2):
       str: Formatted label for the given unique row.
   """
   if len(ur) > 0:
-    label_list = [str(round(i,round_to)) for i in ur] 
+    label_list = [str(round(float(i),round_to)) for i in ur] 
     if purpose in ["file","code"]:
       name = "_".join([i.replace(".","p").replace("-","m") for i in label_list])
     elif purpose == "plot":
@@ -349,3 +350,42 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
       return parameters["yield"]["all"]
 
   return func
+
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=100):
+
+  if wt is None:
+    wt = np.ones(len(X_dataframe))
+
+  X_column = X_dataframe.loc[:,data_parameters["X_columns"][column]]
+
+  if isinstance(bins, int):
+    # Change to weighted version in future
+    _, bins_ed = pd.qcut(X_column, q=bins, labels=False, retbins=True)
+  else:
+    bins_ed = copy.deepcopy(bins)
+  bins_ed[0] = -np.inf
+  bins_ed[-1] = np.inf
+
+  hists = []
+  rows = []
+  unique_rows = Y_dataframe.drop_duplicates()
+  for _, ur in unique_rows.iterrows():
+    rows.append(GetYName(ur, purpose="file"))
+    matching_rows = (Y_dataframe == ur).all(axis=1)
+    X_mr = X_column[matching_rows]
+    wt_mr = wt.to_numpy().flatten()[matching_rows]
+    hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+    hist = hist.astype(np.float128)
+    sum_hist = float(np.sum(hist, dtype=np.float128))
+    hist *= data_parameters["yield"][GetYName(ur, purpose="file")]/sum_hist
+    hists.append(hist)  
+
+  yields = []
+  for b in range(len(hists[0])):
+    tmp_parameters = {
+      "Y_columns" : data_parameters["Y_columns"],
+      "yield" : {rows[ind]: hists[ind][b] for ind in range(len(rows))},
+    }
+    yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
+
+  return yields, bins_ed

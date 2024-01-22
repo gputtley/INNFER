@@ -87,9 +87,9 @@ class PreProcess():
       for _, ur in unique_rows.iterrows():
         matching_rows = (full_dataset.loc[:,Y_columns] == ur).all(axis=1)
         name = GetYName(ur, purpose="file")
-        self.parameters["yield"][name] = float(np.sum(full_dataset.loc[:,"wt"][matching_rows]))
+        self.parameters["yield"][name] = float(np.sum(full_dataset.loc[:,"wt"][matching_rows], dtype=np.float128))
     else:
-      self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:,"wt"]))
+      self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:,"wt"], dtype=np.float128))
 
     # Train test split
     print(">> Train/Test/Val splitting the data.")
@@ -338,7 +338,7 @@ class PreProcess():
 
     return output
 
-  def PlotX(self, vary, freeze={}, n_bins=40, ignore_quantile=0.001, dataset="train", extra_name=""):
+  def PlotX(self, vary, freeze={}, n_bins=100, ignore_quantile=0.001, dataset="train", extra_name=""):
     """
     Plot histograms for X variables.
 
@@ -403,7 +403,7 @@ class PreProcess():
           matching_rows = Y_data[condition].index
           X_cut = X_data.iloc[matching_rows].reset_index(drop=True)
           wt_cut = wt_data.iloc[matching_rows].reset_index(drop=True)
-          hist_names.append(f"{vary}={ur}")
+          hist_names.append(f"{vary}={round(ur,8)}")
         else:
           X_cut = copy.deepcopy(X_data)
           wt_cut = copy.deepcopy(wt_data)
