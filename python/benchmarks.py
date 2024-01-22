@@ -238,7 +238,6 @@ class Benchmarks():
       parquet_file_path = f"data/{self.name}_ExpBkg.parquet"
       pq.write_table(table, parquet_file_path)
 
-
   def MakeConfig(self):
     """
     Generate configuration files for benchmarks.

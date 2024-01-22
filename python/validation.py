@@ -1,7 +1,7 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
-from other_functions import GetYName, MakeYieldFunction
+from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
 from functools import partial
 import numpy as np
@@ -29,6 +29,8 @@ class Validation():
     self.data_key = "val"
     self.tolerance = 1e-6
     self.lower_validation_stats = None
+    self.do_binned_fit = None
+    self.var_and_bins = None
     self.data_dir = "./data/"
     self.out_dir = "./data/"
     self.plot_dir = "./plots/"
@@ -76,17 +78,12 @@ class Validation():
       X = X[matching_rows]
       wt = wt[matching_rows]
 
-    indices = np.arange(X.shape[0])
-    np.random.shuffle(indices)
-    X = X[indices]
-    wt = wt[indices]
-
     if "yield" in self.data_parameters.keys():
       if "all" in self.data_parameters["yield"].keys():
         sum_wt = self.data_parameters["yield"]["all"]
       else:
         sum_wt = self.data_parameters["yield"][GetYName(row,purpose="file")]
-      old_sum_wt = np.sum(wt)
+      old_sum_wt = np.sum(wt, dtype=np.float128)
       wt *= sum_wt/old_sum_wt
 
     if self.lower_validation_stats is not None:
@@ -102,21 +99,46 @@ class Validation():
 
   def BuildLikelihood(self):
     """
-    Build the likelihood object.
+    Build the likelihood object
     """
-    self.lkld = Likelihood(
-      {
-        "pdfs":{self.model_name:self.model},
-        "yields":{self.model_name:MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)}
-       }, 
-      type="unbinned_extended", 
-      data_parameters={
-        self.model_name:{
-          "X_columns" : self.data_parameters["X_columns"],
-          "Y_columns" : self.data_parameters["Y_columns"],
-        },
-      }
-    )
+    if self.do_binned_fit:
+      X, Y, wt = self.pp.LoadSplitData(dataset="val", get=["X","Y","wt"], use_nominal_wt=False)
+      if self.var_and_bins is not None:
+        bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
+        column = self.data_parameters["X_columns"].index(self.var_and_bins.split("[")[0])
+      else:
+        bins = 100
+        column = 0
+      bin_yields, bin_edges = MakeBinYields(X, Y, self.data_parameters, self.pois, self.nuisances, wt=wt, column=column, bins=bins)
+      self.lkld = Likelihood(
+        {
+          "bin_yields": {self.model_name:bin_yields},
+          "bin_edges": bin_edges,
+        }, 
+        type="binned_extended", 
+        data_parameters={
+          self.model_name:{
+            "X_columns" : self.data_parameters["X_columns"],
+            "Y_columns" : self.data_parameters["Y_columns"],
+          },
+        }
+      )
+
+    else:
+
+      self.lkld = Likelihood(
+        {
+          "pdfs":{self.model_name:self.model},
+          "yields":{self.model_name:MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)}
+        }, 
+        type="unbinned_extended", 
+        data_parameters={
+          self.model_name:{
+            "X_columns" : self.data_parameters["X_columns"],
+            "Y_columns" : self.data_parameters["Y_columns"],
+          },
+        }
+      )
 
   def GetAndDumpBestFit(self, row, initial_guess, columns=None, ind=0):
     """
@@ -132,6 +154,7 @@ class Validation():
     X, wt = self._GetXAndWts(row, columns=columns)
     #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     #for i in loop:
+    #  print(np.array([i]), len(X), float(np.sum(wt)))
     #  self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
     #exit()
     self.lkld.GetAndWriteBestFitToYaml(X, row, initial_guess, wt=wt, filename=f"{self.out_dir}/best_fit_{ind}.yaml")
@@ -252,21 +275,6 @@ class Validation():
 
       file_extra_name = GetYName(row, purpose="file")
       plot_extra_name = GetYName(row, purpose="plot")
-
-      #plot_histogram_with_ratio(
-      #  sim_hist, 
-      #  synth_hist, 
-      #  bins, 
-      #  name_1='Simulated', 
-      #  name_2='Synthetic',
-      #  xlabel=self.data_parameters["X_columns"][col],
-      #  name=f"{self.plot_dir}/generation_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
-      #  title_right = f"y={plot_extra_name}",
-      #  density = False,
-      #  use_stat_err = False,
-      #  errors_1=np.sqrt(sim_hist_err_sq), 
-      #  errors_2=np.sqrt(synth_hist),
-      #  )
       
       plot_stacked_histogram_with_ratio(
         sim_hist, 
@@ -321,18 +329,8 @@ class Validation():
         synth_err_hists = []
         X_hists = []
         X_err_hists = []
-        #unrolled_bin_strings = []
         for unrolled_bin_ind in range(n_unrolled_bins):
           unrolled_bin = [unrolled_bins[unrolled_col][unrolled_bin_ind], unrolled_bins[unrolled_col][unrolled_bin_ind+1]]
-
-          #unrolled_col_name = self.data_parameters["X_columns"][unrolled_col]
-          #if unrolled_bin[0] == -np.inf:
-          #  unrolled_bin_string = rf"${unrolled_col_name} < {unrolled_bin[1]}$"
-          #elif unrolled_bin[1] == np.inf:
-          #  unrolled_bin_string = rf"${unrolled_col_name} \geq {unrolled_bin[0]}$"
-          #else:
-          #  unrolled_bin_string = rf"${unrolled_bin[0]} \geq {unrolled_col_name} < {unrolled_bin[1]}$"
-          #unrolled_bin_strings.append(unrolled_bin_string)
 
           synth_unrolled_bin_indices = ((synth[:,unrolled_col] >= unrolled_bin[0]) & (synth[:,unrolled_col] < unrolled_bin[1]))
           synth_unrolled_bin = synth[synth_unrolled_bin_indices]
@@ -482,6 +480,13 @@ class Validation():
     X, wt = self._GetXAndWts(row, columns=columns)
     synth_true = self.model.Sample(np.array([list(row)]), columns=columns)
     synth_best_fit = self.model.Sample(np.array([list(best_fit)]), columns=columns)
+    if "yield" in self.data_parameters.keys():
+      yf = MakeYieldFunction(self.pois, self.nuisances, self.data_parameters)
+      synth_true_wt = (yf(row)/len(synth_true)) * np.ones(len(synth_true))
+      synth_best_fit_wt = (yf(best_fit)/len(synth_best_fit)) * np.ones(len(synth_best_fit))
+    else:
+      synth_true_wt = (np.sum(wt)/len(synth_true)) * np.ones(len(synth_true))
+      synth_best_fit_wt = (np.sum(wt)/len(synth_best_fit)) * np.ones(len(synth_best_fit))
 
     for col in range(X.shape[1]):
       trimmed_X = X[:,col]
@@ -492,13 +497,8 @@ class Validation():
       trimmed_wt = wt[trimmed_indices].flatten()
       sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
       sim_hist_err_sq, _  = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
-      synth_true_hist, _  = np.histogram(synth_true[:,col], bins=bins)
-      synth_best_fit_hist, _  = np.histogram(synth_best_fit[:,col], bins=bins)
-
-      sim_hist_err_sq = sim_hist_err_sq/np.sum(sim_hist)
-      sim_hist = sim_hist/np.sum(sim_hist)
-      synth_true_hist = synth_true_hist/np.sum(synth_true_hist)
-      synth_best_fit_hist = synth_best_fit_hist/np.sum(synth_best_fit_hist)
+      synth_true_hist, _  = np.histogram(synth_true[:,col], weights=synth_true_wt, bins=bins)
+      synth_best_fit_hist, _  = np.histogram(synth_best_fit[:,col], weights=synth_best_fit_wt, bins=bins)
 
       file_extra_name = GetYName(row, purpose="file")
       plot_extra_name_true = GetYName(row, purpose="plot")
@@ -507,15 +507,15 @@ class Validation():
       plot_histograms(
         bins[:-1],
         [synth_best_fit_hist,synth_true_hist],
-        [f"Learned y={plot_extra_name_bf}",f"Learned y={plot_extra_name_true}"],
+        [f"Learned y={plot_extra_name_bf} (Best Fit)",f"Learned y={plot_extra_name_true} (True)"],
         colors = ["blue","red",],
         linestyles = ["-","-"],
-        title_right = "",
+        title_right = f"y={plot_extra_name_true}",
         x_label=self.data_parameters["X_columns"][col],
         name=f"{self.plot_dir}/comparison_{self.data_parameters['X_columns'][col]}_y_{file_extra_name}", 
-        y_label = "Density",
+        y_label = "Events",
         error_bar_hists = [sim_hist],
-        error_bar_hist_errs = [sim_hist_err_sq],
+        error_bar_hist_errs = [np.sqrt(sim_hist_err_sq)],
         error_bar_names = [f"Data y={plot_extra_name_true}"],
       )
 

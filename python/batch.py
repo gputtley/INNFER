@@ -51,6 +51,7 @@ class Batch():
     Run the batch job using the SGE (Sun Grid Engine) submission system.
     """
     self._CreateBatchJob(self.cmds)
+
     if self.store_output:
       output_log = self.job_name.replace('.sh','_output.log')
       if os.path.exists(output_log): os.system(f'rm {output_log}')
@@ -61,6 +62,7 @@ class Batch():
       if os.path.exists(error_log): os.system(f'rm {error_log}')
     else:
       error_log = "/dev/null"
+
     if not self.dry_run:
       if self.sge_queue != "gpu.q":
         if self.cores>1:
@@ -72,18 +74,18 @@ class Batch():
         sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -cwd {self.job_name}'
       os.system(sub_cmd)
 
-  def _CreateJob(self, cmd_list):
+  def _CreateJob(self, cmd_list, job_name):
     """
     Create a job script with the specified command list.
 
     Args:
         cmd_list (list): List of commands to be included in the job script.
     """
-    if os.path.exists(self.job_name): os.system(f'rm {self.job_name}')
+    if os.path.exists(job_name): os.system(f'rm {job_name}')
     for cmd in cmd_list:
-      os.system(f'echo "{cmd}" >> {self.job_name}')
-    os.system(f'chmod +x {self.job_name}' % vars())
-    print("Created job:",self.job_name)
+      os.system(f'echo "{cmd}" >> {job_name}')
+    os.system(f'chmod +x {job_name}' % vars())
+    print("Created job:",job_name)
 
   def _CreateBatchJob(self, cmd_list):
     """
@@ -97,4 +99,4 @@ class Batch():
       "source env.sh",
       "ulimit -s unlimited",
     ]
-    self._CreateJob(base_cmds+cmd_list)
+    self._CreateJob(base_cmds+cmd_list, self.job_name)
