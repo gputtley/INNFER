@@ -104,7 +104,7 @@ data_file:
   - data/susy_95_plus_bkg_sample.parquet
 ```
 
-From this, the INNFER workflow can then be run with the same commands as in the benchmark case but replacing `--benchark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with the same commands as for ValidateInference but with `--step="Infer"`.
+From this, the INNFER workflow can then be run with the same commands as in the benchmark case but replacing `--benchmark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with the same commands as for ValidateInference but with `--step="Infer"`.
 
 ## Structure of Code
 
