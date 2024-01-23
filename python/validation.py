@@ -102,7 +102,7 @@ class Validation():
     Build the likelihood object
     """
     if self.do_binned_fit:
-      X, Y, wt = self.pp.LoadSplitData(dataset="val", get=["X","Y","wt"], use_nominal_wt=False)
+      X, Y, wt = self.pp.LoadSplitData(dataset="full", get=["X","Y","wt"], use_nominal_wt=False)
       if self.var_and_bins is not None:
         bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
         column = self.data_parameters["X_columns"].index(self.var_and_bins.split("[")[0])
@@ -363,7 +363,7 @@ class Validation():
           X_hists, 
           {"Synthetic": synth_hists}, 
           plot_bins[plot_col],
-          unrolled_bins[col],
+          unrolled_bins[unrolled_col],
           self.data_parameters["X_columns"][unrolled_col],
           data_name='Simulated', 
           xlabel=self.data_parameters["X_columns"][plot_col],

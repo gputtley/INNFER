@@ -10,10 +10,10 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   source files/etc/profile.d/conda.sh
   conda update conda
   conda create --name innfer_env python=3.11
-  source miniconda/files/etc/profile.d/conda.sh
-  conda activate miniconda/files/envs/innfer_env
   rm ./Miniconda3-latest-Linux-x86\_64.sh
   popd
+  source miniconda/files/etc/profile.d/conda.sh
+  conda activate miniconda/files/envs/innfer_env
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "packages" ]; then

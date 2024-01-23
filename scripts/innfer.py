@@ -176,6 +176,7 @@ for file_name, parquet_name in cfg["files"].items():
         val = Validation(
           networks[file_name] if not args.do_binned_fit else None, 
           options={
+            "data_key":"val" if not args.do_binned_fit else "full",
             "data_parameters":parameters[file_name],
             "pois":cfg["pois"],
             "nuisances":cfg["nuisances"],
