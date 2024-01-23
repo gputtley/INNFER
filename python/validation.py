@@ -331,7 +331,6 @@ class Validation():
         X_err_hists = []
         for unrolled_bin_ind in range(n_unrolled_bins):
           unrolled_bin = [unrolled_bins[unrolled_col][unrolled_bin_ind], unrolled_bins[unrolled_col][unrolled_bin_ind+1]]
-          print(unrolled_bin)
 
           synth_unrolled_bin_indices = ((synth[:,unrolled_col] >= unrolled_bin[0]) & (synth[:,unrolled_col] < unrolled_bin[1]))
           synth_unrolled_bin = synth[synth_unrolled_bin_indices]
