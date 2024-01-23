@@ -310,31 +310,76 @@ class PreProcess():
     Load split data (X, Y, and weights) from the preprocessed files.
 
     Args:
-        dataset (str): The dataset split to load ("train", "test", or "val").
+        dataset (str): The dataset split to load ("train", "test", "val" or "full").
         get (list): List of data components to retrieve ("X", "Y", "wt").
 
     Returns:
         list: List containing loaded data components based on the 'get' parameter.
     """
     output = []
+    if dataset != "full":
+
+      if "X" in get:
+        X_dl = DataLoader(f"{self.output_dir}/X_{dataset}.parquet")
+        X_data = X_dl.LoadFullDataset()
+        X_data = self.UnTransformData(X_data)
+
+      if "Y" in get:
+        Y_dl = DataLoader(f"{self.output_dir}/Y_{dataset}.parquet")
+        Y_data = Y_dl.LoadFullDataset()
+        Y_data = self.UnTransformData(Y_data)
+
+      if "wt" in get:
+        if not use_nominal_wt:
+          wt_dl = DataLoader(f"{self.output_dir}/wt_{dataset}.parquet")
+        else:
+          wt_dl = DataLoader(f"{self.output_dir}/wt_nominal_{dataset}.parquet")
+        wt_data = wt_dl.LoadFullDataset()
+
+    else:
+
+      first_loop = True
+      for ds in ["train","test","val"]:
+
+        if "X" in get:
+          X_dl_tmp = DataLoader(f"{self.output_dir}/X_{ds}.parquet")
+          X_data_tmp = X_dl_tmp.LoadFullDataset()
+          X_data_tmp = self.UnTransformData(X_data_tmp)
+
+        if "Y" in get:
+          Y_dl_tmp = DataLoader(f"{self.output_dir}/Y_{ds}.parquet")
+          Y_data_tmp = Y_dl_tmp.LoadFullDataset()
+          Y_data_tmp = self.UnTransformData(Y_data_tmp)
+
+        if "wt" in get:
+          if not use_nominal_wt:
+            wt_dl_tmp = DataLoader(f"{self.output_dir}/wt_{ds}.parquet")
+          else:
+            wt_dl_tmp = DataLoader(f"{self.output_dir}/wt_nominal_{ds}.parquet")
+          wt_data_tmp = wt_dl_tmp.LoadFullDataset()
+
+        if first_loop:
+          first_loop = False
+          if "X" in get:
+            X_data = copy.deepcopy(X_data_tmp)
+          if "Y" in get:
+            Y_data = copy.deepcopy(Y_data_tmp)
+          if "wt" in get:
+            wt_data = copy.deepcopy(wt_data_tmp)
+        else:
+          if "X" in get:
+            X_data = pd.concat([X_data, X_data_tmp], axis=0, ignore_index=True)
+          if "Y" in get:
+            Y_data = pd.concat([Y_data, Y_data_tmp], axis=0, ignore_index=True)
+          if "wt" in get:
+            wt_data = pd.concat([wt_data, wt_data_tmp], axis=0, ignore_index=True)
+
     if "X" in get:
-      X_dl = DataLoader(f"{self.output_dir}/X_{dataset}.parquet")
-      X_data = X_dl.LoadFullDataset()
-      X_data = self.UnTransformData(X_data)
       output.append(X_data)
-
     if "Y" in get:
-      Y_dl = DataLoader(f"{self.output_dir}/Y_{dataset}.parquet")
-      Y_data = Y_dl.LoadFullDataset()
-      Y_data = self.UnTransformData(Y_data)
       output.append(Y_data)
-
     if "wt" in get:
-      if not use_nominal_wt:
-        wt_dl = DataLoader(f"{self.output_dir}/wt_{dataset}.parquet")
-      else:
-        wt_dl = DataLoader(f"{self.output_dir}/wt_nominal_{dataset}.parquet")
-      output.append(wt_dl.LoadFullDataset())
+      output.append(wt_data)
 
     return output
 

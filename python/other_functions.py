@@ -378,6 +378,9 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
     hist = hist.astype(np.float128)
     sum_hist = float(np.sum(hist, dtype=np.float128))
     hist *= data_parameters["yield"][GetYName(ur, purpose="file")]/sum_hist
+    #print(ur)
+    #for i in hist:
+    #  print(i)
     hists.append(hist)  
 
   yields = []
