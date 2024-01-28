@@ -1,3 +1,6 @@
+###other_function.py, validation.py files may need to update for the validationgeneration
+###model training and preprocess steps work so far.
+
 import gc
 import yaml
 import copy
