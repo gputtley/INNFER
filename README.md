@@ -42,30 +42,75 @@ Each of these steps are run through the `scripts/innfer.py` code, with the `--st
 To initially setup the benchmark scenario data and config file, you can run the following command.
 ```
 python3 scripts/innfer.py --step="MakeBenchmark" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="MakeBenchmark" --benchmark="5D+D"
+python3 scripts/innfer.py --step="MakeBenchmark" --benchmark="2D"
+python3 scripts/innfer.py --step="MakeBenchmark" --benchmark="12D"
 ```
 This runs simple example of inferring the top mass from a mass resolution like variable. The INNFER workflow is then run with the following commands.
 ```
 python3 scripts/innfer.py --step="PreProcess" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="PreProcess" --benchmark="5D+D"
+python3 scripts/innfer.py --step="PreProcess" --benchmark="2D"
+python3 scripts/innfer.py --step="PreProcess" --benchmark="12D"
 ```
 ```
-python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="configs/architecture/simple.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="configs/architecture/default.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="2D" --architecture="configs/architecture/default.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="5D" --architecture="configs/architecture/default.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="5D+D" --architecture="configs/architecture/default.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="12D" --architecture="configs/architecture/simple.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="12D" --architecture="configs/architecture/12D_2.yaml"
+
 ```
 ```
 python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="2D"
+python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="5D"
+python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="5D+D"
+python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="12D"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="2D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="5D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="5D+D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="12D"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="2D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="5D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="5D+D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="12D"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchmark="2D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchmark="5D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchmark="5D+D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benchmark="12D"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="2D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="5D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="5D+D"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="12D"
 ```
 There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`. Running INNFER on a batch is highly recommended in all cases.
+
+Submit online for gpu run: 
+```
+--submit="SGE" --sge-queue="gpu.q"
+```
+or login to 
+```
+lxgpu00
+```
+Check the status:
+```
+qstat
+```
 
 ## Running from Dataset
 
