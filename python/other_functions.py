@@ -1,7 +1,8 @@
 import copy
+from itertools import product
+
 import numpy as np
 import pandas as pd
-from itertools import product
 from scipy.interpolate import RegularGridInterpolator
 
 
