@@ -33,7 +33,8 @@ parser.add_argument('--sub-step', help='Sub-step to run for ValidateInference or
                     default="InitialFit", choices=["InitialFit", "Scan", "Collect", "Plot"])
 parser.add_argument('--lower-validation-stats', help='Lowers the validation stats, so code will run faster.', type=int,
                     default=None)
-parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+# Note default use of wandb for non sweep file is False
+parser.add_argument('--use-wandb', help='Use wandb for logging.', type=bool, default=False)
 args = parser.parse_args()
 
 if args.cfg is None and args.benchmark is None:
@@ -154,8 +155,13 @@ for file_name, parquet_name in cfg["files"].items():
         if args.submit is None:
 
             if args.step != "Train":
-                with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'r') as yaml_file:
-                    architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+                if args.opt_model is not None:
+                    with open(f"models/{cfg['name']}/{file_name}_architecture_{args.opt_model}.yaml", 'r') as yaml_file:
+                        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+                else:
+                    with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'r') as yaml_file:
+                        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
             print("- Building network")
             from network import Network
@@ -186,10 +192,16 @@ for file_name, parquet_name in cfg["files"].items():
                     wandb.finish()
                 with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                     yaml.dump(architecture, file)
+
             else:
                 print("- Loading model")
-                networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-                networks[file_name].data_parameters = parameters[file_name]
+                if args.opt_model is not None:
+                    networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}_{args.opt_model}.h5")
+                    networks[file_name].data_parameters = parameters[file_name]
+
+                else:
+                    networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
+                    networks[file_name].data_parameters = parameters[file_name]
 
         if args.specific_file == "combined": continue
 
@@ -581,6 +593,7 @@ if args.step == "ValidateInference" and (args.specific_file == None or args.spec
                 print(f">> Created {filename}")
                 with open(filename, 'w') as yaml_file:
                     yaml.dump(scan_results, yaml_file, default_flow_style=False)
+                # Remove per point yaml files
                 # Remove per point yaml files
                 for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
                     os.system(f"rm {out_dir}/scan_results_{col}_{ind}_{point_ind}.yaml")

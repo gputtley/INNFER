@@ -1,6 +1,5 @@
 import argparse
 import copy
-import glob
 import os
 import sys
 from functools import partial
@@ -9,7 +8,7 @@ import numpy as np
 import wandb
 import yaml
 from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetYName, \
-    MakeYieldFunction
+    MakeYieldFunction, is_float
 from plotting import plot_likelihood, plot_stacked_histogram_with_ratio
 
 print("Running INNFER")
@@ -34,8 +33,9 @@ parser.add_argument('--sub-step', help='Sub-step to run for ValidateInference or
                     default="InitialFit", choices=["InitialFit", "Scan", "Collect", "Plot"])
 parser.add_argument('--lower-validation-stats', help='Lowers the validation stats, so code will run faster.', type=int,
                     default=None)
-# TODO implement this
+# Note default use of wandb for sweep is True
 parser.add_argument('--use-wandb', help='Use wandb for logging.', type=bool, default=True)
+
 args = parser.parse_args()
 
 if args.cfg is None and args.benchmark is None:
@@ -182,13 +182,15 @@ def main():
 
                 ### Train or load networks ###
                 if args.step == "Train":
+                    if not os.path.isdir(f"models/{cfg['name']}/architectures"): os.system(
+                        f"mkdir models/{cfg['name']}/architectures")
+
                     print("- Training model")
                     networks[file_name].BuildModel()
                     networks[file_name].disable_tqdm = args.disable_tqdm
                     networks[file_name].use_wandb = args.use_wandb
                     networks[file_name].BuildTrainer()
                     networks[file_name].Train()
-                    print("exited trainer")
 
                     val = run.summary["val_loss"]
 
@@ -197,21 +199,17 @@ def main():
                     for root, dirs, files in os.walk(f"models/{cfg['name']}/"):
                         if ".h5" not in root:
                             for file in files:
-                                if file.endswith(".h5"):
-                                    print(os.path.join(root, file))
-                                    print(file)
-                                    print(float(file[-8:-3]))
-                                    vals.append(float(file[-8:-3]))
-                    print(vals)
+                                if file.endswith(".h5") and file.startswith(f"{file_name}"):
+                                    if is_float(file[-10:-3]):
+                                        vals.append(float(file[-10:-3]))
                     if len(vals) < 1:
-                        min_val = 1
+                        min_val = 2
                     else:
                         min_val = min(vals)
-                        print(min_val, 'min')
 
                     if val < min_val:
-                        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{str(val)[0:5]}.h5")
-                        with open(f"models/{cfg['name']}/architectures/{file_name}_architecture_{str(val)[0:5]}.yaml",
+                        networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}_{str(val)[0:7]}.h5")
+                        with open(f"models/{cfg['name']}/architectures/{file_name}_architecture_{str(val)[0:7]}.yaml",
                                   'w') as file:
                             yaml.dump(sweep_architecture, file)
                     else:
@@ -219,8 +217,13 @@ def main():
 
                 else:
                     print("- Loading model")
-                    networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-                    networks[file_name].data_parameters = parameters[file_name]
+                    if args.opt_model is not None:
+                        networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}_{args.opt_model}.h5")
+                        networks[file_name].data_parameters = parameters[file_name]
+
+                    else:
+                        networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
+                        networks[file_name].data_parameters = parameters[file_name]
 
             if args.specific_file == "combined": continue
 
@@ -739,42 +742,6 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-sweep = wandb.agent(sweep_id, function=main, count=10)
-
-vals = []
-for root, dirs, files in os.walk(f"models/{cfg['name']}/"):
-    if ".h5" not in root:
-        for file in files:
-            if file.endswith(".h5"):
-                print(file)
-                print(float(file[-8:-3]))
-                vals.append(float(file[-8:-3]))
-
-min_val = min(vals)
-print(min_val, 'min')
-
-folder_path = f"models/{cfg['name']}/"
-folder_path_architecture = f"models/{cfg['name']}/architectures/"
-
-
-def delete_useless_files(folder_path, min_value, type):
-    if os.path.exists(folder_path) and os.path.isdir(folder_path):
-        # Verifies the existence of the directory
-
-        # Get all files in the directory
-        all_files = glob.glob(os.path.join(folder_path, '*'))
-        print(all_files)
-
-        # Iterate over the files and delete those that are not in files_to_keep
-        for clean_up in all_files:
-            print(clean_up)
-            if os.path.isfile(clean_up) and not clean_up.endswith(f'{min_value}.{type}'):
-                os.remove(clean_up)
-
-        print("Successfully cleaned")
-    else:
-        print(f"Directory '{folder_path}' does not exist.")
-
-
-delete_useless_files(folder_path, min_val, 'h5')
-delete_useless_files(folder_path_architecture, min_val, 'yaml')
+sweep = wandb.agent(sweep_id, function=main, count=2)
+benchmark.cfg = cfg
+benchmark.CleanFiles()

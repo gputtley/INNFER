@@ -1,6 +1,7 @@
 import copy
-import numpy as np
 from itertools import product
+
+import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 
@@ -342,10 +343,20 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
     def func(x):
       return interp(x)[0]
-    
+
   else:
-    
+
     def func(x):
       return parameters["yield"]["all"]
 
   return func
+
+
+def is_float(string):
+  # Checks if part of string is a float
+
+  try:
+    float(string)
+    return True
+  except ValueError:
+    return False

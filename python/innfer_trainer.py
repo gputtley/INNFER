@@ -116,7 +116,7 @@ class InnferTrainer(bf.trainers.Trainer):
             self._save_trainer(save_checkpoint)
             loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
             self.loss_history._total_train_loss.append(float(loss))
-            val_loss = self._validation(ep, X_test, Y_test, wt_test, use_wandb, **kwargs)
+            self._validation(ep, X_test, Y_test, wt_test, use_wandb, **kwargs)
 
             # Check early stopping, if specified
             if self._check_early_stopping(early_stopper):
