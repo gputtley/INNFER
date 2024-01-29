@@ -1,7 +1,7 @@
 import copy
-from itertools import product
-
 import numpy as np
+import pandas as pd
+from itertools import product
 from scipy.interpolate import RegularGridInterpolator
 
 
@@ -22,10 +22,11 @@ def GetValidateLoop(cfg, parameters_file):
   unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
   nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
   unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
-  initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
-  initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
+  initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi]) / len(parameters_file["unique_Y_values"][poi]) for
+                       poi in pois]
+  initial_best_fit_guess = np.array(initial_poi_guess + [0.0] * (len(nuisances)))
 
-  for poi_values in list(product(*unique_values_for_pois)): 
+  for poi_values in list(product(*unique_values_for_pois)):
     nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
     for ind, nuisance in enumerate(nuisances_loop):
       nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
@@ -33,14 +34,14 @@ def GetValidateLoop(cfg, parameters_file):
         other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
         nuisance_in_row = [] if nuisance is None else [nuisance]
         nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-        columns = pois+nuisance_in_row+other_nuisances
+        row = np.array(list(poi_values) + nuisance_value_in_row + [0] * len(other_nuisances))
+        columns = pois + nuisance_in_row + other_nuisances
         val_loop.append({
-          "row" : row,
-          "columns" : columns,
-          "initial_best_fit_guess" : initial_best_fit_guess,
+          "row": row,
+          "columns": columns,
+          "initial_best_fit_guess": initial_best_fit_guess,
         })
-        
+
   return val_loop
 
 
@@ -58,22 +59,23 @@ def GetPOILoop(cfg, parameters):
   poi_loop = []
 
   for poi in cfg["pois"]:
-    nuisance_freeze = {k:0 for k in cfg["nuisances"]}
+    nuisance_freeze = {k: 0 for k in cfg["nuisances"]}
     other_pois = [v for v in cfg["pois"] if v != poi and v in parameters["unique_Y_values"]]
     unique_values_for_other_pois = [parameters["unique_Y_values"][other_poi] for other_poi in other_pois]
     for other_poi_values in list(product(*unique_values_for_other_pois)):
       poi_freeze = {other_pois[ind]: val for ind, val in enumerate(other_poi_values)}
-      if len(poi_freeze.keys())>0:
-        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
+      if len(poi_freeze.keys()) > 0:
+        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.', 'p')}" for k, v in poi_freeze.items()])
       else:
         poi_freeze_name = ""
       poi_loop.append({
-        "poi" : poi, 
-        "freeze" : {**nuisance_freeze, **poi_freeze}, 
-        "extra_name" : poi_freeze_name
+        "poi": poi,
+        "freeze": {**nuisance_freeze, **poi_freeze},
+        "extra_name": poi_freeze_name
       })
 
   return poi_loop
+
 
 def GetNuisanceLoop(cfg, parameters):
   """
@@ -89,22 +91,23 @@ def GetNuisanceLoop(cfg, parameters):
   nuisance_loop = []
 
   for nuisance in cfg["nuisances"]:
-    nuisance_freeze={k:0 for k in cfg["nuisances"] if k != nuisance}
+    nuisance_freeze = {k: 0 for k in cfg["nuisances"] if k != nuisance}
     pois = [v for v in cfg["pois"] if v in parameters["unique_Y_values"]]
     unique_values_for_pois = [parameters["unique_Y_values"][poi] for poi in pois]
     for poi_values in list(product(*unique_values_for_pois)):
       poi_freeze = {pois[ind]: val for ind, val in enumerate(poi_values)}
-      if len(poi_freeze.keys())>0:
-        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
+      if len(poi_freeze.keys()) > 0:
+        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.', 'p')}" for k, v in poi_freeze.items()])
       else:
         poi_freeze_name = ""
       nuisance_loop.append({
-        "nuisance" : nuisance, 
-        "freeze" : {**nuisance_freeze, **poi_freeze}, 
-        "extra_name" : poi_freeze_name
+        "nuisance": nuisance,
+        "freeze": {**nuisance_freeze, **poi_freeze},
+        "extra_name": poi_freeze_name
       })
 
   return nuisance_loop
+
 
 def GetCombinedValidateLoop(cfg, parameters):
   """
@@ -128,8 +131,9 @@ def GetCombinedValidateLoop(cfg, parameters):
 
   if "rate_parameters" in cfg["inference"]:
     pois += [f"mu_{rp}" for rp in cfg["inference"]["rate_parameters"]]
-    unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in cfg["inference"]["rate_parameters"]]
-    initial_poi_guess += [1.0]*len(pois)
+    unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in
+                               cfg["inference"]["rate_parameters"]]
+    initial_poi_guess += [1.0] * len(pois)
 
   for poi in cfg["pois"]:
     pois.append(poi)
@@ -139,15 +143,15 @@ def GetCombinedValidateLoop(cfg, parameters):
       for val in parameters[file]["unique_Y_values"][poi]:
         if val not in unique_values_for_pois[-1]:
           unique_values_for_pois[-1].append(val)
-    initial_poi_guess.append(sum(unique_values_for_pois[-1])/len(unique_values_for_pois[-1]))
+    initial_poi_guess.append(sum(unique_values_for_pois[-1]) / len(unique_values_for_pois[-1]))
 
   for nuisance in cfg["nuisances"]:
     nuisances.append(nuisance)
     unique_values_for_nuisances.append([0.0])
 
-  initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))
+  initial_best_fit_guess = np.array(initial_poi_guess + [0] * (len(nuisances)))
 
-  for poi_values in list(product(*unique_values_for_pois)): 
+  for poi_values in list(product(*unique_values_for_pois)):
     nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
     for ind, nuisance in enumerate(nuisances_loop):
       nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
@@ -155,15 +159,16 @@ def GetCombinedValidateLoop(cfg, parameters):
         other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
         nuisance_in_row = [] if nuisance is None else [nuisance]
         nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-        columns = pois+nuisance_in_row+other_nuisances
+        row = np.array(list(poi_values) + nuisance_value_in_row + [0] * len(other_nuisances))
+        columns = pois + nuisance_in_row + other_nuisances
         val_loop.append({
-          "row" : list(row),
-          "columns" : list(columns),
-          "initial_best_fit_guess" : list(initial_best_fit_guess),
+          "row": list(row),
+          "columns": list(columns),
+          "initial_best_fit_guess": list(initial_best_fit_guess),
         })
 
   return val_loop
+
 
 def GetYName(ur, purpose="plot", round_to=2):
   """
@@ -178,26 +183,26 @@ def GetYName(ur, purpose="plot", round_to=2):
       str: Formatted label for the given unique row.
   """
   if len(ur) > 0:
-    label_list = [str(round(i,round_to)) for i in ur] 
-    if purpose in ["file","code"]:
-      name = "_".join([i.replace(".","p").replace("-","m") for i in label_list])
+    label_list = [str(round(float(i), round_to)) for i in ur]
+    if purpose in ["file", "code"]:
+      name = "_".join([i.replace(".", "p").replace("-", "m") for i in label_list])
     elif purpose == "plot":
       if len(label_list) > 1:
         name = "({})".format(",".join(label_list))
       else:
         name = label_list[0]
   else:
-    if purpose in ["file","plot"]:
+    if purpose in ["file", "plot"]:
       name = ""
     else:
       name = None
   return name
 
-def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
 
+def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
   # Find initial options
-  #entry_dict = {}
-  #for ind in range(len(parameters["Y_columns"])):
+  # entry_dict = {}
+  # for ind in range(len(parameters["Y_columns"])):
   #  entry_dict[parameters["Y_columns"][ind]] = sorted(list(set([float(k.split("_")[ind].replace("p",".").replace("m","-")) for k in parameters["yield"].keys()])))
 
   # Get name to add
@@ -208,11 +213,11 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
     elif col == nuisance:
       row_to_add.append(nuisance_val)
     elif col in nuisance_vars:
-      row_to_add.append(0.0)        
+      row_to_add.append(0.0)
   row_to_add_name = GetYName(row_to_add, purpose="file")
 
   # Skip if already in list
-  if row_to_add_name in parameters["yield"]: 
+  if row_to_add_name in parameters["yield"]:
     return return_dict
 
   # Figure out which dimension to vary
@@ -232,7 +237,7 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
   row_2_for_line = copy.deepcopy(row_to_add)
   row_2_for_line[missing_col_ind] = x2
 
-  #print(row_1_for_line, row_2_for_line, row_to_add)
+  # print(row_1_for_line, row_2_for_line, row_to_add)
 
   # Get straight line
   y1 = parameters["yield"][GetYName(row_1_for_line, purpose="file")]
@@ -241,13 +246,13 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
   c = y2 - (m * x2)
   y = (m * row_to_add[missing_col_ind]) + c
   return_dict[row_to_add_name] = y
-  
-  #print(row_1_for_line, row_2_for_line, row_to_add, y1, y2, y)
+
+  # print(row_1_for_line, row_2_for_line, row_to_add, y1, y2, y)
 
   return return_dict
 
-def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
+def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
   parameters = copy.deepcopy(parameters)
 
   if not "all" in parameters["yield"].keys():
@@ -255,7 +260,8 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
     # Find initial options
     orig_dict = {}
     for ind in range(len(parameters["Y_columns"])):
-      orig_dict[parameters["Y_columns"][ind]] = sorted(list(set([float(k.split("_")[ind].replace("p",".").replace("m","-")) for k in parameters["yield"].keys()])))
+      orig_dict[parameters["Y_columns"][ind]] = sorted(
+        list(set([float(k.split("_")[ind].replace("p", ".").replace("m", "-")) for k in parameters["yield"].keys()])))
 
     # Extend range
     val_dict = copy.deepcopy(orig_dict)
@@ -266,7 +272,7 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
     if add_overflow > 0.0:
       for k, v in val_dict.items():
         col_range = max(v) - min(v)
-        add_dict[k] = [min(v) - (add_overflow*col_range), max(v) + (add_overflow*col_range)]
+        add_dict[k] = [min(v) - (add_overflow * col_range), max(v) + (add_overflow * col_range)]
         val_dict[k] = sorted(v + add_dict[k])
       unique_pois = [val_dict[poi] for poi in poi_vars if poi in val_dict.keys()]
       mesh_pois = list(product(*unique_pois))
@@ -276,7 +282,8 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
           if nuisance not in orig_dict.keys(): continue
           # Do inside the nuisance range
           for nuisance_val in orig_dict[nuisance]:
-            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, parameters["yield"], orig_dict)
+            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val,
+                                                    parameters["yield"], orig_dict)
 
       for k, v in add_dict.items():
         if k in poi_vars:
@@ -287,16 +294,17 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
           if nuisance not in add_dict.keys(): continue
           # Do outside the nuisance range
           for nuisance_val in add_dict[nuisance]:
-            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, parameters["yield"], orig_dict)
+            parameters["yield"] = GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val,
+                                                    parameters["yield"], orig_dict)
 
     # Get unique values and mesh
     unique_points = val_dict.values()
-    mesh = [np.array(i).flatten() for i in np.meshgrid(*unique_points,indexing="ij")]
+    mesh = [np.array(i).flatten() for i in np.meshgrid(*unique_points, indexing="ij")]
 
-    #for k, v in parameters["yield"].items():
+    # for k, v in parameters["yield"].items():
     #  print(k,v)
-    #print(unique_points)
-    #exit()
+    # print(unique_points)
+    # exit()
 
     # Get values
     data = []
@@ -330,11 +338,11 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
               zero_individual_nuisance_row.append(mesh[col_ind][ind])
             else:
               zero_individual_nuisance_row.append(0.0)
-          zero_individual_nuisance_row_name = GetYName(zero_individual_nuisance_row, purpose="file")   
-          zero_individual_nuisance_vals.append(parameters["yield"][zero_individual_nuisance_row_name])       
+          zero_individual_nuisance_row_name = GetYName(zero_individual_nuisance_row, purpose="file")
+          zero_individual_nuisance_vals.append(parameters["yield"][zero_individual_nuisance_row_name])
 
-        sum_diff = sum([v-zero_nuisance_val for v in zero_individual_nuisance_vals])
-        data.append(zero_nuisance_val+sum_diff)
+        sum_diff = sum([v - zero_nuisance_val for v in zero_individual_nuisance_vals])
+        data.append(zero_nuisance_val + sum_diff)
 
     data_array_shape = tuple(len(uv) for uv in unique_points)
     data = np.array(data).reshape(data_array_shape)
@@ -350,6 +358,48 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
       return parameters["yield"]["all"]
 
   return func
+
+
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=100):
+  if wt is None:
+    wt = np.ones(len(X_dataframe))
+
+  X_column = X_dataframe.loc[:, data_parameters["X_columns"][column]]
+
+  if isinstance(bins, int):
+    # Change to weighted version in future
+    _, bins_ed = pd.qcut(X_column, q=bins, labels=False, retbins=True)
+  else:
+    bins_ed = copy.deepcopy(bins)
+  bins_ed[0] = -np.inf
+  bins_ed[-1] = np.inf
+
+  hists = []
+  rows = []
+  unique_rows = Y_dataframe.drop_duplicates()
+  for _, ur in unique_rows.iterrows():
+    rows.append(GetYName(ur, purpose="file"))
+    matching_rows = (Y_dataframe == ur).all(axis=1)
+    X_mr = X_column[matching_rows]
+    wt_mr = wt.to_numpy().flatten()[matching_rows]
+    hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+    hist = hist.astype(np.float128)
+    sum_hist = float(np.sum(hist, dtype=np.float128))
+    hist *= data_parameters["yield"][GetYName(ur, purpose="file")] / sum_hist
+    # print(ur)
+    # for i in hist:
+    #  print(i)
+    hists.append(hist)
+
+  yields = []
+  for b in range(len(hists[0])):
+    tmp_parameters = {
+      "Y_columns": data_parameters["Y_columns"],
+      "yield": {rows[ind]: hists[ind][b] for ind in range(len(rows))},
+    }
+    yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
+
+  return yields, bins_ed
 
 
 def is_float(string):

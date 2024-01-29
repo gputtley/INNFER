@@ -48,7 +48,7 @@ This runs simple example of inferring the top mass from a mass resolution like v
 python3 scripts/innfer.py --step="PreProcess" --benchmark="Gaussian"
 ```
 ```
-python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="configs/architecture/default.yaml"
+python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="configs/architecture/simple.yaml"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="Gaussian"
@@ -104,7 +104,9 @@ data_file:
   - data/susy_95_plus_bkg_sample.parquet
 ```
 
-From this, the INNFER workflow can then be run with the same commands as in the benchmark case but replacing `--benchark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with the same commands as for ValidateInference but with `--step="Infer"`.
+From this, the INNFER workflow can then be run with the same commands as in the benchmark case but
+replacing `--benchmark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with
+the same commands as for ValidateInference but with `--step="Infer"`.
 
 ## Structure of Code
 
