@@ -9,8 +9,12 @@ git clone https://github.com/gputtley/INNFER.git
 
 Then to set up the conda environment for running this repository run this command. You will need to click `enter` and `yes` through all prompts. For the conda installation license hit `q` to go the end of the file and then you can fit `enter`. 
 ```
-source setup.sh
+source setup.sh conda
 ```
+```
+source setup.sh packages
+```
+
 ## Setup Environment
 
 At the beginning of every session you will need to run the following command to setup the environment.

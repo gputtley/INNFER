@@ -53,6 +53,7 @@ class Batch():
     Run the batch job using the SGE (Sun Grid Engine) submission system.
     """
     self._CreateBatchJob(self.cmds)
+
     if self.store_output:
       output_log = self.job_name.replace('.sh','_output.log')
       if os.path.exists(output_log): os.system(f'rm {output_log}')
@@ -63,6 +64,7 @@ class Batch():
       if os.path.exists(error_log): os.system(f'rm {error_log}')
     else:
       error_log = "/dev/null"
+
     if not self.dry_run:
       if self.sge_queue != "gpu.q":
         if self.cores>1:
