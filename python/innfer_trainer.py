@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 import wandb
 from bayesflow.helper_classes import EarlyStopper
-from bayesflow.helper_functions import backprop_step, extract_current_lr, loss_to_string, format_loss_string
+from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
 from tqdm.autonotebook import tqdm
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
@@ -31,11 +31,11 @@ class InnferTrainer(bf.trainers.Trainer):
             batch_size,
             save_checkpoint=True,
             optimizer=None,
-            use_wandb=True,
             reuse_optimizer=False,
             early_stopping=False,
             use_autograph=True,
             disable_tqdm=False,
+            use_wandb=True,
             fix_1d_spline=False,
             **kwargs,
     ):
@@ -53,11 +53,11 @@ class InnferTrainer(bf.trainers.Trainer):
            batch_size (int): Batch size for training.
            save_checkpoint (bool): Flag to save checkpoints during training.
            optimizer (tf.keras.optimizers.Optimizer): Optimizer for training.
-           use_wandb (bool): Flag to disable use of live logger.
            reuse_optimizer (bool): Flag to reuse optimizer.
            early_stopping (bool): Flag to enable early stopping.
            use_autograph (bool): Flag to use Autograph for faster execution.
            disable_tqdm (bool): Flag to disable tqdm progress bar.
+           use_wandb (bool): Flag to disable use of live logger.
            fix_1d_spline (bool): Flag to fix 1D spline if conditions are met.
            **kwargs: Additional keyword arguments.
 
@@ -71,6 +71,7 @@ class InnferTrainer(bf.trainers.Trainer):
             _backprop_step = tf.function(backprop_step, reduce_retracing=True)
         else:
             _backprop_step = backprop_step
+
         self._setup_optimizer(optimizer, epochs, X_train.num_batches)
         self.loss_history.start_new_run()
         self.loss_history._total_train_loss = []
@@ -84,7 +85,7 @@ class InnferTrainer(bf.trainers.Trainer):
 
         # Loop through epochs
         for ep in range(1, epochs + 1):
-            with tqdm(total=X_train.num_batches, desc=f"Training epoch {ep}", disable=disable_tqdm) as p_bar:
+            with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
                 # Loop through dataset
                 for bi in range(1, X_train.num_batches + 1):
                     # Perform one training step and obtain current loss value
@@ -93,17 +94,10 @@ class InnferTrainer(bf.trainers.Trainer):
                     self.loss_history.add_entry(ep, loss)
                     avg_dict = self.loss_history.get_running_losses(ep)
                     lr = extract_current_lr(self.optimizer)
-                    if isinstance(lr, np.ndarray):
-                        lr_str = lr[0]
-                        disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr_str, it_str="Batch")
-                        print(disp_str)
-                        p_bar.set_postfix_str(disp_str)
-                    elif isinstance(lr, float):
-                        lr_str = lr
-                        disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr_str, it_str="Batch")
-                        print(disp_str)
-                        p_bar.set_postfix_str(disp_str)
+                    disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
+                    p_bar.set_postfix_str(disp_str)
                     p_bar.update(1)
+
             if use_wandb:
                 metrics = {
                     "train/train_loss": loss,
@@ -126,7 +120,6 @@ class InnferTrainer(bf.trainers.Trainer):
         if not reuse_optimizer:
             self.optimizer = None
 
-        print("finished loop")
         return self.loss_history.get_plottable()
 
     def _get_epoch_loss(self, X, Y, wt, batch_size=1000000, **kwargs):
@@ -168,6 +161,7 @@ class InnferTrainer(bf.trainers.Trainer):
            X_test (DataLoader): DataLoader for test features.
            Y_test (DataLoader): DataLoader for test target variables.
            wt_test (DataLoader): DataLoader for test weights.
+           use_wandb (bool): Flag to enable live logger.
            **kwargs: Additional keyword arguments.
         """
         val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, **kwargs)
@@ -180,8 +174,6 @@ class InnferTrainer(bf.trainers.Trainer):
             metrics = {"val_loss": val_loss}
             wandb.log(metrics)
             wandb.run.summary["val_loss"] = val_loss
-
-        return val_loss
 
     def _config_early_stopping(self, early_stopping, **kwargs):
         """
