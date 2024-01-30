@@ -742,6 +742,7 @@ def main():
 
 print("--Starting Agent")
 print(sweep_id)
-sweep = wandb.agent(sweep_id, function=main, count=2)
+sweep = wandb.agent(sweep_id, function=main, count=10)
+
 benchmark.cfg = cfg
 benchmark.CleanFiles()
