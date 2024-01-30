@@ -81,7 +81,6 @@ class Benchmarks():
 
         def return_pdf(X, Y):
             return self.PDF(X, Y, file_name)
-
         return return_pdf
 
     def PDF(self, X, Y, file_name):
@@ -111,12 +110,10 @@ class Benchmarks():
             std_dev = self.model_parameters[self.name]["signal_resolution"] * Y[0]
             mean = Y[0]
             sig_pdf = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(X[0] - mean) ** 2 / (2 * std_dev ** 2))
-
             def BkgPDFUnNorm(x):
                 return self.model_parameters[self.name]["background_lambda"] * np.exp(
                     -self.model_parameters[self.name]["background_lambda"] * (
                             x - self.model_parameters[self.name]["background_constant"]))
-
             if "background_normalisation" not in self.saved_parameters:
                 int_space = np.linspace(self.model_parameters[self.name]["background_ranges"][0],
                                         self.model_parameters[self.name]["background_ranges"][1], num=100)

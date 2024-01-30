@@ -75,7 +75,6 @@ def plot_histograms(
     print("Created {}.pdf".format(name))
     plt.close()
 
-
 def plot_histogram_with_ratio(
         hist_values1,
         hist_values2,
@@ -193,7 +192,6 @@ def plot_histogram_with_ratio(
     plt.savefig(name + ".pdf")
     plt.close()
 
-
 def plot_likelihood(
         x,
         y,
@@ -279,7 +277,6 @@ def plot_likelihood(
     plt.savefig("{}.pdf".format(name))
     plt.close()
 
-
 def plot_2d_likelihood(
         x,
         y,
@@ -342,7 +339,6 @@ def plot_2d_likelihood(
     print("Created " + name + ".pdf")
     plt.savefig("{}.pdf".format(name))
     plt.close()
-
 
 def plot_stacked_histogram_with_ratio(
         data_hist,
@@ -707,7 +703,6 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     print("Created " + name + ".pdf")
     plt.savefig(name + ".pdf", bbox_inches='tight')
     plt.close()
-
 
 def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix", title_right=""):
     fig, ax = plt.subplots()
