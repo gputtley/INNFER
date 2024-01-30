@@ -11,7 +11,7 @@ from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
 from plotting import plot_histograms
 from scipy import integrate
-from other_functions import GetYName
+from other_functions import GetYName, MakeDirectories
 
 class Network():
   """
@@ -159,6 +159,7 @@ class Network():
     Args:
         name (str): Name of the file to save the model weights.
     """
+    MakeDirectories(name)
     self.inference_net.save_weights(name)
 
   def Load(self, name="model.h5"):

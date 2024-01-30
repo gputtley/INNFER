@@ -7,6 +7,8 @@ import mplhep as hep
 import seaborn as sns
 import pandas as pd
 import copy
+import textwrap
+from other_functions import MakeDirectories
 
 hep.style.use("CMS")
    
@@ -67,6 +69,7 @@ def plot_histograms(
   if not all(item is None for item in hist_names):
     plt.legend()
   plt.tight_layout()
+  MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   print("Created {}.pdf".format(name))
   plt.close()
@@ -181,6 +184,7 @@ def plot_histogram_with_ratio(
 
   # Show the plot
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
 
@@ -266,6 +270,7 @@ def plot_likelihood(
   plt.xlabel(xlabel)
   plt.ylabel(r'$-2\Delta \ln L$')
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig("{}.pdf".format(name))
   plt.close()
 
@@ -330,6 +335,7 @@ def plot_2d_likelihood(
   plt.xlabel(xlabel)
   plt.ylabel(ylabel)
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig("{}.pdf".format(name))
   plt.close()
 
@@ -424,10 +430,18 @@ def plot_stacked_histogram_with_ratio(
   handles = handles[::-1]
   labels = labels[::-1]
 
-  # Create the reversed legend
-  ax1.legend(handles, labels, loc='upper right')
+  legend = ax1.legend(handles, labels, loc='upper right', fontsize=18, bbox_to_anchor=(0.9, 0.88), bbox_transform=plt.gcf().transFigure, frameon=True, framealpha=1, facecolor='white', edgecolor="white")
 
-  #ax1.legend()
+  # Set legend width and wrap text manually
+  legend.get_frame().set_linewidth(0)  # Remove legend box border
+  legend.get_frame().set_facecolor('none')  # Make legend background transparent
+  legend.get_frame().set_edgecolor('none')  # Make legend edge transparent
+
+  max_label_length = 15  # Adjust the maximum length of each legend label
+  for text in legend.get_texts():
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+
   ax1.set_ylabel(ylabel)
   hep.cms.text("Work in progress",ax=ax1)
 
@@ -464,6 +478,7 @@ def plot_stacked_histogram_with_ratio(
 
   # Show the plot
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
 
@@ -634,8 +649,11 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   labels = labels[::-1]
 
   # Create the reversed legend
-  #ax1.legend(handles, labels, loc='upper right', bbox_to_anchor=(1, 1), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
-  ax1.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+  legend = ax1.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+
+  max_label_length = 15  # Adjust the maximum length of each legend label
+  for text in legend.get_texts():
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
   #ax1.legend()
   ax1.set_ylabel(ylabel)
@@ -681,6 +699,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
 
   # Show the plot
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf", bbox_inches='tight')
   plt.close()
 
@@ -700,5 +719,6 @@ def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix
   plt.yticks(fontsize=10)
 
   print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
