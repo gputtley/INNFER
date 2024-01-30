@@ -6,6 +6,7 @@ import bayesflow as bf
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import gc
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
@@ -30,7 +31,6 @@ class Network():
             X_test (str): Path to the test data for features.
             Y_test (str): Path to the test data for target variables.
             wt_test (str): Path to the test data for weights.
-            use_wandb (bool): Flag to disable use of live logger in training.
             options (dict): Additional options for customization.
         """
         # Model parameters
@@ -124,7 +124,7 @@ class Network():
         self.inference_net = bf.networks.InvertibleNetwork(
             num_params=latent_dim,
             num_coupling_layers=self.num_coupling_layers,
-            permutation="learnable",  # TODO fix this properly rather than hardcoding
+            permutation=self.permutation,
             coupling_design=self.coupling_design,
             coupling_settings=settings
         )
@@ -243,7 +243,7 @@ class Network():
         return synth
 
     def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False,
-                    run_normalise=True):
+                    run_normalise=True, elements_per_batch=10 ** 6):
         """
         Calculate probabilities for given data.
 
@@ -279,6 +279,8 @@ class Network():
                 "parameters": X.astype(np.float32),
                 "direct_conditions": Y.astype(np.float32),
             }
+            del X, Y
+            gc.collect()
 
             if self.fix_1d_spline:
                 data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
@@ -286,7 +288,19 @@ class Network():
             # Get probabilities
             tf.random.set_seed(seed)
             tf.keras.utils.set_random_seed(seed)
-            log_prob = self.amortizer.log_posterior(data)
+
+            # Get the probability in batches so not to encounter memory problems
+            log_prob = np.array([])
+            # batch_size = int(elements_per_batch/(data["parameters"].shape[1] + data["direct_conditions"].shape[1]))
+            batch_size = int(elements_per_batch)
+            n_batches = int(np.ceil(len(data["parameters"]) / batch_size))
+            for i in range(n_batches):
+                batch_data = {}
+                for k, v in data.items():
+                    batch_data[k] = v[i * batch_size:min((i + 1) * batch_size, len(data["parameters"]))]
+                log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
+            # log_prob = self.amortizer.log_posterior(data)
+
             log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
             if self.fix_1d_spline and run_normalise:
@@ -360,7 +374,7 @@ class Network():
 
             probs = self.Probability(unique_values, Y, change_zero_prob=False, run_normalise=False)
             bin_volumes = np.prod(np.diff(edges)[:, 0], axis=None)
-            integral = np.sum(probs) * bin_volumes
+            integral = np.sum(probs, dtype=np.float128) * bin_volumes
 
         elif method == "scipy":
 
