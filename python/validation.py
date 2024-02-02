@@ -1,5 +1,6 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
+from data_loader import DataLoader
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
 from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
@@ -23,6 +24,7 @@ class Validation():
 
     # Set up information
     self.model = model
+    self.infer = None
     self.data_parameters = {}
     self.pois = []
     self.nuisances = []
@@ -67,62 +69,74 @@ class Validation():
         X (numpy.ndarray): Extracted data.
         wt (numpy.ndarray): Extracted weights.
     """
-    first_loop = True
-    for key, val in self.data_parameters.items():
 
-      # Set up preprocess code to load the data in
-      pp = PreProcess()
-      pp.parameters = val
-      pp.output_dir = val["file_location"]
+    # Do inference on data
+    if self.infer is not None:
+        
+        dl = DataLoader(self.infer)
+        data = dl.LoadFullDataset()
+        total_X = data.loc[:,self.X_columns].to_numpy()
+        total_wt = data.loc[:,"wt"].to_numpy().reshape(-1,1)
 
-      # Load and reformat data
-      X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt)
-      if columns is None:
-        columns = val["Y_columns"]
-      X = X.to_numpy()
-      Y = Y.to_numpy()
-      wt = wt.to_numpy()
+    # Do inference on simulated data
+    else:
 
-      # Choose the matching Y rows
-      sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
-      if Y.shape[1] > 0:
-        matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
-        X = X[matching_rows]
-        wt = wt[matching_rows]
+      first_loop = True
+      for key, val in self.data_parameters.items():
 
-      # Scale weights to the correct yield
-      if "yield" in val.keys():
-        if "all" in val["yield"].keys():
-          sum_wt = val["yield"]["all"]
+        # Set up preprocess code to load the data in
+        pp = PreProcess()
+        pp.parameters = val
+        pp.output_dir = val["file_location"]
+
+        # Load and reformat data
+        X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt)
+        if columns is None:
+          columns = val["Y_columns"]
+        X = X.to_numpy()
+        Y = Y.to_numpy()
+        wt = wt.to_numpy()
+
+        # Choose the matching Y rows
+        sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
+        if Y.shape[1] > 0:
+          matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
+          X = X[matching_rows]
+          wt = wt[matching_rows]
+
+        # Scale weights to the correct yield
+        if "yield" in val.keys():
+          if "all" in val["yield"].keys():
+            sum_wt = val["yield"]["all"]
+          else:
+            sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
+          old_sum_wt = np.sum(wt, dtype=np.float128)
+          wt *= sum_wt/old_sum_wt
+      
+        # Scale wt by the rate parameter value
+        if "mu_"+key in columns:
+          rp = row[columns.index("mu_"+key)]
+          if rp == 0.0: continue
+          wt *= rp
+
+        # Concatenate datasets
+        if first_loop:
+          first_loop = False
+          total_X = copy.deepcopy(X)
+          total_wt = copy.deepcopy(wt)
         else:
-          sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
-        old_sum_wt = np.sum(wt, dtype=np.float128)
-        wt *= sum_wt/old_sum_wt
-    
-      # Scale wt by the rate parameter value
-      if "mu_"+key in columns:
-        rp = row[columns.index("mu_"+key)]
-        if rp == 0.0: continue
-        wt *= rp
+          total_X = np.vstack((total_X, X))
+          total_wt = np.vstack((total_wt, wt))
 
-      # Concatenate datasets
-      if first_loop:
-        first_loop = False
-        total_X = copy.deepcopy(X)
-        total_wt = copy.deepcopy(wt)
-      else:
-        total_X = np.vstack((total_X, X))
-        total_wt = np.vstack((total_wt, wt))
-
-    # Lower validation stats
-    if self.lower_validation_stats is not None:
-      if len(total_X) > self.lower_validation_stats:
-        random_indices = np.random.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
-        total_X = total_X[random_indices,:]
-        sum_wt = np.sum(total_wt)
-        total_wt = total_wt[random_indices,:]
-        new_sum_wt = np.sum(wt)
-        total_wt *= sum_wt/new_sum_wt
+      # Lower validation stats
+      if self.lower_validation_stats is not None:
+        if len(total_X) > self.lower_validation_stats:
+          random_indices = np.random.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
+          total_X = total_X[random_indices,:]
+          sum_wt = np.sum(total_wt)
+          total_wt = total_wt[random_indices,:]
+          new_sum_wt = np.sum(wt)
+          total_wt *= sum_wt/new_sum_wt
 
     return total_X, total_wt
 
@@ -271,6 +285,8 @@ class Validation():
         ind (int): Index for file naming (default is 0).
     """
     X, wt = self._GetXAndWts(row, columns=columns)
+    print(X)
+    print(wt)
     #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     #for i in loop:
     #  print(np.array([i]), len(X), float(np.sum(wt)))

@@ -1,6 +1,7 @@
 import logging
 import warnings
 import copy
+import wandb
 import numpy as np
 import bayesflow as bf
 import tensorflow as tf
@@ -31,6 +32,7 @@ class InnferTrainer(bf.trainers.Trainer):
       use_autograph=True,
       disable_tqdm=False,
       fix_1d_spline=False,
+      use_wandb = False,
       **kwargs,
    ):
       """
@@ -73,6 +75,15 @@ class InnferTrainer(bf.trainers.Trainer):
       val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, **kwargs)
       self.loss_history.add_val_entry(0, val_loss)
 
+      if use_wandb:
+         metrics = {
+            "train_loss": loss,
+            "val_loss": val_loss,
+            "epoch": 0,
+            "lr": self._convert_lr(extract_current_lr(self.optimizer)),
+         }
+         wandb.log(metrics)
+
       # Create early stopper, if conditions met, otherwise None returned
       early_stopper = self._config_early_stopping(early_stopping, **kwargs)
 
@@ -86,17 +97,25 @@ class InnferTrainer(bf.trainers.Trainer):
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
                self.loss_history.add_entry(ep, loss)
                avg_dict = self.loss_history.get_running_losses(ep)
-               lr = extract_current_lr(self.optimizer)
+               lr = self._convert_lr(extract_current_lr(self.optimizer))
                disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
-
          
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
          loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
          self.loss_history._total_train_loss.append(float(loss))
-         self._validation(ep, X_test, Y_test, wt_test, **kwargs)
+         val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
+
+         if use_wandb:
+            metrics = {
+               "train_loss": loss,
+               "val_loss": val_loss,
+               "epoch": ep,
+               "lr": lr,
+            }
+            wandb.log(metrics)
 
          # Check early stopping, if specified
          if self._check_early_stopping(early_stopper):
@@ -154,6 +173,7 @@ class InnferTrainer(bf.trainers.Trainer):
       val_loss_str = loss_to_string(ep, val_loss)
       logger = logging.getLogger()
       logger.info(val_loss_str)
+      return val_loss
 
    def _config_early_stopping(self, early_stopping, **kwargs):
       """
@@ -197,3 +217,6 @@ class InnferTrainer(bf.trainers.Trainer):
       Y_data = Y_data[resampled_indices]
       return {"parameters" : X_data, "direct_conditions" : Y_data}
       #return {"parameters" : X_data}
+   
+   def _convert_lr(self, lr):
+      return lr if not isinstance(lr, np.ndarray) else lr[0]

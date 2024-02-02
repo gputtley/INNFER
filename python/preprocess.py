@@ -59,6 +59,7 @@ class PreProcess():
     print(">> Loading full dataset.")
     dl = DataLoader(self.parquet_file_name)
     full_dataset = dl.LoadFullDataset()
+    print(full_dataset.columns)
 
     # Get X and Y column names
     print(">> Getting columns from dataset.")
@@ -107,6 +108,8 @@ class PreProcess():
     test_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[1])
     val_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[2])
 
+    print(len(train_df), len(test_df), len(val_df))
+
     # Remove some Y combinations from train, test and val datasets
     print(">> Removing some Y combinations.")
     for k, v in self.train_test_y_vals.items():
@@ -147,6 +150,7 @@ class PreProcess():
 
     # Remove outliers
     print(">> Removing outliers.")
+    # THIS IS NOT THE CORRECT THING TO DO!
     for k in X_train_df.columns:
       self.cut_values[k] = [np.quantile(X_train_df.loc[:,k], self.remove_quantile), np.quantile(X_train_df.loc[:,k], 1-self.remove_quantile)]
       select_indices = ((X_train_df.loc[:,k]>=self.cut_values[k][0]) & (X_train_df.loc[:,k]<=self.cut_values[k][1]))
@@ -211,6 +215,8 @@ class PreProcess():
     Returns:
         pd.Series: The standardised column.
     """
+    #print(column_name)
+    #print((column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"])
     return (column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"]
   
   def UnStandardise(self, column, column_name):

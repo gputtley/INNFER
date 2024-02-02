@@ -44,7 +44,7 @@ class Network():
     self.epochs = 15
     self.batch_size = 2**6
     self.learning_rate = 1e-3, 
-    self.permutation = "learnable",
+    self.permutation = "learnable"
     self.optimizer_name = "Adam" 
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {
@@ -77,6 +77,7 @@ class Network():
     # Other
     self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["spline","interleaved"])
     self.disable_tqdm = False
+    self.use_wandb = False
     self.probability_store = {}
 
   def _SetOptions(self, options):
@@ -136,7 +137,12 @@ class Network():
       out_dict["parameters"] = forward_dict["prior_draws"]
       return out_dict
 
-    self.trainer = InnferTrainer(amortizer=self.amortizer, configurator=config, default_lr=self.learning_rate, memory=False)
+    self.trainer = InnferTrainer(
+      amortizer=self.amortizer, 
+      configurator=config, 
+      default_lr=self.learning_rate, 
+      memory=False,
+    )
 
     if self.lr_scheduler_name == "ExponentialDecay":
       self.lr_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -192,6 +198,7 @@ class Network():
       optimizer=self.optimizer,
       fix_1d_spline=self.fix_1d_spline,
       disable_tqdm=self.disable_tqdm,
+      use_wandb=self.use_wandb
     )
 
     if self.plot_loss:
