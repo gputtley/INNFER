@@ -43,7 +43,7 @@ class Network():
     self.early_stopping = True
     self.epochs = 15
     self.batch_size = 2**6
-    self.learning_rate = 1e-3, 
+    self.learning_rate = 1e-3
     self.permutation = "learnable"
     self.optimizer_name = "Adam" 
     self.lr_scheduler_name = "ExponentialDecay"
