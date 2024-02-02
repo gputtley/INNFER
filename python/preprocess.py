@@ -1,22 +1,25 @@
-import gc
-import yaml
 import copy
-import pyarrow as pa
-import pyarrow.parquet as pq
+import gc
+
 import numpy as np
 import pandas as pd
-from data_loader import DataLoader
-from plotting import plot_histograms
+import pyarrow as pa
+import pyarrow.parquet as pq
+import yaml
 from sklearn.model_selection import train_test_split
-from other_functions import GetYName
 
+from data_loader import DataLoader
+from other_functions import GetYName
+from plotting import plot_histograms
 
 pd.options.mode.chained_assignment = None
+
 
 class PreProcess():
   """
   PreProcess class for preprocessing data prior to be used for training.
   """
+
   def __init__(self, parquet_file_name=None, X_columns=None, Y_columns=None, options={}):
     """
     Initialize the PreProcess instance.
@@ -87,9 +90,9 @@ class PreProcess():
       for _, ur in unique_rows.iterrows():
         matching_rows = (full_dataset.loc[:,Y_columns] == ur).all(axis=1)
         name = GetYName(ur, purpose="file")
-        self.parameters["yield"][name] = float(np.sum(full_dataset.loc[:,"wt"][matching_rows], dtype=np.float128))
+        self.parameters["yield"][name] = float(np.sum(full_dataset.loc[:, "wt"][matching_rows]))  # dtype=np.float128))
     else:
-      self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:,"wt"], dtype=np.float128))
+      self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:, "wt"]))  # dtype=np.float128))
 
     # Train test split
     print(">> Train/Test/Val splitting the data.")

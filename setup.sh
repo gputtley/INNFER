@@ -5,7 +5,7 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   mkdir miniconda
   pushd miniconda
   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86\_64.sh
-  chmod +x Miniconda3-latest-Linux-x86\_64.sh 
+  chmod +x Miniconda3-latest-Linux-x86\_64.sh
   ./Miniconda3-latest-Linux-x86\_64.sh -b -p ./files
   source files/etc/profile.d/conda.sh
   conda update conda
