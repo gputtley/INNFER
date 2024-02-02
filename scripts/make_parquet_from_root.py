@@ -5,254 +5,27 @@ import re
 import copy
 import pyarrow as pa
 import pyarrow.parquet as pq
+import argparse
+import subprocess
+import ast
+import yaml
 
-defaults = {
-  "Tree_Name" : "AnalysisTree",
-  #"Selection" : "passed_measurement_rec",
-  "Selection" : None,
-  "Weight" : "gen_weight*rec_weight",
-  "Columns" : [
-    "sub1_E_rec",
-    "sub1_px_rec",
-    "sub1_py_rec",
-    "sub1_pz_rec",
-    "sub2_E_rec",
-    "sub2_px_rec",
-    "sub2_py_rec",
-    "sub2_pz_rec",  
-    "sub3_E_rec",
-    "sub3_px_rec",
-    "sub3_py_rec",
-    "sub3_pz_rec",        
-  ],
-  "Scale" : 1.0,
-  "Weight_Shifts" : {},
-  "Tree_Shifts" : {},
-}
+parser = argparse.ArgumentParser()
+parser.add_argument('-c','--cfg', help= 'Config for running.',  default=None)
+parser.add_argument('--remove-negative-weights', help= 'Remove entries with negative weights.',  action='store_true')
+parser.add_argument('--remove-nans', help= 'Remove nan entries.',  action='store_true')
+args = parser.parse_args()
 
-input = {
-  "data/topmass_ttbar_mass_v2.parquet" : { 
-    "data/top_mc/ttbar_1665_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1665_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1665_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1695_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1695_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1695_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1715_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1715_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1715_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 1.0, "era" : 2018}
-    },   
-    "data/top_mc/ttbar_1735_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1735_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1735_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1755_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1755_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1755_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1785_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1785_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1785_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1665_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1665_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1665_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1695_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1695_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1695_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 169.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1715_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1715_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1715_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 171.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 172.5, "e_or_mu" : 0.0, "era" : 2018}
-    },   
-    "data/top_mc/ttbar_1735_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1735_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1735_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 173.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1755_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1755_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1755_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 175.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/ttbar_1785_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/ttbar_1785_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/ttbar_1785_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 0.0, "era" : 2018}
-    },
-  },
-  "data/topmass_other_mass_v2.parquet" : {
-    "data/top_mc/st_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/st_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/st_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/wjets_2016_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2016}
-    },
-    "data/top_mc/wjets_2017_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2017}
-    },
-    "data/top_mc/wjets_2018_muon.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2018}
-    },
-    "data/top_mc/st_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/st_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/st_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2018}
-    },
-    "data/top_mc/wjets_2016_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2016}
-    },
-    "data/top_mc/wjets_2017_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2017}
-    },
-    "data/top_mc/wjets_2018_elec.root" : {
-      **defaults,
-      "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2018}
-    },
-  }
-}
+if args.cfg is None:
+  raise ValueError("The --cfg or --benchmark is required.")
 
+if ".py" in args.cfg:
+  input = ast.literal_eval(subprocess.getoutput(f"echo $(python3 {args.cfg})"))
+elif ".yaml" in args.cfg:
+  with open(args.cfg, 'r') as yaml_file:
+    input = yaml.load(yaml_file, Loader=yaml.FullLoader)
+else:
+  raise ValueError("The --cfg must be a .py or a .yaml file.")
 
 for output_file, input_files in input.items():
 
@@ -286,40 +59,18 @@ for output_file, input_files in input.items():
     else:
       total_df = pd.concat([total_df, df], ignore_index=True)
 
+  for new_col, expression in parameters["Calculate_Extra_Columns"].items():
+    total_df[new_col] = total_df.eval(expression)
 
-  total_df = total_df[total_df.loc[:,"wt"] > 0] # tmp
+  if args.remove_negative_weights:
+    total_df = total_df[total_df.loc[:,"wt"] > 0] # tmp
+
+  if args.remove_nans:
+    nan_rows = total_df[total_df.isna().any(axis=1)]
+    total_df = total_df.dropna()
+
   total_df = total_df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-  nan_rows = total_df[total_df.isna().any(axis=1)]
-  total_df = total_df.dropna()
-
-  total_df.loc[:,"sub12_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"]
-  total_df.loc[:,"sub12_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"]
-  total_df.loc[:,"sub12_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"]
-  total_df.loc[:,"sub12_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"]
-  total_df.loc[:,"sub12_mass_rec"] = np.sqrt(total_df.loc[:,"sub12_E_rec"]**2 - total_df.loc[:,"sub12_px_rec"]**2 - total_df.loc[:,"sub12_py_rec"]**2 - total_df.loc[:,"sub12_pz_rec"]**2)
-
-  total_df.loc[:,"sub13_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub13_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub13_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub13_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub13_mass_rec"] = np.sqrt(total_df.loc[:,"sub13_E_rec"]**2 - total_df.loc[:,"sub13_px_rec"]**2 - total_df.loc[:,"sub13_py_rec"]**2 - total_df.loc[:,"sub13_pz_rec"]**2)
-
-  total_df.loc[:,"sub23_E_rec"] = total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub23_px_rec"] = total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub23_py_rec"] = total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub23_pz_rec"] = total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub23_mass_rec"] = np.sqrt(total_df.loc[:,"sub23_E_rec"]**2 - total_df.loc[:,"sub23_px_rec"]**2 - total_df.loc[:,"sub23_py_rec"]**2 - total_df.loc[:,"sub23_pz_rec"]**2)
-
-  total_df.loc[:,"sub123_E_rec"] = total_df.loc[:,"sub1_E_rec"] + total_df.loc[:,"sub2_E_rec"] + total_df.loc[:,"sub3_E_rec"]
-  total_df.loc[:,"sub123_px_rec"] = total_df.loc[:,"sub1_px_rec"] + total_df.loc[:,"sub2_px_rec"] + total_df.loc[:,"sub3_px_rec"]
-  total_df.loc[:,"sub123_py_rec"] = total_df.loc[:,"sub1_py_rec"] + total_df.loc[:,"sub2_py_rec"] + total_df.loc[:,"sub3_py_rec"]
-  total_df.loc[:,"sub123_pz_rec"] = total_df.loc[:,"sub1_pz_rec"] + total_df.loc[:,"sub2_pz_rec"] + total_df.loc[:,"sub3_pz_rec"]
-  total_df.loc[:,"sub123_mass_rec"] = np.sqrt(total_df.loc[:,"sub123_E_rec"]**2 - total_df.loc[:,"sub123_px_rec"]**2 - total_df.loc[:,"sub123_py_rec"]**2 - total_df.loc[:,"sub123_pz_rec"]**2)
-
-  nan_rows = total_df[total_df.isna().any(axis=1)]
-  total_df = total_df.dropna()
-
+  
   print(total_df)
   print("Columns:")
   for k in total_df.columns: print(f" * {k}")

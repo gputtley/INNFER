@@ -1,4 +1,5 @@
 import copy
+import os
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -165,7 +166,7 @@ def GetCombinedValidateLoop(cfg, parameters):
 
   return val_loop
 
-def GetYName(ur, purpose="plot", round_to=2):
+def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   """
   Get a formatted label for a given unique row.
 
@@ -191,6 +192,9 @@ def GetYName(ur, purpose="plot", round_to=2):
       name = ""
     else:
       name = None
+
+  if name is not None and name != "":
+    name = prefix+name
   return name
 
 def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
@@ -351,16 +355,17 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
   return func
 
-def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=100):
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005):
 
   if wt is None:
     wt = np.ones(len(X_dataframe))
 
   X_column = X_dataframe.loc[:,data_parameters["X_columns"][column]]
 
-  if isinstance(bins, int):
+  if bins is None:
     # Change to weighted version in future
-    _, bins_ed = pd.qcut(X_column, q=bins, labels=False, retbins=True)
+    n_bins = int(np.sum(wt.to_numpy(), dtype=np.float128) * (min_bin_stat_frac**2))
+    _, bins_ed = pd.qcut(X_column, q=n_bins, labels=False, retbins=True)
   else:
     bins_ed = copy.deepcopy(bins)
   bins_ed[0] = -np.inf
@@ -392,3 +397,65 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
     yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
 
   return yields, bins_ed
+
+
+def MakeDirectories(file_loc):
+
+  if file_loc[0] == "/":
+    initial = "/"
+    file_loc = file_loc[1:]
+  else:
+    initial = ""
+
+  splitting = file_loc.split("/")
+  for ind in range(len(splitting)):
+
+    # Skip if file
+    if "." in splitting[ind]: continue
+
+    # Get full directory
+    full_dir = initial + "/".join(splitting[:ind+1])
+
+    # Make directory if it is missing
+    if not os.path.isdir(full_dir): 
+      os.system(f"mkdir {full_dir}")
+
+def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+  for k, v in config.items():
+    new_keys = keys+[k]
+    if isinstance(v, dict):
+      results_keys, results_vals = FindKeysAndValuesInDictionaries(v, keys=new_keys, results_keys=results_keys, results_vals=results_vals)
+    else:
+      results_keys.append(new_keys)
+      results_vals.append(v)
+  return results_keys, results_vals
+
+def MakeDictionaryEntry(dictionary, keys, val):
+  if len(keys) > 1:
+    if keys[0] not in dictionary.keys():
+      dictionary[keys[0]] = {}
+    dictionary[keys[0]] = MakeDictionaryEntry(dictionary[keys[0]], keys[1:], val)
+  else:
+    dictionary[keys[0]] = val
+  return dictionary
+
+def GetScanArchitectures(config):
+  keys, vals = FindKeysAndValuesInDictionaries(config)
+  all_lists = [v for v in vals if isinstance(v,list)]
+  ind_lists = [ind for ind in range(len(vals)) if isinstance(vals[ind],list)]
+  unique_vals = list(product(*all_lists))
+
+  outputs = []
+  for uv in unique_vals:
+
+    # Set unique values
+    ind_val = list(vals)
+    for i in range(len(ind_lists)):
+      ind_val[ind_lists[i]] = uv[i]
+
+    output = {}
+    for ind in range(len(keys)):
+      output = MakeDictionaryEntry(output, keys[ind], ind_val[ind])
+    outputs.append(output)
+
+  return outputs

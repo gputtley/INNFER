@@ -5,7 +5,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.interpolate import RegularGridInterpolator
 from plotting import plot_likelihood, plot_histograms
-from other_functions import GetYName
+from other_functions import GetYName, MakeDirectories
 from pprint import pprint
 
 class Likelihood():
@@ -44,7 +44,6 @@ class Likelihood():
       Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
     for _, data_params in self.data_parameters.items():
       Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
-
     return Y_columns
 
 
@@ -451,6 +450,7 @@ class Likelihood():
       }
     pprint(dump)
     print(f">> Created {filename}")
+    MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
@@ -474,6 +474,7 @@ class Likelihood():
     }
     pprint(dump)
     print(f">> Created {filename}")
+    MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
@@ -507,6 +508,7 @@ class Likelihood():
 
     pprint(dump)
     print(f">> Created {filename}")
+    MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)  
 
@@ -535,6 +537,7 @@ class Likelihood():
     }
     print(dump)
     print(f">> Created {filename}")
+    MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)  
 
@@ -682,14 +685,17 @@ class Likelihood():
       return minimisation.x, minimisation.fun
     
     elif method == "low_stat_high_stat":
+
       print(">> Doing low stat minimisation first.")
+
       low_stat_minimisation = minimize(func_low_stat, initial_guess, method='Nelder-Mead', tol=1.0, options={'xatol': 0.001, 'fatol': 1.0, 'initial_simplex': initial_simplex})
-      if "pdf" in self.models.keys():
+      if "pdfs" in self.models.keys():
         for k in self.models["pdfs"].keys():
           self.models["pdfs"][k].probability_store = {}
+
       print(">> Doing high stat minimisation.")
 
-      # reget initial simplex
+      # re get initial simplex
       n = len(low_stat_minimisation.x)
       initial_simplex = [low_stat_minimisation.x]
       for i in range(n):
