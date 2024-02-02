@@ -8,7 +8,7 @@ import numpy as np
 import wandb
 import yaml
 from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetYName, \
-    MakeYieldFunction, is_float
+    MakeYieldFunction, is_float, CleanFiles
 from plotting import plot_likelihood, plot_stacked_histogram_with_ratio
 
 print("Running INNFER")
@@ -217,13 +217,9 @@ def main():
 
                 else:
                     print("- Loading model")
-                    if args.opt_model is not None:
-                        networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}_{args.opt_model}.h5")
-                        networks[file_name].data_parameters = parameters[file_name]
 
-                    else:
-                        networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-                        networks[file_name].data_parameters = parameters[file_name]
+                    networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
+                    networks[file_name].data_parameters = parameters[file_name]
 
             if args.specific_file == "combined": continue
 
@@ -739,10 +735,9 @@ def main():
 
     print("- Finished running without error")
 
-
 print("--Starting Agent")
 print(sweep_id)
-sweep = wandb.agent(sweep_id, function=main, count=10)
+sweep = wandb.agent(sweep_id, function=main, count=2)
 
-benchmark.cfg = cfg
-benchmark.CleanFiles()
+for file_name, _ in cfg["files"].items():
+    CleanFiles(cfg, name=file_name)

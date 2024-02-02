@@ -83,7 +83,7 @@ with open(args.architecture, 'r') as yaml_file:
     architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
 if args.use_wandb:
-    run = wandb.init(project='INNFER', config=architecture)
+    run = wandb.init(project=f'{benchmark.name}', config=architecture)
 
 if not os.path.isdir(f"data/{cfg['name']}"): os.system(f"mkdir data/{cfg['name']}")
 if not os.path.isdir(f"models/{cfg['name']}"): os.system(f"mkdir models/{cfg['name']}")

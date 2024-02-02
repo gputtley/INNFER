@@ -94,8 +94,16 @@ class InnferTrainer(bf.trainers.Trainer):
                     self.loss_history.add_entry(ep, loss)
                     avg_dict = self.loss_history.get_running_losses(ep)
                     lr = extract_current_lr(self.optimizer)
-                    disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
-                    p_bar.set_postfix_str(disp_str)
+                    if isinstance(lr, np.ndarray):
+                        lr_str = lr[0]
+                        disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr_str, it_str="Batch")
+                        print(disp_str)
+                        p_bar.set_postfix_str(disp_str)
+                    elif isinstance(lr, float):
+                        lr_str = lr
+                        disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr_str, it_str="Batch")
+                        print(disp_str)
+                        p_bar.set_postfix_str(disp_str)
                     p_bar.update(1)
 
             if use_wandb:

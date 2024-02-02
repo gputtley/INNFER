@@ -1,12 +1,8 @@
-import os
-
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
-
-from other_functions import is_float
 
 
 class Benchmarks():
@@ -358,89 +354,3 @@ class Benchmarks():
 
         with open(f"configs/run/Benchmark_{self.name}.yaml", 'w') as file:
             yaml.dump(cfg, file)
-
-    def _DeleteSubOptimalFiles(self, folder_path, type, min_val, name="Gaussian"):
-        if os.path.exists(folder_path) and os.path.isdir(folder_path):
-            # Verifies the existence of the directory
-
-            # Get all files in the directory
-            for file in os.listdir(folder_path):
-
-                # Iterate over the files and delete those that are not to keep
-                if file.startswith(name):
-
-                    if file.startswith(f'{name}_architecture'):
-                        if file != f'{name}_architecture_{min_val}.{type}':
-                            file_to_del = f'{folder_path}{file}'
-                            os.remove(file_to_del)
-                    else:
-                        if file != f'{name}_{min_val}.{type}':
-                            file_to_del = f'{folder_path}{file}'
-                            os.remove(file_to_del)
-
-                else:
-                    pass
-
-            print("Successfully cleaned")
-        else:
-            print(f"Directory '{folder_path}' does not exist.")
-
-    def CleanFiles(self):
-        # Removes files for model and architecture with suboptimal configuration and renames best files
-        # so that they no longer have the val_loss appended to them
-
-        folder_path = f"models/{self.cfg['name']}/"
-        folder_path_architecture = f"models/{self.cfg['name']}/architectures/"
-
-        # Make list of all val_loss for both models
-        if self.name in ["GaussianWithExpBkg", "GaussianWithExpBkgVaryingYield"]:
-            valsExp = []
-            valsGaussian = []
-            for root, dirs, files in os.walk(f"models/{self.cfg['name']}/"):
-                for file in files:
-                    if file.endswith(".h5") and file.startswith("ExpBkg"):
-                        if is_float(file[-10:-3]):
-                            valsExp.append(float(file[-10:-3]))
-                    if file.endswith(".h5") and file.startswith("Gaussian"):
-                        if is_float(file[-10:-3]):
-                            valsGaussian.append(float(file[-10:-3]))
-
-            min_val_Exp = format(min(valsExp), '.5f')  # find the two minima
-            min_val_Gaussian = format(min(valsGaussian), '.5f')
-
-            # Delete suboptimal files
-            self._DeleteSubOptimalFiles(folder_path_architecture, 'yaml', min_val_Exp, name="ExpBkg")
-            self._DeleteSubOptimalFiles(folder_path, 'h5', min_val_Exp, name="ExpBkg")
-            self._DeleteSubOptimalFiles(folder_path, 'h5', min_val_Gaussian)
-            self._DeleteSubOptimalFiles(folder_path_architecture, 'yaml', min_val_Gaussian)
-
-            # Rename optimal files
-            file_paths = [[f"{folder_path}Gaussian_{min_val_Gaussian}.h5", f"{folder_path}Gaussian.h5"],
-                          [f"{folder_path}ExpBkg_{min_val_Exp}.h5", f"{folder_path}ExpBkg.h5"],
-                          [f"{folder_path_architecture}Gaussian_architecture_{min_val_Gaussian}.yaml",
-                           f"{folder_path_architecture}Gaussian_architecture.yaml"],
-                          [f"{folder_path_architecture}ExpBkg_architecture_{min_val_Exp}.yaml",
-                           f"{folder_path_architecture}ExpBkg_architecture.yaml"]
-                          ]
-            for filecombo in file_paths:
-                print(filecombo)
-                os.replace(filecombo[0], filecombo[1])
-
-        # Make list of all val_loss
-        elif self.name == "Gaussian":
-            vals = []
-            for root, dirs, files in os.walk(f"models/{self.cfg['name']}/"):
-                for file in files:
-                    if file.endswith(".h5"):
-                        if is_float(file[-10:-3]):
-                            vals.append(float(file[-10:-3]))
-
-            min_val = format(min(vals), '.5f')  # find minimum
-
-            # Delete suboptimal files
-            self._DeleteSubOptimalFiles(folder_path, 'h5', min_val)
-            self._DeleteSubOptimalFiles(folder_path_architecture, 'yaml', min_val)
-
-            # Rename optimal files
-            os.replace(f"{folder_path}Gaussian_{min_val}.h5", f"{folder_path}Gaussian.h5")
-            os.replace(f"{folder_path_architecture}Gaussian_{min_val}.yaml", f"{folder_path_architecture}Gaussian.yaml")
