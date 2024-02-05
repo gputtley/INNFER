@@ -212,7 +212,7 @@ class Network():
         y_label = "Loss"
       )
 
-  def Sample(self, Y, columns=None, n_events=10**6):
+  def Sample(self, Y, columns=None, n_events=10**6, transform=False):
     """
     Generate synthetic data samples.
 
@@ -239,7 +239,9 @@ class Network():
     if self.fix_1d_spline:
       synth = synth[:,0].reshape(-1,1)
 
-    synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
+    if not transform:
+      synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
+    
     return synth
 
   def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False, run_normalise=True, elements_per_batch=10**6):

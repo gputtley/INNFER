@@ -355,7 +355,7 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
   return func
 
-def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005):
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True):
 
   if wt is None:
     wt = np.ones(len(X_dataframe))
@@ -368,32 +368,73 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
     _, bins_ed = pd.qcut(X_column, q=n_bins, labels=False, retbins=True)
   else:
     bins_ed = copy.deepcopy(bins)
-  bins_ed[0] = -np.inf
-  bins_ed[-1] = np.inf
+
+  if inf_edges:
+    bins_ed[0] = -np.inf
+    bins_ed[-1] = np.inf
 
   hists = []
   rows = []
-  unique_rows = Y_dataframe.drop_duplicates()
-  for _, ur in unique_rows.iterrows():
-    rows.append(GetYName(ur, purpose="file"))
-    matching_rows = (Y_dataframe == ur).all(axis=1)
-    X_mr = X_column[matching_rows]
-    wt_mr = wt.to_numpy().flatten()[matching_rows]
-    hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+  if Y_dataframe.shape[1] != 0:
+    unique_rows = Y_dataframe.drop_duplicates()
+    for _, ur in unique_rows.iterrows():
+      rows.append(GetYName(ur, purpose="file"))
+      matching_rows = (Y_dataframe == ur).all(axis=1)
+      X_mr = X_column[matching_rows]
+      wt_mr = wt.to_numpy().flatten()[matching_rows]
+      hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+      hist = hist.astype(np.float128)
+
+      sum_hist = float(np.sum(hist, dtype=np.float128))
+      if not inf_edges:
+        bins_inf = copy.deepcopy(bins_ed)
+        bins_inf[0] = -np.inf
+        bins_inf[-1] = np.inf
+        hist_inf, _ = np.histogram(X_mr, bins=bins_inf, weights=wt_mr)
+        hist_inf = hist_inf.astype(np.float128)
+        sum_hist = float(np.sum(hist_inf, dtype=np.float128))
+
+      total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
+      hist *= total_scale/sum_hist
+      if do_err:
+        hist_err_sq, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten()**2)
+        hist_err_sq = hist_err_sq.astype(np.float128)
+        hist_err = np.sqrt(hist_err_sq)
+        hist = hist_err * total_scale/sum_hist  
+      hists.append(hist)
+
+  else:
+    hist, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten())
     hist = hist.astype(np.float128)
     sum_hist = float(np.sum(hist, dtype=np.float128))
-    hist *= data_parameters["yield"][GetYName(ur, purpose="file")]/sum_hist
-    #print(ur)
-    #for i in hist:
-    #  print(i)
-    hists.append(hist)  
+    total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
+    hist *= total_scale/sum_hist   
+    if do_err:
+      hist_err_sq, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten()**2)
+      hist_err_sq = hist_err_sq.astype(np.float128)
+      hist_err = np.sqrt(hist_err_sq)
+      hist = hist_err * total_scale/sum_hist
+    hists.append(hist)
+
+  print(hists)
+  print(bins_ed)
+
+  if return_hists:
+    return hists, bins_ed
 
   yields = []
   for b in range(len(hists[0])):
-    tmp_parameters = {
-      "Y_columns" : data_parameters["Y_columns"],
-      "yield" : {rows[ind]: hists[ind][b] for ind in range(len(rows))},
-    }
+    if Y_dataframe.shape[1] != 0:
+      tmp_parameters = {
+        "Y_columns" : data_parameters["Y_columns"],
+        "yield" : {rows[ind]: hists[ind][b] for ind in range(len(rows))},
+      }
+    else:
+      tmp_parameters = {
+        "Y_columns" : [],
+        "yield" : {"all" : hists[0][b]},
+      }    
+
     yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
 
   return yields, bins_ed

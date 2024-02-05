@@ -6,6 +6,7 @@ from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
 from functools import partial
 import numpy as np
+import pandas as pd
 import copy
 import yaml
 
@@ -56,7 +57,7 @@ class Validation():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False):
+  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, ignore_infer=False, transform=False):
     """
     Extract data and weights for a given row.
 
@@ -71,7 +72,7 @@ class Validation():
     """
 
     # Do inference on data
-    if self.infer is not None:
+    if self.infer is not None and not ignore_infer:
         
         dl = DataLoader(self.infer)
         data = dl.LoadFullDataset()
@@ -84,49 +85,60 @@ class Validation():
       first_loop = True
       for key, val in self.data_parameters.items():
 
+        if specific_file is not None:
+          if specific_file != key:
+            continue
+
         # Set up preprocess code to load the data in
         pp = PreProcess()
         pp.parameters = val
         pp.output_dir = val["file_location"]
 
         # Load and reformat data
-        X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt)
+        X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt, untransformX=(not transform))
+
         if columns is None:
           columns = val["Y_columns"]
         X = X.to_numpy()
         Y = Y.to_numpy()
         wt = wt.to_numpy()
 
-        # Choose the matching Y rows
-        sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
-        if Y.shape[1] > 0:
-          matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
-          X = X[matching_rows]
-          wt = wt[matching_rows]
+        if not return_full:
 
-        # Scale weights to the correct yield
-        if "yield" in val.keys():
-          if "all" in val["yield"].keys():
-            sum_wt = val["yield"]["all"]
-          else:
-            sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
-          old_sum_wt = np.sum(wt, dtype=np.float128)
-          wt *= sum_wt/old_sum_wt
-      
-        # Scale wt by the rate parameter value
-        if "mu_"+key in columns:
-          rp = row[columns.index("mu_"+key)]
-          if rp == 0.0: continue
-          wt *= rp
+          # Choose the matching Y rows
+          sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
+          if Y.shape[1] > 0:
+            matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
+            X = X[matching_rows]
+            wt = wt[matching_rows]
+
+          # Scale weights to the correct yield
+          if "yield" in val.keys():
+            if "all" in val["yield"].keys():
+              sum_wt = val["yield"]["all"]
+            else:
+              sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
+            old_sum_wt = np.sum(wt, dtype=np.float128)
+            wt *= sum_wt/old_sum_wt
+        
+          # Scale wt by the rate parameter value
+          if "mu_"+key in columns:
+            rp = row[columns.index("mu_"+key)]
+            if rp == 0.0: continue
+            wt *= rp
 
         # Concatenate datasets
         if first_loop:
           first_loop = False
           total_X = copy.deepcopy(X)
           total_wt = copy.deepcopy(wt)
+          if return_y:
+            total_Y = copy.deepcopy(Y)
         else:
           total_X = np.vstack((total_X, X))
           total_wt = np.vstack((total_wt, wt))
+          if return_y:
+            total_Y = np.vstack((total_Y, Y))
 
       # Lower validation stats
       if self.lower_validation_stats is not None:
@@ -138,7 +150,10 @@ class Validation():
           new_sum_wt = np.sum(wt)
           total_wt *= sum_wt/new_sum_wt
 
-    return total_X, total_wt
+    if not return_y:
+      return total_X, total_wt
+    else:
+      return total_X, total_Y, total_wt
 
   def _TrimQuantile(self, column, wt, ignore_quantile=0.01):
 
@@ -149,7 +164,7 @@ class Validation():
     wt = wt[trimmed_indices].flatten()
     return column, wt
 
-  def Sample(self, row, columns=None, events_per_file=10**6, separate=False):
+  def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False):
 
     # Check if rows match even if empty
     if self.synth_row is None:
@@ -174,7 +189,7 @@ class Validation():
         wt = np.ones(events_per_file)/events_per_file
 
         # Sample through dataset
-        X = pdf.Sample(sel_row, n_events=events_per_file)
+        X = pdf.Sample(sel_row, n_events=events_per_file, transform=transform)
 
         # Scale to yield
         if "yield" in self.data_parameters[key].keys():
@@ -242,24 +257,23 @@ class Validation():
     Build the likelihood object
     """
     if self.do_binned_fit:
-      X, Y, wt = self.pp.LoadSplitData(dataset="full", get=["X","Y","wt"], use_nominal_wt=False)
-      if self.var_and_bins is not None:
+      bin_yields_dict = {}
+      for key, val in self.data_parameters.items():
+        X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, ignore_infer=True, return_y=True)
         bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
-        column = self.data_parameters["X_columns"].index(self.var_and_bins.split("[")[0])
-      else:
-        bins = None
-        column = 0
-      bin_yields, bin_edges = MakeBinYields(X, Y, self.data_parameters, self.pois, self.nuisances, wt=wt, column=column, bins=bins)
+        column = self.X_columns.index(self.var_and_bins.split("[")[0])
 
+        bin_yields, bin_edges = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins)
+        bin_yields_dict[key] = copy.deepcopy(bin_yields)
 
       self.lkld = Likelihood(
         {
-          "bin_yields": {self.model_name:bin_yields},
+          "bin_yields": bin_yields_dict,
           "bin_edges": bin_edges,
         }, 
         type="binned_extended", 
         data_parameters=self.data_parameters,
-
+        parameters=self.validation_options,
       )
 
     else:
@@ -285,8 +299,6 @@ class Validation():
         ind (int): Index for file naming (default is 0).
     """
     X, wt = self._GetXAndWts(row, columns=columns)
-    print(X)
-    print(wt)
     #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     #for i in loop:
     #  print(np.array([i]), len(X), float(np.sum(wt)))
@@ -364,7 +376,7 @@ class Validation():
     )
 
 
-  def PlotGeneration(self, row, columns=None, n_bins=40, ignore_quantile=0.01, sample_row=None, extra_dir=""):
+  def PlotGeneration(self, row, columns=None, n_bins=40, ignore_quantile=0.01, sample_row=None, extra_dir="", transform=False):
     """
     Plot generation comparison between simulated and synthetic data for a given row.
 
@@ -383,9 +395,9 @@ class Validation():
     sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
     sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
 
-    X, wt = self._GetXAndWts(row, columns=columns)
-    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True)
-    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False)
+    X, wt = self._GetXAndWts(row, columns=columns, transform=transform)
+    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform)
+    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform)
 
     for col in range(X.shape[1]):
 
@@ -422,13 +434,13 @@ class Validation():
         axis_text="",
         )
 
-  def Plot2DUnrolledGeneration(self, row, columns=None, n_unrolled_bins=5, n_bins=10, ignore_quantile=0.01, sf_diff=2, sample_row=None, extra_dir=""):
+  def Plot2DUnrolledGeneration(self, row, columns=None, n_unrolled_bins=5, n_bins=10, ignore_quantile=0.01, sf_diff=2, sample_row=None, extra_dir="", transform=False):
     print(">> Producing 2d unrolled generation plots")
 
     if sample_row is None: sample_row = row
-    X, wt = self._GetXAndWts(row, columns=columns)
-    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True)
-    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False)
+    X, wt = self._GetXAndWts(row, columns=columns, transform=transform)
+    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform)
+    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform)
 
     sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
     sample_file_extra_name = GetYName(sample_row, purpose="file", prefix="_synth_y_")
@@ -705,3 +717,66 @@ class Validation():
       y_label = "p(x|y)",
       anchor_y_at_0 = True,
     )
+
+  def PlotBinned(self, row, columns=None, sample_row=None, extra_dir=""):
+
+    sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
+    sample_file_extra_name = GetYName(sample_row, purpose="file", prefix="_synth_y_")
+    sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
+    sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
+
+    if sample_row is None: sample_row = row
+
+    bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
+    column = self.X_columns.index(self.var_and_bins.split("[")[0])
+    col_name = self.var_and_bins.split("[")[0]
+
+    X, wt = self._GetXAndWts(row, columns=columns)
+    data_hist, _ = np.histogram(X[:,column], weights=wt.flatten(), bins=bins)
+    data_hist_err_sq, _ = np.histogram(X[:,column], weights=wt.flatten()**2, bins=bins)
+    data_hist_err = np.sqrt(data_hist_err_sq)
+    
+    # Make estimators and hists
+    procs = {}
+    proc_err_sq = np.zeros(len(bins)-1)
+    for key, val in self.data_parameters.items():
+      sample_row = np.array(sample_row)
+      if columns is not None:
+        column_indices = [columns.index(col) for col in val["Y_columns"]]
+        sample_row_for_yield = sample_row[column_indices]
+
+      X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, ignore_infer=True, return_y=True)
+
+      rp = 1.0
+      if "mu_"+key in columns:
+        rp = sample_row[columns.index("mu_"+key)]
+        if rp == 0.0: continue
+
+      bin_yields, _ = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins, inf_edges=False)
+      procs[key] = np.array([rp * bin_yields[i](sample_row_for_yield) for i in range(len(bin_yields))])
+
+      bin_yields, _ = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins, do_err=True, inf_edges=False)
+      proc_err_sq += np.array([(rp * bin_yields[i](sample_row_for_yield))**2 for i in range(len(bin_yields))])
+
+    proc_err = np.sqrt(proc_err_sq)
+
+    if extra_dir != "": 
+      add_extra_dir = f"/{extra_dir}"
+    else:
+      add_extra_dir = ""
+
+
+    plot_stacked_histogram_with_ratio(
+      data_hist, 
+      procs, 
+      bins, 
+      data_name=f'Data', 
+      xlabel=col_name,
+      ylabel="Events",
+      name=f"{self.plot_dir}{add_extra_dir}/binned_{col_name}{sim_file_extra_name}{sample_file_extra_name}", 
+      data_errors=data_hist_err, 
+      stack_hist_errors=proc_err, 
+      title_right="",
+      use_stat_err=False,
+      axis_text="",
+      )
