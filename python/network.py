@@ -155,6 +155,12 @@ class Network():
 
     if self.optimizer_name == "Adam":
       self.optimizer = tf.keras.optimizers.Adam(self.lr_scheduler)
+    elif self.optimizer_name == "SGD":
+        self.optimizer = tf.keras.optimizers.SGD(self.lr_scheduler)
+    elif self.optimizer_name == "RMSprop":
+        self.optimizer = tf.keras.optimizers.RMSprop(self.lr_scheduler)
+    elif self.optimizer_name == "Adadelta":
+        self.optimizer = tf.keras.optimizers.Adadelta(self.lr_scheduler)
     else:
       print("ERROR: optimizer not valid.")
 

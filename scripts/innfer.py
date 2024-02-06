@@ -13,7 +13,7 @@ from pprint import pprint
 def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('-c','--cfg', help= 'Config for running',  default=None)
-  parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg","GaussianWithExpBkgVaryingYield","5D+D"])
+  parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg","GaussianWithExpBkgVaryingYield","2D","5D","5D+D","12D"])
   parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
   parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
   parser.add_argument('--resubmit-scans', help= 'Resubmit any scan jobs that failed.',  action='store_true')

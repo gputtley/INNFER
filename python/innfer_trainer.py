@@ -1,3 +1,5 @@
+import os
+import random
 import logging
 import warnings
 import copy
@@ -9,7 +11,14 @@ from bayesflow.helper_functions import backprop_step, extract_current_lr, format
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
-tf.keras.utils.set_random_seed(42)
+
+seed = 42
+os.environ['PYTHONHASHSEED']=str(seed)
+os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+tf.random.set_seed(seed)
+tf.keras.utils.set_random_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
 
 class InnferTrainer(bf.trainers.Trainer):
    """
@@ -59,6 +68,7 @@ class InnferTrainer(bf.trainers.Trainer):
       Returns:
          dict: Dictionary of plottable loss history.
       """
+
       self.fix_1d_spline = fix_1d_spline
 
       # Compile update function, if specified
@@ -101,7 +111,10 @@ class InnferTrainer(bf.trainers.Trainer):
                disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
-         
+               #print(disp_str)
+               #exit()
+
+
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
          loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
@@ -116,6 +129,7 @@ class InnferTrainer(bf.trainers.Trainer):
                "lr": lr,
             }
             wandb.log(metrics)
+
 
          # Check early stopping, if specified
          if self._check_early_stopping(early_stopper):
@@ -212,7 +226,7 @@ class InnferTrainer(bf.trainers.Trainer):
       if self.fix_1d_spline:
          X_data = np.column_stack((X_data.flatten(), np.random.normal(0.0, 1.0, (len(X_data),))))
       probs = wt_data / np.sum(wt_data)
-      resampled_indices = np.random.default_rng().choice(len(X_data), size=len(X_data), p=probs)
+      resampled_indices = np.random.choice(len(X_data), size=len(X_data), p=probs)
       X_data = X_data[resampled_indices]
       Y_data = Y_data[resampled_indices]
       return {"parameters" : X_data, "direct_conditions" : Y_data}
