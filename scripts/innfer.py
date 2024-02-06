@@ -13,7 +13,7 @@ from pprint import pprint
 def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('-c','--cfg', help= 'Config for running',  default=None)
-  parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg","GaussianWithExpBkgVaryingYield"])
+  parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg","GaussianWithExpBkgVaryingYield","2D","5D","5D+D","12D"])
   parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
   parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
   parser.add_argument('--resubmit-scans', help= 'Resubmit any scan jobs that failed.',  action='store_true')
@@ -111,11 +111,20 @@ def main(args, architecture=None):
         pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train')
         pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test')
         pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val')
-          
+        pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train_transformed', transform=True)
+        pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test_transformed', transform=True)
+        pp[file_name].PlotX(info["poi"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val_transformed', transform=True)
+
+
       # Run plots varying the nuisances across the variables for each unique value of the pois
       for info in GetNuisanceLoop(cfg, pp[file_name].parameters):
         pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train')
-          
+        pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test')
+        pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val')
+        pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="train", extra_name=f'{info["extra_name"]}_train_transformed', transform=True)
+        pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="test", extra_name=f'{info["extra_name"]}_test_transformed', transform=True)
+        pp[file_name].PlotX(info["nuisance"], freeze=info["freeze"], dataset="val", extra_name=f'{info["extra_name"]}_val_transformed', transform=True)          
+
       # Run plots of the distribution of the context features
       pp[file_name].PlotY(dataset="train")
 
@@ -297,8 +306,10 @@ def main(args, architecture=None):
 
           # Plot synthetic vs simulated comparison
           val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1D")
+          val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1DTransformed", transform=True)
           if len(val.X_columns) > 1:
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2D")
+            val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DTransformed", transform=True)
             val.PlotCorrelationMatrix(info["row"], columns=info["columns"], extra_dir="GenerationCorrelation")        
 
         # Validating the INNs by using it to perform toy inference
@@ -453,6 +464,8 @@ def main(args, architecture=None):
               val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
               if len(val.X_columns) > 1:
                 val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit2D")
+            else:
+              val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
 
 

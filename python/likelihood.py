@@ -253,7 +253,6 @@ class Likelihood():
     # Make data histogram
     data_hist, _ = np.histogram(X, weights=wts, bins=self.models["bin_edges"])
     data_hist = data_hist.astype(np.float64)
-    #print(data_hist)
     ln_lkld = 0.0
 
     for bin_number in range(len(self.models["bin_edges"])-1):
@@ -269,7 +268,11 @@ class Likelihood():
         if rate_param == 0.0: continue
 
         # Get rate times yield times probability
-        yield_sum += (yields[bin_number](Y) * rate_param)
+        Y = np.array(Y)
+        if self.Y_columns is not None:
+          column_indices = [self.Y_columns.index(col) for col in self.data_parameters[name]["Y_columns"]]
+          Y_for_yield = Y[column_indices]
+        yield_sum += (yields[bin_number](Y_for_yield) * rate_param)
 
       #print(bin_number, yield_sum, data_hist[bin_number])
       ln_lkld += ((data_hist[bin_number]*np.log(yield_sum)) - yield_sum)

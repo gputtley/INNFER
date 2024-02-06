@@ -9,7 +9,7 @@ from data_loader import DataLoader
 from plotting import plot_histograms
 from sklearn.model_selection import train_test_split
 from other_functions import GetYName, MakeDirectories
-
+from scipy.interpolate import CubicSpline
 
 pd.options.mode.chained_assignment = None
 
@@ -59,7 +59,6 @@ class PreProcess():
     print(">> Loading full dataset.")
     dl = DataLoader(self.parquet_file_name)
     full_dataset = dl.LoadFullDataset()
-    print(full_dataset.columns)
 
     # Get X and Y column names
     print(">> Getting columns from dataset.")
@@ -79,6 +78,16 @@ class PreProcess():
           self.parameters["unique_Y_values"][col] = None
       else:
         self.parameters["unique_Y_values"][col] = self.validation_y_vals[col]
+
+    # Identify discrete columns
+    print(">> Identifying discrete columns and finding thresholds.")
+    self.parameters["discrete_thresholds"] = {}
+    for col in self.X_columns:
+      unique_vals = full_dataset[col].drop_duplicates()
+      if len(unique_vals) < 20:
+        col_data = full_dataset[col]
+        thresholds = self.FindDiscreteToContinuousThresholds(col_data)
+        self.parameters["discrete_thresholds"][col] = thresholds
 
     # Get sum of weights for each unique y combination
     print(">> Finding sum of weights for each unique y combination.")
@@ -107,8 +116,6 @@ class PreProcess():
     train_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[0])
     test_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[1])
     val_df.loc[:,"wt"] /= float(self.train_test_val_split.split(":")[2])
-
-    print(len(train_df), len(test_df), len(val_df))
 
     # Remove some Y combinations from train, test and val datasets
     print(">> Removing some Y combinations.")
@@ -192,6 +199,127 @@ class PreProcess():
     with open(self.output_dir+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(self.parameters, yaml_file, default_flow_style=False)        
 
+  def FindDiscreteToContinuousThresholds(self, data):
+    """
+    Calculate the thresholds for converting discrete values to continuous ranges using quantile binning.
+    
+    Args:
+        data (pd.Series): A column of discrete values.
+
+    Returns:
+        dict: A dictionary containing the threshold for each value.
+    """
+    unique_vals = data.value_counts().sort_index().index
+    counts = data.value_counts().sort_index().values
+    x = np.array(unique_vals)
+    y = np.array(counts)
+
+    cs = self.Spline(data)
+    
+    # Find initial integral
+    x_range = np.linspace(min(x), max(x), 10000)
+    pdf_values = cs(x_range)
+    integral = np.trapz(pdf_values, x_range)
+    normalised_pdf_values = pdf_values / integral
+    integral_fractions = normalised_pdf_values * (x_range[1] - x_range[0])
+    cum_integral_fractions = [sum(integral_fractions[:ind+1]) for ind in range(len(integral_fractions))]
+
+    # Normalise bin values
+    sum_y = sum(y)
+    y_norm = [i / sum_y for i in y]
+    y_cum_norm = [sum(y_norm[:ind+1]) for ind in range(len(y_norm))]
+
+    # Loop through bins and check interval
+    searching_for_ind = 0
+    cuts = [min(x)]
+    for bin_ind, bin_val in enumerate(cum_integral_fractions[1:]):
+        if cum_integral_fractions[bin_ind] <= y_cum_norm[searching_for_ind] and cum_integral_fractions[bin_ind + 1] > y_cum_norm[searching_for_ind]:
+            cuts.append(x_range[bin_ind + 1])
+            searching_for_ind += 1
+            if searching_for_ind >= len(y_cum_norm):
+                break
+    cuts.append(max(x))
+
+    # Set up dictionary of inputs and output ranges
+    output_ranges = {}
+    for ind in range(len(x)):
+        output_ranges[x[ind]] = [cuts[ind], cuts[ind + 1]]
+
+    thresholds = {float(k): [float(v[0]), float(v[1])] for k, v in output_ranges.items()}
+
+    return thresholds
+
+
+  # Determine the spline function for the discrete function
+  def Spline(self, data):
+    """
+    Create a spline function based on the unique values of a specified column.
+
+    Args:
+        data (pd.Series): A column of discrete values.
+
+    Returns:
+        function: A spline function.
+    """
+    # Initialise cs to None
+    cs = None
+    unique_vals = data.value_counts().sort_index().index
+    counts = data.value_counts().sort_index().values
+
+    # Create spline function
+    x = np.array(unique_vals)
+    y = np.array(counts)
+
+    cs = CubicSpline(x, y)
+
+    return cs 
+
+  # Define function for data transformation between discrete and continous 
+  def DiscreteToContinuous(self, data, column_name, inverse = False):
+    """
+    Apply discrete to continuous transformation on a column or its inverse.
+
+    Args:
+        data (pd.Series): The column to be transformed.
+        column_name (str): The name of the column.
+        inverse (bool): Whether to apply the inverse transformation.
+
+    Returns:
+        pd.Series: The transformed column.
+    """
+
+    output_ranges = self.parameters["discrete_thresholds"].get(column_name, {})
+    data = copy.deepcopy(data)
+
+    if not inverse:
+      data = data.astype(float)
+      spline = self.Spline(data)
+      
+    for k, v in output_ranges.items():
+      if not inverse:
+        # Get indices
+        indices = (data == k)
+        n_samples = len(data[indices])      
+        # Compute the CDF
+        param_values = np.linspace(v[0], v[1], 100000)
+        cdf_vals = np.cumsum(np.abs(spline(param_values))) / np.sum(np.abs(spline(param_values)))
+        # Normalise the CDF
+        cdf_vals /= cdf_vals[-1]
+        # Generate random numbers
+        random_nums = np.random.rand(n_samples)
+        # Inverse transform sampling
+        data[indices] = np.interp(random_nums, cdf_vals, param_values)
+      else:
+        # Get indices
+        indices = ((data >= v[0])) & (data < v[1])
+        # Do inverse
+        data[indices] = k
+
+    if inverse:
+      data = data.astype(int)
+    
+    return data
+
   def GetStandardisationParameters(self, column):
     """
     Get mean and standard deviation for standardisation.
@@ -215,8 +343,6 @@ class PreProcess():
     Returns:
         pd.Series: The standardised column.
     """
-    #print(column_name)
-    #print((column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"])
     return (column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"]
   
   def UnStandardise(self, column, column_name):
@@ -276,6 +402,45 @@ class PreProcess():
         pd.DataFrame: The transformed dataset.
     """
     for column_name in data.columns:
+      if column_name in self.parameters["discrete_thresholds"]:
+          data[column_name] = data[column_name].astype(float)
+          data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=False)
+      if column_name in self.parameters["standardisation"]:
+          data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
+
+
+    return data
+
+  def UnTransformData(self, data):
+    """
+    Untransform specified columns in the dataset.
+
+    Args:
+        data (pd.DataFrame): The dataset to be Untransform.
+
+    Returns:
+        pd.DataFrame: The Untransform dataset.
+    """
+    for column_name in data.columns:
+      if column_name in self.parameters["standardisation"]:
+        data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
+        if column_name in self.parameters["discrete_thresholds"]:
+          data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=True)
+    return data
+
+
+  '''
+  def TransformData(self, data):
+    """
+    Transform columns in the dataset.
+
+    Args:
+        data (pd.DataFrame): The dataset to be transformed.
+
+    Returns:
+        pd.DataFrame: The transformed dataset.
+    """
+    for column_name in data.columns:
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
     return data
@@ -294,7 +459,8 @@ class PreProcess():
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
     return data   
-
+  '''
+    
   def UnTransformProb(self, prob, log_prob=False):
     """
     Untransform probabilities.
@@ -313,7 +479,7 @@ class PreProcess():
           prob -= np.log(self.parameters["standardisation"][column_name]["std"])
     return prob 
 
-  def LoadSplitData(self, dataset="train", get=["X","Y","wt"], use_nominal_wt=False):
+  def LoadSplitData(self, dataset="train", get=["X","Y","wt"], use_nominal_wt=False, untransformX=True):
     """
     Load split data (X, Y, and weights) from the preprocessed files.
 
@@ -330,7 +496,8 @@ class PreProcess():
       if "X" in get:
         X_dl = DataLoader(f"{self.output_dir}/X_{dataset}.parquet")
         X_data = X_dl.LoadFullDataset()
-        X_data = self.UnTransformData(X_data)
+        if untransformX:
+          X_data = self.UnTransformData(X_data)
 
       if "Y" in get:
         Y_dl = DataLoader(f"{self.output_dir}/Y_{dataset}.parquet")
@@ -352,7 +519,8 @@ class PreProcess():
         if "X" in get:
           X_dl_tmp = DataLoader(f"{self.output_dir}/X_{ds}.parquet")
           X_data_tmp = X_dl_tmp.LoadFullDataset()
-          X_data_tmp = self.UnTransformData(X_data_tmp)
+          if untransformX:
+            X_data_tmp = self.UnTransformData(X_data_tmp)
 
         if "Y" in get:
           Y_dl_tmp = DataLoader(f"{self.output_dir}/Y_{ds}.parquet")
@@ -391,7 +559,7 @@ class PreProcess():
 
     return output
 
-  def PlotX(self, vary, freeze={}, n_bins=100, ignore_quantile=0.001, dataset="train", extra_name=""):
+  def PlotX(self, vary, freeze={}, n_bins=100, ignore_quantile=0.001, dataset="train", extra_name="", transform=False):
     """
     Plot histograms for X variables.
 
@@ -407,7 +575,7 @@ class PreProcess():
         None
     """
     # Loads data
-    X_data, Y_data, wt_data = self.LoadSplitData(dataset=dataset)
+    X_data, Y_data, wt_data = self.LoadSplitData(dataset=dataset, untransformX=(not transform))
 
     # Sets freeze conditions
     final_condition = None

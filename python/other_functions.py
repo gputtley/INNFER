@@ -198,6 +198,22 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   return name
 
 def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
+  """
+  Get the value of a varied row.
+
+  Args:
+      poi_vars (list): List of variables for parameters of interest.
+      nuisance_vars (list): List of variables for nuisance parameters.
+      parameters (dict): Dictionary containing parameter information.
+      poi (str): Parameter of interest.
+      nuisance (str): Nuisance parameter.
+      nuisance_val (float): Nuisance parameter value.
+      return_dict (dict): Dictionary to store return values.
+      entry_dict (dict): Dictionary containing entry information.
+
+  Returns:
+      dict: Dictionary containing the value of a varied row.
+  """
 
   # Find initial options
   #entry_dict = {}
@@ -251,7 +267,18 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
   return return_dict
 
 def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
+  """
+  Make a yield function.
 
+  Args:
+      poi_vars (list): List of variables for parameters of interest.
+      nuisance_vars (list): List of variables for nuisance parameters.
+      parameters (dict): Dictionary containing parameter information.
+      add_overflow (float): Overflow value (default is 0.25).
+
+  Returns:
+      function: Yield function.
+  """
   parameters = copy.deepcopy(parameters)
 
   if not "all" in parameters["yield"].keys():
@@ -355,8 +382,27 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
   return func
 
-def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005):
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True):
+  """
+  Make bin yields.
 
+  Args:
+      X_dataframe (DataFrame): DataFrame containing X data.
+      Y_dataframe (DataFrame): DataFrame containing Y data.
+      data_parameters (dict): Dictionary containing parameter information.
+      pois (list): List of variables for parameters of interest.
+      nuisances (list): List of variables for nuisance parameters.
+      wt (array-like): Weights array (default is None).
+      column (int): Column index (default is 0).
+      bins (array-like): Bins array (default is None).
+      min_bin_stat_frac (float): Minimum bin statistical fraction (default is 0.005).
+      return_hists (bool): Whether to return histograms (default is False).
+      do_err (bool): Whether to calculate errors (default is False).
+      inf_edges (bool): Whether to include infinite edges (default is True).
+
+  Returns:
+      tuple: Tuple containing yields and bins edges.
+  """
   if wt is None:
     wt = np.ones(len(X_dataframe))
 
@@ -368,39 +414,92 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
     _, bins_ed = pd.qcut(X_column, q=n_bins, labels=False, retbins=True)
   else:
     bins_ed = copy.deepcopy(bins)
-  bins_ed[0] = -np.inf
-  bins_ed[-1] = np.inf
+
+  if inf_edges:
+    bins_ed[0] = -np.inf
+    bins_ed[-1] = np.inf
 
   hists = []
   rows = []
-  unique_rows = Y_dataframe.drop_duplicates()
-  for _, ur in unique_rows.iterrows():
-    rows.append(GetYName(ur, purpose="file"))
-    matching_rows = (Y_dataframe == ur).all(axis=1)
-    X_mr = X_column[matching_rows]
-    wt_mr = wt.to_numpy().flatten()[matching_rows]
-    hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+  if Y_dataframe.shape[1] != 0:
+    unique_rows = Y_dataframe.drop_duplicates()
+    for _, ur in unique_rows.iterrows():
+      rows.append(GetYName(ur, purpose="file"))
+      matching_rows = (Y_dataframe == ur).all(axis=1)
+      X_mr = X_column[matching_rows]
+      wt_mr = wt.to_numpy().flatten()[matching_rows]
+      hist, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr)
+      hist = hist.astype(np.float128)
+
+      sum_hist = float(np.sum(hist, dtype=np.float128))
+      if not inf_edges:
+        bins_inf = copy.deepcopy(bins_ed)
+        bins_inf[0] = -np.inf
+        bins_inf[-1] = np.inf
+        hist_inf, _ = np.histogram(X_mr, bins=bins_inf, weights=wt_mr)
+        hist_inf = hist_inf.astype(np.float128)
+        sum_hist = float(np.sum(hist_inf, dtype=np.float128))
+
+      total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
+      hist *= total_scale/sum_hist
+      if do_err:
+        hist_err_sq, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr**2)
+        hist_err_sq = hist_err_sq.astype(np.float128)
+        hist_err = np.sqrt(hist_err_sq)
+        hist = hist_err * total_scale/sum_hist
+      hists.append(hist)
+
+  else:
+    hist, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten())
     hist = hist.astype(np.float128)
     sum_hist = float(np.sum(hist, dtype=np.float128))
-    hist *= data_parameters["yield"][GetYName(ur, purpose="file")]/sum_hist
-    #print(ur)
-    #for i in hist:
-    #  print(i)
-    hists.append(hist)  
+    if not inf_edges:
+      bins_inf = copy.deepcopy(bins_ed)
+      bins_inf[0] = -np.inf
+      bins_inf[-1] = np.inf
+      hist_inf, _ = np.histogram(X_column, bins=bins_inf, weights=wt.to_numpy().flatten())
+      hist_inf = hist_inf.astype(np.float128)
+      sum_hist = float(np.sum(hist_inf, dtype=np.float128))
+    total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
+    hist *= total_scale/sum_hist   
+    if do_err:
+      hist_err_sq, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten()**2)
+      hist_err_sq = hist_err_sq.astype(np.float128)
+      hist_err = np.sqrt(hist_err_sq)
+      hist = hist_err * total_scale/sum_hist
+    hists.append(hist)
+
+  if return_hists:
+    return hists, bins_ed
 
   yields = []
   for b in range(len(hists[0])):
-    tmp_parameters = {
-      "Y_columns" : data_parameters["Y_columns"],
-      "yield" : {rows[ind]: hists[ind][b] for ind in range(len(rows))},
-    }
+    if Y_dataframe.shape[1] != 0:
+      tmp_parameters = {
+        "Y_columns" : data_parameters["Y_columns"],
+        "yield" : {rows[ind]: hists[ind][b] for ind in range(len(rows))},
+      }
+    else:
+      tmp_parameters = {
+        "Y_columns" : [],
+        "yield" : {"all" : hists[0][b]},
+      }    
+
     yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
 
   return yields, bins_ed
 
 
 def MakeDirectories(file_loc):
+  """
+  Make directories.
 
+  Args:
+      file_loc (str): File location.
+
+  Returns:
+      None
+  """
   if file_loc[0] == "/":
     initial = "/"
     file_loc = file_loc[1:]
@@ -421,6 +520,18 @@ def MakeDirectories(file_loc):
       os.system(f"mkdir {full_dir}")
 
 def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+  """
+  Find keys and values in dictionaries.
+
+  Args:
+      config (dict): Configuration dictionary.
+      keys (list): List of keys (default is []).
+      results_keys (list): List of results keys (default is []).
+      results_vals (list): List of results values (default is []).
+
+  Returns:
+      tuple: Tuple containing lists of results keys and results values.
+  """
   for k, v in config.items():
     new_keys = keys+[k]
     if isinstance(v, dict):
@@ -431,6 +542,17 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
   return results_keys, results_vals
 
 def MakeDictionaryEntry(dictionary, keys, val):
+  """
+  Make a dictionary entry.
+
+  Args:
+      dictionary (dict): Dictionary.
+      keys (list): List of keys.
+      val (object): Value.
+
+  Returns:
+      dict: Dictionary containing the entry.
+  """
   if len(keys) > 1:
     if keys[0] not in dictionary.keys():
       dictionary[keys[0]] = {}
@@ -440,6 +562,15 @@ def MakeDictionaryEntry(dictionary, keys, val):
   return dictionary
 
 def GetScanArchitectures(config):
+  """
+  Get scan architectures.
+
+  Args:
+      config (dict): Configuration dictionary.
+
+  Returns:
+      list: List of scan architectures.
+  """
   keys, vals = FindKeysAndValuesInDictionaries(config)
   all_lists = [v for v in vals if isinstance(v,list)]
   ind_lists = [ind for ind in range(len(vals)) if isinstance(vals[ind],list)]

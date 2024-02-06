@@ -499,7 +499,25 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     use_stat_err=False,
     axis_text="",
   ):
+  """
+  Plot a stacked histogram with a ratio plot for 2D unrolled histogram.
 
+  Args:
+      data_hists (list of array-like): Histogram values for the data.
+      stack_hists_dict (dict): Dictionary of histogram values for stacked components.
+      bin_edges_1d (array-like): Bin edges for the 1D histograms.
+      unrolled_bins (list): Bin edges for the unrolled dimension.
+      unrolled_bin_name (str): Name of the unrolled dimension.
+      data_name (str, optional): Label for the data histogram (default is 'Data').
+      xlabel (str, optional): Label for the x-axis (default is '').
+      ylabel (str, optional): Label for the y-axis (default is 'Events').
+      name (str, optional): Name of the output plot file without extension (default is 'fig').
+      data_hists_errors (list of array-like, optional): Errors for the data histogram (default is None).
+      stack_hists_errors (list of array-like, optional): Errors for the stacked histograms (default is None).
+      title_right (str, optional): Text to be displayed on the upper right corner of the plot (default is '').
+      use_stat_err (bool, optional): If True, use statistical errors for the data and stacked histograms (default is False).
+      axis_text (str, optional): Text to be displayed on the bottom left corner of the plot (default is '').
+  """
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
 
   bin_edges = []
@@ -704,7 +722,15 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   plt.close()
 
 def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix", title_right=""):
-   
+  """
+  Plot a heatmap of the correlation matrix.
+
+  Parameters:
+  - correlation_matrix (array-like): The correlation matrix to be plotted.
+  - labels (list): List of labels for the correlation matrix.
+  - name (str, optional): Name of the output file (default is "correlation_matrix").
+  - title_right (str, optional): Text to display on the top right corner of the plot (default is "").
+  """   
   fig, ax = plt.subplots()
   hep.cms.text("Work in progress",ax=ax)
 
