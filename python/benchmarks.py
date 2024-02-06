@@ -245,7 +245,7 @@ class Benchmarks():
       chi_pdf = ((1/2)**(k_chi/2)) / gamma(k_chi/2) * (X[1]**(k_chi/2 - 1)) * np.exp(-X[1]/2)
 
       # exponential
-      beta_e = self.model_parameters[self.name]["exponential_factor"] + Y[0] * self.model_parameters[self.name]["exponential_factor_1"] / ((Y[0] - 160.0)**2)
+      beta_e = self.model_parameters[self.name]["exponential_factor"] + Y[0] * self.model_parameters[self.name]["exponential_factor"] / ((Y[0] - 160.0)**2)
       exponential_pdf = (1/beta_e)*np.exp(-X[2]/beta_e)
 
       # beta
