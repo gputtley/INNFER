@@ -201,13 +201,13 @@ class PreProcess():
 
   def FindDiscreteToContinuousThresholds(self, data):
     """
-        Calculate the thresholds for converting discrete values to continuous ranges using quantile binning.
-        
-        Args:
-            data (pd.Series): A column of discrete values.
+    Calculate the thresholds for converting discrete values to continuous ranges using quantile binning.
+    
+    Args:
+        data (pd.Series): A column of discrete values.
 
-        Returns:
-            dict: A dictionary containing the threshold for each value.
+    Returns:
+        dict: A dictionary containing the threshold for each value.
     """
     unique_vals = data.value_counts().sort_index().index
     counts = data.value_counts().sort_index().values
@@ -343,8 +343,6 @@ class PreProcess():
     Returns:
         pd.Series: The standardised column.
     """
-    #print(column_name)
-    #print((column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"])
     return (column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"]
   
   def UnStandardise(self, column, column_name):

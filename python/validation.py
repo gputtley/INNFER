@@ -156,7 +156,18 @@ class Validation():
       return total_X, total_Y, total_wt
 
   def _TrimQuantile(self, column, wt, ignore_quantile=0.01):
+    """
+    Trim the data and weights based on quantiles.
 
+    Args:
+        column (numpy.ndarray): The column data.
+        wt (numpy.ndarray): The corresponding weights.
+        ignore_quantile (float): Fraction of data to ignore from both ends during trimming (default is 0.01).
+
+    Returns:
+        trimmed_column (numpy.ndarray): Trimmed column data.
+        trimmed_wt (numpy.ndarray): Trimmed weights.
+    """
     lower_value = np.quantile(column, ignore_quantile)
     upper_value = np.quantile(column, 1-ignore_quantile)
     trimmed_indices = ((column >= lower_value) & (column <= upper_value))
@@ -165,7 +176,20 @@ class Validation():
     return column, wt
 
   def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False):
+    """
+    Sample synthetic data.
 
+    Args:
+        row (array-like): The row of data for which to sample synthetic data.
+        columns (list): List of column names for sampling. If None, uses Y_columns from data_parameters.
+        events_per_file (int): Number of events per file for sampling (default is 10**6).
+        separate (bool): Whether to separate the sampled data by source (default is False).
+        transform (bool): Whether to apply transformation to the sampled data (default is False).
+
+    Returns:
+        total_X (numpy.ndarray or dict): Sampled data.
+        total_wt (numpy.ndarray or dict): Corresponding weights.
+    """
     # Check if rows match even if empty
     if self.synth_row is None:
       matching_rows = False
@@ -335,7 +359,14 @@ class Validation():
     self.lkld.GetAndWriteScanToYaml(X, row, col, col_val, wt=wt, filename=f"{self.out_dir}/scan_results_{col}_{ind1}_{ind2}.yaml")
 
   def PlotCorrelationMatrix(self, row, columns=None, extra_dir=""):
+    """
+    Plot correlation matrix.
 
+    Args:
+        row (array-like): The row of data for which to plot the correlation matrix.
+        columns (list): List of column names for plotting. If None, uses Y_columns from data_parameters.
+        extra_dir (str): Extra directory to save the plot (default is "").
+    """
     print(">> Producing correlation matrix plots")
     X, wt = self._GetXAndWts(row, columns=columns)
     synth, synth_wt = self.Sample(row, columns=columns)
@@ -435,6 +466,18 @@ class Validation():
         )
 
   def Plot2DUnrolledGeneration(self, row, columns=None, n_unrolled_bins=5, n_bins=10, ignore_quantile=0.01, sf_diff=2, sample_row=None, extra_dir="", transform=False):
+    """
+    Plot unrolled generation comparison between simulated and synthetic data.
+
+    Args:
+        row (list): List representing the unique row for comparison.
+        columns (list): List of column names for plotting. If None, uses Y_columns from data_parameters.
+        n_bins (int): Number of bins for plotting histograms (default is 40).
+        ignore_quantile (float): Fraction of data to ignore from both ends during plotting (default is 0.01).
+        sample_row (list): List representing the unique row for synthetic data, if None will use random.
+        extra_dir (str): Extra directory to save the plot (default is "").
+        transform (bool): Whether to apply transformation to the data (default is False).
+    """
     print(">> Producing 2d unrolled generation plots")
 
     if sample_row is None: sample_row = row
@@ -719,7 +762,18 @@ class Validation():
     )
 
   def PlotBinned(self, row, columns=None, sample_row=None, extra_dir=""):
+    """
+    Plot binned generation comparison between simulated and synthetic data.
 
+    Args:
+        row (list): List representing the unique row for comparison.
+        columns (list): List of column names for plotting. If None, uses Y_columns from data_parameters.
+        n_bins (int): Number of bins for plotting histograms (default is 40).
+        ignore_quantile (float): Fraction of data to ignore from both ends during plotting (default is 0.01).
+        sample_row (list): List representing the unique row for synthetic data, if None will use random.
+        extra_dir (str): Extra directory to save the plot (default is "").
+        transform (bool): Whether to apply transformation to the data (default is False).
+    """
     sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
     sample_file_extra_name = GetYName(sample_row, purpose="file", prefix="_synth_y_")
     sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
@@ -753,7 +807,7 @@ class Validation():
         if rp == 0.0: continue
 
       bin_yields, _ = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins, inf_edges=False)
-      procs[key] = np.array([rp * bin_yields[i](sample_row_for_yield) for i in range(len(bin_yields))])
+      procs[f"{key} {sample_plot_extra_name}"] = np.array([rp * bin_yields[i](sample_row_for_yield) for i in range(len(bin_yields))])
 
       bin_yields, _ = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins, do_err=True, inf_edges=False)
       proc_err_sq += np.array([(rp * bin_yields[i](sample_row_for_yield))**2 for i in range(len(bin_yields))])
@@ -765,12 +819,11 @@ class Validation():
     else:
       add_extra_dir = ""
 
-
     plot_stacked_histogram_with_ratio(
       data_hist, 
       procs, 
       bins, 
-      data_name=f'Data', 
+      data_name=f'Data' if self.infer is not None else f"Simulated {sim_plot_extra_name}", 
       xlabel=col_name,
       ylabel="Events",
       name=f"{self.plot_dir}{add_extra_dir}/binned_{col_name}{sim_file_extra_name}{sample_file_extra_name}", 

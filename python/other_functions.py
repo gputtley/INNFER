@@ -198,6 +198,22 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   return name
 
 def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
+  """
+  Get the value of a varied row.
+
+  Args:
+      poi_vars (list): List of variables for parameters of interest.
+      nuisance_vars (list): List of variables for nuisance parameters.
+      parameters (dict): Dictionary containing parameter information.
+      poi (str): Parameter of interest.
+      nuisance (str): Nuisance parameter.
+      nuisance_val (float): Nuisance parameter value.
+      return_dict (dict): Dictionary to store return values.
+      entry_dict (dict): Dictionary containing entry information.
+
+  Returns:
+      dict: Dictionary containing the value of a varied row.
+  """
 
   # Find initial options
   #entry_dict = {}
@@ -251,7 +267,18 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
   return return_dict
 
 def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
+  """
+  Make a yield function.
 
+  Args:
+      poi_vars (list): List of variables for parameters of interest.
+      nuisance_vars (list): List of variables for nuisance parameters.
+      parameters (dict): Dictionary containing parameter information.
+      add_overflow (float): Overflow value (default is 0.25).
+
+  Returns:
+      function: Yield function.
+  """
   parameters = copy.deepcopy(parameters)
 
   if not "all" in parameters["yield"].keys():
@@ -356,7 +383,26 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
   return func
 
 def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True):
+  """
+  Make bin yields.
 
+  Args:
+      X_dataframe (DataFrame): DataFrame containing X data.
+      Y_dataframe (DataFrame): DataFrame containing Y data.
+      data_parameters (dict): Dictionary containing parameter information.
+      pois (list): List of variables for parameters of interest.
+      nuisances (list): List of variables for nuisance parameters.
+      wt (array-like): Weights array (default is None).
+      column (int): Column index (default is 0).
+      bins (array-like): Bins array (default is None).
+      min_bin_stat_frac (float): Minimum bin statistical fraction (default is 0.005).
+      return_hists (bool): Whether to return histograms (default is False).
+      do_err (bool): Whether to calculate errors (default is False).
+      inf_edges (bool): Whether to include infinite edges (default is True).
+
+  Returns:
+      tuple: Tuple containing yields and bins edges.
+  """
   if wt is None:
     wt = np.ones(len(X_dataframe))
 
@@ -397,16 +443,23 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
       total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
       hist *= total_scale/sum_hist
       if do_err:
-        hist_err_sq, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten()**2)
+        hist_err_sq, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr**2)
         hist_err_sq = hist_err_sq.astype(np.float128)
         hist_err = np.sqrt(hist_err_sq)
-        hist = hist_err * total_scale/sum_hist  
+        hist = hist_err * total_scale/sum_hist
       hists.append(hist)
 
   else:
     hist, _ = np.histogram(X_column, bins=bins_ed, weights=wt.to_numpy().flatten())
     hist = hist.astype(np.float128)
     sum_hist = float(np.sum(hist, dtype=np.float128))
+    if not inf_edges:
+      bins_inf = copy.deepcopy(bins_ed)
+      bins_inf[0] = -np.inf
+      bins_inf[-1] = np.inf
+      hist_inf, _ = np.histogram(X_column, bins=bins_inf, weights=wt.to_numpy().flatten())
+      hist_inf = hist_inf.astype(np.float128)
+      sum_hist = float(np.sum(hist_inf, dtype=np.float128))
     total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
     hist *= total_scale/sum_hist   
     if do_err:
@@ -415,9 +468,6 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
       hist_err = np.sqrt(hist_err_sq)
       hist = hist_err * total_scale/sum_hist
     hists.append(hist)
-
-  print(hists)
-  print(bins_ed)
 
   if return_hists:
     return hists, bins_ed
@@ -441,7 +491,15 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
 
 
 def MakeDirectories(file_loc):
+  """
+  Make directories.
 
+  Args:
+      file_loc (str): File location.
+
+  Returns:
+      None
+  """
   if file_loc[0] == "/":
     initial = "/"
     file_loc = file_loc[1:]
@@ -462,6 +520,18 @@ def MakeDirectories(file_loc):
       os.system(f"mkdir {full_dir}")
 
 def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+  """
+  Find keys and values in dictionaries.
+
+  Args:
+      config (dict): Configuration dictionary.
+      keys (list): List of keys (default is []).
+      results_keys (list): List of results keys (default is []).
+      results_vals (list): List of results values (default is []).
+
+  Returns:
+      tuple: Tuple containing lists of results keys and results values.
+  """
   for k, v in config.items():
     new_keys = keys+[k]
     if isinstance(v, dict):
@@ -472,6 +542,181 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
   return results_keys, results_vals
 
 def MakeDictionaryEntry(dictionary, keys, val):
+
+python
+Copy code
+def GetValidateLoop(cfg, parameters_file):
+    """
+    Generate a list of dictionaries representing parameter combinations for validation loops.
+
+    Args:
+        cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+        parameters_file (dict): Dictionary containing parameter information.
+
+    Returns:
+        list: List of dictionaries representing parameter combinations for validation loops.
+    """
+    ...
+
+
+def GetPOILoop(cfg, parameters):
+    """
+    Generate a list of dictionaries representing parameter combinations for POI loops.
+
+    Args:
+        cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+        parameters (dict): Dictionary containing parameter information.
+
+    Returns:
+        list: List of dictionaries representing parameter combinations for POI loops.
+    """
+    ...
+
+
+def GetNuisanceLoop(cfg, parameters):
+    """
+    Generate a list of dictionaries representing parameter combinations for nuisance loops.
+
+    Args:
+        cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+        parameters (dict): Dictionary containing parameter information.
+
+    Returns:
+        list: List of dictionaries representing parameter combinations for nuisance loops.
+    """
+    ...
+
+
+def GetCombinedValidateLoop(cfg, parameters):
+    """
+    Generate a list of dictionaries representing parameter combinations for combined validation loops.
+
+    Args:
+        cfg (dict): Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
+        parameters (dict): Dictionary containing parameter information.
+
+    Returns:
+        list: List of dictionaries representing parameter combinations for combined validation loops.
+    """
+    ...
+
+
+def GetYName(ur, purpose="plot", round_to=2, prefix=""):
+    """
+    Get a formatted label for a given unique row.
+
+    Args:
+        ur (list): List representing the unique row.
+        purpose (str): Purpose of the label, either "plot" or "file".
+        round_to (int): Number of decimal places to round the values (default is 2).
+
+    Returns:
+        str: Formatted label for the given unique row.
+    """
+    ...
+
+
+def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisance_val, return_dict, entry_dict):
+    """
+    Get the value of a varied row.
+
+    Args:
+        poi_vars (list): List of variables for parameters of interest.
+        nuisance_vars (list): List of variables for nuisance parameters.
+        parameters (dict): Dictionary containing parameter information.
+        poi (str): Parameter of interest.
+        nuisance (str): Nuisance parameter.
+        nuisance_val (float): Nuisance parameter value.
+        return_dict (dict): Dictionary to store return values.
+        entry_dict (dict): Dictionary containing entry information.
+
+    Returns:
+        dict: Dictionary containing the value of a varied row.
+    """
+    ...
+
+
+def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
+    """
+    Make a yield function.
+
+    Args:
+        poi_vars (list): List of variables for parameters of interest.
+        nuisance_vars (list): List of variables for nuisance parameters.
+        parameters (dict): Dictionary containing parameter information.
+        add_overflow (float): Overflow value (default is 0.25).
+
+    Returns:
+        function: Yield function.
+    """
+    ...
+
+
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True):
+    """
+    Make bin yields.
+
+    Args:
+        X_dataframe (DataFrame): DataFrame containing X data.
+        Y_dataframe (DataFrame): DataFrame containing Y data.
+        data_parameters (dict): Dictionary containing parameter information.
+        pois (list): List of variables for parameters of interest.
+        nuisances (list): List of variables for nuisance parameters.
+        wt (array-like): Weights array (default is None).
+        column (int): Column index (default is 0).
+        bins (array-like): Bins array (default is None).
+        min_bin_stat_frac (float): Minimum bin statistical fraction (default is 0.005).
+        return_hists (bool): Whether to return histograms (default is False).
+        do_err (bool): Whether to calculate errors (default is False).
+        inf_edges (bool): Whether to include infinite edges (default is True).
+
+    Returns:
+        tuple: Tuple containing yields and bins edges.
+    """
+    ...
+
+
+def MakeDirectories(file_loc):
+    """
+    Make directories.
+
+    Args:
+        file_loc (str): File location.
+
+    Returns:
+        None
+    """
+    ...
+
+
+def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+    """
+    Find keys and values in dictionaries.
+
+    Args:
+        config (dict): Configuration dictionary.
+        keys (list): List of keys (default is []).
+        results_keys (list): List of results keys (default is []).
+        results_vals (list): List of results values (default is []).
+
+    Returns:
+        tuple: Tuple containing lists of results keys and results values.
+    """
+    ...
+
+
+def MakeDictionaryEntry(dictionary, keys, val):
+  """
+  Make a dictionary entry.
+
+  Args:
+      dictionary (dict): Dictionary.
+      keys (list): List of keys.
+      val (object): Value.
+
+  Returns:
+      dict: Dictionary containing the entry.
+  """
   if len(keys) > 1:
     if keys[0] not in dictionary.keys():
       dictionary[keys[0]] = {}
@@ -481,6 +726,15 @@ def MakeDictionaryEntry(dictionary, keys, val):
   return dictionary
 
 def GetScanArchitectures(config):
+  """
+  Get scan architectures.
+
+  Args:
+      config (dict): Configuration dictionary.
+
+  Returns:
+      list: List of scan architectures.
+  """
   keys, vals = FindKeysAndValuesInDictionaries(config)
   all_lists = [v for v in vals if isinstance(v,list)]
   ind_lists = [ind for ind in range(len(vals)) if isinstance(vals[ind],list)]
