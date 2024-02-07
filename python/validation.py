@@ -175,6 +175,64 @@ class Validation():
     wt = wt[trimmed_indices].flatten()
     return column, wt
 
+  def _CustomHistogram(self, data, weights=None, bins=20):
+    """
+    Compute a custom histogram for the given data.
+
+    Args:
+        data (numpy.ndarray): Input data.
+        weights (numpy.ndarray, optional): Weights associated with the data. Defaults to None.
+        bins (int or array_like, optional): If bins is an integer, it defines the number of equal-width
+            bins in the range. If bins is an array, it defines the bin edges. Defaults to 20.
+
+    Returns:
+        numpy.ndarray: Histogram of data.
+        numpy.ndarray: Bin edges.
+    """
+    unique_vals = pd.DataFrame(data).drop_duplicates()
+    if isinstance(bins, int):
+      if len(unique_vals) < bins:
+        bins = np.sort(unique_vals.to_numpy().flatten())
+        bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+    hist, bins = np.histogram(data, weights=weights, bins=bins)
+    return hist, bins
+
+  def _MakeUnrolledBins(self, data, bins=5, sf_diff=2):
+    """
+    Make unrolled bins for the given data.
+
+    Args:
+        data (numpy.ndarray): Input data.
+        bins (int, optional): Number of bins. Defaults to 5.
+        sf_diff (int, optional): Significant figure difference. Defaults to 2.
+
+    Returns:
+        list: Unrolled bins.
+    """
+    diff = np.quantile(data, 0.75) - np.quantile(data, 0.25)
+    significant_figures = sf_diff - int(np.floor(np.log10(abs(diff)))) - 1
+    rounded_number = round(diff, significant_figures)
+    decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
+    
+    unique_vals = pd.DataFrame(data).drop_duplicates()
+
+    # Discrete and less than bins
+    if len(unique_vals) < bins:
+      unrolled_bins = np.sort(unique_vals.to_numpy().flatten())[1:]
+    # Discrete
+    elif len(unique_vals) < 20:
+      sorted_bins = np.sort(unique_vals.to_numpy().flatten())
+      unrolled_bins = [round(np.quantile(data, i/bins), min(decimal_places,significant_figures)) for i in range(1,bins)]
+      unrolled_bins = list(set(unrolled_bins))
+      if unrolled_bins[0] == sorted_bins[0]:
+        unrolled_bins = unrolled_bins[1:]
+    # Continuous
+    else:
+      unrolled_bins = [round(np.quantile(data, i/bins), min(decimal_places,significant_figures)) for i in range(1,bins)]
+
+    unrolled_bins = [-np.inf] + unrolled_bins + [np.inf]
+    return unrolled_bins
+
   def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False):
     """
     Sample synthetic data.
@@ -434,15 +492,16 @@ class Validation():
 
       trimmed_X, trimmed_wt = self._TrimQuantile(X[:,col], wt, ignore_quantile=ignore_quantile)
 
-      sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
-      sim_hist_err_sq, _  = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
+      #sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
+      sim_hist, bins =  self._CustomHistogram(trimmed_X, weights=trimmed_wt, bins=n_bins)
+      sim_hist_err_sq, _  = self._CustomHistogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
       sim_hist_err = np.sqrt(sim_hist_err_sq)
 
       synth_hists = {}
       for key in synth.keys():
-        synth_hist, _  = np.histogram(synth[key][:,col], weights=synth_wt[key], bins=bins)
+        synth_hist, _  = self._CustomHistogram(synth[key][:,col], weights=synth_wt[key], bins=bins)
         synth_hists[f"Synthetic {key} {sample_plot_extra_name}"] = synth_hist
-      synth_hist_err_sq, _  = np.histogram(synth_comb[:,col], weights=synth_comb_wt**2, bins=bins)
+      synth_hist_err_sq, _  = self._CustomHistogram(synth_comb[:,col], weights=synth_comb_wt**2, bins=bins)
       synth_hist_err = np.sqrt(synth_hist_err_sq)
       
       if extra_dir != "": 
@@ -496,20 +555,16 @@ class Validation():
       synth_column = synth_comb[:,col]
 
       # Find unrolled equal stat rounded bins
-      diff = np.quantile(synth_column, 0.75) - np.quantile(synth_column, 0.25)
-      significant_figures = sf_diff - int(np.floor(np.log10(abs(diff)))) - 1
-      rounded_number = round(diff, significant_figures)
-      decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
-      unrolled_bins.append([round(np.quantile(synth_column, i/n_unrolled_bins), min(decimal_places,significant_figures)) for i in range(1,n_unrolled_bins)])
-      unrolled_bins[col] = [-np.inf] + unrolled_bins[col] + [np.inf]
+      unrolled_bins.append(self._MakeUnrolledBins(synth_column, sf_diff=sf_diff, bins=n_unrolled_bins))
 
       # Find equally spaced plotted bins after ignoring quantile
       lower_value = np.quantile(synth_column, ignore_quantile)
       upper_value = np.quantile(synth_column, 1-ignore_quantile)
       trimmed_indices = ((synth_column >= lower_value) & (synth_column <= upper_value))
       trimmed_X = synth_column[trimmed_indices]
-      _, bins  = np.histogram(trimmed_X, bins=n_bins)
-      plot_bins.append(list(bins))      
+      trimmed_wt = synth_comb_wt.flatten()[trimmed_indices]
+      _, bins  = self._CustomHistogram(trimmed_X, weights=trimmed_wt, bins=n_bins)
+      plot_bins.append(list(bins))
 
     for plot_col in range(X.shape[1]):
       for unrolled_col in range(X.shape[1]):
@@ -522,14 +577,15 @@ class Validation():
           synth_err_hists = []
           X_hists = []
           X_err_hists = []
-          for unrolled_bin_ind in range(n_unrolled_bins):
+          for unrolled_bin_ind in range(len(unrolled_bins[unrolled_col])-1):
+
             unrolled_bin = [unrolled_bins[unrolled_col][unrolled_bin_ind], unrolled_bins[unrolled_col][unrolled_bin_ind+1]]
 
             synth_unrolled_bin_indices = ((synth[key][:,unrolled_col] >= unrolled_bin[0]) & (synth[key][:,unrolled_col] < unrolled_bin[1]))
             synth_unrolled_bin = synth[key][synth_unrolled_bin_indices]
             synth_unrolled_bin_wt = synth_wt[key][synth_unrolled_bin_indices]
 
-            synth_hist, _  = np.histogram(synth_unrolled_bin[:,plot_col], weights=synth_unrolled_bin_wt, bins=plot_bins[plot_col])
+            synth_hist, _  = self._CustomHistogram(synth_unrolled_bin[:,plot_col], weights=synth_unrolled_bin_wt, bins=plot_bins[plot_col])
             synth_hists.append(synth_hist)
 
           synth_hists_full[f"Synthetic {key} {sample_plot_extra_name}"] = synth_hists
@@ -538,7 +594,7 @@ class Validation():
         X_hists = []
         X_err_hists = []
         synth_err_hists = []
-        for unrolled_bin_ind in range(n_unrolled_bins):
+        for unrolled_bin_ind in range(len(unrolled_bins[unrolled_col])-1):
 
           unrolled_bin = [unrolled_bins[unrolled_col][unrolled_bin_ind], unrolled_bins[unrolled_col][unrolled_bin_ind+1]]
 
@@ -546,15 +602,15 @@ class Validation():
           synth_unrolled_bin = synth_comb[synth_unrolled_bin_indices]
           synth_unrolled_bin_wt = synth_comb_wt[synth_unrolled_bin_indices]
 
-          synth_hist_err_sq, _  = np.histogram(synth_unrolled_bin[:,plot_col], weights=synth_unrolled_bin_wt**2, bins=plot_bins[plot_col])
+          synth_hist_err_sq, _  = self._CustomHistogram(synth_unrolled_bin[:,plot_col], weights=synth_unrolled_bin_wt**2, bins=plot_bins[plot_col])
           synth_hist_err = np.sqrt(synth_hist_err_sq)
           synth_err_hists.append(synth_hist_err)
 
           X_unrolled_bin_indices = ((X[:,unrolled_col] >= unrolled_bin[0]) & (X[:,unrolled_col] < unrolled_bin[1]))
           X_unrolled_bin = X[X_unrolled_bin_indices]
           wt_unrolled_bin = wt[X_unrolled_bin_indices].flatten()
-          X_hist, _  = np.histogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin, bins=plot_bins[plot_col])
-          X_hist_err_sq, _  = np.histogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin**2, bins=bins)
+          X_hist, _  = self._CustomHistogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin, bins=plot_bins[plot_col])
+          X_hist_err_sq, _  = self._CustomHistogram(X_unrolled_bin[:,plot_col], weights=wt_unrolled_bin**2, bins=plot_bins[plot_col])
           X_hist_err = np.sqrt(X_hist_err_sq)
 
           X_hists.append(X_hist)
