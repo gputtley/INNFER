@@ -6,9 +6,10 @@ import sys
 import copy
 import wandb
 import numpy as np
+import pyfiglet as pyg
 from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetScanArchitectures, MakeDirectories
 from pprint import pprint
-
+import pyfiglet as pyg
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -29,6 +30,7 @@ def parse_args():
   parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
   parser.add_argument('--do-binned-fit', help= 'Do an extended binned fit instead of an extended unbinned fit.',  action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+  parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
   args = parser.parse_args()
 
@@ -157,7 +159,7 @@ def main(args, architecture=None):
 
           # Initiate wandb
           if args.use_wandb and args.step == "Train" and args.submit is None:
-            wandb.init(project='wandb', name=f"{cfg['name']}_{file_name}", config=architecture)
+            wandb.init(project=args.wandb_project_name, name=f"{cfg['name']}_{file_name}", config=architecture)
             wandb.run.name += f"_{hyper_scan_ind}"
 
           # Batch submission for hyperparameter scans
@@ -472,7 +474,9 @@ def main(args, architecture=None):
 if __name__ == "__main__":
 
   start_time = time.time()
-  print("Running INNFER")
+  title = pyg.figlet_format("INNFER")
+  print()
+  print(title)
 
   args = parse_args()
   main(args)

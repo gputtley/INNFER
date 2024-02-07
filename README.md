@@ -106,6 +106,19 @@ data_file:
 
 From this, the INNFER workflow can then be run with the same commands as in the benchmark case but replacing `--benchmark="Gaussian"` with `--cfg="configs/run/susy_example.yaml"`. The Infer step can be performed with the same commands as for ValidateInference but with `--step="Infer"`.
 
+## Running from Hyperparameter Scan
+
+To run a hyperparameter scan using wandb you first must set up an account at [https://wandb.ai/](https://wandb.ai/). Then you must connect your terminal to your account with the command,
+```
+wandb login
+```
+You will need to enter the API given on the website.
+
+Now you can run innfer with the following command,
+```
+python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="configs/architecture/scan.yaml" --scan-hyperparameters --use-wandb
+```
+
 ## Structure of Code
 
 The code is built off of the several classes in the `python` directory. A brief explanation of each one is shown below.
