@@ -30,4 +30,5 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   pip3 install scikit-learn
   pip3 install wandb
   pip3 install pyfiglet
+  pip3 install xgboost
 fi
