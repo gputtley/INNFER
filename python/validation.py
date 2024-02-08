@@ -1,7 +1,7 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
 from data_loader import DataLoader
-from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
+from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_validation_summary
 from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
 from functools import partial
@@ -686,7 +686,8 @@ class Validation():
 
       nlls = []
       for x_val in x:
-        test_row = copy.deepcopy(best_fit)
+        #test_row = copy.deepcopy(best_fit)
+        test_row = copy.deepcopy(row)
         test_row[ind] = x_val
         nlls.append(-2*self.lkld.Run(X, test_row, wts=wt, return_ln=True))
 
@@ -888,4 +889,69 @@ class Validation():
       title_right="",
       use_stat_err=False,
       axis_text="",
+      )
+
+  def PlotValidationSummary(self, results, true_pdf=None, extra_dir=""):
+    """
+    Plot a validation summary.
+
+    Args:
+        results (dict): Dictionary containing the validation results.
+        true_pdf (dict): Dictionary containing the true PDFs (default is None).
+        extra_dir (str): Extra directory to save the plot (default is "").
+    """
+    plot_dict = {}
+    other_summaries = {}
+    if true_pdf is not None:
+      other_summaries["True PDF"] = {}
+
+    for col, col_vals in results.items():
+      plot_dict[col] = {}
+      if true_pdf is not None:
+        other_summaries["True PDF"][col] = {}      
+
+      for _, info in col_vals.items():
+        norm_crossings = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in info['crossings'].items()}
+        plot_dict[col][GetYName(info["row"],purpose="plot",prefix="y=")] = norm_crossings
+    
+        # make true likelihood
+        if true_pdf is not None:
+          def Probability(X, Y, y_columns=None, k=None, **kwargs):
+            Y = np.array(Y)
+            if y_columns is not None:
+              column_indices = [y_columns.index(col) for col in self.data_parameters[k]["Y_columns"]]
+              Y = Y[:,column_indices]
+            if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
+            prob = np.zeros(len(X))
+            for i in range(len(X)):
+              prob[i] = true_pdf[k](X[i],Y[i])
+            return np.log(prob)
+          
+          for k in self.lkld.models["pdfs"].keys():
+            self.lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
+
+          X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
+          nlls = []
+          for x_val in info["scan_values"]:
+            test_row = copy.deepcopy(info["row"])
+            test_row[info["columns"].index(info["varied_column"])] = x_val
+            nlls.append(-2*self.lkld.Run(X, test_row, wts=wt, return_ln=True))
+
+          min_nll = min(nlls)
+          nlls = [nll - min_nll for nll in nlls]
+
+          true_crossings = self.lkld.FindCrossings(info["scan_values"], nlls, crossings=[1, 2])
+          true_norm_crossings = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in true_crossings.items()}
+          other_summaries["True PDF"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = true_norm_crossings
+
+    if extra_dir != "": 
+      add_extra_dir = f"/{extra_dir}"
+    else:
+      add_extra_dir = ""
+
+    plot_validation_summary(
+      plot_dict, 
+      name=f"{self.plot_dir}{add_extra_dir}/validation_summary",
+      nominal_name="Learned",
+      other_summaries=other_summaries,
       )

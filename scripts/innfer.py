@@ -7,7 +7,7 @@ import copy
 import wandb
 import numpy as np
 import pyfiglet as pyg
-from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetScanArchitectures, MakeDirectories
+from other_functions import GetValidateLoop, GetPOILoop, GetNuisanceLoop, GetCombinedValidateLoop, GetScanArchitectures, GetYName, MakeDirectories
 from pprint import pprint
 import pyfiglet as pyg
 
@@ -26,7 +26,7 @@ def parse_args():
   parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=100)
   parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
   parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
-  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot","All"])
+  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot","Summary","All"])
   parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
   parser.add_argument('--do-binned-fit', help= 'Do an extended binned fit instead of an extended unbinned fit.',  action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
@@ -257,6 +257,15 @@ def main(args, architecture=None):
       # Skip if it doesn't pass the criteria
       if args.specific_file != None and args.specific_file != file_name: continue
 
+      # Define true pdf
+      if args.benchmark is not None:
+        if file_name == "combined":
+          pdf = {name : benchmark.GetPDF(name) for name in cfg["files"].keys()}
+        else:
+          pdf = {file_name : benchmark.GetPDF(file_name)}
+      else:
+        pdf = None
+
       if args.submit is None:
 
         # Set up validation class
@@ -441,17 +450,8 @@ def main(args, architecture=None):
             with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit_{ind}.yaml", 'r') as yaml_file:
               best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
             for col in info["columns"]:
-              print(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml")
               with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
                 scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-              if args.benchmark is not None:
-                if file_name == "combined":
-                  pdf = {name : benchmark.GetPDF(name) for name in cfg["files"].keys()}
-                else:
-                  pdf = {file_name : benchmark.GetPDF(file_name)}
-              else:
-                pdf = None
 
               val.PlotLikelihood(
                 scan_results_info["scan_values"], 
@@ -473,6 +473,25 @@ def main(args, architecture=None):
             else:
               val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
+      if args.step == "ValidateInference" and args.sub_step in ["Summary","All"]:
+
+        print("- Plotting summary of the validation by inference")
+
+        if len(info["row"]) == 0: 
+          continue
+
+        results = {}
+        for ind, info in enumerate(val_loop):
+          info_name = GetYName(info["row"],purpose="file")
+          for col in info["columns"]:
+            with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
+              scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+            if col not in results.keys():
+              results[col] = {info_name:scan_results_info}
+            else:
+              results[col][info_name] = scan_results_info
+
+        val.PlotValidationSummary(results, true_pdf=pdf, extra_dir="Summary")
 
 
 if __name__ == "__main__":

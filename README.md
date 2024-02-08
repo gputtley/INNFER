@@ -36,6 +36,7 @@ Each of these steps are run through the `scripts/innfer.py` code, with the `--st
 * Scan
 * Collect
 * Plot
+* Summary
 
 ## Running from Benchmark
 
@@ -64,6 +65,9 @@ python3 scripts/innfer.py --step="ValidateInference" --sub-step="Collect" --benc
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchmark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="Summary" --benchmark="Gaussian"
 ```
 There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`. Running INNFER on a batch is highly recommended in all cases.
 
