@@ -748,3 +748,143 @@ def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
+
+def plot_validation_summary(
+    crossings, 
+    name="validation_summary", 
+    nominal_name="",
+    show2sigma=True, 
+    other_summaries={},
+    other_colors=["red","green","orange"],
+    ):
+  """
+  Plot a validation summary.
+
+  Args:
+      crossings (dict): Dictionary of crossing points.
+      name (str, optional): Name of the output plot file (default is "validation_summary").
+      nominal_name (str, optional): Name of the nominal value (default is "").
+      show2sigma (bool, optional): Whether to show 2 sigma (default is True).
+      other_summaries (dict, optional): Other summaries to plot (default is {}).
+      other_colors (list, optional): Colors for other summaries (default is ["red","green","orange"]).
+  """
+  if nominal_name != "":
+    nominal_name += " "
+
+  legend_width = 0.2
+  n_pads = len(list(crossings.keys()))
+  fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
+  plt.subplots_adjust(left=0.2, right=0.95)
+  hep.cms.text("Work in progress",ax=ax[0])
+
+  for ind, (col, vals) in enumerate(crossings.items()):
+
+    x = []
+    y = []
+    x_err_lower = []
+    x_err_higher = []
+    if show2sigma:
+      x_2err_lower = []
+      x_2err_higher = []
+
+    other_x = {}
+    other_x_err_lower = {}
+    other_x_err_higher = {}
+    if show2sigma:
+      other_x_2err_lower = {}
+      other_x_2err_higher = {}
+    for k in other_summaries.keys():
+      other_x[k] = []
+      other_x_err_lower[k] = []
+      other_x_err_higher[k] = []
+      if show2sigma:
+        other_x_2err_lower[k] = []
+        other_x_2err_higher[k] = []   
+
+    for val_ind, (key, val) in enumerate(vals.items()):
+
+      y.append(-1*val_ind)
+      x.append(val[0])
+      for k, v in other_summaries.items():
+        other_x[k].append(v[col][key][0])
+
+      if -1 in val.keys():
+        x_err_lower.append(val[0]-val[-1])
+      else:
+        x_err_lower.append(0.0)
+
+      if 1 in val.keys():
+        x_err_higher.append(val[1]-val[0])
+      else:
+        x_err_higher.append(0.0)
+
+      for k, v in other_summaries.items():
+        if -1 in v[col][key].keys():
+          other_x_err_lower[k].append(v[col][key][0]-v[col][key][-1])
+        else:
+          other_x_err_lower.append(0.0)
+
+        if 1 in v[col][key].keys():
+          other_x_err_higher[k].append(v[col][key][1]-v[col][key][0])
+        else:
+          other_x_err_higher[k].append(0.0)
+
+      if show2sigma:
+        if -2 in val.keys():
+          x_2err_lower.append(val[0]-val[-2])
+        else:
+          x_2err_lower.append(0.0)
+
+        if 2 in val.keys():
+          x_2err_higher.append(val[2]-val[0])
+        else:
+          x_2err_higher.append(0.0)    
+
+        for k, v in other_summaries.items():
+          if -2 in v[col][key].keys():
+            other_x_2err_lower[k].append(v[col][key][0]-v[col][key][-2])
+          else:
+            other_x_2err_lower[k].append(0.0)
+
+          if 2 in v[col][key].keys():
+            other_x_2err_higher[k].append(v[col][key][2]-v[col][key][0])
+          else:
+            other_x_2err_higher[k].append(0.0)
+
+    if show2sigma:
+      ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba("blue", alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], y, xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
+
+    ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba("blue", alpha=0.5), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
+    for k_ind, k in enumerate(other_summaries.keys()):
+      ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
+
+    ax[ind].axvline(x=1, color='black', linestyle='--') 
+    ax[ind].set_xlabel(col)
+    if ind == 0:
+      ax[ind].set_yticks([-1*i for i in range(len(list(vals.keys())))])
+      ax[ind].set_yticklabels(list(vals.keys()))
+    else:
+      ax[ind].tick_params(labelleft=False)      
+
+  # Legend
+  ax[-1].spines['top'].set_visible(False)
+  ax[-1].spines['right'].set_visible(False)
+  ax[-1].spines['left'].set_visible(False)
+  ax[-1].spines['bottom'].set_visible(False)
+  ax[-1].tick_params(axis='both', which='both', bottom=False, top=False, left=False, right=False,
+                labelbottom=False, labeltop=False, labelleft=False, labelright=False)
+
+  handles, labels = ax[0].get_legend_handles_labels()
+  handles = handles[::-1]
+  labels = labels[::-1]
+  legend = ax[-1].legend(handles, labels, loc='center', frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+  max_label_length = 15  # Adjust the maximum length of each legend label
+  for text in legend.get_texts():
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()

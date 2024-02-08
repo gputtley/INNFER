@@ -638,6 +638,8 @@ class Likelihood():
         sorted_indices = np.argsort(filtered_y)
         filtered_x = filtered_x[sorted_indices]
         filtered_y = filtered_y[sorted_indices]
+        filtered_x = filtered_x.astype(np.float64)
+        filtered_y = filtered_y.astype(np.float64)
         if len(filtered_y) > 1:
           if crossing**2 > min(filtered_y) and crossing**2 < max(filtered_y):
             values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
