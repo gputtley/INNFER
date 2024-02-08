@@ -238,7 +238,7 @@ class Benchmarks():
       # gaussian
       std = self.model_parameters[self.name]["signal_resolution"] * Y[0]
       mean = Y[0]
-      gaussian_pdf = (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-X[0] - mean) ** 2 / (2 * std**2)
+      gaussian_pdf = (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-(X[0] - mean)**2 / (2 * std**2))
 
       # chi
       k_chi = self.model_parameters[self.name]["chi"] + (Y[0] - 173.0) * 0.1
