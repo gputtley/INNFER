@@ -5,6 +5,7 @@ import bayesflow as bf
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 import gc
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
@@ -12,6 +13,7 @@ from preprocess import PreProcess
 from plotting import plot_histograms
 from scipy import integrate
 from other_functions import GetYName, MakeDirectories
+from sklearn.metrics import roc_auc_score
 
 class Network():
   """
@@ -218,7 +220,7 @@ class Network():
         y_label = "Loss"
       )
 
-  def Sample(self, Y, columns=None, n_events=10**6, transform=False):
+  def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False):
     """
     Generate synthetic data samples.
 
@@ -237,7 +239,8 @@ class Network():
       Y = Y[:,column_indices]
     pp = PreProcess()
     pp.parameters = self.data_parameters
-    Y = pp.TransformData(pd.DataFrame(Y, columns=self.data_parameters["Y_columns"])).to_numpy()
+    if not Y_transformed:
+      Y = pp.TransformData(pd.DataFrame(Y, columns=self.data_parameters["Y_columns"])).to_numpy()
     data = {
       "direct_conditions" : Y.astype(np.float32)
     }
@@ -396,3 +399,47 @@ class Network():
 
     if verbose: print(f"Integral for Y is {integral}")
     return integral
+
+  def SeparateDistributions(self, dataset="train"):
+    """
+    Gets the AUC score when trying to separate the datasets with a Boosted Decision Tree (BDT).
+
+    Args:
+        dataset (str): The dataset to use, either "train" or "test" (default is "train").
+
+    Returns:
+        float: Absolute difference between 0.5 and the AUC score.
+    """
+    print(">> Getting AUC score when trying to separate the datasets with a BDT.")
+
+    if dataset == "train":
+      Y = self.Y_train.LoadFullDataset()
+      x1 = self.X_train.LoadFullDataset()
+      wt1 = self.wt_train.LoadFullDataset()
+    elif dataset == "test":
+      Y = self.Y_test.LoadFullDataset()
+      x1 = self.X_test.LoadFullDataset()
+      wt1 = self.wt_test.LoadFullDataset()
+
+    x1 = np.hstack((x1, Y))
+    y1 = np.zeros(len(x1)).reshape(-1,1)
+    wt1 = wt1.to_numpy()
+
+    x2 = self.Sample(Y, transform=True, Y_transformed=True)
+    x2 = np.hstack((x2, Y))
+    y2 = np.ones(len(x2)).reshape(-1,1)
+    wt2 = np.ones(len(x2)).reshape(-1,1)
+    wt1 *= np.sum(wt2)/np.sum(wt1)
+
+    x = np.vstack((x1,x2))
+    y = np.vstack((y1,y2))
+    wt = np.vstack((wt1,wt2))
+
+    del x1, x2, y1, y2, wt1, wt2, Y
+    gc.collect()
+
+    clf = xgb.XGBClassifier()
+    clf.fit(x, y, sample_weight=wt)
+    y_prob = clf.predict_proba(x)[:, 1]
+    auc = roc_auc_score(y, y_prob)
+    return float(abs(0.5-auc))

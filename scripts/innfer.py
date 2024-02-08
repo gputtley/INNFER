@@ -202,19 +202,21 @@ def main(args, architecture=None):
             networks[file_name].use_wandb = args.use_wandb
             networks[file_name].BuildTrainer()
             networks[file_name].Train()
+
+            # Calculate separation score
+            sep_score = networks[file_name].SeparateDistributions(dataset="test")
             if args.use_wandb:
+              wandb.log({"separation_score":sep_score})
               wandb.finish()
 
             # Check if model should be saved
-            val_loss = float(min(networks[file_name].trainer.loss_history._total_val_loss))
-            loss_dump_file = f"models/{cfg['name']}/{file_name}_val_loss.yaml"
-            if not args.scan_hyperparameters or not os.path.isfile(loss_dump_file):
+            sep_score_dump_file = f"models/{cfg['name']}/{file_name}_sep_score.yaml"
+            if not args.scan_hyperparameters or not os.path.isfile(sep_score_dump_file):
               save_model = True
             else:
-              with open(loss_dump_file, 'r') as yaml_file:
-                loss_dump = yaml.load(yaml_file, Loader=yaml.FullLoader)
-              val_loss = float(min(networks[file_name].trainer.loss_history._total_val_loss))
-              if val_loss < loss_dump["val_loss"]:
+              with open(sep_score_dump_file, 'r') as yaml_file:
+                sep_score_dump = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              if sep_score < sep_score_dump["sep_score"]:
                 save_model = True
               else:
                 save_model = False        
@@ -224,14 +226,16 @@ def main(args, architecture=None):
               networks[file_name].Save(name=f"models/{cfg['name']}/{file_name}.h5")
               with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                 yaml.dump(run_architecture, file)
-              with open(loss_dump_file, 'w') as file:
-                yaml.dump({"val_loss": val_loss}, file)            
+              with open(sep_score_dump_file, 'w') as file:
+                yaml.dump({"sep_score": sep_score}, file)            
 
           else:
             # Load model
             print(f"- Loading model {file_name}")
             networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-            networks[file_name].data_parameters = parameters[file_name]    
+            networks[file_name].data_parameters = parameters[file_name]
+            #print("Separation Score:", networks[file_name].SeparateDistributions(dataset="test"))
+            #exit()
     
 
   ### Do validation of trained model ###
