@@ -14,7 +14,6 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 seed = 42
 os.environ['PYTHONHASHSEED']=str(seed)
-os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 tf.random.set_seed(seed)
 tf.keras.utils.set_random_seed(seed)
 np.random.seed(seed)
@@ -111,9 +110,6 @@ class InnferTrainer(bf.trainers.Trainer):
                disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
-               #print(disp_str)
-               #exit()
-
 
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)

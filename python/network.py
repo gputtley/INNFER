@@ -14,6 +14,7 @@ from plotting import plot_histograms
 from scipy import integrate
 from other_functions import GetYName, MakeDirectories
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 
 class Network():
   """
@@ -36,7 +37,6 @@ class Network():
     self.coupling_design = "affine"
     self.units_per_coupling_layer = 128
     self.num_dense_layers = 2
-    self.num_coupling_layers = 8
     self.activation = "relu"
 
     # Training parameters
@@ -149,14 +149,29 @@ class Network():
     if self.lr_scheduler_name == "ExponentialDecay":
       self.lr_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(
         self.trainer.default_lr, 
-        decay_rate=self.lr_scheduler_options["decay_rate"],
+        decay_rate=self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.9,
         decay_steps=int(self.X_train.num_rows/self.batch_size)
+      )
+    elif self.lr_scheduler_name == "PolynomialDecay":
+      self.lr_scheduler = tf.keras.optimizers.schedules.PolynomialDecay(
+          initial_learning_rate=self.trainer.default_lr,
+          decay_steps=self.lr_scheduler_options["decay_steps"] if "decay_steps" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
+          end_learning_rate=self.lr_scheduler_options["end_lr"] if "end_lr" in self.lr_scheduler_options.keys() else 0.0,
+          power=self.lr_scheduler_options["power"] if "power" in self.lr_scheduler_options.keys() else 1.0,
+      )
+    elif self.lr_scheduler_name == "CosineDecay":
+      self.lr_scheduler = tf.keras.experimental.CosineDecay(
+          initial_learning_rate=self.trainer.default_lr,
+          decay_steps=self.lr_scheduler_options["decay_steps"] if "decay_steps" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
+          alpha=self.lr_scheduler_options["alpha"] if "alpha" in self.lr_scheduler_options.keys() else 0.0
       )
     else:
       print("ERROR: lr_schedule not valid.")
 
     if self.optimizer_name == "Adam":
       self.optimizer = tf.keras.optimizers.Adam(self.lr_scheduler)
+    elif self.optimizer_name == "AdamW":
+      self.optimizer = tf.keras.optimizers.AdamW(self.lr_scheduler)
     elif self.optimizer_name == "SGD":
         self.optimizer = tf.keras.optimizers.SGD(self.lr_scheduler)
     elif self.optimizer_name == "RMSprop":
@@ -435,11 +450,19 @@ class Network():
     y = np.vstack((y1,y2))
     wt = np.vstack((wt1,wt2))
 
-    del x1, x2, y1, y2, wt1, wt2, Y
+    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
+
+    X_train = X_wt_train[:,:-1]
+    X_test = X_wt_test[:,:-1]
+    wt_train = X_wt_train[:,-1]
+    wt_test = X_wt_test[:,-1]
+
+    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
     gc.collect()
 
     clf = xgb.XGBClassifier()
-    clf.fit(x, y, sample_weight=wt)
-    y_prob = clf.predict_proba(x)[:, 1]
-    auc = roc_auc_score(y, y_prob)
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+    y_prob = clf.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_prob, sample_weight=wt_test)
+
     return float(abs(0.5-auc))
