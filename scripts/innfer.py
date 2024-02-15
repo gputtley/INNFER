@@ -26,12 +26,13 @@ def parse_args():
   parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=100)
   parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
   parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
-  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot","Summary","All"])
+  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot","Summary","All","Debug"])
   parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
   parser.add_argument('--do-binned-fit', help= 'Do an extended binned fit instead of an extended unbinned fit.',  action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
+  parser.add_argument('--continue-training', help='Continue training pre-saved NN.', action='store_true')
   args = parser.parse_args()
 
   if args.cfg is None and args.benchmark is None:
@@ -197,7 +198,11 @@ def main(args, architecture=None):
           if args.step == "Train":
             # Train model
             print(f"- Training model {file_name}")
-            networks[file_name].BuildModel()
+
+            if args.continue_training:
+              networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
+            else:
+              networks[file_name].BuildModel()
             networks[file_name].disable_tqdm =  args.disable_tqdm
             networks[file_name].use_wandb = args.use_wandb
             networks[file_name].BuildTrainer()
@@ -205,6 +210,7 @@ def main(args, architecture=None):
 
             # Calculate separation score
             sep_score = networks[file_name].SeparateDistributions(dataset="test")
+            print(">> Separation Score:", sep_score)
             if args.use_wandb:
               wandb.log({"separation_score":sep_score})
               wandb.finish()
@@ -284,6 +290,7 @@ def main(args, architecture=None):
             "lower_validation_stats":args.lower_validation_stats if args.step == "ValidateInference" else None,
             "do_binned_fit":args.do_binned_fit,
             "var_and_bins": None if not args.do_binned_fit or "var_and_bins" not in cfg["inference"] else cfg["inference"]["var_and_bins"],
+            "calculate_columns_for_plotting": cfg["validation"]["calculate_columns_for_plotting"] if "calculate_columns_for_plotting" in cfg["validation"] else {},
             "validation_options": cfg["inference"] if file_name == "combined" else {}
             }
           )
@@ -323,6 +330,7 @@ def main(args, architecture=None):
           val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1D")
           val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1DTransformed", transform=True)
           if len(val.X_columns) > 1:
+            val.Plot2DPulls(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DPulls")
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2D")
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DTransformed", transform=True)
             val.PlotCorrelationMatrix(info["row"], columns=info["columns"], extra_dir="GenerationCorrelation")        
@@ -348,6 +356,9 @@ def main(args, architecture=None):
           # Build the likelihood likelihood
           if args.submit is None:
             val.BuildLikelihood()
+
+          if args.sub_step == "Debug":
+            val.DoDebug(info["row"], columns=info["columns"])
 
           if args.sub_step in ["InitialFit","All"]:
 
@@ -473,7 +484,7 @@ def main(args, architecture=None):
             else:
               val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
-      if args.step == "ValidateInference" and args.sub_step in ["Summary","All"]:
+      if args.step == "ValidateInference" and args.sub_step in ["Summary","All"] and args.submit is None:
 
         print("- Plotting summary of the validation by inference")
 

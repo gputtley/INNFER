@@ -27,6 +27,9 @@ class Likelihood():
     self.parameters = parameters
     self.data_parameters = data_parameters
     self.Y_columns = self._MakeY()
+    self.debug_mode = False
+    self.debug_hists = {}
+    self.debug_bins = {}
     # saved parameters
     self.best_fit = None
     self.best_fit_nll = None
@@ -114,6 +117,21 @@ class Likelihood():
 
       # Get rate times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+
+      if self.debug_mode:
+        print(">> Making debug histograms")
+        for x_col in range(X.shape[1]):
+          y_name = GetYName(Y, purpose='plot', prefix="y=")
+          col_name = self.data_parameters[name]['X_columns'][x_col]
+          hist, bins = np.histogram(X[:,x_col], weights=wts.flatten()*log_p.flatten(), bins=40)
+          if col_name not in self.debug_hists.keys():
+            self.debug_hists[col_name] = {}
+          if y_name not in self.debug_hists[col_name].keys():
+            self.debug_hists[col_name][y_name] = {}
+          self.debug_hists[col_name][y_name] = copy.deepcopy(hist)
+          if col_name not in self.debug_bins.keys():
+            self.debug_bins[col_name] = bins
+
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
       # Sum together probabilities of different files

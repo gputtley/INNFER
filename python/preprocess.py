@@ -1,12 +1,13 @@
 import gc
 import yaml
 import copy
+import pickle
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
 import pandas as pd
 from data_loader import DataLoader
-from plotting import plot_histograms
+from plotting import plot_histograms, plot_spline_and_thresholds
 from sklearn.model_selection import train_test_split
 from other_functions import GetYName, MakeDirectories
 from scipy.interpolate import CubicSpline
@@ -82,12 +83,18 @@ class PreProcess():
     # Identify discrete columns
     print(">> Identifying discrete columns and finding thresholds.")
     self.parameters["discrete_thresholds"] = {}
+    self.parameters["spline_locations"] = {}
     for col in self.X_columns:
       unique_vals = full_dataset[col].drop_duplicates()
       if len(unique_vals) < 20:
         col_data = full_dataset[col]
-        thresholds = self.FindDiscreteToContinuousThresholds(col_data)
+        thresholds, spline, uv, counts = self.FindDiscreteToContinuousThresholds(col_data, full_dataset.loc[:,"wt"], return_info=True)
+        spline_loc = f"{self.output_dir}/spline_{col}.pkl"
+        with open(spline_loc, 'wb') as file:
+          pickle.dump(spline, file)
         self.parameters["discrete_thresholds"][col] = thresholds
+        self.parameters["spline_locations"][col] = spline_loc
+        plot_spline_and_thresholds(spline, thresholds, uv, counts, x_label=col, name=f"{self.plot_dir}/spline_for_{col}")
 
     # Get sum of weights for each unique y combination
     print(">> Finding sum of weights for each unique y combination.")
@@ -199,7 +206,7 @@ class PreProcess():
     with open(self.output_dir+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(self.parameters, yaml_file, default_flow_style=False)        
 
-  def FindDiscreteToContinuousThresholds(self, data):
+  def FindDiscreteToContinuousThresholds(self, data, weights, return_info=False):
     """
     Calculate the thresholds for converting discrete values to continuous ranges using quantile binning.
     
@@ -209,12 +216,10 @@ class PreProcess():
     Returns:
         dict: A dictionary containing the threshold for each value.
     """
-    unique_vals = data.value_counts().sort_index().index
-    counts = data.value_counts().sort_index().values
-    x = np.array(unique_vals)
-    y = np.array(counts)
+    x = np.array(list(data.value_counts().sort_index().index))
+    y = np.array([float(np.sum(weights[(data == i)])) for i in x])
 
-    cs = self.Spline(data)
+    cs = self.Spline(x, y)
     
     # Find initial integral
     x_range = np.linspace(min(x), max(x), 10000)
@@ -233,25 +238,28 @@ class PreProcess():
     searching_for_ind = 0
     cuts = [min(x)]
     for bin_ind, bin_val in enumerate(cum_integral_fractions[1:]):
-        if cum_integral_fractions[bin_ind] <= y_cum_norm[searching_for_ind] and cum_integral_fractions[bin_ind + 1] > y_cum_norm[searching_for_ind]:
-            cuts.append(x_range[bin_ind + 1])
-            searching_for_ind += 1
-            if searching_for_ind >= len(y_cum_norm):
-                break
+      if cum_integral_fractions[bin_ind] <= y_cum_norm[searching_for_ind] and cum_integral_fractions[bin_ind + 1] > y_cum_norm[searching_for_ind]:
+        cuts.append(x_range[bin_ind + 1])
+        searching_for_ind += 1
+        if searching_for_ind >= len(y_cum_norm):
+          break
     cuts.append(max(x))
 
     # Set up dictionary of inputs and output ranges
     output_ranges = {}
     for ind in range(len(x)):
-        output_ranges[x[ind]] = [cuts[ind], cuts[ind + 1]]
+      output_ranges[x[ind]] = [cuts[ind], cuts[ind + 1]]
 
     thresholds = {float(k): [float(v[0]), float(v[1])] for k, v in output_ranges.items()}
 
-    return thresholds
+    if return_info:
+      return thresholds, cs, x, y
+    else:
+      return thresholds, cs
 
 
   # Determine the spline function for the discrete function
-  def Spline(self, data):
+  def Spline(self, x, y):
     """
     Create a spline function based on the unique values of a specified column.
 
@@ -261,21 +269,11 @@ class PreProcess():
     Returns:
         function: A spline function.
     """
-    # Initialise cs to None
-    cs = None
-    unique_vals = data.value_counts().sort_index().index
-    counts = data.value_counts().sort_index().values
-
-    # Create spline function
-    x = np.array(unique_vals)
-    y = np.array(counts)
-
     cs = CubicSpline(x, y)
-
     return cs 
 
   # Define function for data transformation between discrete and continous 
-  def DiscreteToContinuous(self, data, column_name, inverse = False):
+  def DiscreteToContinuous(self, data, column_name, inverse=False):
     """
     Apply discrete to continuous transformation on a column or its inverse.
 
@@ -293,7 +291,8 @@ class PreProcess():
 
     if not inverse:
       data = data.astype(float)
-      spline = self.Spline(data)
+      with open(self.parameters["spline_locations"][column_name], 'rb') as file:
+        spline = pickle.load(file)
       
     for k, v in output_ranges.items():
       if not inverse:
@@ -311,7 +310,12 @@ class PreProcess():
         data[indices] = np.interp(random_nums, cdf_vals, param_values)
       else:
         # Get indices
-        indices = ((data >= v[0])) & (data < v[1])
+        if k == min(list(output_ranges.keys())):
+          indices = (data < v[1])
+        elif k == max(list(output_ranges.keys())):
+          indices = (data >= v[0])
+        else:
+          indices = ((data >= v[0])) & (data < v[1])
         # Do inverse
         data[indices] = k
 
@@ -675,3 +679,5 @@ class PreProcess():
         anchor_y_at_0 = True,
         drawstyle = "steps",
       )
+
+

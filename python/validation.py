@@ -1,7 +1,7 @@
 from preprocess import PreProcess
 from likelihood import Likelihood
 from data_loader import DataLoader
-from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_validation_summary
+from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_validation_summary, plot_heatmap
 from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
 from functools import partial
@@ -37,8 +37,11 @@ class Validation():
     self.out_dir = "./data/"
     self.plot_dir = "./plots/"
     self.validation_options = {}
+    self.calculate_columns_for_plotting = {}
     self._SetOptions(options)
     self.X_columns = self.data_parameters[list(self.data_parameters.keys())[0]]["X_columns"]
+    self.X_plot_columns = copy.deepcopy(self.X_columns)
+
 
     # Data storage
     self.synth = None
@@ -57,7 +60,7 @@ class Validation():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, ignore_infer=False, transform=False):
+  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, ignore_infer=False, transform=False, add_columns=False):
     """
     Extract data and weights for a given row.
 
@@ -127,6 +130,12 @@ class Validation():
             if rp == 0.0: continue
             wt *= rp
 
+        # Add column
+        if add_columns:
+          X = self.AddColumns(X)
+        else:
+          self.X_plot_columns = copy.deepcopy(self.X_columns)
+
         # Concatenate datasets
         if first_loop:
           first_loop = False
@@ -155,7 +164,7 @@ class Validation():
     else:
       return total_X, total_Y, total_wt
 
-  def _TrimQuantile(self, column, wt, ignore_quantile=0.01):
+  def _TrimQuantile(self, column, wt, ignore_quantile=0.01, return_indices=False):
     """
     Trim the data and weights based on quantiles.
 
@@ -173,7 +182,9 @@ class Validation():
     trimmed_indices = ((column >= lower_value) & (column <= upper_value))
     column = column[trimmed_indices]
     wt = wt[trimmed_indices].flatten()
-    return column, wt
+    if not return_indices:
+      return column, wt
+    else: return column, wt, trimmed_indices
 
   def _CustomHistogram(self, data, weights=None, bins=20):
     """
@@ -218,7 +229,7 @@ class Validation():
 
     # Discrete and less than bins
     if len(unique_vals) < bins:
-      unrolled_bins = np.sort(unique_vals.to_numpy().flatten())[1:]
+      unrolled_bins = list(np.sort(unique_vals.to_numpy().flatten())[1:])
     # Discrete
     elif len(unique_vals) < 20:
       sorted_bins = np.sort(unique_vals.to_numpy().flatten())
@@ -231,9 +242,10 @@ class Validation():
       unrolled_bins = [round(np.quantile(data, i/bins), min(decimal_places,significant_figures)) for i in range(1,bins)]
 
     unrolled_bins = [-np.inf] + unrolled_bins + [np.inf]
+
     return unrolled_bins
 
-  def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False):
+  def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False, add_columns=False):
     """
     Sample synthetic data.
 
@@ -283,6 +295,15 @@ class Validation():
           rp = row[columns.index("mu_"+key)]
           if rp == 0.0: continue
           wt *= rp
+
+        if add_columns:
+          X = self.AddColumns(X)
+        else:
+          self.X_plot_columns = copy.deepcopy(self.X_columns)
+
+        nan_rows = np.isnan(X).any(axis=1)
+        X = X[~nan_rows]
+        wt = wt[~nan_rows]
 
         if not separate:
           # Concatenate datasets
@@ -370,6 +391,49 @@ class Validation():
         parameters=self.validation_options,
       )
 
+  def DoDebug(self, row, columns=None):
+
+    # get log probs
+    X, wt = self._GetXAndWts(row, columns=columns)
+    self.lkld.debug_mode = True
+    loop = [171.5,172.0,172.5,173.0,173.5,174.0,174.5] # edit for your scenario
+    for i in loop:
+      self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
+
+    # plot histograms
+    for key, val in self.lkld.debug_hists.items():
+      plot_histograms(
+        self.lkld.debug_bins[key][:-1],
+        [v for _,v in val.items()],
+        [k for k,_ in val.items()],
+        x_label = key,
+        name = f"debug/log_probs_hist_{key}", 
+        y_label = r"$\sum \ln L$",
+      )
+
+    # subtract minimum
+    sum_vals = []
+    example_key = list(self.lkld.debug_hists.keys())[0]
+    for key, val in self.lkld.debug_hists[example_key].items():
+      sum_vals.append(np.sum(val))
+    max_val = max(sum_vals)
+    max_val_name = list(self.lkld.debug_hists[example_key].keys())[sum_vals.index(max_val)]
+    for col, val_dict in self.lkld.debug_hists.items():
+      max_hist = copy.deepcopy(self.lkld.debug_hists[col][max_val_name])
+      for key, val in val_dict.items():
+        self.lkld.debug_hists[col][key] = self.lkld.debug_hists[col][key] - max_hist
+
+    # plot histograms
+    for key, val in self.lkld.debug_hists.items():
+      plot_histograms(
+        self.lkld.debug_bins[key][:-1],
+        [v for _,v in val.items()],
+        [k for k,_ in val.items()],
+        x_label = key,
+        name = f"debug/log_probs_hist_{key}_ratio", 
+        y_label = r"$\sum \ln L - (\sum \ln L)_{max}$",
+      )
+
   def GetAndDumpBestFit(self, row, initial_guess, columns=None, ind=0):
     """
     Get and dump the best-fit parameters to a YAML file.
@@ -381,11 +445,6 @@ class Validation():
         ind (int): Index for file naming (default is 0).
     """
     X, wt = self._GetXAndWts(row, columns=columns)
-    #loop = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
-    #for i in loop:
-    #  print(np.array([i]), len(X), float(np.sum(wt)))
-    #  self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
-    #exit()
     self.lkld.GetAndWriteBestFitToYaml(X, row, initial_guess, wt=wt, filename=f"{self.out_dir}/best_fit_{ind}.yaml")
 
   def GetAndDumpScanRanges(self, row, col, columns=None, ind=0):
@@ -484,15 +543,14 @@ class Validation():
     sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
     sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
 
-    X, wt = self._GetXAndWts(row, columns=columns, transform=transform)
-    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform)
-    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform)
+    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
+    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
     for col in range(X.shape[1]):
 
       trimmed_X, trimmed_wt = self._TrimQuantile(X[:,col], wt, ignore_quantile=ignore_quantile)
 
-      #sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
       sim_hist, bins =  self._CustomHistogram(trimmed_X, weights=trimmed_wt, bins=n_bins)
       sim_hist_err_sq, _  = self._CustomHistogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
       sim_hist_err = np.sqrt(sim_hist_err_sq)
@@ -514,15 +572,65 @@ class Validation():
         synth_hists, 
         bins, 
         data_name=f'Simulated {sim_plot_extra_name}', 
-        xlabel=self.X_columns[col],
+        xlabel=self.X_plot_columns[col],
         ylabel="Events",
-        name=f"{self.plot_dir}{add_extra_dir}/generation_{self.X_columns[col]}{sim_file_extra_name}{sample_file_extra_name}", 
+        name=f"{self.plot_dir}{add_extra_dir}/generation_{self.X_plot_columns[col]}{sim_file_extra_name}{sample_file_extra_name}", 
         data_errors=sim_hist_err, 
         stack_hist_errors=synth_hist_err, 
         title_right="",
         use_stat_err=False,
         axis_text="",
         )
+
+  def Plot2DPulls(self, row, columns=None, n_bins=100, ignore_quantile=0.01, sample_row=None, extra_dir="", transform=False):
+    print(">> Producing 2d pulls")
+
+    if sample_row is None: sample_row = row
+    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
+
+    sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
+    sample_file_extra_name = GetYName(sample_row, purpose="file", prefix="_synth_y_")
+    sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
+    sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
+
+    for col_1 in range(X.shape[1]):
+      for col_2 in range(synth.shape[1]):
+
+        if col_1 >= col_2:
+          continue
+
+        _, plot_wt, inds = self._TrimQuantile(X[:,col_1], wt, ignore_quantile=ignore_quantile, return_indices=True)
+        plot_X = X[inds, :]
+        _, plot_wt, inds = self._TrimQuantile(plot_X[:,col_2], plot_wt, ignore_quantile=ignore_quantile, return_indices=True)
+        plot_X = plot_X[inds, :]
+      
+        sim_hist, xedges, yedges = np.histogram2d(plot_X[:,col_1], plot_X[:,col_2], weights=plot_wt.flatten(), bins=n_bins)
+        sim_hist_err_sq, _, _ = np.histogram2d(plot_X[:,col_1], plot_X[:,col_2], weights=plot_wt.flatten()**2, bins=[xedges, yedges])
+        synth_hist, _, _ = np.histogram2d(synth[:,col_1], synth[:,col_2], weights=synth_wt.flatten(), bins=[xedges, yedges]) 
+        synth_his_err_sq, _, _ = np.histogram2d(synth[:,col_1], synth[:,col_2], weights=synth_wt.flatten()**2, bins=[xedges, yedges]) 
+
+        total_error = np.sqrt(sim_hist_err_sq + synth_his_err_sq)
+        diff = np.abs(sim_hist-synth_hist)
+
+        pull = np.full_like(diff, np.nan, dtype=float)
+        mask = (total_error != 0)
+        pull[mask] = np.divide(diff[mask], total_error[mask])
+
+        if extra_dir != "": 
+          add_extra_dir = f"/{extra_dir}"
+        else:
+          add_extra_dir = ""
+
+        plot_heatmap(
+          pull, 
+          xedges, 
+          yedges, 
+          x_title=self.X_plot_columns[col_1], 
+          y_title=self.X_plot_columns[col_2], 
+          z_title=f"Simulated {sim_plot_extra_name} vs Synthetic {sample_plot_extra_name} Pulls", 
+          name=f"{self.plot_dir}{add_extra_dir}/generation_pulls_2d_{self.X_plot_columns[col_1]}_{self.X_plot_columns[col_2]}{sim_file_extra_name}{sample_file_extra_name}", 
+          )
 
   def Plot2DUnrolledGeneration(self, row, columns=None, n_unrolled_bins=5, n_bins=10, ignore_quantile=0.01, sf_diff=2, sample_row=None, extra_dir="", transform=False):
     """
@@ -540,9 +648,9 @@ class Validation():
     print(">> Producing 2d unrolled generation plots")
 
     if sample_row is None: sample_row = row
-    X, wt = self._GetXAndWts(row, columns=columns, transform=transform)
-    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform)
-    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform)
+    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
+    synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
     sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
     sample_file_extra_name = GetYName(sample_row, purpose="file", prefix="_synth_y_")
@@ -553,7 +661,6 @@ class Validation():
     plot_bins = []
     for col in range(X.shape[1]):
       synth_column = synth_comb[:,col]
-
       # Find unrolled equal stat rounded bins
       unrolled_bins.append(self._MakeUnrolledBins(synth_column, sf_diff=sf_diff, bins=n_unrolled_bins))
 
@@ -563,6 +670,7 @@ class Validation():
       trimmed_indices = ((synth_column >= lower_value) & (synth_column <= upper_value))
       trimmed_X = synth_column[trimmed_indices]
       trimmed_wt = synth_comb_wt.flatten()[trimmed_indices]
+
       _, bins  = self._CustomHistogram(trimmed_X, weights=trimmed_wt, bins=n_bins)
       plot_bins.append(list(bins))
 
@@ -626,10 +734,10 @@ class Validation():
           synth_hists_full, 
           plot_bins[plot_col],
           unrolled_bins[unrolled_col],
-          self.X_columns[unrolled_col],
+          self.X_plot_columns[unrolled_col],
           data_name=f'Simulated {sim_plot_extra_name}', 
-          xlabel=self.X_columns[plot_col],
-          name=f"{self.plot_dir}{add_extra_dir}/generation_unrolled_2d_{self.X_columns[plot_col]}_{self.X_columns[unrolled_col]}{sim_file_extra_name}{sample_file_extra_name}", 
+          xlabel=self.X_plot_columns[plot_col],
+          name=f"{self.plot_dir}{add_extra_dir}/generation_unrolled_2d_{self.X_plot_columns[plot_col]}_{self.X_plot_columns[unrolled_col]}{sim_file_extra_name}{sample_file_extra_name}", 
           data_hists_errors=X_err_hists, 
           stack_hists_errors=synth_err_hists, 
           title_right="",
@@ -686,7 +794,6 @@ class Validation():
 
       nlls = []
       for x_val in x:
-        #test_row = copy.deepcopy(best_fit)
         test_row = copy.deepcopy(row)
         test_row[ind] = x_val
         nlls.append(-2*self.lkld.Run(X, test_row, wts=wt, return_ln=True))
@@ -726,9 +833,9 @@ class Validation():
     """
     print(">> Producing comparison plots")
     if columns == None: columns = self.data_parameters["Y_columns"]
-    X, wt = self._GetXAndWts(row, columns=columns)
-    synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False)
-    synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False)
+    X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
+    synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
+    synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
 
     for col in range(X.shape[1]):
 
@@ -755,8 +862,8 @@ class Validation():
         colors = ["blue","red",],
         linestyles = ["-","-"],
         title_right = f"y={plot_extra_name_true}",
-        x_label=self.X_columns[col],
-        name=f"{self.plot_dir}{add_extra_dir}/comparison_{self.X_columns[col]}_y_{file_extra_name}", 
+        x_label=self.X_plot_columns[col],
+        name=f"{self.plot_dir}{add_extra_dir}/comparison_{self.X_plot_columns[col]}_y_{file_extra_name}", 
         y_label = "Events",
         error_bar_hists = [sim_hist],
         error_bar_hist_errs = [np.sqrt(sim_hist_err_sq)],
@@ -955,3 +1062,11 @@ class Validation():
       nominal_name="Learned",
       other_summaries=other_summaries,
       )
+    
+  def AddColumns(self, dataset):
+    df = pd.DataFrame(dataset, columns=self.X_columns)
+    for k, v in self.calculate_columns_for_plotting.items():
+      df.eval(f"{k} = {v}", inplace=True)
+    self.X_plot_columns = list(df.columns)
+    dataset = df.to_numpy()
+    return dataset

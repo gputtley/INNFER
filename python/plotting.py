@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
 import matplotlib.ticker as ticker
+from matplotlib import gridspec
 import mplhep as hep
 import seaborn as sns
 import pandas as pd
@@ -721,6 +722,43 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   plt.savefig(name+".pdf", bbox_inches='tight')
   plt.close()
 
+def plot_heatmap(
+    heatmap, 
+    xedges, 
+    yedges, 
+    x_title="", 
+    y_title="", 
+    z_title="", 
+    name="heatmap", 
+    title_right=""
+    ):
+  
+  gs = gridspec.GridSpec(1, 2, width_ratios=[20, 1])
+
+  ax_heatmap = plt.subplot(gs[0])
+  hep.cms.text("Work in progress",ax=ax_heatmap)
+
+  ax_heatmap = plt.subplot(gs[0])
+  im = ax_heatmap.imshow(heatmap.T, extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]], origin='lower', cmap='plasma', aspect='auto')
+
+  ax_colorbar = plt.subplot(gs[1])
+  cbar = plt.colorbar(im, cax=ax_colorbar)
+  cbar.set_label(z_title)
+
+  ax_heatmap.set_xlabel(x_title)
+  ax_heatmap.set_ylabel(y_title)
+
+  ax_heatmap.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax_heatmap.transAxes)
+
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.tight_layout()
+  plt.savefig(name+".pdf")
+  plt.close()
+
+
 def plot_correlation_matrix(correlation_matrix, labels, name="correlation_matrix", title_right=""):
   """
   Plot a heatmap of the correlation matrix.
@@ -883,6 +921,40 @@ def plot_validation_summary(
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+def plot_spline_and_thresholds(
+    spline, 
+    thresholds, 
+    unique_vals, 
+    counts, 
+    x_label="", 
+    y_label="Events",
+    name="spline_and_thresholds"
+    ):
+
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+
+  plt.scatter(unique_vals, counts, label='Data')
+
+  x_smooth = np.linspace(min(unique_vals), max(unique_vals), 500)
+  y_smooth = spline(x_smooth)
+  plt.plot(x_smooth, y_smooth, color='blue', label='Spline')
+
+  for key, val in thresholds.items():
+    x_frac = np.linspace(val[0], val[1], 500)
+    y_frac = spline(x_frac)    
+    plt.fill_between(x_frac, y_frac, alpha=0.5)
+
+  plt.xlabel(x_label)
+  plt.ylabel(y_label)
+  plt.legend()
+  plt.subplots_adjust(left=0.2)
 
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
