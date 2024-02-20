@@ -209,10 +209,17 @@ def main(args, architecture=None):
             networks[file_name].Train()
 
             # Calculate separation score
-            sep_score = networks[file_name].SeparateDistributions(dataset="test")
-            print(">> Separation Score:", sep_score)
+            AUC, R2, NRMSE = networks[file_name].SeparateDistributions(dataset="test")
+            print(">>Getting the Separation Score:")
+            print(">> AUC:", AUC)
+            print(">> R2:", R2)
+            print(">> NRMSE:", NRMSE)
             if args.use_wandb:
-              wandb.log({"separation_score":sep_score})
+              wandb.log({
+                  "AUC": AUC,
+                  "R2": R2,
+                  "NRMSE": NRMSE
+              })
               wandb.finish()
 
             # Check if model should be saved
@@ -222,7 +229,7 @@ def main(args, architecture=None):
             else:
               with open(sep_score_dump_file, 'r') as yaml_file:
                 sep_score_dump = yaml.load(yaml_file, Loader=yaml.FullLoader)
-              if sep_score < sep_score_dump["sep_score"]:
+              if AUC < sep_score_dump.get("AUC", 0):
                 save_model = True
               else:
                 save_model = False        
@@ -233,7 +240,12 @@ def main(args, architecture=None):
               with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                 yaml.dump(run_architecture, file)
               with open(sep_score_dump_file, 'w') as file:
-                yaml.dump({"sep_score": sep_score}, file)            
+                matrices_to_save = {
+                  "AUC": AUC,
+                  "R2": R2,
+                  "NRMSE": NRMSE
+                }
+                yaml.dump(matrices_to_save, file)
 
           else:
             # Load model
