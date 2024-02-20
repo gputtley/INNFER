@@ -209,11 +209,21 @@ def main(args, architecture=None):
             networks[file_name].BuildTrainer()
             networks[file_name].Train()
 
-            # Calculate separation score
-            sep_score = networks[file_name].SeparateDistributions(dataset="test")
-            print(">> Separation Score:", sep_score)
+            # Calculate validation matrics
+            AUC = networks[file_name].auc(dataset="test")
+            R2 = networks[file_name].r2(dataset="test")
+            NRMSE = networks[file_name].nrmse(dataset="test")
+
+            print(">>Getting the Validation Matrics:")
+            print(">> AUC:", AUC)
+            print(">> R2:", R2)
+            print(">> NRMSE:", NRMSE)
             if args.use_wandb:
-              wandb.log({"separation_score":sep_score})
+              wandb.log({
+                  "AUC": AUC,
+                  "R2": R2,
+                  "NRMSE": NRMSE
+              })
               wandb.finish()
 
             # Check if model should be saved

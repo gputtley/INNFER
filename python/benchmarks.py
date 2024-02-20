@@ -238,14 +238,14 @@ class Benchmarks():
       # gaussian
       std = self.model_parameters[self.name]["signal_resolution"] * Y[0]
       mean = Y[0]
-      gaussian_pdf = (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-X[0] - mean) ** 2 / (2 * std**2)
+      gaussian_pdf = (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-(X[0] - mean)**2 / (2 * std**2))
 
       # chi
       k_chi = self.model_parameters[self.name]["chi"] + (Y[0] - 173.0) * 0.1
       chi_pdf = ((1/2)**(k_chi/2)) / gamma(k_chi/2) * (X[1]**(k_chi/2 - 1)) * np.exp(-X[1]/2)
 
       # exponential
-      beta_e = self.model_parameters[self.name]["exponential_factor"] + Y[0] * self.model_parameters[self.name]["exponential_factor_1"] / ((Y[0] - 160.0)**2)
+      beta_e = self.model_parameters[self.name]["exponential_factor"] + Y[0] * self.model_parameters[self.name]["exponential_factor"] / ((Y[0] - 160.0)**2)
       exponential_pdf = (1/beta_e)*np.exp(-X[2]/beta_e)
 
       # beta
