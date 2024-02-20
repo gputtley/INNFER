@@ -15,6 +15,7 @@ from scipy import integrate
 from other_functions import GetYName, MakeDirectories
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from functools import partial
 
 class Network():
   """
@@ -33,15 +34,28 @@ class Network():
         wt_test (str): Path to the test data for weights.
         options (dict): Additional options for customization.
     """
-    # Model parameters
+    # Coupling parameters
     self.coupling_design = "affine"
-    self.units_per_coupling_layer = 128
-    self.num_dense_layers = 2
-    self.activation = "relu"
+    self.permutation = "learnable"
+
+    # affine parameters
+    self.affine_units_per_dense_layer = 128
+    self.affine_num_dense_layers = 2
+    self.affine_activation = "relu"
+    self.affine_dropout = True
+    self.affine_mc_dropout = True
+    self.affine_dropout_prob = 0.05
+
+    # spline parameters
+    self.spline_units_per_dense_layer = 128
+    self.spline_num_dense_layers = 2
+    self.spline_activation = "relu"
+    self.spline_dropout = True
+    self.spline_mc_dropout = True
+    self.spline_dropout_prob = 0.05
+    self.spline_bins = 16
 
     # Training parameters
-    self.dropout = True
-    self.mc_dropout = True
     self.early_stopping = True
     self.epochs = 15
     self.batch_size = 2**6
@@ -103,21 +117,38 @@ class Network():
       print("WARNING: Running fix for 1D latent space for spline and interleaved couplings. Code may take longer to run.")
       latent_dim = 2
 
-    settings = {
+    affine_settings = {
       "dense_args": dict(
         kernel_regularizer=None, 
-        units=self.units_per_coupling_layer, 
-        activation=self.activation), 
-      "dropout": self.dropout,
-      "mc_dropout": self.mc_dropout,
-      "num_dense": self.num_dense_layers,
+        units=self.affine_units_per_dense_layer, 
+        activation=self.affine_activation), 
+      "dropout": self.affine_dropout,
+      "mc_dropout": self.affine_mc_dropout,
+      "num_dense": self.affine_num_dense_layers,
+      "dropout_prob": self.affine_dropout_prob,
+      }
+
+    spline_settings = {
+      "dense_args": dict(
+        kernel_regularizer=None, 
+        units=self.spline_units_per_dense_layer, 
+        activation=self.spline_activation), 
+      "dropout": self.spline_dropout,
+      "mc_dropout": self.spline_mc_dropout,
+      "num_dense": self.spline_num_dense_layers,
+      "dropout_prob": self.spline_dropout_prob,
+      "bins": self.spline_bins
       }
 
     if self.coupling_design == "interleaved":
       settings = {
-        "affine" : settings,
-        "spline" : settings
+        "affine" : affine_settings,
+        "spline" : spline_settings
       }
+    elif self.coupling_design == "spline":
+      settings = spline_settings
+    elif self.coupling_desing == "affine":
+      settings = affine_settings
 
     self.inference_net = bf.networks.InvertibleNetwork(
       num_params=latent_dim,
@@ -151,7 +182,27 @@ class Network():
         self.trainer.default_lr, 
         decay_rate=self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.9,
         decay_steps=int(self.X_train.num_rows/self.batch_size)
+      )    
+    elif self.lr_scheduler_name == "ExponentialDecayWithConstant":
+
+      class ExponentialDecayWithConstant(tf.keras.optimizers.schedules.LearningRateSchedule):
+          def __init__(self, initial_learning_rate, decay_rate, decay_steps, minimum_learning_rate):
+              super(ExponentialDecayWithConstant, self).__init__()
+              self.initial_learning_rate = initial_learning_rate
+              self.decay_rate = decay_rate
+              self.decay_steps = decay_steps
+              self.minimum_learning_rate = minimum_learning_rate
+          def __call__(self, step):
+              learning_rate = ((self.initial_learning_rate-self.minimum_learning_rate) * (self.decay_rate**(step/self.decay_steps))) + self.minimum_learning_rate
+              return learning_rate
+          
+      self.lr_scheduler = ExponentialDecayWithConstant(
+          initial_learning_rate=self.trainer.default_lr,
+          decay_rate=self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.9,
+          decay_steps=int(self.X_train.num_rows/self.batch_size),
+          minimum_learning_rate=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0001
       )
+
     elif self.lr_scheduler_name == "PolynomialDecay":
       self.lr_scheduler = tf.keras.optimizers.schedules.PolynomialDecay(
           initial_learning_rate=self.trainer.default_lr,
@@ -191,7 +242,7 @@ class Network():
     MakeDirectories(name)
     self.inference_net.save_weights(name)
 
-  def Load(self, name="model.h5"):
+  def Load(self, name="model.h5", seed=42):
     """
     Load the model weights.
 
@@ -199,10 +250,14 @@ class Network():
         name (str): Name of the file containing the model weights.
     """
     self.BuildModel()
-    _ = self.inference_net(self.X_train.LoadNextBatch().to_numpy(), self.Y_train.LoadNextBatch().to_numpy())
+    X_train_batch = self.X_train.LoadNextBatch().to_numpy()
+    Y_train_batch = self.Y_train.LoadNextBatch().to_numpy()
     self.X_train.batch_num = 0
     self.Y_train.batch_num = 0
+    _ = self.inference_net(X_train_batch, Y_train_batch)
     self.inference_net.load_weights(name)
+    tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)
 
   def Train(self):
     """
@@ -311,8 +366,6 @@ class Network():
         data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
       # Get probabilities
-      tf.random.set_seed(seed)
-      tf.keras.utils.set_random_seed(seed)
 
       # Get the probability in batches so not to encounter memory problems
       log_prob = np.array([])
@@ -320,12 +373,13 @@ class Network():
       batch_size = int(elements_per_batch)
       n_batches = int(np.ceil(len(data["parameters"])/batch_size))
       for i in range(n_batches):
+        tf.random.set_seed(seed)
+        tf.keras.utils.set_random_seed(seed)
         batch_data = {}
         for k, v in data.items():
           batch_data[k] = v[i*batch_size:min((i+1)*batch_size,len(data["parameters"]))]
         log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
       #log_prob = self.amortizer.log_posterior(data)
-
 
       log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 

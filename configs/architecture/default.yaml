@@ -1,16 +1,26 @@
-num_coupling_layers: 8
-units_per_coupling_layer: 128
-num_dense_layers: 4
-activation: "relu"
-dropout: True
-mc_dropout: True
-epochs: 30
-batch_size: 64
-early_stopping: True
-learning_rate: 0.001
+# coupling design
 coupling_design: "interleaved"
-permutation: "learnable"
-optimizer_name: "Adam"
-lr_scheduler_name: "ExponentialDecay"
-lr_scheduler_options:
-  decay_rate: 0.5
+permutation: "fixed"
+num_coupling_layers: 10
+# training
+epochs: 15
+batch_size: 512
+early_stopping: False
+learning_rate: 0.001
+optimizer_name: "AdamW"
+lr_scheduler_name: "CosineDecay"
+# affine or interleaved only
+affine_units_per_dense_layer: 128
+affine_num_dense_layers: 2
+affine_activation: "relu"
+affine_dropout: False
+affine_mc_dropout: False
+affine_dropout_prob: 0.05
+# spline or interleaved only
+spline_units_per_dense_layer: 512
+spline_num_dense_layers: 2
+spline_activation: "relu"
+spline_dropout: True
+spline_mc_dropout: True
+spline_dropout_prob: 0.05
+spline_bins: 16

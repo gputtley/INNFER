@@ -33,6 +33,7 @@ def parse_args():
   parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
   parser.add_argument('--continue-training', help='Continue training pre-saved NN.', action='store_true')
+  parser.add_argument('--skip-generation-correlation', help='Skip all of the 2d correlation ValidateGeneration plots.', action='store_true')
   args = parser.parse_args()
 
   if args.cfg is None and args.benchmark is None:
@@ -329,7 +330,7 @@ def main(args, architecture=None):
           # Plot synthetic vs simulated comparison
           val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1D")
           val.PlotGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue1DTransformed", transform=True)
-          if len(val.X_columns) > 1:
+          if len(val.X_columns) > 1 and not args.skip_generation_correlation:
             val.Plot2DPulls(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DPulls")
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2D")
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DTransformed", transform=True)

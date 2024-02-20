@@ -90,6 +90,7 @@ class PreProcess():
         col_data = full_dataset[col]
         thresholds, spline, uv, counts = self.FindDiscreteToContinuousThresholds(col_data, full_dataset.loc[:,"wt"], return_info=True)
         spline_loc = f"{self.output_dir}/spline_{col}.pkl"
+        MakeDirectories(spline_loc)
         with open(spline_loc, 'wb') as file:
           pickle.dump(spline, file)
         self.parameters["discrete_thresholds"][col] = thresholds
@@ -431,39 +432,6 @@ class PreProcess():
         if column_name in self.parameters["discrete_thresholds"]:
           data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=True)
     return data
-
-
-  '''
-  def TransformData(self, data):
-    """
-    Transform columns in the dataset.
-
-    Args:
-        data (pd.DataFrame): The dataset to be transformed.
-
-    Returns:
-        pd.DataFrame: The transformed dataset.
-    """
-    for column_name in data.columns:
-      if column_name in self.parameters["standardisation"]:
-        data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
-    return data
-
-  def UnTransformData(self, data):
-    """
-    Untransform specified columns in the dataset.
-
-    Args:
-        data (pd.DataFrame): The dataset to be Untransform.
-
-    Returns:
-        pd.DataFrame: The Untransform dataset.
-    """
-    for column_name in data.columns:
-      if column_name in self.parameters["standardisation"]:
-        data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
-    return data   
-  '''
     
   def UnTransformProb(self, prob, log_prob=False):
     """

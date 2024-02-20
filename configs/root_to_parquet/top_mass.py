@@ -40,11 +40,15 @@ defaults = {
     "sub123_py_rec" : "sub1_py_rec + sub2_py_rec + sub3_py_rec",
     "sub123_pz_rec" : "sub1_pz_rec + sub2_pz_rec + sub3_pz_rec",
     "sub123_mass_rec" : "(sub123_E_rec**2 - sub123_px_rec**2 - sub123_py_rec**2 - sub123_pz_rec**2)**0.5",
+    "sub123_pt_rec" : "(sub123_px_rec**2 + sub123_pz_rec**2)**0.5",
+    "sub123_eta_rec" : "-log(sin(arccos(sub123_pz_rec / sqrt(sub123_px_rec**2 + sub123_py_rec**2 + sub123_pz_rec**2)) / 2)/cos(arccos(sub123_pz_rec / sqrt(sub123_px_rec**2 + sub123_py_rec**2 + sub123_pz_rec**2)) / 2))",
+    "sub123_y_rec" : "0.5*log((sub123_E_rec + sub123_pz_rec) / (sub123_E_rec - sub123_pz_rec))",
+    "sub123_phi_rec" : "arctan2(sub123_py_rec, sub123_px_rec)",
   }
 }
 
 input = {
-  "data/topmass_toy_data_v2.parquet" : {
+  "data/topmass_toy_data_v3.parquet" : {
     "data/top_mc/ttbar_2016_muon.root" : {
       **defaults,
       "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2016}
@@ -106,7 +110,7 @@ input = {
       "Extra_Columns" : {"e_or_mu" : 0.0, "era" : 2018}
     },
   },
-  "data/topmass_ttbar_mass_v2.parquet" : { 
+  "data/topmass_ttbar_mass_v3.parquet" : { 
     "data/top_mc/ttbar_1665_2016_muon.root" : {
       **defaults,
       "Extra_Columns" : {"mass" : 166.5, "e_or_mu" : 1.0, "era" : 2016}
@@ -276,7 +280,7 @@ input = {
       "Extra_Columns" : {"mass" : 178.5, "e_or_mu" : 0.0, "era" : 2018}
     },
   },
-  "data/topmass_other_mass_v2.parquet" : {
+  "data/topmass_other_mass_v3.parquet" : {
     "data/top_mc/st_2016_muon.root" : {
       **defaults,
       "Extra_Columns" : {"e_or_mu" : 1.0, "era" : 2016}

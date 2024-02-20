@@ -152,7 +152,8 @@ class Validation():
       # Lower validation stats
       if self.lower_validation_stats is not None:
         if len(total_X) > self.lower_validation_stats:
-          random_indices = np.random.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
+          rng = np.random.RandomState(seed=42)
+          random_indices = rng.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
           total_X = total_X[random_indices,:]
           sum_wt = np.sum(total_wt)
           total_wt = total_wt[random_indices,:]
@@ -300,10 +301,6 @@ class Validation():
           X = self.AddColumns(X)
         else:
           self.X_plot_columns = copy.deepcopy(self.X_columns)
-
-        nan_rows = np.isnan(X).any(axis=1)
-        X = X[~nan_rows]
-        wt = wt[~nan_rows]
 
         if not separate:
           # Concatenate datasets
@@ -661,6 +658,10 @@ class Validation():
     plot_bins = []
     for col in range(X.shape[1]):
       synth_column = synth_comb[:,col]
+      nan_rows = np.isnan(synth_column.reshape(-1,1)).any(axis=1)
+      synth_column = synth_column[~nan_rows]
+      synth_comb_column_wt = synth_comb_wt[~nan_rows]
+
       # Find unrolled equal stat rounded bins
       unrolled_bins.append(self._MakeUnrolledBins(synth_column, sf_diff=sf_diff, bins=n_unrolled_bins))
 
@@ -669,7 +670,7 @@ class Validation():
       upper_value = np.quantile(synth_column, 1-ignore_quantile)
       trimmed_indices = ((synth_column >= lower_value) & (synth_column <= upper_value))
       trimmed_X = synth_column[trimmed_indices]
-      trimmed_wt = synth_comb_wt.flatten()[trimmed_indices]
+      trimmed_wt = synth_comb_column_wt.flatten()[trimmed_indices]
 
       _, bins  = self._CustomHistogram(trimmed_X, weights=trimmed_wt, bins=n_bins)
       plot_bins.append(list(bins))

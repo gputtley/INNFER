@@ -369,7 +369,8 @@ class Likelihood():
           self.iteration = 0
 
         def objective(self,Y):
-          random_indices = np.random.choice(self.full_X.shape[0], int(self.start_stats + self.iteration*((len(self.full_X) - self.start_stats)/self.steps_till_full)), replace=False)
+          rng = np.random.RandomState(seed=42)
+          random_indices = rng.choice(self.full_X.shape[0], int(self.start_stats + self.iteration*((len(self.full_X) - self.start_stats)/self.steps_till_full)), replace=False)
           X = self.full_X[random_indices,:]
           wts = self.full_wts[random_indices,:]
           new_sum_wt = np.sum(wts, dtype=np.float128)
@@ -391,7 +392,8 @@ class Likelihood():
       stats = 1000
 
       original_stats = len(X)
-      random_indices = np.random.choice(original_stats, stats, replace=False)
+      rng = np.random.RandomState(seed=42)
+      random_indices = rng.choice(original_stats, stats, replace=False)
       lowstat_X = X[random_indices,:]
       if wts is not None:
         old_sum_wts = np.sum(wts, dtype=np.float128)
