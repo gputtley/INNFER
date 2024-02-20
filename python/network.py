@@ -425,7 +425,7 @@ class Network():
     Returns:
         float: Absolute difference between 0.5 and the AUC score.
     """
-    print(">> Getting AUC score when trying to separate the datasets with a BDT.")
+    print(">> Getting Separation scores when trying to separate the datasets with a BDT.")
 
     if dataset == "train":
       Y = self.Y_train.LoadFullDataset()
@@ -463,6 +463,16 @@ class Network():
     clf = xgb.XGBClassifier()
     clf.fit(X_train, y_train, sample_weight=wt_train)
     y_prob = clf.predict_proba(X_test)[:, 1]
+
+    # Get the AUC
     auc = roc_auc_score(y_test, y_prob, sample_weight=wt_test)
 
-    return float(abs(0.5-auc))
+    # Get the R2 score:
+    y_pred = clf.predict(X_test)
+    r2 = r2_score(y_test, y_pred, sample_weight=wt_test)
+
+    # Get the NRMSE
+    rmse = root_mean_squared_error(y_test, y_pred, sample_weight=wt_test)
+    nrmse = rmse / (np.max(y_test)-np.min(y_test))
+    
+    return float(abs(0.5-auc)), float(r2), float(nrmse)
