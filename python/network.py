@@ -415,7 +415,7 @@ class Network():
     if verbose: print(f"Integral for Y is {integral}")
     return integral
 
-  def SeparateDistributions(self, dataset="train"):
+  def auc(self, dataset="train"):
     """
     Gets the AUC score when trying to separate the datasets with a Boosted Decision Tree (BDT).
 
@@ -466,3 +466,94 @@ class Network():
     auc = roc_auc_score(y_test, y_prob, sample_weight=wt_test)
 
     return float(abs(0.5-auc))
+
+  def r2(self, dataset="train"):
+    
+    print(">> Getting R2 score when trying to separate the datasets with a BDT.")
+
+    if dataset == "train":
+      Y = self.Y_train.LoadFullDataset()
+      x1 = self.X_train.LoadFullDataset()
+      wt1 = self.wt_train.LoadFullDataset()
+    elif dataset == "test":
+      Y = self.Y_test.LoadFullDataset()
+      x1 = self.X_test.LoadFullDataset()
+      wt1 = self.wt_test.LoadFullDataset()
+
+    x1 = np.hstack((x1, Y))
+    y1 = np.zeros(len(x1)).reshape(-1,1)
+    wt1 = wt1.to_numpy()
+
+    x2 = self.Sample(Y, transform=True, Y_transformed=True)
+    x2 = np.hstack((x2, Y))
+    y2 = np.ones(len(x2)).reshape(-1,1)
+    wt2 = np.ones(len(x2)).reshape(-1,1)
+    wt1 *= np.sum(wt2)/np.sum(wt1)
+
+    x = np.vstack((x1,x2))
+    y = np.vstack((y1,y2))
+    wt = np.vstack((wt1,wt2))
+
+    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
+
+    X_train = X_wt_train[:,:-1]
+    X_test = X_wt_test[:,:-1]
+    wt_train = X_wt_train[:,-1]
+    wt_test = X_wt_test[:,-1]
+
+    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
+    gc.collect()
+
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+
+    # get the R2 score:
+    y_pred = clf.predict(X_test)
+    r2 = r2_score(y_test, y_pred, sample_weight=wt_test)
+    
+    return float(r2)
+
+  def nrmse(self, dataset="train"):
+    print(">> Getting NRMSE score when trying to separate the datasets with a BDT.")
+
+    if dataset == "train":
+      Y = self.Y_train.LoadFullDataset()
+      x1 = self.X_train.LoadFullDataset()
+      wt1 = self.wt_train.LoadFullDataset()
+    elif dataset == "test":
+      Y = self.Y_test.LoadFullDataset()
+      x1 = self.X_test.LoadFullDataset()
+      wt1 = self.wt_test.LoadFullDataset()
+
+    x1 = np.hstack((x1, Y))
+    y1 = np.zeros(len(x1)).reshape(-1,1)
+    wt1 = wt1.to_numpy()
+
+    x2 = self.Sample(Y, transform=True, Y_transformed=True)
+    x2 = np.hstack((x2, Y))
+    y2 = np.ones(len(x2)).reshape(-1,1)
+    wt2 = np.ones(len(x2)).reshape(-1,1)
+    wt1 *= np.sum(wt2)/np.sum(wt1)
+
+    x = np.vstack((x1,x2))
+    y = np.vstack((y1,y2))
+    wt = np.vstack((wt1,wt2))
+
+    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
+
+    X_train = X_wt_train[:,:-1]
+    X_test = X_wt_test[:,:-1]
+    wt_train = X_wt_train[:,-1]
+    wt_test = X_wt_test[:,-1]
+
+    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
+    gc.collect()
+
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+
+    # get the NRMSE
+    rmse = root_mean_squared_error(y_test, y_pred, sample_weight=wt_test)
+    nrmse = rmse / (np.max(y_test)-np.min(y_test))
+    
+    return float(nrmse)
