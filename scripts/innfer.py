@@ -194,6 +194,7 @@ def main(args, architecture=None):
           
           # Set plotting directory
           networks[file_name].plot_dir = f"plots/{cfg['name']}/{file_name}/{args.step}"
+          networks[file_name].data_parameters = parameters[file_name]
 
           if args.step == "Train":
             # Train model
@@ -217,12 +218,13 @@ def main(args, architecture=None):
             print(">> AUC:", AUC)
             print(">> R2:", R2)
             print(">> NRMSE:", NRMSE)
+            val_matrics = {
+              "AUC": AUC,
+              "R2": R2,
+              "NRMSE": NRMSE
+            }
             if args.use_wandb:
-              wandb.log({
-                  "AUC": AUC,
-                  "R2": R2,
-                  "NRMSE": NRMSE
-              })
+              wandb.log(val_matrics)
               wandb.finish()
 
             # Check if model should be saved
@@ -232,10 +234,10 @@ def main(args, architecture=None):
             else:
               with open(sep_score_dump_file, 'r') as yaml_file:
                 sep_score_dump = yaml.load(yaml_file, Loader=yaml.FullLoader)
-              if sep_score < sep_score_dump["sep_score"]:
+              if AUC < sep_score_dump.get("AUC", 0):
                 save_model = True
               else:
-                save_model = False        
+                save_model = False      
 
             # Save model
             if save_model:
@@ -243,16 +245,12 @@ def main(args, architecture=None):
               with open(f"models/{cfg['name']}/{file_name}_architecture.yaml", 'w') as file:
                 yaml.dump(run_architecture, file)
               with open(sep_score_dump_file, 'w') as file:
-                yaml.dump({"sep_score": sep_score}, file)            
+                yaml.dump(val_matrics, file)
 
           else:
             # Load model
             print(f"- Loading model {file_name}")
             networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
-            networks[file_name].data_parameters = parameters[file_name]
-            #print("Separation Score:", networks[file_name].SeparateDistributions(dataset="test"))
-            #exit()
-    
 
   ### Do validation of trained model ###
   if args.step in ["ValidateGeneration","ValidateInference","Infer"]:
