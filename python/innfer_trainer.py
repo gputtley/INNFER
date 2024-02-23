@@ -41,6 +41,7 @@ class InnferTrainer(bf.trainers.Trainer):
       disable_tqdm=False,
       fix_1d_spline=False,
       use_wandb = False,
+      adaptive_lr_scheduler = False,
       **kwargs,
    ):
       """
@@ -103,7 +104,12 @@ class InnferTrainer(bf.trainers.Trainer):
             for bi in range(1,X_train.num_batches+1):
                # Perform one training step and obtain current loss value
                input_dict = self._load_resampled_batch(X_train, Y_train, wt_train)
+
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
+
+               if adaptive_lr_scheduler is not None:
+                  self.optimizer.learning_rate.assign(adaptive_lr_scheduler.update(self.optimizer.learning_rate.numpy(), float(loss)))
+
                self.loss_history.add_entry(ep, loss)
                avg_dict = self.loss_history.get_running_losses(ep)
                lr = self._convert_lr(extract_current_lr(self.optimizer))

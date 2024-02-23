@@ -63,9 +63,7 @@ class Network():
     self.permutation = "learnable"
     self.optimizer_name = "Adam" 
     self.lr_scheduler_name = "ExponentialDecay"
-    self.lr_scheduler_options = {
-      "decay_rate" : 0.5,
-    } 
+    self.lr_scheduler_options = {} 
 
     # Running parameters
     self.plot_loss = True
@@ -95,6 +93,7 @@ class Network():
     self.disable_tqdm = False
     self.use_wandb = False
     self.probability_store = {}
+    self.adaptive_lr_scheduler = None
 
   def _SetOptions(self, options):
     """
@@ -184,25 +183,22 @@ class Network():
         decay_steps=int(self.X_train.num_rows/self.batch_size)
       )    
     elif self.lr_scheduler_name == "ExponentialDecayWithConstant":
-
       class ExponentialDecayWithConstant(tf.keras.optimizers.schedules.LearningRateSchedule):
-          def __init__(self, initial_learning_rate, decay_rate, decay_steps, minimum_learning_rate):
-              super(ExponentialDecayWithConstant, self).__init__()
-              self.initial_learning_rate = initial_learning_rate
-              self.decay_rate = decay_rate
-              self.decay_steps = decay_steps
-              self.minimum_learning_rate = minimum_learning_rate
-          def __call__(self, step):
-              learning_rate = ((self.initial_learning_rate-self.minimum_learning_rate) * (self.decay_rate**(step/self.decay_steps))) + self.minimum_learning_rate
-              return learning_rate
-          
+        def __init__(self, initial_learning_rate, decay_rate, decay_steps, minimum_learning_rate):
+          super(ExponentialDecayWithConstant, self).__init__()
+          self.initial_learning_rate = initial_learning_rate
+          self.decay_rate = decay_rate
+          self.decay_steps = decay_steps
+          self.minimum_learning_rate = minimum_learning_rate
+        def __call__(self, step):
+          learning_rate = ((self.initial_learning_rate-self.minimum_learning_rate) * (self.decay_rate**(step/self.decay_steps))) + self.minimum_learning_rate
+          return learning_rate
       self.lr_scheduler = ExponentialDecayWithConstant(
           initial_learning_rate=self.trainer.default_lr,
           decay_rate=self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.9,
           decay_steps=int(self.X_train.num_rows/self.batch_size),
           minimum_learning_rate=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0001
       )
-
     elif self.lr_scheduler_name == "PolynomialDecay":
       self.lr_scheduler = tf.keras.optimizers.schedules.PolynomialDecay(
           initial_learning_rate=self.trainer.default_lr,
@@ -215,6 +211,81 @@ class Network():
           initial_learning_rate=self.trainer.default_lr,
           decay_steps=self.lr_scheduler_options["decay_steps"] if "decay_steps" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
           alpha=self.lr_scheduler_options["alpha"] if "alpha" in self.lr_scheduler_options.keys() else 0.0
+      )
+    elif self.lr_scheduler_name == "Cyclic":
+      class Cyclic(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, max_lr, min_lr, step_size):
+          super(Cyclic, self).__init__()
+          self.max_lr = max_lr
+          self.min_lr = min_lr
+          self.step_size = step_size
+          self.np = np
+        def __call__(self, step):
+          learning_rate = (((self.max_lr-self.min_lr)/2)*(tf.math.cos(2*self.np.pi*tf.cast(step, tf.float32)/self.step_size) + 1)) + self.min_lr
+          return learning_rate
+      self.lr_scheduler = Cyclic(
+        max_lr=self.trainer.default_lr,
+        min_lr=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0,
+        step_size=int(self.X_train.num_rows/self.batch_size)/self.lr_scheduler_options["cycles_per_epoch"] if "cycles_per_epoch" in self.lr_scheduler_options.keys() else int(self.X_train.num_rows/self.batch_size)/2,
+      )
+    elif self.lr_scheduler_name == "AdaptiveExponential":
+      self.lr_scheduler = self.trainer.default_lr
+      class adaptive_lr_scheduler():
+        def __init__(self, num_its=10, decay_rate=0.99):
+          self.num_its = num_its
+          self.decay_rate = decay_rate
+          self.loss_stores = []
+        def update(self, lr, loss):
+          self.loss_stores.append(loss)
+          if len(self.loss_stores) < self.num_its + 1:
+            return lr
+          else:
+            rolling_ave_before = np.sum(self.loss_stores[:1])
+            self.loss_stores = self.loss_stores[-1:]
+            rolling_ave_after = np.sum(self.loss_stores)
+            if rolling_ave_before < rolling_ave_after:
+              return lr*self.decay_rate
+            else:
+              return lr
+            
+      self.adaptive_lr_scheduler = adaptive_lr_scheduler(
+        num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 10,
+        decay_rate=self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.99,
+      )
+    elif self.lr_scheduler_name == "AdaptiveGradient":
+      self.lr_scheduler = self.trainer.default_lr
+      class adaptive_lr_scheduler():
+        def __init__(self, num_its=60, scaling=0.001, max_lr=0.001, min_lr=0.00000001, max_shift_fraction=0.05, grad_change=1.0):
+          self.num_its = num_its
+          self.scaling = scaling
+          self.max_lr = max_lr
+          self.min_lr = min_lr
+          self.max_shift_fraction = max_shift_fraction
+          self.grad_change = grad_change
+          self.loss_stores = []
+        def update(self, lr, loss):
+          self.loss_stores.append(loss)
+          if len(self.loss_stores) <= 3*self.num_its:
+            return lr
+          else:
+            self.loss_stores = self.loss_stores[1:]
+            rolling_ave_before = np.sum(self.loss_stores[:self.num_its])
+            rolling_ave_middle = np.sum(self.loss_stores[self.num_its:2*self.num_its])
+            rolling_ave_after = np.sum(self.loss_stores[2*self.num_its:])
+            grad_before = rolling_ave_middle-rolling_ave_before
+            grad_after = rolling_ave_after-rolling_ave_middle
+            shift = lr*self.scaling*((grad_after/grad_before)-self.grad_change)
+            min_max_shift = max(min(shift,lr*self.max_shift_fraction),-self.max_shift_fraction*self.max_shift_fraction)
+            lr = min_max_shift + lr
+            return max(min(lr,self.max_lr),self.min_lr)
+          
+      self.adaptive_lr_scheduler = adaptive_lr_scheduler(
+        num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 40,
+        scaling=self.lr_scheduler_options["scaling"] if "scaling" in self.lr_scheduler_options.keys() else 0.0002,
+        max_lr=self.trainer.default_lr,
+        min_lr=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0000001,
+        max_shift_fraction=self.lr_scheduler_options["max_shift_fraction"] if "max_shift_fraction" in self.lr_scheduler_options.keys() else 0.01,
+        grad_change=self.lr_scheduler_options["grad_change"] if "grad_change" in self.lr_scheduler_options.keys() else 0.99,
       )
     else:
       print("ERROR: lr_schedule not valid.")
@@ -276,7 +347,8 @@ class Network():
       optimizer=self.optimizer,
       fix_1d_spline=self.fix_1d_spline,
       disable_tqdm=self.disable_tqdm,
-      use_wandb=self.use_wandb
+      use_wandb=self.use_wandb,
+      adaptive_lr_scheduler=self.adaptive_lr_scheduler
     )
 
     if self.plot_loss:
@@ -369,7 +441,6 @@ class Network():
 
       # Get the probability in batches so not to encounter memory problems
       log_prob = np.array([])
-      #batch_size = int(elements_per_batch/(data["parameters"].shape[1] + data["direct_conditions"].shape[1]))
       batch_size = int(elements_per_batch)
       n_batches = int(np.ceil(len(data["parameters"])/batch_size))
       for i in range(n_batches):
@@ -379,7 +450,6 @@ class Network():
         for k, v in data.items():
           batch_data[k] = v[i*batch_size:min((i+1)*batch_size,len(data["parameters"]))]
         log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
-      #log_prob = self.amortizer.log_posterior(data)
 
       log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 

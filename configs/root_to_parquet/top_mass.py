@@ -44,6 +44,21 @@ defaults = {
     "sub123_eta_rec" : "-log(sin(arccos(sub123_pz_rec / sqrt(sub123_px_rec**2 + sub123_py_rec**2 + sub123_pz_rec**2)) / 2)/cos(arccos(sub123_pz_rec / sqrt(sub123_px_rec**2 + sub123_py_rec**2 + sub123_pz_rec**2)) / 2))",
     "sub123_y_rec" : "0.5*log((sub123_E_rec + sub123_pz_rec) / (sub123_E_rec - sub123_pz_rec))",
     "sub123_phi_rec" : "arctan2(sub123_py_rec, sub123_px_rec)",
+    "sub1_mass_rec" : "(sub1_E_rec**2 - sub1_px_rec**2 - sub1_py_rec**2 - sub1_pz_rec**2)**0.5",
+    "sub1_pt_rec" : "(sub1_px_rec**2 + sub1_pz_rec**2)**0.5",
+    "sub1_eta_rec" : "-log(sin(arccos(sub1_pz_rec / sqrt(sub1_px_rec**2 + sub1_py_rec**2 + sub1_pz_rec**2)) / 2)/cos(arccos(sub1_pz_rec / sqrt(sub1_px_rec**2 + sub1_py_rec**2 + sub1_pz_rec**2)) / 2))",
+    "sub1_y_rec" : "0.5*log((sub1_E_rec + sub1_pz_rec) / (sub1_E_rec - sub1_pz_rec))",
+    "sub1_phi_rec" : "arctan2(sub1_py_rec, sub1_px_rec)",
+    "sub2_mass_rec" : "(sub2_E_rec**2 - sub2_px_rec**2 - sub2_py_rec**2 - sub2_pz_rec**2)**0.5",
+    "sub2_pt_rec" : "(sub2_px_rec**2 + sub2_pz_rec**2)**0.5",
+    "sub2_eta_rec" : "-log(sin(arccos(sub2_pz_rec / sqrt(sub2_px_rec**2 + sub2_py_rec**2 + sub2_pz_rec**2)) / 2)/cos(arccos(sub2_pz_rec / sqrt(sub2_px_rec**2 + sub2_py_rec**2 + sub2_pz_rec**2)) / 2))",
+    "sub2_y_rec" : "0.5*log((sub2_E_rec + sub2_pz_rec) / (sub2_E_rec - sub2_pz_rec))",
+    "sub2_phi_rec" : "arctan2(sub2_py_rec, sub2_px_rec)",
+    "sub3_mass_rec" : "(sub3_E_rec**2 - sub3_px_rec**2 - sub3_py_rec**2 - sub3_pz_rec**2)**0.5",
+    "sub3_pt_rec" : "(sub3_px_rec**2 + sub3_pz_rec**2)**0.5",
+    "sub3_eta_rec" : "-log(sin(arccos(sub3_pz_rec / sqrt(sub3_px_rec**2 + sub3_py_rec**2 + sub3_pz_rec**2)) / 2)/cos(arccos(sub3_pz_rec / sqrt(sub3_px_rec**2 + sub3_py_rec**2 + sub3_pz_rec**2)) / 2))",
+    "sub3_y_rec" : "0.5*log((sub3_E_rec + sub3_pz_rec) / (sub3_E_rec - sub3_pz_rec))",
+    "sub3_phi_rec" : "arctan2(sub3_py_rec, sub3_px_rec)",
   }
 }
 

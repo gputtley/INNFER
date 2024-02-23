@@ -62,11 +62,14 @@ for output_file, input_files in input.items():
   for new_col, expression in parameters["Calculate_Extra_Columns"].items():
     total_df[new_col] = total_df.eval(expression)
 
+  neg_weight_rows = (total_df.loc[:,"wt"] < 0)
+  print("Total negative weights:", len(total_df[neg_weight_rows]))
   if args.remove_negative_weights:
-    total_df = total_df[total_df.loc[:,"wt"] > 0] # tmp
+    total_df = total_df[~neg_weight_rows] # tmp
 
+  nan_rows = total_df[total_df.isna().any(axis=1)]
+  print("Total nans:", len(nan_rows))
   if args.remove_nans:
-    nan_rows = total_df[total_df.isna().any(axis=1)]
     total_df = total_df.dropna()
 
   total_df = total_df.sample(frac=1, random_state=42).reset_index(drop=True)
