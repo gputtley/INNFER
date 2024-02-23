@@ -592,9 +592,14 @@ class Network():
     return float(abs(0.5-auc))
 
   def r2(self, dataset="train"):
-    
-    print(">> Getting R2 score when trying to separate the datasets with a BDT.")
+    """
+    Calculate the R2 score for each feature in the specified dataset.
 
+    Returns:
+    - dict: A dictionary where keys are feature names and values are the R2 scores
+            for those features.
+    """
+    print(">> Getting R2 score when trying to separate the datasets with a BDT.")
     if dataset == "train":
       Y = self.Y_train.LoadFullDataset()
       x1 = self.X_train.LoadFullDataset()
@@ -604,40 +609,53 @@ class Network():
       x1 = self.X_test.LoadFullDataset()
       wt1 = self.wt_test.LoadFullDataset()
 
-    x1 = np.hstack((x1, Y))
+    x1 = x1.to_numpy()
     y1 = np.zeros(len(x1)).reshape(-1,1)
     wt1 = wt1.to_numpy()
 
     x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    x2 = np.hstack((x2, Y))
     y2 = np.ones(len(x2)).reshape(-1,1)
     wt2 = np.ones(len(x2)).reshape(-1,1)
     wt1 *= np.sum(wt2)/np.sum(wt1)
 
-    x = np.vstack((x1,x2))
-    y = np.vstack((y1,y2))
-    wt = np.vstack((wt1,wt2))
-
-    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
-
-    X_train = X_wt_train[:,:-1]
-    X_test = X_wt_test[:,:-1]
-    wt_train = X_wt_train[:,-1]
-    wt_test = X_wt_test[:,-1]
-
-    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
-    gc.collect()
-
-    clf = xgb.XGBClassifier()
-    clf.fit(X_train, y_train, sample_weight=wt_train)
-
-    # get the R2 score:
-    y_pred = clf.predict(X_test)
-    r2 = r2_score(y_test, y_pred, sample_weight=wt_test)
+    # resample the data
+    if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
+      print("WARNING: Ignoring negative weigths")
+      wt1[wt1 < 0] = 0
+      wt2[wt2 < 0] = 0
     
-    return float(r2)
+    probs1 = wt1.flatten() / np.sum(wt1.flatten())
+    probs2 = wt2.flatten() / np.sum(wt2.flatten())
+    # apply the minimum size between x1 and x2
+    size_min = np.min((len(x1), len(x2)))
+    resampled_indices1 = np.random.choice(len(x1), size=size_min, p=probs1)
+    resampled_indices2 = np.random.choice(len(x2), size=size_min, p=probs2)
+    X1 = x1[resampled_indices1]
+    X2 = x2[resampled_indices2]
+
+    # convert to dataframes
+    df_X1 = pd.DataFrame(X1)
+    df_X2 = pd.DataFrame(X2)
+
+    # calculate the R2 score for each column
+    r2 = {}
+    for i, col_name in enumerate(self.X_train.columns):
+      X1_col = df_X1[i]
+      X2_col = df_X2[i]
+      X1_mean = X1_col.mean()
+      r2_val = 1 - (np.sum((X1_col - X2_col)**2) / np.sum((X1_col - X1_mean)**2))
+      r2[col_name] = float(r2_val)
+
+    return r2
 
   def nrmse(self, dataset="train"):
+    """
+    Calculate the NRMSE score for each feature in the specified dataset.
+
+    Returns:
+    - dict: A dictionary where keys are feature names and values are the NRMSE scores
+            for those features.
+    """
     print(">> Getting NRMSE score when trying to separate the datasets with a BDT.")
 
     if dataset == "train":
@@ -649,35 +667,41 @@ class Network():
       x1 = self.X_test.LoadFullDataset()
       wt1 = self.wt_test.LoadFullDataset()
 
-    x1 = np.hstack((x1, Y))
+    x1 = x1.to_numpy()
     y1 = np.zeros(len(x1)).reshape(-1,1)
     wt1 = wt1.to_numpy()
 
     x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    x2 = np.hstack((x2, Y))
+    # x2 = np.hstack((x2, Y))
     y2 = np.ones(len(x2)).reshape(-1,1)
     wt2 = np.ones(len(x2)).reshape(-1,1)
     wt1 *= np.sum(wt2)/np.sum(wt1)
-
-    x = np.vstack((x1,x2))
-    y = np.vstack((y1,y2))
-    wt = np.vstack((wt1,wt2))
-
-    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
-
-    X_train = X_wt_train[:,:-1]
-    X_test = X_wt_test[:,:-1]
-    wt_train = X_wt_train[:,-1]
-    wt_test = X_wt_test[:,-1]
-
-    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
-    gc.collect()
-
-    clf = xgb.XGBClassifier()
-    clf.fit(X_train, y_train, sample_weight=wt_train)
-
-    # get the NRMSE
-    rmse = root_mean_squared_error(y_test, y_pred, sample_weight=wt_test)
-    nrmse = rmse / (np.max(y_test)-np.min(y_test))
+  
+    if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
+      print("WARNING: Ignoring negative weigths")
+      wt1[wt1 < 0] = 0
+      wt2[wt2 < 0] = 0
     
-    return float(nrmse)
+    probs1 = wt1.flatten() / np.sum(wt1.flatten())
+    probs2 = wt2.flatten() / np.sum(wt2.flatten())
+    # apply the minimum size between x1 and x2
+    size_min = np.min((len(x1), len(x2)))
+    resampled_indices1 = np.random.choice(len(x1), size=size_min, p=probs1)
+    resampled_indices2 = np.random.choice(len(x2), size=size_min, p=probs2)
+    X1 = x1[resampled_indices1]
+    X2 = x2[resampled_indices2]
+
+    # convert to dataframes
+    df_X1 = pd.DataFrame(X1)
+    df_X2 = pd.DataFrame(X2)
+
+    # calculate the R2 score for each column
+    nrmse = {}
+    for i, col_name in enumerate(self.X_train.columns):
+      X1_col = df_X1[i]
+      X2_col = df_X2[i]
+      rmse = np.sqrt(np.sum((X1_col - X2_col)**2)/len(X1_col))
+      nrmse_val = rmse / (X1_col.max() - X1_col.min())
+      nrmse[col_name] = float(nrmse_val)
+
+    return nrmse
