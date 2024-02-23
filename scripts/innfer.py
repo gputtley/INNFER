@@ -212,13 +212,14 @@ def main(args, architecture=None):
 
             # Calculate validation matrics
             AUC = networks[file_name].auc(dataset="test")
-            R2 = networks[file_name].r2(dataset="test")
-            NRMSE = networks[file_name].nrmse(dataset="test")
-
-            print(">>Getting the Validation Matrics:")
             print(">> AUC:", AUC)
-            print(">> R2:", R2)
-            print(">> NRMSE:", NRMSE)
+            R2 = networks[file_name].r2(dataset="test")
+            print(">> R2:")
+            for k, v in R2.items(): print(f"  >> {k}: {v}")
+            NRMSE = networks[file_name].nrmse(dataset="test")
+            print(">> NRMSE:")
+            for k, v in NRMSE.items(): print(f"  >> {k}: {v}")
+
             val_matrics = {
               "AUC": AUC,
               "R2": R2,

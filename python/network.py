@@ -610,11 +610,9 @@ class Network():
       wt1 = self.wt_test.LoadFullDataset()
 
     x1 = x1.to_numpy()
-    y1 = np.zeros(len(x1)).reshape(-1,1)
     wt1 = wt1.to_numpy()
 
     x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    y2 = np.ones(len(x2)).reshape(-1,1)
     wt2 = np.ones(len(x2)).reshape(-1,1)
     wt1 *= np.sum(wt2)/np.sum(wt1)
 
@@ -642,6 +640,8 @@ class Network():
     for i, col_name in enumerate(self.X_train.columns):
       X1_col = df_X1[i]
       X2_col = df_X2[i]
+      X1_col = np.sort(X1_col)
+      X2_col = np.sort(X2_col)
       X1_mean = X1_col.mean()
       r2_val = 1 - (np.sum((X1_col - X2_col)**2) / np.sum((X1_col - X1_mean)**2))
       r2[col_name] = float(r2_val)
@@ -668,12 +668,9 @@ class Network():
       wt1 = self.wt_test.LoadFullDataset()
 
     x1 = x1.to_numpy()
-    y1 = np.zeros(len(x1)).reshape(-1,1)
     wt1 = wt1.to_numpy()
 
     x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    # x2 = np.hstack((x2, Y))
-    y2 = np.ones(len(x2)).reshape(-1,1)
     wt2 = np.ones(len(x2)).reshape(-1,1)
     wt1 *= np.sum(wt2)/np.sum(wt1)
   
@@ -700,6 +697,8 @@ class Network():
     for i, col_name in enumerate(self.X_train.columns):
       X1_col = df_X1[i]
       X2_col = df_X2[i]
+      X1_col = np.sort(X1_col)
+      X2_col = np.sort(X2_col)
       rmse = np.sqrt(np.sum((X1_col - X2_col)**2)/len(X1_col))
       nrmse_val = rmse / (X1_col.max() - X1_col.min())
       nrmse[col_name] = float(nrmse_val)
