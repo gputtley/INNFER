@@ -571,7 +571,7 @@ def GetScanArchitectures(config):
   Returns:
       list: List of scan architectures.
   """
-  keys, vals = FindKeysAndValuesInDictionaries(config)
+  keys, vals = FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[])
   all_lists = [v for v in vals if isinstance(v,list)]
   ind_lists = [ind for ind in range(len(vals)) if isinstance(vals[ind],list)]
   unique_vals = list(product(*all_lists))
