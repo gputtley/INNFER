@@ -18,7 +18,7 @@ def parse_args():
   parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
   parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
   parser.add_argument('--resubmit-scans', help= 'Resubmit any scan jobs that failed.',  action='store_true')
-  parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["MakeBenchmark","PreProcess","Train","ValidateGeneration","ValidateInference","Infer"])
+  parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["MakeBenchmark","PreProcess","Train","TrainCorrection","ValidateGeneration","ValidateInference","Infer"])
   parser.add_argument('--specific-file', help= 'Run for a specific file_name', type=str, default=None)
   parser.add_argument('--specific-val-ind', help= 'Run for a specific indices when doing validation', type=str, default=None)
   parser.add_argument('--specific-scan-ind', help= 'Run for a specific indices when doing scans', type=str, default=None)
@@ -34,6 +34,7 @@ def parse_args():
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
   parser.add_argument('--continue-training', help='Continue training pre-saved NN.', action='store_true')
   parser.add_argument('--skip-generation-correlation', help='Skip all of the 2d correlation ValidateGeneration plots.', action='store_true')
+  parser.add_argument('--correction', help='Train/load in the correction.', action='store_true')
   args = parser.parse_args()
 
   if args.cfg is None and args.benchmark is None:
@@ -133,7 +134,7 @@ def main(args, architecture=None):
       pp[file_name].PlotY(dataset="train")
 
     ### Training/Loading  of the Networks ###
-    if args.step in ["Train","ValidateGeneration","ValidateInference","Infer"]:
+    if args.step in ["Train","TrainCorrection","ValidateGeneration","ValidateInference","Infer"]:
 
       # Load in data parameters
       with open(f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml", 'r') as yaml_file:
@@ -191,6 +192,9 @@ def main(args, architecture=None):
             f"{parameters[file_name]['file_location']}/X_test.parquet",
             f"{parameters[file_name]['file_location']}/Y_test.parquet", 
             f"{parameters[file_name]['file_location']}/wt_test.parquet",
+            #f"{parameters[file_name]['file_location']}/X_val.parquet",
+            #f"{parameters[file_name]['file_location']}/Y_val.parquet", 
+            #f"{parameters[file_name]['file_location']}/wt_val.parquet",
             options=run_architecture)
           
           # Set plotting directory
@@ -253,6 +257,23 @@ def main(args, architecture=None):
             # Load model
             print(f"- Loading model {file_name}")
             networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
+
+
+  ### Train or load a correction ###
+  if args.step in ["TrainCorrection"]:
+    print("- Training correction")
+    AUC = networks[file_name].auc(dataset="train")
+    print(">> Train AUC before correction:", AUC)
+    AUC = networks[file_name].auc(dataset="test")
+    print(">> Test AUC before correction:", AUC)
+    networks[file_name].TrainCorrection(method="BDTReweighter", save_name=f"models/{cfg['name']}/{file_name}_correction")
+    AUC = networks[file_name].auc(dataset="train")
+    print(">> Train AUC after correction:", AUC)
+    AUC = networks[file_name].auc(dataset="test")
+    print(">> Test AUC after correction:", AUC)
+  elif args.step in ["ValidateGeneration","ValidateInference","Infer"] and args.correction:
+    print("- Loading correction")
+    networks[file_name].LoadCorrection(method="BDTReweighter", save_name=f"models/{cfg['name']}/{file_name}_correction")
 
   ### Do validation of trained model ###
   if args.step in ["ValidateGeneration","ValidateInference","Infer"]:
@@ -486,13 +507,14 @@ def main(args, architecture=None):
                 extra_dir="LikelihoodScans"
               )
 
-            if not args.do_binned_fit:
-              val.PlotComparisons(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="Comparisons")
-              val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
-              if len(val.X_columns) > 1:
-                val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit2D")
-            else:
-              val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
+            #if not args.do_binned_fit:
+              #val.PlotComparisons(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="Comparisons")
+              #val.PlotComparisonsSeparatingDatasets(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="ComparisonsWithSeparation", score_cut=0.5)
+              #val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
+              #if len(val.X_columns) > 1:
+              #  val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit2D")
+            #else:
+              #val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
       if args.step == "ValidateInference" and args.sub_step in ["Summary","All"] and args.submit is None:
 

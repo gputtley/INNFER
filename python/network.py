@@ -10,6 +10,7 @@ import gc
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
+from correction import Correction
 from plotting import plot_histograms
 from scipy import integrate
 from other_functions import GetYName, MakeDirectories
@@ -64,6 +65,8 @@ class Network():
     self.optimizer_name = "Adam" 
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {} 
+    self.active_learning = False
+    self.active_learning_options = {}
 
     # Running parameters
     self.plot_loss = True
@@ -79,6 +82,7 @@ class Network():
     self.amortizer = None
     self.trainer = None
     self.lr_scheduler = None
+    self.correction = None
     
     # Data parquet files
     self.X_train = DataLoader(X_train, batch_size=self.batch_size)
@@ -93,6 +97,7 @@ class Network():
     self.disable_tqdm = False
     self.use_wandb = False
     self.probability_store = {}
+    self.probability_wt_store = {}
     self.adaptive_lr_scheduler = None
 
   def _SetOptions(self, options):
@@ -146,7 +151,7 @@ class Network():
       }
     elif self.coupling_design == "spline":
       settings = spline_settings
-    elif self.coupling_desing == "affine":
+    elif self.coupling_design == "affine":
       settings = affine_settings
 
     self.inference_net = bf.networks.InvertibleNetwork(
@@ -154,7 +159,7 @@ class Network():
       num_coupling_layers=self.num_coupling_layers,
       permutation=self.permutation,
       coupling_design=self.coupling_design,
-      coupling_settings=settings
+      coupling_settings=settings,
       )
 
     self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net)
@@ -211,6 +216,27 @@ class Network():
           initial_learning_rate=self.trainer.default_lr,
           decay_steps=self.lr_scheduler_options["decay_steps"] if "decay_steps" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
           alpha=self.lr_scheduler_options["alpha"] if "alpha" in self.lr_scheduler_options.keys() else 0.0
+      )
+    elif self.lr_scheduler_name == "NestedCosineDecay":
+      class NestedCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, initial_learning_rate, outer_period, inner_period):
+          super(NestedCosineDecay, self).__init__()
+          self.initial_learning_rate = initial_learning_rate
+          self.outer_period = outer_period
+          self.inner_period = inner_period
+        def __call__(self, step):
+          outer_amplitude = 0.5 * (
+              1 + tf.math.cos((step / self.outer_period) * np.pi)
+          )
+          inner_amplitude = 0.5 * (
+              1 + tf.math.cos((step % self.inner_period / self.inner_period) * np.pi)
+          )
+          learning_rate = self.initial_learning_rate * outer_amplitude * inner_amplitude
+          return learning_rate
+      self.lr_scheduler = NestedCosineDecay(
+        initial_learning_rate=self.trainer.default_lr,
+        outer_period=self.lr_scheduler_options["outer_period"]*int(self.X_train.num_rows/self.batch_size) if "outer_period" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
+        inner_period=self.lr_scheduler_options["inner_period"]*int(self.X_train.num_rows/self.batch_size) if "inner_period" in self.lr_scheduler_options.keys() else 10*int(self.X_train.num_rows/self.batch_size),
       )
     elif self.lr_scheduler_name == "Cyclic":
       class Cyclic(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -287,6 +313,34 @@ class Network():
         max_shift_fraction=self.lr_scheduler_options["max_shift_fraction"] if "max_shift_fraction" in self.lr_scheduler_options.keys() else 0.01,
         grad_change=self.lr_scheduler_options["grad_change"] if "grad_change" in self.lr_scheduler_options.keys() else 0.99,
       )
+    elif self.lr_scheduler_name == "GaussianNoise":
+      self.lr_scheduler = self.trainer.default_lr
+      class noise_lr_scheduler():
+        def __init__(self, initial_learning_rate, std_percentage=0.001, num_its=10):
+          self.initial_learning_rate = initial_learning_rate
+          self.num_its = num_its
+          self.std_percentage = std_percentage
+          self.loss_stores = []
+          self.lr_stores = []
+        def update(self, lr, loss):
+          self.loss_stores.append(loss)
+          self.lr_stores.append(lr)
+          if len(self.lr_stores) > self.num_its:
+            self.lr_stores = self.lr_stores[1:]
+            if len(self.loss_stores) > self.num_its + 1:
+              self.loss_stores = self.loss_stores[1:]
+            loss_grads = [self.loss_stores[ind] - self.loss_stores[ind+1] for ind in range(len(self.loss_stores)-1)]
+            min_ind = loss_grads.index(max(loss_grads)) # maybe make it some weighted average instead
+            lr = self.lr_stores[min_ind]
+          lr += np.random.normal(loc=0.0, scale=lr*self.std_percentage)
+          return lr
+          
+      self.adaptive_lr_scheduler = noise_lr_scheduler(
+        initial_learning_rate=self.trainer.default_lr,
+        std_percentage=self.lr_scheduler_options["std_percentage"] if "std_percentage" in self.lr_scheduler_options.keys() else 0.01,
+        num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 20,
+      )
+
     else:
       print("ERROR: lr_schedule not valid.")
 
@@ -348,7 +402,9 @@ class Network():
       fix_1d_spline=self.fix_1d_spline,
       disable_tqdm=self.disable_tqdm,
       use_wandb=self.use_wandb,
-      adaptive_lr_scheduler=self.adaptive_lr_scheduler
+      adaptive_lr_scheduler=self.adaptive_lr_scheduler,
+      active_learning=self.active_learning,
+      active_learning_options=self.active_learning_options
     )
 
     if self.plot_loss:
@@ -362,7 +418,7 @@ class Network():
         y_label = "Loss"
       )
 
-  def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False):
+  def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False, no_correction=False):
     """
     Generate synthetic data samples.
 
@@ -376,6 +432,10 @@ class Network():
     """
     Y = np.array(Y)
     if Y.ndim == 1 or len(Y) == 1: Y = np.tile(Y, (n_events, 1))
+    
+    if self.active_learning:
+      Y = np.hstack((Y,np.zeros(len(Y)).reshape(-1,1)))
+
     if columns is not None:
       column_indices = [columns.index(col) for col in self.data_parameters["Y_columns"]]
       Y = Y[:,column_indices]
@@ -390,10 +450,15 @@ class Network():
     if self.fix_1d_spline:
       synth = synth[:,0].reshape(-1,1)
 
+    if self.correction is not None and not no_correction:
+      synth_wt = self.correction.CorrectionWeights(synth, Y, wt_synth=None)
+    else:
+      synth_wt = np.ones(len(synth))
+
     if not transform:
       synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
-    
-    return synth
+
+    return synth, synth_wt
 
   def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False, run_normalise=True, elements_per_batch=10**6):
     """
@@ -411,6 +476,8 @@ class Network():
     if y_columns is not None:
       column_indices = [y_columns.index(col) for col in self.Y_train.columns]
       Y = Y[:,column_indices]
+    if self.active_learning:
+      Y = np.hstack((Y,np.zeros(len(Y)).reshape(-1,1)))
     Y_initial = copy.deepcopy(Y)
     if len(Y) == 1: Y = np.tile(Y, (len(X), 1))
 
@@ -419,6 +486,7 @@ class Network():
     if Y_name in self.probability_store.keys():
 
       log_prob = self.probability_store[Y_name]
+      prob_wt = self.probability_wt_store[Y_name]
 
     else:
 
@@ -441,6 +509,7 @@ class Network():
 
       # Get the probability in batches so not to encounter memory problems
       log_prob = np.array([])
+      prob_wt = np.array([])
       batch_size = int(elements_per_batch)
       n_batches = int(np.ceil(len(data["parameters"])/batch_size))
       for i in range(n_batches):
@@ -450,6 +519,7 @@ class Network():
         for k, v in data.items():
           batch_data[k] = v[i*batch_size:min((i+1)*batch_size,len(data["parameters"]))]
         log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
+        prob_wt = np.append(prob_wt, self.correction.CorrectionWeights(batch_data["parameters"], batch_data["direct_conditions"]) if self.correction is not None else np.ones(len(batch_data["parameters"])))
 
       log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
@@ -478,13 +548,15 @@ class Network():
         log_prob[indices] = 1
 
       if len(self.probability_store.keys()) > 5:
-        del self.probability_store[list(self.probability_store.keys())[0]]
+        del self.probability_store[list(self.probability_store.keys())[0]], self.probability_wt_store[list(self.probability_wt_store.keys())[0]]
+
       self.probability_store[Y_name] = copy.deepcopy(log_prob)
+      self.probability_wt_store[Y_name] = copy.deepcopy(prob_wt)
 
     if return_log_prob:
-      return log_prob
+      return log_prob, prob_wt
     else:
-      return np.exp(log_prob)
+      return np.exp(log_prob), prob_wt
   
   def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.25, method="histogramdd", verbose=True):
     """
@@ -502,7 +574,7 @@ class Network():
     Returns:
         float: The computed integral of the probability density function.
     """
-    synth = self.Sample(Y, columns=y_columns, n_events=n_samples)
+    synth, synth_wt = self.Sample(Y, columns=y_columns, n_events=n_samples)
 
     if method == "histogramdd":
 
@@ -516,7 +588,7 @@ class Network():
         trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
         synth = synth[trimmed_indices,:]
 
-      _, edges = np.histogramdd(synth, bins=n_integral_bins)
+      _, edges = np.histogramdd(synth, weights=synth_wt, bins=n_integral_bins)
       bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
       meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
       unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
@@ -539,6 +611,73 @@ class Network():
     if verbose: print(f"Integral for Y is {integral}")
     return integral
 
+  def MakeSeparationDatasets(self, dataset="train", for_classification=False):
+    """
+    Prepares synthetic and simulated datasets for training or testing.
+
+    Args:
+        dataset (str): Dataset type ('train' or 'test'). Defaults to 'train'.
+        for_classification (bool): Whether to prepare datasets for classification. Defaults to False.
+
+    Returns:
+        tuple: A tuple containing the synthetic and simulated datasets.
+    """
+    if dataset == "train":
+      Y_sim = self.Y_train.LoadFullDataset().to_numpy()
+      X_sim = self.X_train.LoadFullDataset().to_numpy()
+      wt_sim = self.wt_train.LoadFullDataset().to_numpy()
+    elif dataset == "test":
+      Y_sim = self.Y_test.LoadFullDataset().to_numpy()
+      X_sim = self.X_test.LoadFullDataset().to_numpy()
+      wt_sim = self.wt_test.LoadFullDataset().to_numpy()
+
+    Y_unique = np.unique(Y_sim)
+    rng = np.random.RandomState(seed=42)
+    Y_synth = rng.choice(Y_unique, size=len(Y_sim)).reshape(-1,1)
+    X_synth, wt_synth = self.Sample(Y_synth, transform=True, Y_transformed=True)
+    for y in Y_unique:
+      sim_inds = (Y_sim == y).flatten()
+      synth_inds = (Y_synth == y).flatten()
+      wt_synth[synth_inds] *= np.sum(wt_sim[sim_inds])/np.sum(wt_synth[synth_inds])
+      print(f"Y = {y}, Sum Sim Wts = {float(np.sum(wt_sim[sim_inds]))}, Sum Synth Wts = {float(np.sum(wt_synth[synth_inds]))}")
+
+    if not for_classification:
+      return X_sim, Y_sim, wt_sim, X_synth, Y_synth, wt_synth 
+    else:
+      X = np.vstack((np.hstack((X_sim, Y_sim)),np.hstack((X_synth, Y_synth))))
+      y = np.vstack((np.zeros(len(X_sim)).reshape(-1,1),np.ones(len(X_synth)).reshape(-1,1)))
+      wt = np.vstack((wt_sim.reshape(-1,1), wt_synth.reshape(-1,1)))
+      rng = np.random.RandomState(seed=42)
+      indices = rng.permutation(X.shape[0])
+      X = X[indices]
+      y = y[indices]
+      wt = wt[indices]
+      return X, y, wt
+
+
+  def TrainCorrection(self, dataset="train", method="BDTClassifier", save_name="correction"):
+    """
+    Trains a correction model using synthetic and simulated datasets.
+
+    Args:
+        method (str): Method for training the correction model ('BDTClassifier' or 'BDTReweighter'). Defaults to 'BDTClassifier'.
+        save_name (str): Prefix for saving the trained model files. Defaults to 'correction'.
+    """
+    X_sim, Y_sim, wt_sim, X_synth, Y_synth, wt_synth = self.MakeSeparationDatasets(dataset=dataset)
+    self.correction = Correction()
+    self.correction.Train(X_synth, Y_synth, X_sim, Y_sim, wt_synth=wt_synth, wt_sim=wt_sim, method=method, save_name=save_name)
+
+  def LoadCorrection(self, method="BDTClassifier", save_name="correction"):
+    """
+    Loads a pre-trained correction model from files.
+
+    Args:
+        method (str): Method used for training the correction model ('BDTClassifier' or 'BDTReweighter'). Defaults to 'BDTClassifier'.
+        save_name (str): Prefix used for saving the trained model files. Defaults to 'correction'.
+    """
+    self.correction = Correction()
+    self.correction.Load(method=method, save_name=save_name)
+
   def auc(self, dataset="train"):
     """
     Gets the AUC score when trying to separate the datasets with a Boosted Decision Tree (BDT).
@@ -549,46 +688,19 @@ class Network():
     Returns:
         float: Absolute difference between 0.5 and the AUC score.
     """
-    print(">> Getting AUC score when trying to separate the datasets with a BDT.")
-
-    if dataset == "train":
-      Y = self.Y_train.LoadFullDataset()
-      x1 = self.X_train.LoadFullDataset()
-      wt1 = self.wt_train.LoadFullDataset()
-    elif dataset == "test":
-      Y = self.Y_test.LoadFullDataset()
-      x1 = self.X_test.LoadFullDataset()
-      wt1 = self.wt_test.LoadFullDataset()
-
-    x1 = np.hstack((x1, Y))
-    y1 = np.zeros(len(x1)).reshape(-1,1)
-    wt1 = wt1.to_numpy()
-
-    x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    x2 = np.hstack((x2, Y))
-    y2 = np.ones(len(x2)).reshape(-1,1)
-    wt2 = np.ones(len(x2)).reshape(-1,1)
-    wt1 *= np.sum(wt2)/np.sum(wt1)
-
-    x = np.vstack((x1,x2))
-    y = np.vstack((y1,y2))
-    wt = np.vstack((wt1,wt2))
-
-    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((x,wt)), y, test_size=0.5, random_state=42)
+    print(">> Getting AUC score when trying to separate the datasets with a BDT")
+    X, y, wt = self.MakeSeparationDatasets(dataset=dataset, for_classification=True)
+    X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((X,wt)), y, test_size=0.5, random_state=42)
 
     X_train = X_wt_train[:,:-1]
     X_test = X_wt_test[:,:-1]
     wt_train = X_wt_train[:,-1]
     wt_test = X_wt_test[:,-1]
 
-    del x1, x2, y1, y2, wt1, wt2, Y, x, y, X_wt_train, X_wt_test
-    gc.collect()
-
     clf = xgb.XGBClassifier()
     clf.fit(X_train, y_train, sample_weight=wt_train)
     y_prob = clf.predict_proba(X_test)[:, 1]
     auc = roc_auc_score(y_test, y_prob, sample_weight=wt_test)
-
     return float(abs(0.5-auc))
 
   def r2(self, dataset="train"):
@@ -599,7 +711,8 @@ class Network():
     - dict: A dictionary where keys are feature names and values are the R2 scores
             for those features.
     """
-    print(">> Getting R2 score when trying to separate the datasets with a BDT.")
+    """
+    print(">> Getting R2")
     if dataset == "train":
       Y = self.Y_train.LoadFullDataset()
       x1 = self.X_train.LoadFullDataset()
@@ -612,20 +725,31 @@ class Network():
     x1 = x1.to_numpy()
     wt1 = wt1.to_numpy()
 
-    x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    wt2 = np.ones(len(x2)).reshape(-1,1)
+    Y_unique = np.unique(Y)
+    Y_synth = np.random.choice(Y_unique, size=len(Y)).reshape(-1,1)
+    x2, wt2 = self.Sample(Y_synth, transform=True, Y_transformed=True)    
+    wt2 = wt2.reshape(-1,1)
     wt1 *= np.sum(wt2)/np.sum(wt1)
 
-    # resample the data
+    """
+
+    # get datasets
+    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset="test")
+
+    # remove negative weights
     if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
-      print("WARNING: Ignoring negative weigths")
+      print("WARNING: Ignoring negative weights")
       wt1[wt1 < 0] = 0
       wt2[wt2 < 0] = 0
     
+    # normalise weights
     probs1 = wt1.flatten() / np.sum(wt1.flatten())
     probs2 = wt2.flatten() / np.sum(wt2.flatten())
+
     # apply the minimum size between x1 and x2
     size_min = np.min((len(x1), len(x2)))
+
+    # resample data
     resampled_indices1 = np.random.choice(len(x1), size=size_min, p=probs1)
     resampled_indices2 = np.random.choice(len(x2), size=size_min, p=probs2)
     X1 = x1[resampled_indices1]
@@ -656,33 +780,25 @@ class Network():
     - dict: A dictionary where keys are feature names and values are the NRMSE scores
             for those features.
     """
-    print(">> Getting NRMSE score when trying to separate the datasets with a BDT.")
+    print(">> Getting NRMSE")
 
-    if dataset == "train":
-      Y = self.Y_train.LoadFullDataset()
-      x1 = self.X_train.LoadFullDataset()
-      wt1 = self.wt_train.LoadFullDataset()
-    elif dataset == "test":
-      Y = self.Y_test.LoadFullDataset()
-      x1 = self.X_test.LoadFullDataset()
-      wt1 = self.wt_test.LoadFullDataset()
+    # get datasets
+    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset="test")
 
-    x1 = x1.to_numpy()
-    wt1 = wt1.to_numpy()
-
-    x2 = self.Sample(Y, transform=True, Y_transformed=True)
-    wt2 = np.ones(len(x2)).reshape(-1,1)
-    wt1 *= np.sum(wt2)/np.sum(wt1)
-  
+    # remove negative weights
     if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
-      print("WARNING: Ignoring negative weigths")
+      print("WARNING: Ignoring negative weights")
       wt1[wt1 < 0] = 0
       wt2[wt2 < 0] = 0
     
+    # normalise weights
     probs1 = wt1.flatten() / np.sum(wt1.flatten())
     probs2 = wt2.flatten() / np.sum(wt2.flatten())
+
     # apply the minimum size between x1 and x2
     size_min = np.min((len(x1), len(x2)))
+
+    # resample data
     resampled_indices1 = np.random.choice(len(x1), size=size_min, p=probs1)
     resampled_indices2 = np.random.choice(len(x2), size=size_min, p=probs2)
     X1 = x1[resampled_indices1]
@@ -704,3 +820,4 @@ class Network():
       nrmse[col_name] = float(nrmse_val)
 
     return nrmse
+

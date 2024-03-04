@@ -42,6 +42,8 @@ class InnferTrainer(bf.trainers.Trainer):
       fix_1d_spline=False,
       use_wandb = False,
       adaptive_lr_scheduler = False,
+      active_learning = False,
+      active_learning_options = {},
       **kwargs,
    ):
       """
@@ -70,6 +72,8 @@ class InnferTrainer(bf.trainers.Trainer):
       """
 
       self.fix_1d_spline = fix_1d_spline
+      self.active_learning = active_learning
+      self.active_learning_options = active_learning_options
 
       # Compile update function, if specified
       if use_autograph:
@@ -80,9 +84,9 @@ class InnferTrainer(bf.trainers.Trainer):
       self._setup_optimizer(optimizer, epochs, X_train.num_batches)
       self.loss_history.start_new_run()
       self.loss_history._total_train_loss = []
-      loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
+      loss = self._get_epoch_loss(X_train, Y_train, wt_train, 0, **kwargs)
       self.loss_history._total_train_loss.append(float(loss))
-      val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, **kwargs)
+      val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, 0, **kwargs)
       self.loss_history.add_val_entry(0, val_loss)
 
       if use_wandb:
@@ -103,7 +107,7 @@ class InnferTrainer(bf.trainers.Trainer):
             #Loop through dataset
             for bi in range(1,X_train.num_batches+1):
                # Perform one training step and obtain current loss value
-               input_dict = self._load_resampled_batch(X_train, Y_train, wt_train)
+               input_dict = self._load_resampled_batch(X_train, Y_train, wt_train, ep)
 
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
@@ -119,7 +123,7 @@ class InnferTrainer(bf.trainers.Trainer):
 
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
-         loss = self._get_epoch_loss(X_train, Y_train, wt_train, **kwargs)
+         loss = self._get_epoch_loss(X_train, Y_train, wt_train, ep, **kwargs)
          self.loss_history._total_train_loss.append(float(loss))
          val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
 
@@ -143,7 +147,7 @@ class InnferTrainer(bf.trainers.Trainer):
 
       return self.loss_history.get_plottable()
    
-   def _get_epoch_loss(self, X, Y, wt, batch_size=1000000, **kwargs):        
+   def _get_epoch_loss(self, X, Y, wt, ep, batch_size=1000000, **kwargs):        
       """
       Helper method to compute the average epoch loss(es).
 
@@ -165,7 +169,7 @@ class InnferTrainer(bf.trainers.Trainer):
       wt.ChangeBatchSize(batch_size)
       sum_loss = 0
       for _ in range(X.num_batches):
-         conf = self._load_resampled_batch(X, Y, wt)
+         conf = self._load_resampled_batch(X, Y, wt, ep)
          sum_loss += float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))
       loss = tf.constant(sum_loss/X.num_batches)
       X.ChangeBatchSize(X_old_batch_size)
@@ -184,7 +188,7 @@ class InnferTrainer(bf.trainers.Trainer):
          wt_test (DataLoader): DataLoader for test weights.
          **kwargs: Additional keyword arguments.
       """
-      val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, **kwargs)
+      val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, ep, **kwargs)
       self.loss_history.add_val_entry(ep, val_loss)
       val_loss_str = loss_to_string(ep, val_loss)
       logger = logging.getLogger()
@@ -207,7 +211,7 @@ class InnferTrainer(bf.trainers.Trainer):
          return early_stopper
       return None
    
-   def _load_resampled_batch(self, X, Y, wt):
+   def _load_resampled_batch(self, X, Y, wt, ep):
       """
       Helper method to resample batches based off weights.
 
@@ -227,12 +231,36 @@ class InnferTrainer(bf.trainers.Trainer):
          wt_data[wt_data < 0] = 0
       if self.fix_1d_spline:
          X_data = np.column_stack((X_data.flatten(), np.random.normal(0.0, 1.0, (len(X_data),))))
+      if self.active_learning:
+         X_data, Y_data, wt_data = self._make_active_learning_datasets(X_data, Y_data, wt_data, ep)
       probs = wt_data / np.sum(wt_data)
       resampled_indices = np.random.choice(len(X_data), size=len(X_data), p=probs)
       X_data = X_data[resampled_indices]
       Y_data = Y_data[resampled_indices]
       return {"parameters" : X_data, "direct_conditions" : Y_data}
-      #return {"parameters" : X_data}
    
    def _convert_lr(self, lr):
       return lr if not isinstance(lr, np.ndarray) else lr[0]
+   
+   def _make_active_learning_datasets(self, X, Y, wt, ep):
+      Y = np.hstack((Y, np.zeros(len(Y)).reshape(-1,1)))
+      if ep > self.active_learning_options["start_epoch"]:
+         len_data = len(X)
+         if self.active_learning_options["function"] == "linear":
+            frac = (min(ep,self.active_learning_options["end_epoch"])-self.active_learning_options["start_epoch"])/(2*self.active_learning_options["end_epoch"]-self.active_learning_options["start_epoch"])
+         sample_size = int((frac) * len_data)
+         if sample_size > 0:
+            indices = np.random.choice(len_data, size=sample_size, replace=False)
+            sum_wt_indices = float(np.sum(wt[indices]))
+            data = {
+               "direct_conditions" : Y[indices,:].astype(np.float32)
+            }
+            synth = self.amortizer.sample(data, 1)
+            if len(synth.shape) > 2:
+               synth = synth[:,0,:]
+            if self.fix_1d_spline:
+               synth = synth[:,0].reshape(-1,1)
+            X[indices,:] = synth
+            Y[indices,-1] = np.ones(sample_size)
+            wt[indices] = sum_wt_indices/len_data
+      return X, Y, wt

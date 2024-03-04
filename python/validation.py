@@ -4,9 +4,11 @@ from data_loader import DataLoader
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_validation_summary, plot_heatmap
 from other_functions import GetYName, MakeYieldFunction, MakeBinYields
 from scipy.integrate import simpson
+from sklearn.metrics import roc_auc_score
 from functools import partial
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 import copy
 import yaml
 
@@ -281,10 +283,10 @@ class Validation():
         if columns is None:
           columns = self.data_parameters[key]["Y_columns"]
         sel_row = np.array([row[columns.index(y)] for y in self.data_parameters[key]["Y_columns"]])
-        wt = np.ones(events_per_file)/events_per_file
 
         # Sample through dataset
-        X = pdf.Sample(sel_row, n_events=events_per_file, transform=transform)
+        X, wt = pdf.Sample(sel_row, n_events=events_per_file, transform=transform)
+        wt /= np.sum(wt)
 
         # Scale to yield
         if "yield" in self.data_parameters[key].keys():
@@ -393,7 +395,8 @@ class Validation():
     # get log probs
     X, wt = self._GetXAndWts(row, columns=columns)
     self.lkld.debug_mode = True
-    loop = [171.5,172.0,172.5,173.0,173.5,174.0,174.5] # edit for your scenario
+    loop = [171.0,171.25,171.5,171.75, 172.0, 172.25, 172.5,173.0,173.5,174.0,174.5] # edit for your scenario
+    loop = [171.5,172.0,172.5,173.0,173.5]
     for i in loop:
       self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
 
@@ -871,7 +874,142 @@ class Validation():
         error_bar_names = [f"Simulated y={plot_extra_name_true}"],
       )
 
+  def PlotComparisonsSeparatingDatasets(self, row, best_fit, ignore_quantile=0.001, n_bins=40, columns=None, extra_dir="", score_cut=0.5):
+    """
+    Plot comparisons between data, true, and best-fit distributions when separating the true and best fit with a BDT.
+
+    Args:
+        row (array-like): The row of data for which to plot the comparisons.
+        best_fit (array-like): Best-fit parameters used for synthetic data generation.
+        ignore_quantile (float): Fraction of data to ignore from both ends during histogram plotting (default is 0.001).
+        n_bins (int): Number of bins for histogram plotting (default is 40).
+        columns (list): List of column names for plotting. If None, uses Y_columns from data_parameters.
+    """
+    print(">> Producing comparison plots after a cut on the BDT score")
+    if columns == None: columns = self.data_parameters["Y_columns"]
+    X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
+    synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
+    synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
+
+    # Train BDT and cut on score
+    X_train = np.vstack((synth_true,synth_best_fit))
+    wt_train = np.vstack(
+      (
+        synth_true_wt.reshape(-1,1)*max(np.sum(synth_true_wt),np.sum(synth_best_fit_wt))/np.sum(synth_true_wt),
+        synth_best_fit_wt.reshape(-1,1)*max(np.sum(synth_true_wt),np.sum(synth_best_fit_wt))/np.sum(synth_best_fit_wt),
+      )
+    )
+    y_train = np.vstack((np.zeros(len(synth_true)).reshape(-1,1), np.ones(len(synth_best_fit)).reshape(-1,1)))
+    # shuffle dataset
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+    y_prob = clf.predict_proba(X_train)[:, 1]
+    auc = roc_auc_score(y_train, y_prob, sample_weight=wt_train)
+    print(f">> Separation AUC between best fit and true = {auc}")
+
+    # Train BDT and cut on score
+    X_train = np.vstack((X,synth_best_fit))
+    wt_train = np.vstack(
+      (
+        wt.reshape(-1,1)*max(np.sum(wt),np.sum(synth_best_fit_wt))/np.sum(wt),
+        synth_best_fit_wt.reshape(-1,1)*max(np.sum(wt),np.sum(synth_best_fit_wt))/np.sum(synth_best_fit_wt),
+      )
+    )
+    y_train = np.vstack((np.zeros(len(X)).reshape(-1,1), np.ones(len(synth_best_fit)).reshape(-1,1)))
+    # shuffle dataset
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+    y_prob = clf.predict_proba(X_train)[:, 1]
+    auc = roc_auc_score(y_train, y_prob, sample_weight=wt_train)
+    print(f">> Separation AUC between best fit and data = {auc}")
+
+    # Train BDT and cut on score
+    X_train = np.vstack((X,synth_true))
+    wt_train = np.vstack(
+      (
+        wt.reshape(-1,1)*max(np.sum(wt),np.sum(synth_true_wt))/np.sum(wt),
+        synth_true_wt.reshape(-1,1)*max(np.sum(wt),np.sum(synth_true_wt))/np.sum(synth_true_wt),
+      )
+    )
+    y_train = np.vstack((np.zeros(len(X)).reshape(-1,1), np.ones(len(synth_true)).reshape(-1,1)))
+    # shuffle dataset
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+    y_prob = clf.predict_proba(X_train)[:, 1]
+    auc = roc_auc_score(y_train, y_prob, sample_weight=wt_train)
+    print(f">> Separation AUC between true and data = {auc}")
+
+    X_prob = clf.predict_proba(X)[:, 1]
+    synth_true_prob = clf.predict_proba(synth_true)[:, 1]
+    synth_best_fit_prob = clf.predict_proba(synth_best_fit)[:, 1]
+
+    # Plot score histograms
+    file_extra_name = GetYName(row, purpose="file")
+    plot_extra_name_true = GetYName(row, purpose="plot")
+    plot_extra_name_bf = GetYName(best_fit, purpose="plot")
+    if extra_dir != "": 
+      add_extra_dir = f"/{extra_dir}"
+    else:
+      add_extra_dir = ""
+    sim_hist, bins  = np.histogram(X_prob, weights=wt.flatten(),bins=n_bins)
+    sim_hist_err_sq, _  = np.histogram(X_prob, weights=wt.flatten()**2, bins=bins)
+    synth_true_hist, _  = np.histogram(synth_true_prob, weights=synth_true_wt, bins=bins)
+    synth_best_fit_hist, _  = np.histogram(synth_best_fit_prob, weights=synth_best_fit_wt, bins=bins)
+
+    plot_histograms(
+      bins[:-1],
+      [synth_best_fit_hist,synth_true_hist],
+      [f"Synthetic y={plot_extra_name_bf} (Best Fit)",f"Synthetic y={plot_extra_name_true} (True)"],
+      colors = ["blue","red",],
+      linestyles = ["-","-"],
+      title_right = f"y={plot_extra_name_true}",
+      x_label="BDT Score",
+      name=f"{self.plot_dir}{add_extra_dir}/comparison_bdt_score_y_{file_extra_name}", 
+      y_label = "Events",
+      error_bar_hists = [sim_hist],
+      error_bar_hist_errs = [np.sqrt(sim_hist_err_sq)],
+      error_bar_names = [f"Simulated y={plot_extra_name_true}"],
+    )
+
+    # Cut datasets
+    X_prob_inds = (X_prob > score_cut)
+    synth_true_prob_inds = (synth_true_prob > score_cut)
+    synth_best_fit_prob_inds = (synth_best_fit_prob > score_cut)
+    X = X[X_prob_inds]
+    wt = wt[X_prob_inds]
+    synth_true = synth_true[synth_true_prob_inds]
+    synth_true_wt = synth_true_wt[synth_true_prob_inds]
+    synth_best_fit = synth_best_fit[synth_best_fit_prob_inds]
+    synth_best_fit_wt = synth_best_fit_wt[synth_best_fit_prob_inds]
+
+    # Loop through columns
+    for col in range(X.shape[1]):
+
+      trimmed_X, trimmed_wt = self._TrimQuantile(X[:,col], wt, ignore_quantile=ignore_quantile)
+
+      sim_hist, bins  = np.histogram(trimmed_X, weights=trimmed_wt,bins=n_bins)
+      sim_hist_err_sq, _  = np.histogram(trimmed_X, weights=trimmed_wt**2, bins=bins)
+      synth_true_hist, _  = np.histogram(synth_true[:,col], weights=synth_true_wt, bins=bins)
+      synth_best_fit_hist, _  = np.histogram(synth_best_fit[:,col], weights=synth_best_fit_wt, bins=bins)
+
+      plot_histograms(
+        bins[:-1],
+        [synth_best_fit_hist,synth_true_hist],
+        [f"Synthetic y={plot_extra_name_bf} (Best Fit)",f"Synthetic y={plot_extra_name_true} (True)"],
+        colors = ["blue","red",],
+        linestyles = ["-","-"],
+        title_right = f"y={plot_extra_name_true}",
+        x_label=self.X_plot_columns[col],
+        name=f"{self.plot_dir}{add_extra_dir}/comparison_bdt_cut_{self.X_plot_columns[col]}_y_{file_extra_name}", 
+        y_label = "Events",
+        error_bar_hists = [sim_hist],
+        error_bar_hist_errs = [np.sqrt(sim_hist_err_sq)],
+        error_bar_names = [f"Simulated y={plot_extra_name_true}"],
+      )
+
+
   def DrawProbability(self, y_vals, n_bins=100, ignore_quantile=0.001, extra_dir=""):
+    # THIS FUNCTION IS NO LONGER MAINTAINED
     """
     Draw probability distributions for given Y values.
 
@@ -999,7 +1137,7 @@ class Validation():
       axis_text="",
       )
 
-  def PlotValidationSummary(self, results, true_pdf=None, extra_dir=""):
+  def PlotValidationSummary(self, results, true_pdf=None, eff_events=True, extra_dir=""):
     """
     Plot a validation summary.
 
@@ -1010,18 +1148,27 @@ class Validation():
     """
     plot_dict = {}
     other_summaries = {}
+    other_colors = []
     if true_pdf is not None:
       other_summaries["True PDF"] = {}
+      other_colors.append("red")
+    if eff_events:
+      other_summaries[r"N=$N_{eff}$"] = {}
+      other_colors.append("green")
 
     for col, col_vals in results.items():
       plot_dict[col] = {}
       if true_pdf is not None:
-        other_summaries["True PDF"][col] = {}      
+        other_summaries["True PDF"][col] = {}   
+      if eff_events:   
+        other_summaries[r"N=$N_{eff}$"][col] = {}
 
       for _, info in col_vals.items():
         norm_crossings = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in info['crossings'].items()}
         plot_dict[col][GetYName(info["row"],purpose="plot",prefix="y=")] = norm_crossings
     
+        X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
+
         # make true likelihood
         if true_pdf is not None:
           def Probability(X, Y, y_columns=None, k=None, **kwargs):
@@ -1052,6 +1199,13 @@ class Validation():
           true_norm_crossings = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in true_crossings.items()}
           other_summaries["True PDF"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = true_norm_crossings
 
+        # make effective events summary
+        eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+        total_weight = float(np.sum(wt.flatten()))
+        eff_crossings = self.lkld.FindCrossings(info["scan_values"], list((eff_events/total_weight)*np.array(info["nlls"])), crossings=[1, 2])
+        other_summaries[r"N=$N_{eff}$"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in eff_crossings.items()}
+
+    print(other_summaries)
     if extra_dir != "": 
       add_extra_dir = f"/{extra_dir}"
     else:
@@ -1062,6 +1216,7 @@ class Validation():
       name=f"{self.plot_dir}{add_extra_dir}/validation_summary",
       nominal_name="Learned",
       other_summaries=other_summaries,
+      other_colors=other_colors
       )
     
   def AddColumns(self, dataset):
@@ -1071,3 +1226,4 @@ class Validation():
     self.X_plot_columns = list(df.columns)
     dataset = df.to_numpy()
     return dataset
+  

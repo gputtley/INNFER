@@ -118,6 +118,8 @@ class Likelihood():
       # Get rate times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
 
+      # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS
+
       if self.debug_mode:
         print(">> Making debug histograms")
         for x_col in range(X.shape[1]):
@@ -139,7 +141,7 @@ class Likelihood():
         ln_lklds = copy.deepcopy(ln_lklds_with_rate_params)
         first_loop = False
       else:
-        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
+        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds)
 
     # Rescale so total pdf integrate to 1
     ln_lklds -= np.log(sum_rate_params)
@@ -198,7 +200,10 @@ class Likelihood():
       if rate_param == 0.0: continue
 
       # Get rate times yield times probability
-      log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+      log_p, prob_wt = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+
+      # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS 
+
       ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns)) + log_p
 
       # Sum together probabilities of different files
@@ -210,7 +215,9 @@ class Likelihood():
 
     # Weight the events
     if wts is not None:
-      ln_lklds = wts.flatten()*ln_lklds
+      ln_lklds = wts.flatten()*prob_wt.flatten()*ln_lklds
+    else:
+      ln_lklds = prob_wt.flatten()*ln_lklds
 
     if before_sum:
       return ln_lklds
@@ -411,7 +418,7 @@ class Likelihood():
 
     return result
 
-  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
+  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=5.4, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
     """
     Computes the scan values for a given column.
 
@@ -445,6 +452,8 @@ class Likelihood():
         est_sig = np.sqrt(nll)
         m1p1_vals[sign] = step/est_sig
       if fin: nll_could_be_neg = False
+
+    print(f">> Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
 
     lower_scan_vals = [float(self.best_fit[col_index] - estimated_sigma_step*ind*m1p1_vals[-1]) for ind in range(int(np.ceil(estimated_sigmas_shown/estimated_sigma_step)),0,-1)]
     upper_scan_vals = [float(self.best_fit[col_index] + estimated_sigma_step*ind*m1p1_vals[1]) for ind in range(1,int(np.ceil(estimated_sigmas_shown/estimated_sigma_step))+1)]
