@@ -12,7 +12,7 @@ import xgboost as xgb
 import copy
 import yaml
 
-class Validation():
+class ValidationAndInference():
   """
   Validation class for evaluating and visualizing the performance of conditional invertible neural network models. 
   """
@@ -28,13 +28,14 @@ class Validation():
     # Set up information
     self.model = model
     self.infer = None
+    self.data_type = "sim" # sim, asimov, data
     self.data_parameters = {}
     self.pois = []
     self.nuisances = []
     self.data_key = "val"
     self.tolerance = 1e-6
     self.lower_validation_stats = None
-    self.do_binned_fit = None
+    self.likelihood_type = "unbinned_extended"
     self.var_and_bins = None
     self.out_dir = "./data/"
     self.plot_dir = "./plots/"
@@ -44,11 +45,11 @@ class Validation():
     self.X_columns = self.data_parameters[list(self.data_parameters.keys())[0]]["X_columns"]
     self.X_plot_columns = copy.deepcopy(self.X_columns)
 
-
     # Data storage
     self.synth = None
     self.synth_wt = None
     self.synth_row = None
+    self.synth_seed = None
     self.synth_type = None
     self.lkld = None
 
@@ -62,7 +63,7 @@ class Validation():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, ignore_infer=False, transform=False, add_columns=False):
+  def _GetXAndWts(self, row, columns=None, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, transform=False, add_columns=False, resample=True, resampling_seed=2):
     """
     Extract data and weights for a given row.
 
@@ -75,92 +76,92 @@ class Validation():
         X (numpy.ndarray): Extracted data.
         wt (numpy.ndarray): Extracted weights.
     """
+    first_loop = True
+    for key, val in self.data_parameters.items():
 
-    # Do inference on data
-    if self.infer is not None and not ignore_infer:
-        
-        dl = DataLoader(self.infer)
-        data = dl.LoadFullDataset()
-        total_X = data.loc[:,self.X_columns].to_numpy()
-        total_wt = data.loc[:,"wt"].to_numpy().reshape(-1,1)
+      if specific_file is not None:
+        if specific_file != key:
+          continue
 
-    # Do inference on simulated data
-    else:
+      # Set up preprocess code to load the data in
+      pp = PreProcess()
+      pp.parameters = val
+      pp.output_dir = val["file_location"]
 
-      first_loop = True
-      for key, val in self.data_parameters.items():
+      # Load and reformat data
+      X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt, untransformX=(not transform))
 
-        if specific_file is not None:
-          if specific_file != key:
-            continue
+      if columns is None:
+        columns = val["Y_columns"]
+      X = X.to_numpy()
+      Y = Y.to_numpy()
+      wt = wt.to_numpy()
 
-        # Set up preprocess code to load the data in
-        pp = PreProcess()
-        pp.parameters = val
-        pp.output_dir = val["file_location"]
+      if not return_full:
 
-        # Load and reformat data
-        X, Y, wt = pp.LoadSplitData(dataset=self.data_key, get=["X","Y","wt"], use_nominal_wt=use_nominal_wt, untransformX=(not transform))
+        # Choose the matching Y rows
+        sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
+        if Y.shape[1] > 0:
+          matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
+          X = X[matching_rows]
+          wt = wt[matching_rows]
 
-        if columns is None:
-          columns = val["Y_columns"]
-        X = X.to_numpy()
-        Y = Y.to_numpy()
-        wt = wt.to_numpy()
+        # Scale weights to the correct yield
+        if "yield" in val.keys():
+          if "all" in val["yield"].keys():
+            sum_wt = val["yield"]["all"]
+          else:
+            sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
+          old_sum_wt = np.sum(wt, dtype=np.float128)
+          wt *= sum_wt/old_sum_wt
+      
+        # Scale wt by the rate parameter value
+        if "mu_"+key in columns:
+          rp = row[columns.index("mu_"+key)]
+          if rp == 0.0: continue
+          wt *= rp
 
-        if not return_full:
+      # Add column
+      if add_columns:
+        X = self.AddColumns(X)
+      else:
+        self.X_plot_columns = copy.deepcopy(self.X_columns)
 
-          # Choose the matching Y rows
-          sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
-          if Y.shape[1] > 0:
-            matching_rows = np.all(np.isclose(Y, sel_row, rtol=self.tolerance, atol=self.tolerance), axis=1)
-            X = X[matching_rows]
-            wt = wt[matching_rows]
+      # Concatenate datasets
+      if first_loop:
+        first_loop = False
+        total_X = copy.deepcopy(X)
+        total_wt = copy.deepcopy(wt)
+        if return_y:
+          total_Y = copy.deepcopy(Y)
+      else:
+        total_X = np.vstack((total_X, X))
+        total_wt = np.vstack((total_wt, wt))
+        if return_y:
+          total_Y = np.vstack((total_Y, Y))
 
-          # Scale weights to the correct yield
-          if "yield" in val.keys():
-            if "all" in val["yield"].keys():
-              sum_wt = val["yield"]["all"]
-            else:
-              sum_wt = val["yield"][GetYName(sel_row,purpose="file")]
-            old_sum_wt = np.sum(wt, dtype=np.float128)
-            wt *= sum_wt/old_sum_wt
-        
-          # Scale wt by the rate parameter value
-          if "mu_"+key in columns:
-            rp = row[columns.index("mu_"+key)]
-            if rp == 0.0: continue
-            wt *= rp
+    # Lower validation stats
+    if self.lower_validation_stats is not None:
+      if len(total_X) > self.lower_validation_stats:
+        rng = np.random.RandomState(seed=42)
+        random_indices = rng.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
+        total_X = total_X[random_indices,:]
+        sum_wt = np.sum(total_wt)
+        total_wt = total_wt[random_indices,:]
+        new_sum_wt = np.sum(wt)
+        total_wt *= sum_wt/new_sum_wt
 
-        # Add column
-        if add_columns:
-          X = self.AddColumns(X)
-        else:
-          self.X_plot_columns = copy.deepcopy(self.X_columns)
-
-        # Concatenate datasets
-        if first_loop:
-          first_loop = False
-          total_X = copy.deepcopy(X)
-          total_wt = copy.deepcopy(wt)
-          if return_y:
-            total_Y = copy.deepcopy(Y)
-        else:
-          total_X = np.vstack((total_X, X))
-          total_wt = np.vstack((total_wt, wt))
-          if return_y:
-            total_Y = np.vstack((total_Y, Y))
-
-      # Lower validation stats
-      if self.lower_validation_stats is not None:
-        if len(total_X) > self.lower_validation_stats:
-          rng = np.random.RandomState(seed=42)
-          random_indices = rng.choice(total_X.shape[0], self.lower_validation_stats, replace=False)
-          total_X = total_X[random_indices,:]
-          sum_wt = np.sum(total_wt)
-          total_wt = total_wt[random_indices,:]
-          new_sum_wt = np.sum(wt)
-          total_wt *= sum_wt/new_sum_wt
+    if resample:
+      probs = total_wt.flatten() / np.sum(total_wt.flatten())
+      #n_events = int(np.sum(total_wt.flatten()))
+      n_events = int((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+      rng = np.random.RandomState(seed=resampling_seed)
+      resampled_indices = rng.choice(len(total_X), size=n_events, p=probs)
+      total_X = total_X[resampled_indices]
+      if return_y:
+        total_Y = total_Y[resampled_indices]
+      prev_sum_wt = np.sum(total_wt.flatten())
+      total_wt = np.ones(len(total_X)).reshape(-1,1)*prev_sum_wt/len(total_X)
 
     if not return_y:
       return total_X, total_wt
@@ -248,7 +249,7 @@ class Validation():
 
     return unrolled_bins
 
-  def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False, add_columns=False):
+  def Sample(self, row, columns=None, events_per_file=10**6, separate=False, transform=False, add_columns=False, seed=42, scale=True):
     """
     Sample synthetic data.
 
@@ -267,9 +268,9 @@ class Validation():
     if self.synth_row is None:
       matching_rows = False
     else:
-      if len(self.synth_row) == 0 and len(row) == 0:
+      if len(self.synth_row) == 0 and len(row) == 0 and self.synth_seed == seed:
         matching_rows = True
-      elif self.synth_row == row:
+      elif self.synth_row == row and self.synth_seed == seed:
         matching_rows = True
       else:
         matching_rows = False
@@ -285,13 +286,14 @@ class Validation():
         sel_row = np.array([row[columns.index(y)] for y in self.data_parameters[key]["Y_columns"]])
 
         # Sample through dataset
-        X, wt = pdf.Sample(sel_row, n_events=events_per_file, transform=transform)
-        wt /= np.sum(wt)
+        X, wt = pdf.Sample(sel_row, n_events=events_per_file, transform=transform, seed=seed)
 
-        # Scale to yield
-        if "yield" in self.data_parameters[key].keys():
-          func = MakeYieldFunction(self.pois, self.nuisances, self.data_parameters[key])
-          wt *= func(sel_row)
+        if scale:
+          wt /= np.sum(wt)
+          # Scale to yield
+          if "yield" in self.data_parameters[key].keys():
+            func = MakeYieldFunction(self.pois, self.nuisances, self.data_parameters[key])
+            wt *= func(sel_row)
 
         # Scale by rate parameters
         if "mu_"+key in columns:
@@ -329,6 +331,7 @@ class Validation():
       if not separate: total_wt = total_wt.flatten()
       self.synth_wt = total_wt
       self.synth_type = separate
+      self.synth_seed = seed
 
     # Combine saved dictionary
     elif (matching_rows and self.synth_type == True and separate == False):
@@ -346,6 +349,7 @@ class Validation():
       self.synth = total_X
       self.synth_wt = total_wt
       self.synth_type = separate
+      self.synth_seed = seed
 
     # Load saved samples
     else:
@@ -358,10 +362,10 @@ class Validation():
     """
     Build the likelihood object
     """
-    if self.do_binned_fit:
+    if self.likelihood_type in ["binned_extended"]:
       bin_yields_dict = {}
       for key, val in self.data_parameters.items():
-        X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, ignore_infer=True, return_y=True)
+        X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True)
         bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
         column = self.X_columns.index(self.var_and_bins.split("[")[0])
 
@@ -385,56 +389,86 @@ class Validation():
           "pdfs":self.model,
           "yields":{k:MakeYieldFunction(self.pois, self.nuisances, v) for k, v in self.data_parameters.items()}
         }, 
-        type="unbinned_extended", 
+        type=self.likelihood_type, 
         data_parameters=self.data_parameters,
         parameters=self.validation_options,
       )
 
-  def DoDebug(self, row, columns=None):
+  def DoDebug(self, row, columns=None, plot=False, sampling_seed=99):
 
     # get log probs
-    X, wt = self._GetXAndWts(row, columns=columns)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, sampling_seed=sampling_seed)
+    #X, wt = self._GetXAndWts(row, columns=columns)
+    print("X dataset:")
+    print(X)
+    print()
+    print("wt dataset")
+    print(wt)
+    print()
+
     self.lkld.debug_mode = True
     loop = [171.0,171.25,171.5,171.75, 172.0, 172.25, 172.5,173.0,173.5,174.0,174.5] # edit for your scenario
-    loop = [171.5,172.0,172.5,173.0,173.5]
+    loop = [171.48,171.49,171.50,171.51]
     for i in loop:
       self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
 
-    # plot histograms
-    for key, val in self.lkld.debug_hists.items():
-      plot_histograms(
-        self.lkld.debug_bins[key][:-1],
-        [v for _,v in val.items()],
-        [k for k,_ in val.items()],
-        x_label = key,
-        name = f"debug/log_probs_hist_{key}", 
-        y_label = r"$\sum \ln L$",
-      )
+    if plot:
 
-    # subtract minimum
-    sum_vals = []
-    example_key = list(self.lkld.debug_hists.keys())[0]
-    for key, val in self.lkld.debug_hists[example_key].items():
-      sum_vals.append(np.sum(val))
-    max_val = max(sum_vals)
-    max_val_name = list(self.lkld.debug_hists[example_key].keys())[sum_vals.index(max_val)]
-    for col, val_dict in self.lkld.debug_hists.items():
-      max_hist = copy.deepcopy(self.lkld.debug_hists[col][max_val_name])
-      for key, val in val_dict.items():
-        self.lkld.debug_hists[col][key] = self.lkld.debug_hists[col][key] - max_hist
+      # plot histograms
+      for key, val in self.lkld.debug_hists.items():
+        plot_histograms(
+          self.lkld.debug_bins[key][:-1],
+          [v for _,v in val.items()],
+          [k for k,_ in val.items()],
+          x_label = key,
+          name = f"debug/log_probs_hist_{key}", 
+          y_label = r"$\sum \ln L$",
+        )
 
-    # plot histograms
-    for key, val in self.lkld.debug_hists.items():
-      plot_histograms(
-        self.lkld.debug_bins[key][:-1],
-        [v for _,v in val.items()],
-        [k for k,_ in val.items()],
-        x_label = key,
-        name = f"debug/log_probs_hist_{key}_ratio", 
-        y_label = r"$\sum \ln L - (\sum \ln L)_{max}$",
-      )
+      # subtract minimum
+      sum_vals = []
+      example_key = list(self.lkld.debug_hists.keys())[0]
+      for key, val in self.lkld.debug_hists[example_key].items():
+        sum_vals.append(np.sum(val))
+      max_val = max(sum_vals)
+      max_val_name = list(self.lkld.debug_hists[example_key].keys())[sum_vals.index(max_val)]
+      for col, val_dict in self.lkld.debug_hists.items():
+        max_hist = copy.deepcopy(self.lkld.debug_hists[col][max_val_name])
+        for key, val in val_dict.items():
+          self.lkld.debug_hists[col][key] = self.lkld.debug_hists[col][key] - max_hist
 
-  def GetAndDumpBestFit(self, row, initial_guess, columns=None, ind=0):
+      # plot histograms
+      for key, val in self.lkld.debug_hists.items():
+        plot_histograms(
+          self.lkld.debug_bins[key][:-1],
+          [v for _,v in val.items()],
+          [k for k,_ in val.items()],
+          x_label = key,
+          name = f"debug/log_probs_hist_{key}_ratio", 
+          y_label = r"$\sum \ln L - (\sum \ln L)_{max}$",
+        )
+
+  def _MakeDatasetAndExtraNameForFitting(self, row=None, columns=None, ind=0, use_nominal_wt=False, return_full=False, specific_file=None, return_y=False, transform=False, add_columns=False, resample=True, resampling_seed=42, sampling_seed=42, separate=False, add_bootstrap=False):
+    if self.data_type == "sim":
+      X, wt = self._GetXAndWts(row, columns=columns, use_nominal_wt=use_nominal_wt, return_full=return_full, specific_file=specific_file, return_y=return_y, transform=transform, add_columns=add_columns, resample=resample, resampling_seed=resampling_seed)
+      extra_name = f"_val_{ind}"
+      if add_bootstrap:
+        extra_name += f"_bootstrap_{resampling_seed}"
+    elif self.data_type == "data":
+      dl = DataLoader(self.infer)
+      data = dl.LoadFullDataset()
+      X = data.loc[:,self.X_columns].to_numpy()
+      wt = data.loc[:,"wt"].to_numpy().reshape(-1,1)
+      extra_name = ""
+    elif self.data_type == "asimov":
+      X, wt = self.Sample(row, columns=columns, events_per_file=(10**7), separate=separate, transform=transform, add_columns=add_columns, seed=sampling_seed, scale=True)
+      wt = wt.reshape(-1,1)
+      extra_name = f"_val_{ind}"
+      if add_bootstrap:
+        extra_name += f"_bootstrap_{sampling_seed}"
+    return X, wt, extra_name
+
+  def GetAndDumpBestFit(self, initial_guess, row=None, columns=None, ind=0, resampling_seed=99, sampling_seed=99, add_bootstrap=False, minimisation_method="nominal"):
     """
     Get and dump the best-fit parameters to a YAML file.
 
@@ -444,10 +478,10 @@ class Validation():
         columns (list): List of column names for best-fit search. If None, uses Y_columns from data_parameters.
         ind (int): Index for file naming (default is 0).
     """
-    X, wt = self._GetXAndWts(row, columns=columns)
-    self.lkld.GetAndWriteBestFitToYaml(X, row, initial_guess, wt=wt, filename=f"{self.out_dir}/best_fit_{ind}.yaml")
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed, sampling_seed=sampling_seed, add_bootstrap=add_bootstrap)
+    self.lkld.GetAndWriteBestFitToYaml(X, initial_guess, row=row, wt=wt, filename=f"{self.out_dir}/best_fit{extra_name}.yaml", minimisation_method=minimisation_method)
 
-  def GetAndDumpScanRanges(self, row, col, columns=None, ind=0):
+  def GetAndDumpScanRanges(self, col, row=None, columns=None, ind=0, resampling_seed=42, minimisation_method="nominal"):
     """
     Get and dump scan ranges to a YAML file.
 
@@ -457,10 +491,10 @@ class Validation():
         columns (list): List of column names for scan. If None, uses Y_columns from data_parameters.
         ind (int): Index for file naming (default is 0).
     """
-    X, wt = self._GetXAndWts(row, columns=columns)
-    self.lkld.GetAndWriteScanRangesToYaml(X, row, col, wt=wt, filename=f"{self.out_dir}/scan_values_{col}_{ind}.yaml")
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed)
+    self.lkld.GetAndWriteScanRangesToYaml(X, col, wt=wt, row=row, filename=f"{self.out_dir}/scan_values_{col}{extra_name}.yaml")
 
-  def GetAndDumpScan(self, row, col, col_val, columns=None, ind1=0, ind2=0):
+  def GetAndDumpScan(self, row, col, col_val, columns=None, ind1=0, ind2=0, resampling_seed=42):
     """
     Get and dump negative log-likelihood to a YAML file.
 
@@ -472,8 +506,8 @@ class Validation():
         ind1 (int): Index for file naming (default is 0).
         ind2 (int): Index for file naming (default is 0).
     """
-    X, wt = self._GetXAndWts(row, columns=columns)
-    self.lkld.GetAndWriteScanToYaml(X, row, col, col_val, wt=wt, filename=f"{self.out_dir}/scan_results_{col}_{ind1}_{ind2}.yaml")
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind1, resampling_seed=resampling_seed)
+    self.lkld.GetAndWriteScanToYaml(X, col, col_val, wt=wt, row=row, filename=f"{self.out_dir}/scan_results_{col}{extra_name}_scan_{ind2}.yaml")
 
   def PlotCorrelationMatrix(self, row, columns=None, extra_dir=""):
     """
@@ -485,7 +519,8 @@ class Validation():
         extra_dir (str): Extra directory to save the plot (default is "").
     """
     print(">> Producing correlation matrix plots")
-    X, wt = self._GetXAndWts(row, columns=columns)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
+    #X, wt = self._GetXAndWts(row, columns=columns)
     synth, synth_wt = self.Sample(row, columns=columns)
 
     true_cov_matrix = np.cov(X, aweights=wt.flatten(), rowvar=False)
@@ -543,7 +578,8 @@ class Validation():
     sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
     sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
 
-    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    #X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
     synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
@@ -586,7 +622,8 @@ class Validation():
     print(">> Producing 2d pulls")
 
     if sample_row is None: sample_row = row
-    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    #X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
     sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
@@ -648,7 +685,7 @@ class Validation():
     print(">> Producing 2d unrolled generation plots")
 
     if sample_row is None: sample_row = row
-    X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
     synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
@@ -773,7 +810,7 @@ class Validation():
 
     other_lkld = {}
 
-    X, wt = self._GetXAndWts(row, columns=columns)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
     eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
     total_weight = float(np.sum(wt.flatten()))
     if not eff_events == total_weight:
@@ -837,7 +874,8 @@ class Validation():
     """
     print(">> Producing comparison plots")
     if columns == None: columns = self.data_parameters["Y_columns"]
-    X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
+    #X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
     synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
     synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
 
@@ -887,7 +925,8 @@ class Validation():
     """
     print(">> Producing comparison plots after a cut on the BDT score")
     if columns == None: columns = self.data_parameters["Y_columns"]
-    X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, add_columns=True)
+    #X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
     synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
     synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
 
@@ -1102,8 +1141,7 @@ class Validation():
         column_indices = [columns.index(col) for col in val["Y_columns"]]
         sample_row_for_yield = sample_row[column_indices]
 
-      X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, ignore_infer=True, return_y=True)
-
+      X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True)
       rp = 1.0
       if "mu_"+key in columns:
         rp = sample_row[columns.index("mu_"+key)]
@@ -1167,7 +1205,8 @@ class Validation():
         norm_crossings = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in info['crossings'].items()}
         plot_dict[col][GetYName(info["row"],purpose="plot",prefix="y=")] = norm_crossings
     
-        X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
+        X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=info["row"], columns=info["columns"])
+        #X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
 
         # make true likelihood
         if true_pdf is not None:
@@ -1185,7 +1224,8 @@ class Validation():
           for k in self.lkld.models["pdfs"].keys():
             self.lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
 
-          X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
+          #X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
+          X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=info["row"], columns=info["columns"])
           nlls = []
           for x_val in info["scan_values"]:
             test_row = copy.deepcopy(info["row"])
@@ -1205,7 +1245,6 @@ class Validation():
         eff_crossings = self.lkld.FindCrossings(info["scan_values"], list((eff_events/total_weight)*np.array(info["nlls"])), crossings=[1, 2])
         other_summaries[r"N=$N_{eff}$"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in eff_crossings.items()}
 
-    print(other_summaries)
     if extra_dir != "": 
       add_extra_dir = f"/{extra_dir}"
     else:
@@ -1227,3 +1266,47 @@ class Validation():
     dataset = df.to_numpy()
     return dataset
   
+  def PlotBootstrappedDistribution(self, best_fits, col, row, columns, bins=20, extra_dir=""):
+
+    hist, bins = np.histogram(best_fits, bins=bins, density=True)
+    hist_total, _ = np.histogram(best_fits, bins=bins)
+    hist_total_err = np.sqrt(hist_total)
+    bin_widths = np.diff(bins)
+    counts_per_bin = np.sum(hist_total * bin_widths)
+    hist_err = hist_total_err/counts_per_bin
+
+    mean = np.mean(best_fits)
+    std = np.std(best_fits)
+
+    file_extra_name = GetYName(row, purpose="file", prefix="_y_")
+    plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
+
+    if extra_dir != "": 
+      add_extra_dir = f"/{extra_dir}"
+    else:
+      add_extra_dir = ""
+
+    def gauss(x):
+      exponent = -0.5 * ((x - mean) / std) ** 2    
+      coefficient = 1 / (np.sqrt(2 * np.pi) * std)    
+      return coefficient * np.exp(exponent)
+
+    plot_histograms(
+      bins[:-1],
+      [],
+      [],
+      error_bar_hists = [hist],
+      error_bar_hist_errs = [hist_err],
+      error_bar_names = [f"{len(best_fits)} Bootstraps"],
+      title_right = plot_extra_name,
+      name = f"{self.plot_dir}{add_extra_dir}/best_fit_dist{file_extra_name}",
+      x_label = f"Best Fit {col}",
+      y_label = "Density of Bootstraps",
+      drawstyle = "steps",
+      smooth_func = gauss,
+      smooth_func_name = f"Gaussian({round(mean,2)},{round(std,2)})",
+      smooth_func_color = "green",
+      vertical_lines = [row[columns.index(col)], mean, mean-std, mean+std],
+      vertical_line_names = ["Truth", "Mean", r"$\pm 1 \sigma$", None],
+      vertical_line_colors = ["blue", "red", "orange", "orange"]
+    )

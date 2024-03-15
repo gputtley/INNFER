@@ -10,13 +10,11 @@ import gc
 from data_loader import DataLoader
 from innfer_trainer import InnferTrainer
 from preprocess import PreProcess
-from correction import Correction
 from plotting import plot_histograms
 from scipy import integrate
 from other_functions import GetYName, MakeDirectories
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from functools import partial
 
 class Network():
   """
@@ -38,6 +36,7 @@ class Network():
     # Coupling parameters
     self.coupling_design = "affine"
     self.permutation = "learnable"
+    self.num_coupling_layers = 8
 
     # affine parameters
     self.affine_units_per_dense_layer = 128
@@ -82,7 +81,6 @@ class Network():
     self.amortizer = None
     self.trainer = None
     self.lr_scheduler = None
-    self.correction = None
     
     # Data parquet files
     self.X_train = DataLoader(X_train, batch_size=self.batch_size)
@@ -97,7 +95,6 @@ class Network():
     self.disable_tqdm = False
     self.use_wandb = False
     self.probability_store = {}
-    self.probability_wt_store = {}
     self.adaptive_lr_scheduler = None
 
   def _SetOptions(self, options):
@@ -120,6 +117,10 @@ class Network():
     if self.fix_1d_spline:
       print("WARNING: Running fix for 1D latent space for spline and interleaved couplings. Code may take longer to run.")
       latent_dim = 2
+
+    # Print warning about mc_dropout:
+    if self.affine_mc_dropout or self.spline_mc_dropout:
+      print("WARNING: Using MC dropout will give variations in the Probability output.")
 
     affine_settings = {
       "dense_args": dict(
@@ -381,8 +382,8 @@ class Network():
     self.Y_train.batch_num = 0
     _ = self.inference_net(X_train_batch, Y_train_batch)
     self.inference_net.load_weights(name)
-    tf.random.set_seed(seed)
-    tf.keras.utils.set_random_seed(seed)
+    #tf.random.set_seed(seed)
+    #tf.keras.utils.set_random_seed(seed)
 
   def Train(self):
     """
@@ -418,7 +419,7 @@ class Network():
         y_label = "Loss"
       )
 
-  def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False, no_correction=False):
+  def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False, batch_size=10**6, seed=42):
     """
     Generate synthetic data samples.
 
@@ -442,25 +443,32 @@ class Network():
     pp = PreProcess()
     pp.parameters = self.data_parameters
     if not Y_transformed:
-      Y = pp.TransformData(pd.DataFrame(Y, columns=self.data_parameters["Y_columns"])).to_numpy()
-    data = {
-      "direct_conditions" : Y.astype(np.float32)
-    }
-    synth = self.amortizer.sample(data, 1)[:,0,:]
+      Y = pp.TransformData(pd.DataFrame(Y, columns=self.data_parameters["Y_columns"], dtype=np.float64)).to_numpy()
+
+    tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)
+    n_batches = int(np.ceil(len(Y)/batch_size))
+    for i in range(n_batches):
+      batch_data = {
+        "direct_conditions" : Y[i*batch_size:min((i+1)*batch_size,len(Y))].astype(np.float32)
+      }
+      if i == 0:
+        synth = self.amortizer.sample(batch_data, 1)[:,0,:]
+      else:
+        synth = np.vstack((synth, self.amortizer.sample(batch_data, 1)[:,0,:]))
+
+    #print(synth)
     if self.fix_1d_spline:
       synth = synth[:,0].reshape(-1,1)
 
-    if self.correction is not None and not no_correction:
-      synth_wt = self.correction.CorrectionWeights(synth, Y, wt_synth=None)
-    else:
-      synth_wt = np.ones(len(synth))
+    synth_wt = np.ones(len(synth))
 
     if not transform:
-      synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"])).to_numpy()
+      synth = pp.UnTransformData(pd.DataFrame(synth, columns=self.data_parameters["X_columns"], dtype=np.float64)).to_numpy()
 
     return synth, synth_wt
 
-  def Probability(self, X, Y, y_columns=None, seed=42, change_zero_prob=True, return_log_prob=False, run_normalise=True, elements_per_batch=10**6):
+  def Probability(self, X, Y, y_columns=None, seed=2, change_zero_prob=True, return_log_prob=False, run_normalise=True, elements_per_batch=10**6):
     """
     Calculate probabilities for given data.
 
@@ -486,15 +494,16 @@ class Network():
     if Y_name in self.probability_store.keys():
 
       log_prob = self.probability_store[Y_name]
-      prob_wt = self.probability_wt_store[Y_name]
 
     else:
 
       pp = PreProcess()
       pp.parameters = self.data_parameters
       X_untransformed = copy.deepcopy(X)
-      X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns)).to_numpy()
-      Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns)).to_numpy()
+      #tf.random.set_seed(seed)
+      #tf.keras.utils.set_random_seed(seed)
+      X = pp.TransformData(pd.DataFrame(X, columns=self.X_train.columns, dtype=np.float64)).to_numpy()
+      Y = pp.TransformData(pd.DataFrame(Y, columns=self.Y_train.columns, dtype=np.float64)).to_numpy()
       data = {
         "parameters" : X.astype(np.float32),
         "direct_conditions" : Y.astype(np.float32),
@@ -506,10 +515,11 @@ class Network():
         data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
       # Get probabilities
+      #print(data["parameters"])
+      #exit()
 
       # Get the probability in batches so not to encounter memory problems
       log_prob = np.array([])
-      prob_wt = np.array([])
       batch_size = int(elements_per_batch)
       n_batches = int(np.ceil(len(data["parameters"])/batch_size))
       for i in range(n_batches):
@@ -518,8 +528,12 @@ class Network():
         batch_data = {}
         for k, v in data.items():
           batch_data[k] = v[i*batch_size:min((i+1)*batch_size,len(data["parameters"]))]
+          #print(k)
+          #print(batch_data[k])
+        #log_prob = self.amortizer.log_posterior(batch_data)
+        #print("Prob")
+        #print(log_prob[:10])
         log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
-        prob_wt = np.append(prob_wt, self.correction.CorrectionWeights(batch_data["parameters"], batch_data["direct_conditions"]) if self.correction is not None else np.ones(len(batch_data["parameters"])))
 
       log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
@@ -548,15 +562,13 @@ class Network():
         log_prob[indices] = 1
 
       if len(self.probability_store.keys()) > 5:
-        del self.probability_store[list(self.probability_store.keys())[0]], self.probability_wt_store[list(self.probability_wt_store.keys())[0]]
-
+        del self.probability_store[list(self.probability_store.keys())[0]]
       self.probability_store[Y_name] = copy.deepcopy(log_prob)
-      self.probability_wt_store[Y_name] = copy.deepcopy(prob_wt)
 
     if return_log_prob:
-      return log_prob, prob_wt
+      return log_prob
     else:
-      return np.exp(log_prob), prob_wt
+      return np.exp(log_prob)
   
   def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.25, method="histogramdd", verbose=True):
     """
@@ -639,7 +651,7 @@ class Network():
       sim_inds = (Y_sim == y).flatten()
       synth_inds = (Y_synth == y).flatten()
       wt_synth[synth_inds] *= np.sum(wt_sim[sim_inds])/np.sum(wt_synth[synth_inds])
-      print(f"Y = {y}, Sum Sim Wts = {float(np.sum(wt_sim[sim_inds]))}, Sum Synth Wts = {float(np.sum(wt_synth[synth_inds]))}")
+      #print(f"Y = {y}, Sum Sim Wts = {float(np.sum(wt_sim[sim_inds]))}, Sum Synth Wts = {float(np.sum(wt_synth[synth_inds]))}")
 
     if not for_classification:
       return X_sim, Y_sim, wt_sim, X_synth, Y_synth, wt_synth 
@@ -653,30 +665,6 @@ class Network():
       y = y[indices]
       wt = wt[indices]
       return X, y, wt
-
-
-  def TrainCorrection(self, dataset="train", method="BDTClassifier", save_name="correction"):
-    """
-    Trains a correction model using synthetic and simulated datasets.
-
-    Args:
-        method (str): Method for training the correction model ('BDTClassifier' or 'BDTReweighter'). Defaults to 'BDTClassifier'.
-        save_name (str): Prefix for saving the trained model files. Defaults to 'correction'.
-    """
-    X_sim, Y_sim, wt_sim, X_synth, Y_synth, wt_synth = self.MakeSeparationDatasets(dataset=dataset)
-    self.correction = Correction()
-    self.correction.Train(X_synth, Y_synth, X_sim, Y_sim, wt_synth=wt_synth, wt_sim=wt_sim, method=method, save_name=save_name)
-
-  def LoadCorrection(self, method="BDTClassifier", save_name="correction"):
-    """
-    Loads a pre-trained correction model from files.
-
-    Args:
-        method (str): Method used for training the correction model ('BDTClassifier' or 'BDTReweighter'). Defaults to 'BDTClassifier'.
-        save_name (str): Prefix used for saving the trained model files. Defaults to 'correction'.
-    """
-    self.correction = Correction()
-    self.correction.Load(method=method, save_name=save_name)
 
   def auc(self, dataset="train"):
     """
@@ -738,7 +726,7 @@ class Network():
 
     # remove negative weights
     if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
-      print("WARNING: Ignoring negative weights")
+      ("WARNING: Ignoring negative weights")
       wt1[wt1 < 0] = 0
       wt2[wt2 < 0] = 0
     

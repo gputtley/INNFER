@@ -165,6 +165,7 @@ class PreProcess():
     wt_val_df = val_df[["wt"]]      
 
     # Remove outliers
+    """
     print(">> Removing outliers.")
     # THIS IS NOT THE CORRECT THING TO DO!
     for k in X_train_df.columns:
@@ -181,6 +182,7 @@ class PreProcess():
       X_val_df = X_val_df.loc[select_indices,:]
       Y_val_df = Y_val_df.loc[select_indices,:]
       wt_val_df = wt_val_df.loc[select_indices,:]
+    """
 
     # Equalise weights in each unique y values
     if self.equalise_y_wts:
@@ -307,7 +309,8 @@ class PreProcess():
         # Normalise the CDF
         cdf_vals /= cdf_vals[-1]
         # Generate random numbers
-        random_nums = np.random.rand(n_samples)
+        rng = np.random.RandomState(seed=42)
+        random_nums = rng.rand(n_samples)
         # Inverse transform sampling
         data[indices] = np.interp(random_nums, cdf_vals, param_values)
       else:
@@ -413,8 +416,6 @@ class PreProcess():
           data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=False)
       if column_name in self.parameters["standardisation"]:
           data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
-
-
     return data
 
   def UnTransformData(self, data):
@@ -430,8 +431,8 @@ class PreProcess():
     for column_name in data.columns:
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
-        if column_name in self.parameters["discrete_thresholds"]:
-          data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=True)
+      if column_name in self.parameters["discrete_thresholds"]:
+        data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name, inverse=True)
     return data
     
   def UnTransformProb(self, prob, log_prob=False):

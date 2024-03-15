@@ -27,7 +27,13 @@ def plot_histograms(
     error_bar_hist_errs = [],
     error_bar_names = [],
     anchor_y_at_0 = False,
-    drawstyle = "default"
+    drawstyle = "default",
+    smooth_func = None,
+    smooth_func_name = "",
+    smooth_func_color = "green",
+    vertical_lines = [],
+    vertical_line_names = [],
+    vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
   ):
   """
   Plot histograms with optional error bars.
@@ -65,9 +71,17 @@ def plot_histograms(
   if anchor_y_at_0:
     ax.set_ylim(bottom=0, top=1.2*max(np.max(hist) for hist in hists))
 
+  if smooth_func is not None:
+    x_func = np.linspace(min(bins),max(bins),num=200)
+    y_func = [smooth_func(x) for x in x_func] 
+    plt.plot(x_func, y_func, label=smooth_func_name, color=smooth_func_color)
+
+  for ind, vertical_line in enumerate(vertical_lines):
+    ax.axvline(x=vertical_line, color=vertical_line_colors[ind], linestyle='--', linewidth=2, label=vertical_line_names[ind])
+
   plt.xlabel(x_label)
   plt.ylabel(y_label)
-  if not all(item is None for item in hist_names):
+  if not all(item is None for item in hist_names+error_bar_names):
     plt.legend()
   plt.tight_layout()
   MakeDirectories(name+".pdf")

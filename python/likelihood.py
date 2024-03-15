@@ -3,8 +3,6 @@ import yaml
 import time
 import numpy as np
 from scipy.optimize import minimize
-from scipy.interpolate import RegularGridInterpolator
-from plotting import plot_likelihood, plot_histograms
 from other_functions import GetYName, MakeDirectories
 from pprint import pprint
 
@@ -200,11 +198,12 @@ class Likelihood():
       if rate_param == 0.0: continue
 
       # Get rate times yield times probability
-      log_p, prob_wt = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
+      log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
 
       # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS 
 
       ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns)) + log_p
+      #ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns))
 
       # Sum together probabilities of different files
       if first_loop:
@@ -215,9 +214,9 @@ class Likelihood():
 
     # Weight the events
     if wts is not None:
-      ln_lklds = wts.flatten()*prob_wt.flatten()*ln_lklds
+      ln_lklds = wts.flatten()*ln_lklds
     else:
-      ln_lklds = prob_wt.flatten()*ln_lklds
+      ln_lklds = ln_lklds
 
     if before_sum:
       return ln_lklds
@@ -346,7 +345,7 @@ class Likelihood():
     """
     return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
 
-  def GetBestFit(self, X, initial_guess, wts=None, method="low_stat_high_stat", freeze={}, initial_step_size=0.05):
+  def GetBestFit(self, X, initial_guess, wts=None, method="nominal", freeze={}, initial_step_size=0.05):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -416,6 +415,13 @@ class Likelihood():
       
       result = self.Minimise(NLL, initial_guess, method="low_stat_high_stat", func_low_stat=NLL_lowstat, freeze=freeze)
 
+    elif method == "quadratic":
+      def NLL(Y): 
+        nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
+        return nll
+      result = self.Minimise(NLL, initial_guess, method="quadratic", func_low_stat=NLL, freeze=freeze)
+
+
     return result
 
   def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=5.4, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
@@ -460,7 +466,7 @@ class Likelihood():
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
-  def GetAndWriteBestFitToYaml(self, X, row, initial_guess, wt=None, filename="best_fit.yaml"):
+  def GetAndWriteBestFitToYaml(self, X, initial_guess, row=None, wt=None, filename="best_fit.yaml", minimisation_method="nominal"):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -471,22 +477,23 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetBestFit(X, np.array(initial_guess), wts=wt)
+    result = self.GetBestFit(X, np.array(initial_guess), wts=wt, method=minimisation_method)
     self.best_fit = result[0]
     self.best_fit_nll = result[1]
     dump = {
-      "row" : [float(i) for i in row],
       "columns": self.Y_columns, 
       "best_fit": [float(i) for i in self.best_fit], 
       "best_fit_nll": float(self.best_fit_nll)
       }
+    if row is not None:
+      dump["row"] = [float(i) for i in row]
     pprint(dump)
     print(f">> Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteScanRangesToYaml(self, X, row, col, wt=None, filename="scan_ranges.yaml"):
+  def GetAndWriteScanRangesToYaml(self, X, col, row=None, wt=None, filename="scan_ranges.yaml"):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -499,18 +506,19 @@ class Likelihood():
     """
     scan_values = self.GetScanXValues(X, col, wts=wt)
     dump = {
-      "row" : [float(i) for i in row],
       "columns" : self.Y_columns, 
       "varied_column" : col,
       "scan_values" : scan_values
     }
+    if row is not None:
+      dump["row"] = [float(i) for i in row]
     pprint(dump)
     print(f">> Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteScanToYaml(self, X, row, col, col_val, wt=None, filename="scan.yaml"):
+  def GetAndWriteScanToYaml(self, X, col, col_val, row=None, wt=None, filename="scan.yaml", minimisation_method="nominal"):
 
     col_index = self.Y_columns.index(col)
     Y = copy.deepcopy(self.best_fit)
@@ -518,9 +526,8 @@ class Likelihood():
     if len(self.Y_columns) > 1:
       print(f">> Profiled fit for {col}={col_val}")
       freeze = {col : col_val}
-      result = self.GetBestFit(X, Y, wts=wt, method="nominal", freeze=freeze, initial_step_size=0.001)
+      result = self.GetBestFit(X, Y, wts=wt, method=minimisation_method, freeze=freeze, initial_step_size=0.001)
       dump = {
-        "row" : [float(i) for i in row],
         "columns" : self.Y_columns, 
         "varied_column" : col,
         "nlls": [float(result[1] - self.best_fit_nll)],
@@ -531,20 +538,20 @@ class Likelihood():
     else:
       result = -2*self.Run(X, Y, wts=wt, return_ln=True)
       dump = {
-        "row" : [float(i) for i in row],
         "columns" : self.Y_columns, 
         "varied_column" : col,
         "nlls": [float(result - self.best_fit_nll)],
         "scan_values" : [float(col_val)],
       }
-
+    if row is not None:
+      dump["row"] = [float(i) for i in row]
     pprint(dump)
     print(f">> Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)  
 
-  def GetAndWriteNLLToYaml(self, X, row, col, col_val, wt=None, filename="nlls.yaml"):
+  def GetAndWriteNLLToYaml(self, X, col, col_val, row=None, wt=None, filename="nlls.yaml"):
     """
     Computes the negative log likelihood (NLL) for a given column value and writes it to a YAML file.
 
@@ -561,12 +568,13 @@ class Likelihood():
     Y[col_index] = col_val
     nll = -2*self.Run(X, Y, wts=wt, return_ln=True) - self.best_fit_nll
     dump = {
-      "row" : [float(i) for i in row],
       "columns" : self.Y_columns, 
       "varied_column" : col,
       "nlls": [float(nll)], 
       "scan_values" : [float(col_val)],
     }
+    if row is not None:
+      dump["row"] = [float(i) for i in row]
     print(dump)
     print(f">> Created {filename}")
     MakeDirectories(filename)
@@ -674,6 +682,11 @@ class Likelihood():
             values[sign * crossing] = float(np.interp(crossing**2, filtered_y, filtered_x))
     return values
 
+  def ClearProbabilityStore(self):
+    if "pdfs" in self.models.keys():
+      for k in self.models["pdfs"].keys():
+        self.models["pdfs"][k].probability_store = {}
+
   def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}, initial_step_size=0.02):
     """
     Minimizes the given function using numerical optimization.
@@ -716,6 +729,7 @@ class Likelihood():
     # minimisation
     if method == "scipy":
       minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
+      self.ClearProbabilityStore()
       return minimisation.x, minimisation.fun
     
     elif method == "low_stat_high_stat":
@@ -723,9 +737,7 @@ class Likelihood():
       print(">> Doing low stat minimisation first.")
 
       low_stat_minimisation = minimize(func_low_stat, initial_guess, method='Nelder-Mead', tol=1.0, options={'xatol': 0.001, 'fatol': 1.0, 'initial_simplex': initial_simplex})
-      if "pdfs" in self.models.keys():
-        for k in self.models["pdfs"].keys():
-          self.models["pdfs"][k].probability_store = {}
+      self.ClearProbabilityStore()
 
       print(">> Doing high stat minimisation.")
 
@@ -739,3 +751,48 @@ class Likelihood():
 
       minimisation = minimize(func, low_stat_minimisation.x, method='Nelder-Mead', tol=0.1, options={'xatol': 0.001, 'fatol': 0.1, 'initial_simplex': initial_simplex})
       return minimisation.x, minimisation.fun
+    
+    elif method == "quadratic": # only works in 1d for now
+
+      threshold = 1e-4
+      max_iter = 25
+      simplex = 0.1
+      stopping = 4
+
+      N = len(initial_guess)
+      simplex = np.zeros((2*N + 1, N))
+      simplex[0] = initial_guess
+      for i in range(N):
+        shift = 0.05 * initial_guess[i]  # Adjust the shift size as needed
+        simplex[i + 1] = initial_guess.copy()
+        simplex[i + 1, i] += shift
+        simplex[N + i + 1] = initial_guess.copy()
+        simplex[N + i + 1, i] -= shift
+
+      x = simplex.flatten()
+      initial_guess = func(simplex[0])
+      y = np.array([0.0], dtype=np.float64)
+      def func_shift(pt):
+        return func(pt) - initial_guess
+
+      for pt in simplex[1:]:
+        y = np.append(y, func_shift(pt))
+
+      for _ in range(max_iter):
+        # Fit a quadratic function to the simplex
+        quad_fit = np.polyfit(x[-3:], np.array(y[-3:], dtype=np.float64), 2)
+        #quad_fit = np.polyfit(x, np.array(y, dtype=np.float64), 2)
+        a, b, c = quad_fit
+
+        # Calculate the minimum of the quadratic function
+        min_index = -b / (2 * a)
+        y_val = func_shift([min_index])
+        if not np.isnan(y_val):
+          x = np.append(x, min_index)
+          y = np.append(y, y_val)
+
+        # Check convergence
+        if np.abs(max(y[-stopping:]) - min(y[-stopping:])) < threshold:
+          break
+      self.ClearProbabilityStore()
+      return [x[list(y).index(min(y))]], float(min(y) + initial_guess)

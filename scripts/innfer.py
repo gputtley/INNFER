@@ -3,7 +3,6 @@ import argparse
 import yaml
 import os
 import sys
-import copy
 import wandb
 import numpy as np
 import pyfiglet as pyg
@@ -17,24 +16,26 @@ def parse_args():
   parser.add_argument('--benchmark', help= 'Run from benchmark scenario',  default=None, choices=["Gaussian","GaussianWithExpBkg","GaussianWithExpBkgVaryingYield","2D","5D","5D+D","12D"])
   parser.add_argument('--architecture', help= 'Config for running',  default="configs/architecture/default.yaml")
   parser.add_argument('--submit', help= 'Batch to submit to', type=str, default=None)
-  parser.add_argument('--resubmit-scans', help= 'Resubmit any scan jobs that failed.',  action='store_true')
-  parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["MakeBenchmark","PreProcess","Train","TrainCorrection","ValidateGeneration","ValidateInference","Infer"])
+  parser.add_argument('--step', help= 'Step to run', type=str, default=None, choices=["MakeBenchmark","PreProcess","Train","ValidateGeneration","ValidateInference","Infer"])
   parser.add_argument('--specific-file', help= 'Run for a specific file_name', type=str, default=None)
   parser.add_argument('--specific-val-ind', help= 'Run for a specific indices when doing validation', type=str, default=None)
   parser.add_argument('--specific-scan-ind', help= 'Run for a specific indices when doing scans', type=str, default=None)
+  parser.add_argument('--specific-bootstrap-ind', help= 'Run for a specific indices when doing bootstrapping', type=str, default=None)
   parser.add_argument('--hyperscan-ind', help= 'Add relevant indices on the end of the hyperparameters scan', type=str, default=None)
   parser.add_argument('--scan-points-per-job', help= 'Number of scan points in a single job', type=int, default=100)
   parser.add_argument('--disable-tqdm', help= 'Disable tqdm print out when training.',  action='store_true')
   parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
-  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="InitialFit", choices=["InitialFit","Scan","Collect","Plot","Summary","All","Debug"])
+  parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="All")
   parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
-  parser.add_argument('--do-binned-fit', help= 'Do an extended binned fit instead of an extended unbinned fit.',  action='store_true')
+  parser.add_argument('--likelihood-type', help= 'Type of likelihood', type=str, default="unbinned_extended", choices=["unbinned_extended", "unbinned", "binned_extended"])
+  parser.add_argument('--minimisation-method', help= 'Method for minimisation', type=str, default="nominal", choices=["nominal", "low_stat_high_stat", "quadratic"])
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
   parser.add_argument('--continue-training', help='Continue training pre-saved NN.', action='store_true')
   parser.add_argument('--skip-generation-correlation', help='Skip all of the 2d correlation ValidateGeneration plots.', action='store_true')
-  parser.add_argument('--correction', help='Train/load in the correction.', action='store_true')
+  parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrapped resamples datasets to do ValidateInference for.', type=int, default=100)
+  parser.add_argument('--data-type', help= 'The data type to use when running the Infer step', type=str, default="asimov", choices=["data","asimov"])
   args = parser.parse_args()
 
   if args.cfg is None and args.benchmark is None:
@@ -45,6 +46,14 @@ def parse_args():
   if args.cfg is not None:
     if "Benchmark" in args.cfg:
       args.benchmark = args.cfg.split("Benchmark_")[1].split(".yaml")[0]
+
+  ValidateInference_substeps = ["InitialFits","Plot","All","Debug"]
+  if args.step == "ValidateInference" and args.sub_step not in ValidateInference_substeps:
+    raise ValueError(f"For --step={args.step}, --sub-step must be either {', '.join(ValidateInference_substeps[:-1])} or {ValidateInference_substeps[-1]}.")
+
+  Infer_substeps = ["InitialFit","Scan","Collect","Plot","Summary","All","Debug"]
+  if args.step == "Infer" and args.sub_step not in Infer_substeps:
+    raise ValueError(f"For --step={args.step}, --sub-step must be either {', '.join(Infer_substeps[:-1])} or {Infer_substeps[-1]}.")  
 
   return args
 
@@ -134,13 +143,13 @@ def main(args, architecture=None):
       pp[file_name].PlotY(dataset="train")
 
     ### Training/Loading  of the Networks ###
-    if args.step in ["Train","TrainCorrection","ValidateGeneration","ValidateInference","Infer"]:
+    if args.step in ["Train","ValidateGeneration","ValidateInference","Infer"]:
 
       # Load in data parameters
       with open(f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml", 'r') as yaml_file:
         parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      if not args.do_binned_fit:
+      if not args.likelihood_type in ["binned_extended"]:
 
         # Load in training architecture if loading in models
         if args.step != "Train":
@@ -192,9 +201,6 @@ def main(args, architecture=None):
             f"{parameters[file_name]['file_location']}/X_test.parquet",
             f"{parameters[file_name]['file_location']}/Y_test.parquet", 
             f"{parameters[file_name]['file_location']}/wt_test.parquet",
-            #f"{parameters[file_name]['file_location']}/X_val.parquet",
-            #f"{parameters[file_name]['file_location']}/Y_val.parquet", 
-            #f"{parameters[file_name]['file_location']}/wt_val.parquet",
             options=run_architecture)
           
           # Set plotting directory
@@ -215,8 +221,10 @@ def main(args, architecture=None):
             networks[file_name].Train()
 
             # Calculate validation matrics
+            AUC = networks[file_name].auc(dataset="train")
+            print(">> Train AUC:", AUC)
             AUC = networks[file_name].auc(dataset="test")
-            print(">> AUC:", AUC)
+            print(">> Test AUC:", AUC)
             R2 = networks[file_name].r2(dataset="test")
             print(">> R2:")
             for k, v in R2.items(): print(f"  >> {k}: {v}")
@@ -258,42 +266,22 @@ def main(args, architecture=None):
             print(f"- Loading model {file_name}")
             networks[file_name].Load(name=f"models/{cfg['name']}/{file_name}.h5")
 
-
-  ### Train or load a correction ###
-  if args.step in ["TrainCorrection"]:
-    print("- Training correction")
-    AUC = networks[file_name].auc(dataset="train")
-    print(">> Train AUC before correction:", AUC)
-    AUC = networks[file_name].auc(dataset="test")
-    print(">> Test AUC before correction:", AUC)
-    networks[file_name].TrainCorrection(method="BDTReweighter", save_name=f"models/{cfg['name']}/{file_name}_correction")
-    AUC = networks[file_name].auc(dataset="train")
-    print(">> Train AUC after correction:", AUC)
-    AUC = networks[file_name].auc(dataset="test")
-    print(">> Test AUC after correction:", AUC)
-  elif args.step in ["ValidateGeneration","ValidateInference","Infer"] and args.correction:
-    print("- Loading correction")
-    networks[file_name].LoadCorrection(method="BDTReweighter", save_name=f"models/{cfg['name']}/{file_name}_correction")
-
   ### Do validation of trained model ###
   if args.step in ["ValidateGeneration","ValidateInference","Infer"]:
 
-    print("- Performing validation")
-
     # Set up loop
-    if args.step != "Infer":
-      file_loop = list(cfg["files"].keys())
-      if len(file_loop) > 1:
-        file_loop.append("combined")
-    else:
-      file_loop = ["combined"]
+    file_loop = list(cfg["files"].keys())
+    if len(file_loop) > 1:
+      file_loop.append("combined")
 
     # Loop through files to do inference on
     for file_name in file_loop:
 
       # Skip if it doesn't pass the criteria
       if args.specific_file != None and args.specific_file != file_name: continue
+      if args.step == "Infer" and args.data_type == "data" and args.file_name != "combined": continue
 
+      """
       # Define true pdf
       if args.benchmark is not None:
         if file_name == "combined":
@@ -302,16 +290,17 @@ def main(args, architecture=None):
           pdf = {file_name : benchmark.GetPDF(file_name)}
       else:
         pdf = None
-
+      """
+        
       if args.submit is None:
 
         # Set up validation class
-        from validation import Validation
-        val = Validation(
-          networks if file_name == "combined" else {file_name:networks[file_name]} if not args.do_binned_fit else None, 
+        from validation_and_inference import ValidationAndInference
+        val = ValidationAndInference(
+          networks if file_name == "combined" else {file_name:networks[file_name]} if not args.likelihood_type in ["binned_extended"] else None, 
           options={
-            "infer" : None if args.step != "Infer" else cfg["data_file"],
-            "data_key":"val" if not args.do_binned_fit else "full",
+            "infer" : cfg["data_file"] if "data_file" in cfg else None,
+            "data_key":"val" if not args.likelihood_type in ["binned_extended"] else "full",
             "data_parameters":parameters if file_name == "combined" else {file_name:parameters[file_name]},
             "pois":cfg["pois"],
             "nuisances":cfg["nuisances"],
@@ -319,17 +308,28 @@ def main(args, architecture=None):
             "plot_dir":f"plots/{cfg['name']}/{file_name}/{args.step}",
             "model_name":file_name,
             "lower_validation_stats":args.lower_validation_stats if args.step == "ValidateInference" else None,
-            "do_binned_fit":args.do_binned_fit,
-            "var_and_bins": None if not args.do_binned_fit or "var_and_bins" not in cfg["inference"] else cfg["inference"]["var_and_bins"],
+            "likelihood_type":args.likelihood_type,
+            "var_and_bins": None if not args.likelihood_type in ["binned_extended"] or "var_and_bins" not in cfg["inference"] else cfg["inference"]["var_and_bins"],
             "calculate_columns_for_plotting": cfg["validation"]["calculate_columns_for_plotting"] if "calculate_columns_for_plotting" in cfg["validation"] else {},
-            "validation_options": cfg["inference"] if file_name == "combined" else {}
+            "validation_options": cfg["inference"] if file_name == "combined" else {},
             }
           )
+        
+        # Set data type to use for validation and inference steps and other items
+        if args.step == "Infer":
+          if args.data_type == "data":
+            val.data_type = "data"
+          elif args.data_type == "asimov":
+            val.data_type = "asimov"
+        else:
+          val.data_type = "sim"
+          #val.data_type = "asimov"
+
 
       # Loop through different combinations of POIs and nuisances
       if file_name == "combined":
         val_loop = GetCombinedValidateLoop(cfg, parameters)
-        if args.step == "Infer":
+        if args.step == "Infer" and args.data_type == "data":
           val_loop = [val_loop[0]]
           val_loop[0]["row"] = None
           val_loop[0]["columns"] = None
@@ -343,15 +343,21 @@ def main(args, architecture=None):
         print(f" - Columns: {info['columns']}")
         print(f" - Values: {info['row']}")
 
+        # Setup name extensions
+        if args.data_type =="data":
+          val_name_ext = ""
+        else:
+          val_name_ext = f"_val_{ind}"
+
         # Validate the INN by sampling through the latent space and using the inverse function to compare to the original datasets
-        if args.step == "ValidateGeneration" and not args.do_binned_fit:
+        if args.step == "ValidateGeneration" and not args.likelihood_type in ["binned_extended"]:
 
           print("- Running validation generation")
 
           # Submit to batch
           if args.submit is not None:
             cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind}"
-            options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/innfer_{args.step}_{cfg['name']}_{file_name}_{ind}.sh", "sge_queue":args.sge_queue}
+            options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/innfer_{args.step}_{cfg['name']}_{file_name}{val_name_ext}.sh", "sge_queue":args.sge_queue}
             from batch import Batch
             sub = Batch(options=options)
             sub.Run()
@@ -366,134 +372,195 @@ def main(args, architecture=None):
             val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], extra_dir="GenerationTrue2DTransformed", transform=True)
             val.PlotCorrelationMatrix(info["row"], columns=info["columns"], extra_dir="GenerationCorrelation")        
 
-        # Validating the INNs by using it to perform toy inference
-        elif args.step == "ValidateInference" or args.step == "Infer":
+        elif args.step in ["ValidateInference", "Infer"]:
 
-          if args.step != "Infer":
+          # Skip if no Y columns to recover and not data
+          if args.step == "Infer" and args.data_type == "data":
             if len(info["row"]) == 0: 
               continue
 
-          print("- Running validation inference")
-
-          # Submit to batch
-          if args.submit is not None and not args.sub_step == "Scan":
-            cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind}"
-            options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}_{ind}.sh", "sge_queue":args.sge_queue}
-            from batch import Batch
-            sub = Batch(options=options)
-            sub.Run()
-            continue
-
-          # Build the likelihood likelihood
+          # Build the likelihood
           if args.submit is None:
             val.BuildLikelihood()
 
+          # Run the debug step
           if args.sub_step == "Debug":
             val.DoDebug(info["row"], columns=info["columns"])
 
-          if args.sub_step in ["InitialFit","All"]:
+          if args.step == "ValidateInference":
+            print("- Running validation inference")
 
-            print("- Running initial fit")
-            # Get the best fit
-            val.GetAndDumpBestFit(info["row"], info["initial_best_fit_guess"], ind=ind,  columns=info["columns"])
-            # Get scan ranges
-            for col in info["columns"]:
-              val.GetAndDumpScanRanges(info["row"], col, ind=ind, columns=info["columns"])
+            # Submit to batch if not InitialFits (this is done later)
+            if args.submit is not None and not args.sub_step in ["InitialFits"]:
+              cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind}"
+              options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}{val_name_ext}.sh", "sge_queue":args.sge_queue}
+              from batch import Batch
+              sub = Batch(options=options)
+              sub.Run()
+              continue
 
-          if args.sub_step in ["Scan","All"]:
+            # Run the bootstrapped maximum likelihood fits
+            if args.sub_step in ["InitialFits","All"]:
 
-            print("- Running scans")
-            # Load best fit
-            with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit_{ind}.yaml", 'r') as yaml_file:
-              best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              print("- Running the initial fits")
 
-            if args.submit is None:
-              val.lkld.best_fit = np.array(best_fit_info["best_fit"])
-              val.lkld.best_fit_nll = best_fit_info["best_fit_nll"]
+              # Loop through bootstrap resampling seeds
+              for resampling_seed in range(args.number_of_bootstraps):
 
-            # Loop through Y values to get a scan for each Y value with the others profiled
-            job_ind = 0
-            for col in info["columns"]:
+                # Setup name extensions
+                bootstrap_name_ext = f"_bootstrap_{resampling_seed}"
 
-              # Load scan ranges
-              with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_values_{col}_{ind}.yaml", 'r') as yaml_file:
-                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+                # Submit
+                if args.submit is not None:
+                  cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i and '--specific-bootstrap-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind} --specific-bootstrap-ind={resampling_seed}"
+                  options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}{val_name_ext}{bootstrap_name_ext}.sh", "sge_queue":args.sge_queue}
+                  from batch import Batch
+                  sub = Batch(options=options)
+                  sub.Run()
+                  continue
 
-              # Run scans
-              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
+                # Run
+                if args.specific_bootstrap_ind is None or (str(resampling_seed) == args.specific_bootstrap_ind):
+                  val.GetAndDumpBestFit(info["initial_best_fit_guess"], row=info["row"], ind=ind,  columns=info["columns"], resampling_seed=resampling_seed, sampling_seed=resampling_seed, add_bootstrap=True, minimisation_method=args.minimisation_method)
 
-                if not (args.specific_scan_ind != None and args.specific_scan_ind != str(job_ind)):
-                  if args.submit is None:
-                    val.GetAndDumpScan(info["row"], col, scan_value, ind1=ind, ind2=point_ind,  columns=info["columns"])
+            # Collect the bootstrapped fits and plot
+            if args.sub_step in ["Plot","All"]:
 
-                if ((point_ind+1) % args.scan_points_per_job == 0) or (point_ind == len(scan_values_info["scan_values"])-1):
-                  # Submit to batch
-                  if args.submit is not None:
-                    cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i and '--specific-scan-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind} --specific-scan-ind={job_ind}"
-                    options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}_{ind}_{job_ind}.sh", "sge_queue":args.sge_queue}
+              print("- Plotting bootstrapped fits")
 
-                    if args.resubmit_scans:
-                      log_file = options["job_name"].replace(".sh","_output.log")
-                      finished = False
-                      if os.path.exists(log_file):
-                        with open(log_file, 'r') as file:
-                          for line_number, line in enumerate(file, start=1):
-                            if line.strip() == "- Finished running without error":
-                              finished = True
-                      if finished: 
-                        job_ind += 1
-                        continue  
+              # Load in best fit information
+              best_fit_info = {}
+              for resampling_seed in range(args.number_of_bootstraps):
+                bootstrap_name_ext = f"_bootstrap_{resampling_seed}"
+                with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit{val_name_ext}{bootstrap_name_ext}.yaml", 'r') as yaml_file:
+                  best_fit_info[resampling_seed] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+                  
+              # Draw best fit and interval distributions
+              combined_best_fit = []
+              for col in info["columns"]: 
+                best_fits = [v["best_fit"][v["columns"].index(col)] for _, v in best_fit_info.items()]
+                combined_best_fit.append(np.mean(best_fits))
+                val.PlotBootstrappedDistribution(
+                  best_fits, 
+                  col, 
+                  info["row"],
+                  info["columns"],
+                  bins=20,
+                  extra_dir="Bootstrapping"
+                )
 
-                    from batch import Batch
-                    sub = Batch(options=options)
-                    sub.Run()
-                  job_ind += 1
+              # Draw comparisons between bestfit mean and truth
+              val.PlotComparisons(info["row"], combined_best_fit, columns=info["columns"], extra_dir="Comparisons")
 
-          if args.sub_step in ["Collect","All"]:
+          # Infer
+          else:
+        
+            print("- Running inference")
+            
+            # Submit to batch
+            if args.submit is not None and not args.sub_step in ["Scan"]:
+              cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind}"
+              options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}{val_name_ext}.sh", "sge_queue":args.sge_queue}
+              from batch import Batch
+              sub = Batch(options=options)
+              sub.Run()
+              continue
 
-            print("- Collecting scans")
+            # Run the inital fits
+            if args.sub_step in ["InitialFit","All"]:
 
-            for col in info["columns"]:
-              # Load scan ranges
-              with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_values_{col}_{ind}.yaml", 'r') as yaml_file:
-                scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+              print("- Running initial fit")
+              # Get the best fit
+              val.GetAndDumpBestFit(info["initial_best_fit_guess"], row=info["row"], ind=ind,  columns=info["columns"], minimisation_method=args.minimisation_method)
+              # Get scan ranges
+              for col in info["columns"]:
+                val.GetAndDumpScanRanges(col, row=info["row"], ind=ind, columns=info["columns"], minimisation_method=args.minimisation_method)
 
-              # Load scan results
-              scan_results = {"nlls":[],"scan_values":[]}
-              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):      
-                with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}_{point_ind}.yaml", 'r') as yaml_file:
-                  scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-                if point_ind == 0:
-                  scan_results["row"] = scan_results_info["row"]
-                  scan_results["columns"] = scan_results_info["columns"]
-                  scan_results["varied_column"] = scan_results_info["varied_column"]
-                if None in scan_results_info["nlls"]: continue
-                scan_results["scan_values"] += scan_results_info["scan_values"]
-                scan_results["nlls"] += scan_results_info["nlls"]
 
-              # Recheck minimum
-              min_nll = min(scan_results["nlls"])
-              scan_results["nlls"] = [i - min_nll for i in scan_results["nlls"]]
-              # Get crossings
-              scan_results["crossings"] = val.lkld.FindCrossings(scan_results["scan_values"], scan_results["nlls"], crossings=[1, 2])
-              # Dump to yaml
-              filename = f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml"
-              print(f">> Created {filename}")
-              with open(filename, 'w') as yaml_file:
-                yaml.dump(scan_results, yaml_file, default_flow_style=False)
-              # Remove per point yaml files
-              for point_ind, scan_value in enumerate(scan_values_info["scan_values"]): 
-                os.system(f"rm data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}_{point_ind}.yaml")
+            # Run the likelihood scans
+            if args.sub_step in ["Scan","All"]:
 
-          if args.sub_step in ["Plot","All"]:
+              print("- Running scans")
 
-            print("- Plotting scans and comparisons")
+              # Load best fit
+              with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit{val_name_ext}.yaml", 'r') as yaml_file:
+                best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-            with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit_{ind}.yaml", 'r') as yaml_file:
-              best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-            for col in info["columns"]:
-              with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
-                scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              if args.submit is None:
+                val.lkld.best_fit = np.array(best_fit_info["best_fit"])
+                val.lkld.best_fit_nll = best_fit_info["best_fit_nll"]
+
+              # Loop through Y variables to get a scan for each Y value with the others profiled
+              job_ind = 0
+
+              for col in info["columns"]:
+
+                # Load scan ranges
+                with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_values_{col}{val_name_ext}.yaml", 'r') as yaml_file:
+                  scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+
+                # Run scans
+                for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):
+
+                  if not (args.specific_scan_ind != None and args.specific_scan_ind != str(job_ind)):
+                    if args.submit is None:
+                      val.GetAndDumpScan(info["row"], col, scan_value, ind1=ind, ind2=point_ind,  columns=info["columns"])
+
+                  if ((point_ind+1) % args.scan_points_per_job == 0) or (point_ind == len(scan_values_info["scan_values"])-1):
+                    # Submit to batch
+                    if args.submit is not None:
+                      cmd = f"python3 {' '.join([i for i in sys.argv if '--submit' not in i and '--specific-file' not in i and '--specific-val-ind' not in i and '--specific-scan-ind' not in i])} --specific-file={file_name} --specific-val-ind={ind} --specific-scan-ind={job_ind}"
+                      options = {"submit_to": args.submit, "cmds": [cmd], "job_name": f"jobs/{cfg['name']}/{args.step}/{args.sub_step}/innfer_{args.step}_{args.sub_step}_{cfg['name']}_{file_name}{val_name_ext}_scan_{job_ind}.sh", "sge_queue":args.sge_queue}
+                      from batch import Batch
+                      sub = Batch(options=options)
+                      sub.Run()
+                    job_ind += 1
+
+            if args.sub_step in ["Collect","All"]:
+
+              print("- Collecting scans")
+
+              for col in info["columns"]:
+                # Load scan ranges
+                with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_values_{col}{val_name_ext}.yaml", 'r') as yaml_file:
+                  scan_values_info = yaml.load(yaml_file, Loader=yaml.FullLoader) 
+
+                # Load scan results
+                scan_results = {"nlls":[],"scan_values":[]}
+                for point_ind, scan_value in enumerate(scan_values_info["scan_values"]):      
+                  with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}{val_name_ext}_scan_{point_ind}.yaml", 'r') as yaml_file:
+                    scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+                  if point_ind == 0:
+                    scan_results["row"] = scan_results_info["row"]
+                    scan_results["columns"] = scan_results_info["columns"]
+                    scan_results["varied_column"] = scan_results_info["varied_column"]
+                  if None in scan_results_info["nlls"]: continue
+                  scan_results["scan_values"] += scan_results_info["scan_values"]
+                  scan_results["nlls"] += scan_results_info["nlls"]
+
+                # Recheck minimum
+                min_nll = min(scan_results["nlls"])
+                scan_results["nlls"] = [i - min_nll for i in scan_results["nlls"]]
+                # Get crossings
+                scan_results["crossings"] = val.lkld.FindCrossings(scan_results["scan_values"], scan_results["nlls"], crossings=[1, 2])
+                # Dump to yaml
+                filename = f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}{val_name_ext}.yaml"
+                print(f">> Created {filename}")
+                with open(filename, 'w') as yaml_file:
+                  yaml.dump(scan_results, yaml_file, default_flow_style=False)
+                # Remove per point yaml files
+                for point_ind, scan_value in enumerate(scan_values_info["scan_values"]): 
+                  os.system(f"rm data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}{val_name_ext}_scan_{point_ind}.yaml")
+
+            if args.sub_step in ["Plot","All"]:
+
+              print("- Plotting scans and comparisons")
+
+              with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit{val_name_ext}.yaml", 'r') as yaml_file:
+                best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              for col in info["columns"]:
+                with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}{val_name_ext}.yaml", 'r') as yaml_file:
+                  scan_results_info= yaml.load(yaml_file, Loader=yaml.FullLoader)
 
               val.PlotLikelihood(
                 scan_results_info["scan_values"], 
@@ -502,21 +569,20 @@ def main(args, architecture=None):
                 col, 
                 scan_results_info["crossings"], 
                 best_fit_info["best_fit"], 
-                true_pdf=pdf, 
+                #true_pdf=pdf, 
                 columns=info["columns"],
                 extra_dir="LikelihoodScans"
               )
 
-            #if not args.do_binned_fit:
-              #val.PlotComparisons(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="Comparisons")
-              #val.PlotComparisonsSeparatingDatasets(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="ComparisonsWithSeparation", score_cut=0.5)
-              #val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
-              #if len(val.X_columns) > 1:
-              #  val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit2D")
-            #else:
-              #val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
+              if not args.likelihood_type in ["binned_extended"]:
+                val.PlotComparisons(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="Comparisons")
+                val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
+                if len(val.X_columns) > 1:
+                  val.Plot2DUnrolledGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit2D")
+              else:
+                val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
-      if args.step == "ValidateInference" and args.sub_step in ["Summary","All"] and args.submit is None:
+      if args.step == "Infer" and args.sub_step in ["Summary","All"] and args.submit is None:
 
         print("- Plotting summary of the validation by inference")
 
@@ -527,14 +593,15 @@ def main(args, architecture=None):
         for ind, info in enumerate(val_loop):
           info_name = GetYName(info["row"],purpose="file")
           for col in info["columns"]:
-            with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_{ind}.yaml", 'r') as yaml_file:
+            with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_val_{ind}.yaml", 'r') as yaml_file:
               scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
             if col not in results.keys():
               results[col] = {info_name:scan_results_info}
             else:
               results[col][info_name] = scan_results_info
 
-        val.PlotValidationSummary(results, true_pdf=pdf, extra_dir="Summary")
+        #val.PlotValidationSummary(results, true_pdf=pdf, extra_dir="Summary")
+        val.PlotValidationSummary(results, extra_dir="Summary")
 
 
 if __name__ == "__main__":
