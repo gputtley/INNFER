@@ -26,13 +26,18 @@ source env.sh
 
 Running INNFER happens in 5 main stages:
 * PreProcess
+  * Perform various operations on the input datasets. Including selections, standardisation, converting discrete to continuous variables and performing train, test and validation dataset splittings.
 * Train
+  * Perform training of the conditional invertible neural networks.
 * ValidateGeneration
+  * Validate the networks by using it as a simulator and comparing it to the inputs.
 * ValidateInference
-* Infer (not yet implemented)
+  * Validate the networks by attempting to recover the true values. This is done with many bootstrapped maximum likelihood fits.
+* Infer
+  * Perform likelihood inference on either an asimov dataset or real data.
 
 Each of these steps are run through the `scripts/innfer.py` code, with the `--step` option matching the relevant stage of running. The ValidateInference and Infer steps are split into further sub-steps, with the `--sub-step` option, these are:
-* InitialFit
+* InitialFits (ValidateInference), InitialFit (Infer)
 * Scan
 * Collect
 * Plot
@@ -55,7 +60,7 @@ python3 scripts/innfer.py --step="Train" --benchmark="Gaussian" --architecture="
 python3 scripts/innfer.py --step="ValidateGeneration" --benchmark="Gaussian"
 ```
 ```
-python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFit" --benchmark="Gaussian"
+python3 scripts/innfer.py --step="ValidateInference" --sub-step="InitialFits" --benchmark="Gaussian"
 ```
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Scan" --benchmark="Gaussian"
