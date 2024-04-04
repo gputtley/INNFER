@@ -231,6 +231,8 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
       row_to_add.append(0.0)        
   row_to_add_name = GetYName(row_to_add, purpose="file")
 
+  #print("row_to_add", row_to_add)
+
   # Skip if already in list
   if row_to_add_name in parameters["yield"]: 
     return return_dict
@@ -243,16 +245,21 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
 
   # find closest other val
   lst = copy.deepcopy(entry_dict[parameters["Y_columns"][missing_col_ind]])
+  #print("lst", lst)
   if row_to_add[missing_col_ind] in lst: lst.remove(row_to_add[missing_col_ind])
   x1 = min(lst, key=lambda x: abs(x - row_to_add[missing_col_ind]))
   lst.remove(x1)
   x2 = min(lst, key=lambda x: abs(x - row_to_add[missing_col_ind]))
+
+  #print(x1,x2)
+
   row_1_for_line = copy.deepcopy(row_to_add)
   row_1_for_line[missing_col_ind] = x1
   row_2_for_line = copy.deepcopy(row_to_add)
   row_2_for_line[missing_col_ind] = x2
 
   #print(row_1_for_line, row_2_for_line, row_to_add)
+  #exit()
 
   # Get straight line
   y1 = parameters["yield"][GetYName(row_1_for_line, purpose="file")]
@@ -382,7 +389,7 @@ def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
 
   return func
 
-def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True):
+def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt=None, column=0, bins=None, min_bin_stat_frac=0.005, return_hists=False, do_err=False, inf_edges=True, density=False):
   """
   Make bin yields.
 
@@ -442,11 +449,16 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
 
       total_scale = data_parameters["yield"][GetYName(ur, purpose="file")] if "all" not in data_parameters["yield"] else data_parameters["yield"]["all"]
       hist *= total_scale/sum_hist
+      
       if do_err:
         hist_err_sq, _ = np.histogram(X_mr, bins=bins_ed, weights=wt_mr**2)
         hist_err_sq = hist_err_sq.astype(np.float128)
         hist_err = np.sqrt(hist_err_sq)
         hist = hist_err * total_scale/sum_hist
+
+      if density:
+        hist /= np.sum(hist)
+
       hists.append(hist)
 
   else:
@@ -467,6 +479,8 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
       hist_err_sq = hist_err_sq.astype(np.float128)
       hist_err = np.sqrt(hist_err_sq)
       hist = hist_err * total_scale/sum_hist
+    if density:
+      hist /= np.sum(hist)
     hists.append(hist)
 
   if return_hists:
@@ -590,3 +604,77 @@ def GetScanArchitectures(config):
     outputs.append(output)
 
   return outputs
+
+def Resample(datasets, weights, n_samples=None, seed=42):
+
+  # Set up datasets as lists
+  if not isinstance(datasets, list):
+    datasets = [datasets]
+
+  # Set n_samples to the maximum if None
+  if n_samples is None:
+    n_samples = len(weights)
+
+  # Get positive and negative weights indices
+  positive_indices = (weights>=0)
+  negative_indices = (weights<0)
+  do_positive = False
+  do_negative = False
+  if np.sum(weights[positive_indices]) != 0:
+    do_positive = True
+  if np.sum(weights[negative_indices]) != 0:
+    do_negative = True
+  
+  if do_positive:
+    positive_probs = weights[positive_indices]/np.sum(weights[positive_indices])
+  if do_negative:
+    negative_probs = weights[negative_indices]/np.sum(weights[negative_indices])
+  
+  # Set n_samples to the maximum if None
+  n_positive_samples = 0
+  n_negative_samples = 0
+  if n_samples is None:
+    if do_positive:
+      n_positive_samples = len(positive_probs)
+    if do_negative:
+      n_negative_samples = len(negative_probs)
+  else:
+    if do_positive and do_negative: 
+      positive_fraction = len(positive_probs)/len(weights)
+      n_positive_samples = int(round(positive_fraction*n_samples,0))
+      n_negative_samples = n_samples - n_positive_samples
+    elif do_positive:
+      n_positive_samples = n_samples
+    elif do_negative:
+      n_negative_samples = n_samples
+
+  # Loop through datasets
+  resampled_datasets = []
+  resampled_weights = np.hstack((np.ones(n_positive_samples),-1*np.ones(n_negative_samples)))
+  for dataset in datasets:
+
+    # Skip if empty
+    if dataset.shape[1] == 0:
+      resampled_datasets.append(np.zeros((n_positive_samples+n_negative_samples, 0)))
+      continue
+
+    # Resample
+    rng = np.random.RandomState(seed=seed)
+    if do_positive:
+      positive_resampled_indices = rng.choice(len(dataset[positive_indices]), size=n_positive_samples, p=positive_probs)
+    if do_negative:
+      negative_resampled_indices = rng.choice(len(dataset[negative_indices]), size=n_negative_samples, p=negative_probs)
+
+    # Save
+    if do_positive and do_negative:
+      resampled_datasets.append(np.vstack((dataset[positive_indices][positive_resampled_indices],dataset[negative_indices][negative_resampled_indices])))
+    elif do_positive:
+      resampled_datasets.append(dataset[positive_indices][positive_resampled_indices])
+    elif do_negative:
+      resampled_datasets.append(dataset[negative_indices][negative_resampled_indices])
+    
+  # Return individual dataset if originally given
+  if len(resampled_datasets) == 1:
+    resampled_datasets = resampled_datasets[0]
+
+  return resampled_datasets, resampled_weights

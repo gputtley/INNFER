@@ -27,15 +27,16 @@ def parse_args():
   parser.add_argument('--sge-queue', help= 'Queue for SGE submission', type=str, default="hep.q")
   parser.add_argument('--sub-step', help= 'Sub-step to run for ValidateInference or Infer steps', type=str, default="All")
   parser.add_argument('--lower-validation-stats', help= 'Lowers the validation stats, so code will run faster.', type=int, default=None)
-  parser.add_argument('--likelihood-type', help= 'Type of likelihood', type=str, default="unbinned_extended", choices=["unbinned_extended", "unbinned", "binned_extended"])
+  parser.add_argument('--likelihood-type', help= 'Type of likelihood', type=str, default="unbinned_extended", choices=["unbinned_extended", "unbinned", "binned_extended", "binned"])
   parser.add_argument('--minimisation-method', help= 'Method for minimisation', type=str, default="nominal", choices=["nominal", "low_stat_high_stat", "quadratic"])
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--scan-hyperparameters', help='Perform a hyperparameter scan.', action='store_true')
   parser.add_argument('--continue-training', help='Continue training pre-saved NN.', action='store_true')
   parser.add_argument('--skip-generation-correlation', help='Skip all of the 2d correlation ValidateGeneration plots.', action='store_true')
-  parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrapped resamples datasets to do ValidateInference for.', type=int, default=100)
-  parser.add_argument('--data-type', help= 'The data type to use when running the Infer step', type=str, default="asimov", choices=["data","asimov"])
+  parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrapped resamples datasets to do ValidateInference for.', type=int, default=500)
+  parser.add_argument('--data-type', help= 'The data type to use when running the Infer step', type=str, default="asimov", choices=["data","asimov","sim"])
+  parser.add_argument('--number-of-asimov-events', help= 'The number of asimov events generated', type=int, default=10**7)
   args = parser.parse_args()
 
   if args.cfg is None and args.benchmark is None:
@@ -47,7 +48,7 @@ def parse_args():
     if "Benchmark" in args.cfg:
       args.benchmark = args.cfg.split("Benchmark_")[1].split(".yaml")[0]
 
-  ValidateInference_substeps = ["InitialFits","Plot","All","Debug"]
+  ValidateInference_substeps = ["InitialFits","Collect","Plot","Summary","All","Debug"]
   if args.step == "ValidateInference" and args.sub_step not in ValidateInference_substeps:
     raise ValueError(f"For --step={args.step}, --sub-step must be either {', '.join(ValidateInference_substeps[:-1])} or {ValidateInference_substeps[-1]}.")
 
@@ -149,7 +150,7 @@ def main(args, architecture=None):
       with open(f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml", 'r') as yaml_file:
         parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      if not args.likelihood_type in ["binned_extended"]:
+      if not args.likelihood_type in ["binned_extended","binned"]:
 
         # Load in training architecture if loading in models
         if args.step != "Train":
@@ -297,10 +298,10 @@ def main(args, architecture=None):
         # Set up validation class
         from validation_and_inference import ValidationAndInference
         val = ValidationAndInference(
-          networks if file_name == "combined" else {file_name:networks[file_name]} if not args.likelihood_type in ["binned_extended"] else None, 
+          networks if file_name == "combined" else {file_name:networks[file_name]} if not args.likelihood_type in ["binned_extended","binned"] else None, 
           options={
             "infer" : cfg["data_file"] if "data_file" in cfg else None,
-            "data_key":"val" if not args.likelihood_type in ["binned_extended"] else "full",
+            "data_key":"val" if not args.likelihood_type in ["binned_extended","binned"] else "full",
             "data_parameters":parameters if file_name == "combined" else {file_name:parameters[file_name]},
             "pois":cfg["pois"],
             "nuisances":cfg["nuisances"],
@@ -309,18 +310,16 @@ def main(args, architecture=None):
             "model_name":file_name,
             "lower_validation_stats":args.lower_validation_stats if args.step == "ValidateInference" else None,
             "likelihood_type":args.likelihood_type,
-            "var_and_bins": None if not args.likelihood_type in ["binned_extended"] or "var_and_bins" not in cfg["inference"] else cfg["inference"]["var_and_bins"],
+            "var_and_bins": None if not args.likelihood_type in ["binned_extended","binned"] or "var_and_bins" not in cfg["inference"] else cfg["inference"]["var_and_bins"],
             "calculate_columns_for_plotting": cfg["validation"]["calculate_columns_for_plotting"] if "calculate_columns_for_plotting" in cfg["validation"] else {},
             "validation_options": cfg["inference"] if file_name == "combined" else {},
+            "number_of_asimov_events": args.number_of_asimov_events,
             }
           )
         
         # Set data type to use for validation and inference steps and other items
-        if args.step == "Infer":
-          if args.data_type == "data":
-            val.data_type = "data"
-          elif args.data_type == "asimov":
-            val.data_type = "asimov"
+        if args.step == "Infer" and args.likelihood_type not in ["binned_extended","binned"]:
+          val.data_type = args.data_type
         else:
           val.data_type = "sim"
           #val.data_type = "asimov"
@@ -350,7 +349,7 @@ def main(args, architecture=None):
           val_name_ext = f"_val_{ind}"
 
         # Validate the INN by sampling through the latent space and using the inverse function to compare to the original datasets
-        if args.step == "ValidateGeneration" and not args.likelihood_type in ["binned_extended"]:
+        if args.step == "ValidateGeneration" and not args.likelihood_type in ["binned_extended","binned"]:
 
           print("- Running validation generation")
 
@@ -385,7 +384,7 @@ def main(args, architecture=None):
 
           # Run the debug step
           if args.sub_step == "Debug":
-            val.DoDebug(info["row"], columns=info["columns"])
+            val.DoDebug(info["row"], columns=info["columns"], resample=("unbinned" in args.likelihood_type))
 
           if args.step == "ValidateInference":
             print("- Running validation inference")
@@ -423,34 +422,53 @@ def main(args, architecture=None):
                 if args.specific_bootstrap_ind is None or (str(resampling_seed) == args.specific_bootstrap_ind):
                   val.GetAndDumpBestFit(info["initial_best_fit_guess"], row=info["row"], ind=ind,  columns=info["columns"], resampling_seed=resampling_seed, sampling_seed=resampling_seed, add_bootstrap=True, minimisation_method=args.minimisation_method)
 
-            # Collect the bootstrapped fits and plot
+
+            # Collect the bootstrapped fits
+            if args.sub_step in ["Collect","All"]:
+
+              print("- Collecting bootstrapped fits")
+
+              for col in info["columns"]:
+                best_fit_info = {"all":{}}
+                for resampling_seed in range(args.number_of_bootstraps):
+                  bootstrap_name_ext = f"_bootstrap_{resampling_seed}"
+                  with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit{val_name_ext}{bootstrap_name_ext}.yaml", 'r') as yaml_file:
+                    load_dict = yaml.load(yaml_file, Loader=yaml.FullLoader)
+                    best_fit_info["all"][resampling_seed] = load_dict["best_fit"][load_dict["columns"].index(col)]
+                best_fit_info["mean"] = float(np.mean([v for _,v in best_fit_info["all"].items()]))
+                best_fit_info["std"] = float(np.std([v for _,v in best_fit_info["all"].items()]))
+                # Dump to yaml
+                filename = f"data/{cfg['name']}/{file_name}/{args.step}/bootstrap_results_{col}{val_name_ext}.yaml"
+                print(f">> Created {filename}")
+                with open(filename, 'w') as yaml_file:
+                  yaml.dump(best_fit_info, yaml_file, default_flow_style=False)
+
+            # Plot the bootstapped fits
             if args.sub_step in ["Plot","All"]:
 
               print("- Plotting bootstrapped fits")
 
-              # Load in best fit information
-              best_fit_info = {}
-              for resampling_seed in range(args.number_of_bootstraps):
-                bootstrap_name_ext = f"_bootstrap_{resampling_seed}"
-                with open(f"data/{cfg['name']}/{file_name}/{args.step}/best_fit{val_name_ext}{bootstrap_name_ext}.yaml", 'r') as yaml_file:
-                  best_fit_info[resampling_seed] = yaml.load(yaml_file, Loader=yaml.FullLoader)
-                  
-              # Draw best fit and interval distributions
-              combined_best_fit = []
+              combined_means = []
               for col in info["columns"]: 
-                best_fits = [v["best_fit"][v["columns"].index(col)] for _, v in best_fit_info.items()]
-                combined_best_fit.append(np.mean(best_fits))
+
+                # Load in best fit information
+                with open(f"data/{cfg['name']}/{file_name}/{args.step}/bootstrap_results_{col}{val_name_ext}.yaml", 'r') as yaml_file:
+                  best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+                    
+                # Draw best fit and interval distributions
                 val.PlotBootstrappedDistribution(
-                  best_fits, 
+                  [v for _, v in best_fit_info["all"].items()], 
                   col, 
                   info["row"],
                   info["columns"],
                   bins=20,
                   extra_dir="Bootstrapping"
                 )
+                combined_means.append(best_fit_info["mean"])
 
               # Draw comparisons between bestfit mean and truth
-              val.PlotComparisons(info["row"], combined_best_fit, columns=info["columns"], extra_dir="Comparisons")
+              val.PlotComparisons(info["row"], combined_means, columns=info["columns"], extra_dir="Comparisons")
+
 
           # Infer
           else:
@@ -471,10 +489,10 @@ def main(args, architecture=None):
 
               print("- Running initial fit")
               # Get the best fit
-              val.GetAndDumpBestFit(info["initial_best_fit_guess"], row=info["row"], ind=ind,  columns=info["columns"], minimisation_method=args.minimisation_method)
+              val.GetAndDumpBestFit(info["initial_best_fit_guess"], row=info["row"], ind=ind,  columns=info["columns"], minimisation_method=args.minimisation_method, resample=False)
               # Get scan ranges
               for col in info["columns"]:
-                val.GetAndDumpScanRanges(col, row=info["row"], ind=ind, columns=info["columns"], minimisation_method=args.minimisation_method)
+                val.GetAndDumpScanRanges(col, row=info["row"], ind=ind, columns=info["columns"], resample=False)
 
 
             # Run the likelihood scans
@@ -504,7 +522,7 @@ def main(args, architecture=None):
 
                   if not (args.specific_scan_ind != None and args.specific_scan_ind != str(job_ind)):
                     if args.submit is None:
-                      val.GetAndDumpScan(info["row"], col, scan_value, ind1=ind, ind2=point_ind,  columns=info["columns"])
+                      val.GetAndDumpScan(info["row"], col, scan_value, ind1=ind, ind2=point_ind,  columns=info["columns"], minimisation_method=args.minimisation_method, resample=False)
 
                   if ((point_ind+1) % args.scan_points_per_job == 0) or (point_ind == len(scan_values_info["scan_values"])-1):
                     # Submit to batch
@@ -562,19 +580,20 @@ def main(args, architecture=None):
                 with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}{val_name_ext}.yaml", 'r') as yaml_file:
                   scan_results_info= yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-              val.PlotLikelihood(
-                scan_results_info["scan_values"], 
-                scan_results_info["nlls"], 
-                scan_results_info["row"], 
-                col, 
-                scan_results_info["crossings"], 
-                best_fit_info["best_fit"], 
-                #true_pdf=pdf, 
-                columns=info["columns"],
-                extra_dir="LikelihoodScans"
-              )
+                val.PlotLikelihood(
+                  scan_results_info["scan_values"], 
+                  scan_results_info["nlls"], 
+                  scan_results_info["row"], 
+                  col, 
+                  scan_results_info["crossings"], 
+                  best_fit_info["best_fit"], 
+                  #true_pdf=pdf, 
+                  columns=info["columns"],
+                  extra_dir="LikelihoodScans",
+                  do_eff_weights=(args.likelihood_type in ["unbinned","unbinned_extended"])
+                )
 
-              if not args.likelihood_type in ["binned_extended"]:
+              if not args.likelihood_type in ["binned_extended","binned"]:
                 val.PlotComparisons(best_fit_info["row"], best_fit_info["best_fit"], columns=info["columns"], extra_dir="Comparisons")
                 val.PlotGeneration(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="GenerationBestFit1D")
                 if len(val.X_columns) > 1:
@@ -582,26 +601,61 @@ def main(args, architecture=None):
               else:
                 val.PlotBinned(info["row"], columns=info["columns"], sample_row=best_fit_info["best_fit"], extra_dir="BinnedDistributions")
 
-      if args.step == "Infer" and args.sub_step in ["Summary","All"] and args.submit is None:
 
-        print("- Plotting summary of the validation by inference")
+      if args.sub_step in ["Summary","All"] and args.submit is None and args.specific_val_ind is None:
 
         if len(info["row"]) == 0: 
           continue
 
-        results = {}
-        for ind, info in enumerate(val_loop):
-          info_name = GetYName(info["row"],purpose="file")
-          for col in info["columns"]:
-            with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_val_{ind}.yaml", 'r') as yaml_file:
-              scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-            if col not in results.keys():
-              results[col] = {info_name:scan_results_info}
-            else:
-              results[col][info_name] = scan_results_info
 
-        #val.PlotValidationSummary(results, true_pdf=pdf, extra_dir="Summary")
-        val.PlotValidationSummary(results, extra_dir="Summary")
+        if args.step == "ValidateInference":
+
+          print("- Plotting summary of the validation using inference")
+
+          results = {}
+          for ind, info in enumerate(val_loop):
+            info_name = GetYName(info["row"],purpose="file")
+            plot_name = GetYName(info["row"],purpose="plot",prefix="y=")
+            for col in info["columns"]:
+              with open(f"data/{cfg['name']}/{file_name}/{args.step}/bootstrap_results_{col}_val_{ind}.yaml", 'r') as yaml_file:
+                best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              intervals = {
+                  -2 : best_fit_info["mean"] - 2*best_fit_info["std"],
+                  -1 : best_fit_info["mean"] - 1*best_fit_info["std"],
+                  0 : best_fit_info["mean"],
+                  1 : best_fit_info["mean"] + 1*best_fit_info["std"],
+                  2 : best_fit_info["mean"] + 2*best_fit_info["std"],
+                }
+              norm_intervals = {k:v/info["row"][info["columns"].index(col)] for k,v in intervals.items()}
+              if col not in results.keys():
+                results[col] = {plot_name:norm_intervals}
+              else:
+                results[col][plot_name] = norm_intervals
+
+          val.PlotSummary(results, extra_dir="Summary")
+
+        elif args.step == "Infer":
+
+          print("- Plotting summary of the results")
+
+          results = {}
+          for ind, info in enumerate(val_loop):
+            info_name = GetYName(info["row"],purpose="file")
+            for col in info["columns"]:
+              with open(f"data/{cfg['name']}/{file_name}/{args.step}/scan_results_{col}_val_{ind}.yaml", 'r') as yaml_file:
+                scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+              if col not in results.keys():
+                results[col] = {info_name:scan_results_info}
+              else:
+                results[col][info_name] = scan_results_info
+
+          # Plot summary
+          #val.PlotValidationSummary(results, true_pdf=pdf, extra_dir="Summary")
+          val.PlotInferSummary(results, extra_dir="Summary")
+
+          # Plot prediction summaries
+          if args.data_type == "asimov":
+            print()
 
 
 if __name__ == "__main__":

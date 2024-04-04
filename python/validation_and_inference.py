@@ -2,7 +2,7 @@ from preprocess import PreProcess
 from likelihood import Likelihood
 from data_loader import DataLoader
 from plotting import plot_histograms, plot_histogram_with_ratio, plot_likelihood, plot_correlation_matrix, plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_validation_summary, plot_heatmap
-from other_functions import GetYName, MakeYieldFunction, MakeBinYields
+from other_functions import GetYName, MakeYieldFunction, MakeBinYields, Resample
 from scipy.integrate import simpson
 from sklearn.metrics import roc_auc_score
 from functools import partial
@@ -41,6 +41,7 @@ class ValidationAndInference():
     self.plot_dir = "./plots/"
     self.validation_options = {}
     self.calculate_columns_for_plotting = {}
+    self.number_of_asimov_events = 10**7
     self._SetOptions(options)
     self.X_columns = self.data_parameters[list(self.data_parameters.keys())[0]]["X_columns"]
     self.X_plot_columns = copy.deepcopy(self.X_columns)
@@ -76,6 +77,9 @@ class ValidationAndInference():
         X (numpy.ndarray): Extracted data.
         wt (numpy.ndarray): Extracted weights.
     """
+    if self.likelihood_type == "binned_extended": 
+      resample = False  
+
     first_loop = True
     for key, val in self.data_parameters.items():
 
@@ -98,7 +102,6 @@ class ValidationAndInference():
       wt = wt.to_numpy()
 
       if not return_full:
-
         # Choose the matching Y rows
         sel_row = np.array([row[columns.index(y)] for y in val["Y_columns"]])
         if Y.shape[1] > 0:
@@ -120,6 +123,7 @@ class ValidationAndInference():
           rp = row[columns.index("mu_"+key)]
           if rp == 0.0: continue
           wt *= rp
+          
 
       # Add column
       if add_columns:
@@ -152,16 +156,24 @@ class ValidationAndInference():
         total_wt *= sum_wt/new_sum_wt
 
     if resample:
-      probs = total_wt.flatten() / np.sum(total_wt.flatten())
-      #n_events = int(np.sum(total_wt.flatten()))
-      n_events = int((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
-      rng = np.random.RandomState(seed=resampling_seed)
-      resampled_indices = rng.choice(len(total_X), size=n_events, p=probs)
-      total_X = total_X[resampled_indices]
-      if return_y:
-        total_Y = total_Y[resampled_indices]
       prev_sum_wt = np.sum(total_wt.flatten())
-      total_wt = np.ones(len(total_X)).reshape(-1,1)*prev_sum_wt/len(total_X)
+      n_events = int((np.sum(total_wt.flatten())**2)/np.sum(total_wt.flatten()**2))
+      if return_y:
+        (total_X, total_Y), total_wt = Resample([total_X, total_Y], total_wt.flatten(), n_samples=n_events, seed=resampling_seed)
+      else:
+        total_X, total_wt = Resample(total_X, total_wt.flatten(), n_samples=n_events, seed=resampling_seed)
+      total_wt *= prev_sum_wt/np.sum(total_wt)
+
+      #probs = total_wt.flatten() / np.sum(total_wt.flatten())
+      #n_events = int(np.sum(total_wt.flatten()))
+      #n_events = int((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+      #rng = np.random.RandomState(seed=resampling_seed)
+      #resampled_indices = rng.choice(len(total_X), size=n_events, p=probs)
+      #total_X = total_X[resampled_indices]
+      #if return_y:
+      #  total_Y = total_Y[resampled_indices]
+      #prev_sum_wt = np.sum(total_wt.flatten())
+      #total_wt = np.ones(len(total_X)).reshape(-1,1)*prev_sum_wt/len(total_X)
 
     if not return_y:
       return total_X, total_wt
@@ -362,22 +374,22 @@ class ValidationAndInference():
     """
     Build the likelihood object
     """
-    if self.likelihood_type in ["binned_extended"]:
+    if self.likelihood_type in ["binned","binned_extended"]:
       bin_yields_dict = {}
       for key, val in self.data_parameters.items():
-        X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True)
+        X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True, resample=False)
         bins = [float(i) for i in self.var_and_bins.split("[")[1].split("]")[0].split(",")]
         column = self.X_columns.index(self.var_and_bins.split("[")[0])
-
-        bin_yields, bin_edges = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins)
+        bin_yields, bin_edges = MakeBinYields(pd.DataFrame(X,columns=val["X_columns"]), pd.DataFrame(Y,columns=val["Y_columns"]), val, self.pois, self.nuisances, wt=pd.DataFrame(wt), column=column, bins=bins, density=False)
         bin_yields_dict[key] = copy.deepcopy(bin_yields)
 
       self.lkld = Likelihood(
         {
           "bin_yields": bin_yields_dict,
           "bin_edges": bin_edges,
+          "column" : column
         }, 
-        type="binned_extended", 
+        type=self.likelihood_type, 
         data_parameters=self.data_parameters,
         parameters=self.validation_options,
       )
@@ -394,21 +406,22 @@ class ValidationAndInference():
         parameters=self.validation_options,
       )
 
-  def DoDebug(self, row, columns=None, plot=False, sampling_seed=99):
+  def DoDebug(self, row, columns=None, plot=False, sampling_seed=99, resample=True):
 
     # get log probs
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, sampling_seed=sampling_seed)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, sampling_seed=sampling_seed, resample=resample)
     #X, wt = self._GetXAndWts(row, columns=columns)
-    print("X dataset:")
-    print(X)
-    print()
-    print("wt dataset")
-    print(wt)
-    print()
+    #print("X dataset:")
+    #print(X)
+    #print()
+    #print("wt dataset")
+    #print(wt)
+    #print()
 
     self.lkld.debug_mode = True
     loop = [171.0,171.25,171.5,171.75, 172.0, 172.25, 172.5,173.0,173.5,174.0,174.5] # edit for your scenario
     loop = [171.48,171.49,171.50,171.51]
+    loop = [171.5, 172.5, 173.5]
     for i in loop:
       self.lkld.Run(X, np.array([i]), wts=wt, return_ln=True)
 
@@ -461,14 +474,14 @@ class ValidationAndInference():
       wt = data.loc[:,"wt"].to_numpy().reshape(-1,1)
       extra_name = ""
     elif self.data_type == "asimov":
-      X, wt = self.Sample(row, columns=columns, events_per_file=(10**7), separate=separate, transform=transform, add_columns=add_columns, seed=sampling_seed, scale=True)
+      X, wt = self.Sample(row, columns=columns, events_per_file=self.number_of_asimov_events, separate=separate, transform=transform, add_columns=add_columns, seed=sampling_seed, scale=True)
       wt = wt.reshape(-1,1)
       extra_name = f"_val_{ind}"
       if add_bootstrap:
         extra_name += f"_bootstrap_{sampling_seed}"
     return X, wt, extra_name
 
-  def GetAndDumpBestFit(self, initial_guess, row=None, columns=None, ind=0, resampling_seed=99, sampling_seed=99, add_bootstrap=False, minimisation_method="nominal"):
+  def GetAndDumpBestFit(self, initial_guess, row=None, columns=None, ind=0, resampling_seed=99, sampling_seed=99, add_bootstrap=False, minimisation_method="nominal", resample=True):
     """
     Get and dump the best-fit parameters to a YAML file.
 
@@ -478,10 +491,10 @@ class ValidationAndInference():
         columns (list): List of column names for best-fit search. If None, uses Y_columns from data_parameters.
         ind (int): Index for file naming (default is 0).
     """
-    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed, sampling_seed=sampling_seed, add_bootstrap=add_bootstrap)
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed, sampling_seed=sampling_seed, add_bootstrap=add_bootstrap, resample=resample)
     self.lkld.GetAndWriteBestFitToYaml(X, initial_guess, row=row, wt=wt, filename=f"{self.out_dir}/best_fit{extra_name}.yaml", minimisation_method=minimisation_method)
 
-  def GetAndDumpScanRanges(self, col, row=None, columns=None, ind=0, resampling_seed=42, minimisation_method="nominal"):
+  def GetAndDumpScanRanges(self, col, row=None, columns=None, ind=0, resampling_seed=99, sampling_seed=99, resample=True):
     """
     Get and dump scan ranges to a YAML file.
 
@@ -491,10 +504,10 @@ class ValidationAndInference():
         columns (list): List of column names for scan. If None, uses Y_columns from data_parameters.
         ind (int): Index for file naming (default is 0).
     """
-    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed)
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind, resampling_seed=resampling_seed, sampling_seed=sampling_seed, resample=resample)
     self.lkld.GetAndWriteScanRangesToYaml(X, col, wt=wt, row=row, filename=f"{self.out_dir}/scan_values_{col}{extra_name}.yaml")
 
-  def GetAndDumpScan(self, row, col, col_val, columns=None, ind1=0, ind2=0, resampling_seed=42):
+  def GetAndDumpScan(self, row, col, col_val, columns=None, ind1=0, ind2=0, resampling_seed=99, sampling_seed=99, minimisation_method="nominal", resample=True):
     """
     Get and dump negative log-likelihood to a YAML file.
 
@@ -506,8 +519,8 @@ class ValidationAndInference():
         ind1 (int): Index for file naming (default is 0).
         ind2 (int): Index for file naming (default is 0).
     """
-    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind1, resampling_seed=resampling_seed)
-    self.lkld.GetAndWriteScanToYaml(X, col, col_val, wt=wt, row=row, filename=f"{self.out_dir}/scan_results_{col}{extra_name}_scan_{ind2}.yaml")
+    X, wt, extra_name = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, ind=ind1, resampling_seed=resampling_seed, sampling_seed=sampling_seed, resample=resample)
+    self.lkld.GetAndWriteScanToYaml(X, col, col_val, wt=wt, row=row, filename=f"{self.out_dir}/scan_results_{col}{extra_name}_scan_{ind2}.yaml", minimisation_method=minimisation_method)
 
   def PlotCorrelationMatrix(self, row, columns=None, extra_dir=""):
     """
@@ -519,11 +532,12 @@ class ValidationAndInference():
         extra_dir (str): Extra directory to save the plot (default is "").
     """
     print(">> Producing correlation matrix plots")
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
-    #X, wt = self._GetXAndWts(row, columns=columns)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, resample=False)
     synth, synth_wt = self.Sample(row, columns=columns)
 
-    true_cov_matrix = np.cov(X, aweights=wt.flatten(), rowvar=False)
+    weighted_mean = np.average(X, axis=0, weights=wt.flatten())
+    centered_data = X - weighted_mean
+    true_cov_matrix = np.dot((centered_data * wt).T, centered_data) / np.sum(wt)
     true_corr_matrix = true_cov_matrix / np.sqrt(np.outer(np.diag(true_cov_matrix), np.diag(true_cov_matrix)))
     
     synth_cov_matrix = np.cov(synth, aweights=synth_wt, rowvar=False)
@@ -578,7 +592,7 @@ class ValidationAndInference():
     sim_plot_extra_name = GetYName(row, purpose="plot", prefix="y=")
     sample_plot_extra_name = GetYName(sample_row, purpose="plot", prefix="y=")
 
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True), resample=False)
     #X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
     synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
@@ -622,8 +636,7 @@ class ValidationAndInference():
     print(">> Producing 2d pulls")
 
     if sample_row is None: sample_row = row
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
-    #X, wt = self._GetXAndWts(row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True), resample=False)
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
     sim_file_extra_name = GetYName(row, purpose="file", prefix="_sim_y_")
@@ -685,7 +698,7 @@ class ValidationAndInference():
     print(">> Producing 2d unrolled generation plots")
 
     if sample_row is None: sample_row = row
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, transform=transform, add_columns=(False if transform else True), resample=False)
     synth, synth_wt = self.Sample(sample_row, columns=columns, separate=True, transform=transform, add_columns=(False if transform else True))
     synth_comb, synth_comb_wt = self.Sample(sample_row, columns=columns, separate=False, transform=transform, add_columns=(False if transform else True))
 
@@ -786,7 +799,7 @@ class ValidationAndInference():
           ylabel = "Events",
         )
   
-  def PlotLikelihood(self, x, y, row, col, crossings, best_fit, true_pdf=None, columns=None, extra_dir=""):
+  def PlotLikelihood(self, x, y, row, col, crossings, best_fit, true_pdf=None, columns=None, extra_dir="", do_eff_weights=True):
     """
     Plot likelihood scans.
 
@@ -810,11 +823,12 @@ class ValidationAndInference():
 
     other_lkld = {}
 
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
-    eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, resample=False)
     total_weight = float(np.sum(wt.flatten()))
-    if not eff_events == total_weight:
-      other_lkld[r"Inferred N=$N_{eff}$"] = (eff_events/total_weight)*np.array(y)
+    if do_eff_weights:
+      eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+      if not eff_events == total_weight:
+        other_lkld[r"Inferred N=$N_{eff}$"] = (eff_events/total_weight)*np.array(y)
 
     # make true likelihood
     if true_pdf is not None:
@@ -874,8 +888,7 @@ class ValidationAndInference():
     """
     print(">> Producing comparison plots")
     if columns == None: columns = self.data_parameters["Y_columns"]
-    #X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, resample=False)
     synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
     synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
 
@@ -925,7 +938,7 @@ class ValidationAndInference():
     """
     print(">> Producing comparison plots after a cut on the BDT score")
     if columns == None: columns = self.data_parameters["Y_columns"]
-    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, add_columns=True)
+    X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=row, columns=columns, add_columns=True, resample=False)
     #X, wt = self._GetXAndWts(row, columns=columns, add_columns=True)
     synth_true, synth_true_wt = self.Sample(row, columns=columns, separate=False, add_columns=True)
     synth_best_fit, synth_best_fit_wt = self.Sample(best_fit, columns=columns, separate=False, add_columns=True)
@@ -1127,7 +1140,7 @@ class ValidationAndInference():
     column = self.X_columns.index(self.var_and_bins.split("[")[0])
     col_name = self.var_and_bins.split("[")[0]
 
-    X, wt = self._GetXAndWts(row, columns=columns)
+    X, wt = self._GetXAndWts(row, columns=columns, resample=False)
     data_hist, _ = np.histogram(X[:,column], weights=wt.flatten(), bins=bins)
     data_hist_err_sq, _ = np.histogram(X[:,column], weights=wt.flatten()**2, bins=bins)
     data_hist_err = np.sqrt(data_hist_err_sq)
@@ -1141,7 +1154,7 @@ class ValidationAndInference():
         column_indices = [columns.index(col) for col in val["Y_columns"]]
         sample_row_for_yield = sample_row[column_indices]
 
-      X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True)
+      X, Y, wt = self._GetXAndWts(None, return_full=True, specific_file=key, return_y=True, resample=False)
       rp = 1.0
       if "mu_"+key in columns:
         rp = sample_row[columns.index("mu_"+key)]
@@ -1175,7 +1188,7 @@ class ValidationAndInference():
       axis_text="",
       )
 
-  def PlotValidationSummary(self, results, true_pdf=None, eff_events=True, extra_dir=""):
+  def PlotInferSummary(self, results, true_pdf=None, eff_events=True, extra_dir=""):
     """
     Plot a validation summary.
 
@@ -1206,7 +1219,6 @@ class ValidationAndInference():
         plot_dict[col][GetYName(info["row"],purpose="plot",prefix="y=")] = norm_crossings
     
         X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=info["row"], columns=info["columns"])
-        #X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
 
         # make true likelihood
         if true_pdf is not None:
@@ -1224,7 +1236,6 @@ class ValidationAndInference():
           for k in self.lkld.models["pdfs"].keys():
             self.lkld.models["pdfs"][k].Probability = partial(Probability, k=k)
 
-          #X, wt = self._GetXAndWts(info["row"], columns=info["columns"])
           X, wt, _ = self._MakeDatasetAndExtraNameForFitting(row=info["row"], columns=info["columns"])
           nlls = []
           for x_val in info["scan_values"]:
@@ -1240,10 +1251,11 @@ class ValidationAndInference():
           other_summaries["True PDF"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = true_norm_crossings
 
         # make effective events summary
-        eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
-        total_weight = float(np.sum(wt.flatten()))
-        eff_crossings = self.lkld.FindCrossings(info["scan_values"], list((eff_events/total_weight)*np.array(info["nlls"])), crossings=[1, 2])
-        other_summaries[r"N=$N_{eff}$"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in eff_crossings.items()}
+        if eff_events:
+          eff_events = float((np.sum(wt.flatten())**2)/np.sum(wt.flatten()**2))
+          total_weight = float(np.sum(wt.flatten()))
+          eff_crossings = self.lkld.FindCrossings(info["scan_values"], list((eff_events/total_weight)*np.array(info["nlls"])), crossings=[1, 2])
+          other_summaries[r"N=$N_{eff}$"][col][GetYName(info["row"],purpose="plot",prefix="y=")] = {k: v/info["row"][info["columns"].index(info["varied_column"])] for k,v in eff_crossings.items()}
 
     if extra_dir != "": 
       add_extra_dir = f"/{extra_dir}"
@@ -1258,6 +1270,26 @@ class ValidationAndInference():
       other_colors=other_colors
       )
     
+  def PlotSummary(self, plot_dict, extra_dir="", name=""):
+    """
+    Plot a validation summary.
+
+    Args:
+        results (dict): Dictionary containing the validation results.
+        true_pdf (dict): Dictionary containing the true PDFs (default is None).
+        extra_dir (str): Extra directory to save the plot (default is "").
+    """
+    if extra_dir != "": 
+      add_extra_dir = f"/{extra_dir}"
+    else:
+      add_extra_dir = ""
+
+    plot_validation_summary(
+      plot_dict, 
+      name=f"{self.plot_dir}{add_extra_dir}/validation_summary",
+      nominal_name=name,
+      )
+
   def AddColumns(self, dataset):
     df = pd.DataFrame(dataset, columns=self.X_columns)
     for k, v in self.calculate_columns_for_plotting.items():

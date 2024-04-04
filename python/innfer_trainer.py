@@ -10,6 +10,7 @@ import tensorflow as tf
 from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
+from other_functions import Resample
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 seed = 42
@@ -44,6 +45,7 @@ class InnferTrainer(bf.trainers.Trainer):
       adaptive_lr_scheduler = False,
       active_learning = False,
       active_learning_options = {},
+      resample = False,
       **kwargs,
    ):
       """
@@ -74,6 +76,7 @@ class InnferTrainer(bf.trainers.Trainer):
       self.fix_1d_spline = fix_1d_spline
       self.active_learning = active_learning
       self.active_learning_options = active_learning_options
+      self.resample = resample
 
       # Compile update function, if specified
       if use_autograph:
@@ -107,7 +110,7 @@ class InnferTrainer(bf.trainers.Trainer):
             #Loop through dataset
             for bi in range(1,X_train.num_batches+1):
                # Perform one training step and obtain current loss value
-               input_dict = self._load_resampled_batch(X_train, Y_train, wt_train, ep)
+               input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
 
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
@@ -169,7 +172,7 @@ class InnferTrainer(bf.trainers.Trainer):
       wt.ChangeBatchSize(batch_size)
       sum_loss = 0
       for _ in range(X.num_batches):
-         conf = self._load_resampled_batch(X, Y, wt, ep)
+         conf = self._load_batch(X, Y, wt, ep)
          sum_loss += float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))
       loss = tf.constant(sum_loss/X.num_batches)
       X.ChangeBatchSize(X_old_batch_size)
@@ -211,7 +214,7 @@ class InnferTrainer(bf.trainers.Trainer):
          return early_stopper
       return None
    
-   def _load_resampled_batch(self, X, Y, wt, ep):
+   def _load_batch(self, X, Y, wt, ep):
       """
       Helper method to resample batches based off weights.
 
@@ -226,18 +229,13 @@ class InnferTrainer(bf.trainers.Trainer):
       X_data = X.LoadNextBatch().to_numpy()
       Y_data = Y.LoadNextBatch().to_numpy()
       wt_data = wt.LoadNextBatch().to_numpy().flatten()
-      if len(wt_data[wt_data < 0]) > 0:
-         print("WARNING: Ignoring negative weights.")
-         wt_data[wt_data < 0] = 0
       if self.fix_1d_spline:
          X_data = np.column_stack((X_data.flatten(), np.random.normal(0.0, 1.0, (len(X_data),))))
       if self.active_learning:
          X_data, Y_data, wt_data = self._make_active_learning_datasets(X_data, Y_data, wt_data, ep)
-      probs = wt_data / np.sum(wt_data)
-      resampled_indices = np.random.choice(len(X_data), size=len(X_data), p=probs)
-      X_data = X_data[resampled_indices]
-      Y_data = Y_data[resampled_indices]
-      return {"parameters" : X_data, "direct_conditions" : Y_data}
+      if self.resample:
+         (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data)
+      return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):
       return lr if not isinstance(lr, np.ndarray) else lr[0]

@@ -31,6 +31,7 @@ class PreProcess():
     self.parquet_file_name = parquet_file_name
     self.X_columns = X_columns
     self.Y_columns = Y_columns
+    self.selection = None
     self.standardise = []
     self.train_test_val_split = "0.3:0.3:0.4"
     self.remove_quantile = 0.0
@@ -60,6 +61,12 @@ class PreProcess():
     print(">> Loading full dataset.")
     dl = DataLoader(self.parquet_file_name)
     full_dataset = dl.LoadFullDataset()
+
+    # Applying selection
+    if self.selection is not None:
+      print(">> Applying selection.")
+      print(f"  - {self.selection}")
+      full_dataset = full_dataset.loc[full_dataset.eval(self.selection),:]
 
     # Get X and Y column names
     print(">> Getting columns from dataset.")
@@ -194,6 +201,7 @@ class PreProcess():
     # Write parquet files
     self.parameters["file_location"] = self.output_dir
     MakeDirectories(self.output_dir)
+
     print(">> Writing parquet.")
     pq.write_table(pa.Table.from_pandas(X_train_df), self.output_dir+"/X_train.parquet")
     pq.write_table(pa.Table.from_pandas(X_test_df), self.output_dir+"/X_test.parquet")
@@ -204,6 +212,7 @@ class PreProcess():
     pq.write_table(pa.Table.from_pandas(wt_train_df), self.output_dir+"/wt_train.parquet")
     pq.write_table(pa.Table.from_pandas(wt_test_df), self.output_dir+"/wt_test.parquet")
     pq.write_table(pa.Table.from_pandas(wt_val_df), self.output_dir+"/wt_val.parquet")
+
 
     # Write data parameters
     print(">> Writing parameters yaml.")

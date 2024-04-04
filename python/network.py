@@ -15,6 +15,8 @@ from scipy import integrate
 from other_functions import GetYName, MakeDirectories
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_curve
+from sklearn.metrics import auc as roc_curve_auc
 
 class Network():
   """
@@ -66,6 +68,7 @@ class Network():
     self.lr_scheduler_options = {} 
     self.active_learning = False
     self.active_learning_options = {}
+    self.resample = False
 
     # Running parameters
     self.plot_loss = True
@@ -405,7 +408,8 @@ class Network():
       use_wandb=self.use_wandb,
       adaptive_lr_scheduler=self.adaptive_lr_scheduler,
       active_learning=self.active_learning,
-      active_learning_options=self.active_learning_options
+      active_learning_options=self.active_learning_options,
+      resample=self.resample,
     )
 
     if self.plot_loss:
@@ -433,7 +437,8 @@ class Network():
     """
     Y = np.array(Y)
     if Y.ndim == 1 or len(Y) == 1: Y = np.tile(Y, (n_events, 1))
-    
+    if len(Y) == 0: Y = np.zeros((n_events,0))
+
     if self.active_learning:
       Y = np.hstack((Y,np.zeros(len(Y)).reshape(-1,1)))
 
@@ -457,7 +462,6 @@ class Network():
       else:
         synth = np.vstack((synth, self.amortizer.sample(batch_data, 1)[:,0,:]))
 
-    #print(synth)
     if self.fix_1d_spline:
       synth = synth[:,0].reshape(-1,1)
 
@@ -656,7 +660,10 @@ class Network():
     if not for_classification:
       return X_sim, Y_sim, wt_sim, X_synth, Y_synth, wt_synth 
     else:
-      X = np.vstack((np.hstack((X_sim, Y_sim)),np.hstack((X_synth, Y_synth))))
+      if Y_sim.shape[0] != 0:
+        X = np.vstack((np.hstack((X_sim, Y_sim)),np.hstack((X_synth, Y_synth))))
+      else:
+        X = np.vstack((X_sim,X_synth))
       y = np.vstack((np.zeros(len(X_sim)).reshape(-1,1),np.ones(len(X_synth)).reshape(-1,1)))
       wt = np.vstack((wt_sim.reshape(-1,1), wt_synth.reshape(-1,1)))
       rng = np.random.RandomState(seed=42)
@@ -677,18 +684,33 @@ class Network():
         float: Absolute difference between 0.5 and the AUC score.
     """
     print(">> Getting AUC score when trying to separate the datasets with a BDT")
+
+    # Make datasets
     X, y, wt = self.MakeSeparationDatasets(dataset=dataset, for_classification=True)
     X_wt_train, X_wt_test, y_train, y_test = train_test_split(np.hstack((X,wt)), y, test_size=0.5, random_state=42)
-
     X_train = X_wt_train[:,:-1]
     X_test = X_wt_test[:,:-1]
     wt_train = X_wt_train[:,-1]
     wt_test = X_wt_test[:,-1]
 
+    # Do fix if negative weights
+    neg_train_wt_inds = (wt_train<0)
+    neg_train_wt = (len(wt_train[neg_train_wt_inds]) > 0)
+    if neg_train_wt:
+      y_train[neg_train_wt_inds] += 2
+      wt_train[neg_train_wt_inds] *= -1
+
+    # Train separator
     clf = xgb.XGBClassifier()
     clf.fit(X_train, y_train, sample_weight=wt_train)
-    y_prob = clf.predict_proba(X_test)[:, 1]
-    auc = roc_auc_score(y_test, y_prob, sample_weight=wt_test)
+    y_prob = clf.predict_proba(X_test)[:,1]
+
+    fpr, tpr, _ = roc_curve(y_test, y_prob, sample_weight=wt_test)
+    sorted_indices = np.argsort(fpr)
+    fpr = fpr[sorted_indices]
+    tpr = tpr[sorted_indices]
+    auc = roc_curve_auc(fpr, tpr)
+
     return float(abs(0.5-auc))
 
   def r2(self, dataset="train"):
@@ -699,30 +721,10 @@ class Network():
     - dict: A dictionary where keys are feature names and values are the R2 scores
             for those features.
     """
-    """
     print(">> Getting R2")
-    if dataset == "train":
-      Y = self.Y_train.LoadFullDataset()
-      x1 = self.X_train.LoadFullDataset()
-      wt1 = self.wt_train.LoadFullDataset()
-    elif dataset == "test":
-      Y = self.Y_test.LoadFullDataset()
-      x1 = self.X_test.LoadFullDataset()
-      wt1 = self.wt_test.LoadFullDataset()
-
-    x1 = x1.to_numpy()
-    wt1 = wt1.to_numpy()
-
-    Y_unique = np.unique(Y)
-    Y_synth = np.random.choice(Y_unique, size=len(Y)).reshape(-1,1)
-    x2, wt2 = self.Sample(Y_synth, transform=True, Y_transformed=True)    
-    wt2 = wt2.reshape(-1,1)
-    wt1 *= np.sum(wt2)/np.sum(wt1)
-
-    """
 
     # get datasets
-    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset="test")
+    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset=dataset)
 
     # remove negative weights
     if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:
@@ -771,7 +773,7 @@ class Network():
     print(">> Getting NRMSE")
 
     # get datasets
-    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset="test")
+    x1, _, wt1, x2, _, wt2 = self.MakeSeparationDatasets(dataset=dataset)
 
     # remove negative weights
     if len(wt1[wt1 < 0]) > 0 or len(wt2[wt2 < 0]) > 0:

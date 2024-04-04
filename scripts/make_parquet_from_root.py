@@ -9,6 +9,9 @@ import argparse
 import subprocess
 import ast
 import yaml
+import warnings
+
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c','--cfg', help= 'Config for running.',  default=None)
@@ -31,7 +34,8 @@ for output_file, input_files in input.items():
 
   print(f"- Making {output_file}")
 
-  for ind, (input_file, parameters) in enumerate(input_files.items()):
+  first_loop = True
+  for input_file, parameters in input_files.items():
 
     print(f"  - Processing {input_file}")
 
@@ -47,6 +51,9 @@ for output_file, input_files in input.items():
 
     df = pd.DataFrame(np.array(arrays))
 
+    if len(df) == 0:
+      continue
+
     df.eval("wt = " + parameters["Weight"], inplace=True)
 
     df = df.loc[:,final_branches]
@@ -54,21 +61,23 @@ for output_file, input_files in input.items():
     for k, v in parameters["Extra_Columns"].items():
       df.loc[:,k] = v
 
-    if ind == 0:
+    for new_col, expression in parameters["Calculate_Extra_Columns"].items():
+      df.loc[:,new_col] = df.eval(expression)
+
+    if first_loop:
       total_df = copy.deepcopy(df)
+      first_loop = False
     else:
       total_df = pd.concat([total_df, df], ignore_index=True)
 
-  for new_col, expression in parameters["Calculate_Extra_Columns"].items():
-    total_df[new_col] = total_df.eval(expression)
 
   neg_weight_rows = (total_df.loc[:,"wt"] < 0)
-  print("Total negative weights:", len(total_df[neg_weight_rows]))
+  print(f"Total negative weights: {len(total_df[neg_weight_rows])}/{len(total_df)} = {round(len(total_df[neg_weight_rows])/len(total_df),4)}")
   if args.remove_negative_weights:
     total_df = total_df[~neg_weight_rows] # tmp
 
   nan_rows = total_df[total_df.isna().any(axis=1)]
-  print("Total nans:", len(nan_rows))
+  print(f"Total nans: {len(nan_rows)}/{len(total_df)} = {round(len(nan_rows)/len(total_df),4)}")
   if args.remove_nans:
     total_df = total_df.dropna()
 
@@ -76,7 +85,7 @@ for output_file, input_files in input.items():
   
   print(total_df)
   print("Columns:")
-  for k in total_df.columns: print(f" * {k}")
+  print(list(total_df.columns))
 
   table = pa.Table.from_pandas(total_df)
   pq.write_table(table, output_file)

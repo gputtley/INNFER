@@ -16,11 +16,11 @@ class Likelihood():
 
     Args:
         models (dict): A dictionary containing model names as keys and corresponding probability density functions (PDFs) as values.
-        type (str): Type of likelihood, either "unbinned" or "unbinned_extended" (default is "unbinned").
+        type (str): Type of likelihood, either "binned", "binned_extended", "unbinned" or "unbinned_extended" (default is "unbinned").
         parameters (dict): A dictionary containing model parameters (default is an empty dictionary).
         data_parameters (dict): A dictionary containing data parameters (default is an empty dictionary).
     """
-    self.type = type # unbinned, unbinned_extended, binned_extended
+    self.type = type # unbinned, unbinned_extended, binned, binned_extended
     self.models = models
     self.parameters = parameters
     self.data_parameters = data_parameters
@@ -67,6 +67,8 @@ class Likelihood():
       lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
     elif self.type == "unbinned_extended":
       lkld_val = self.UnbinnedExtended(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
+    elif self.type == "binned":
+      lkld_val = self.Binned(X, Y, wts=wts, return_ln=return_ln)
     elif self.type == "binned_extended":
       lkld_val = self.BinnedExtended(X, Y, wts=wts, return_ln=return_ln)
 
@@ -99,7 +101,7 @@ class Likelihood():
         float: The likelihood value.
 
     """
-
+    start_time = time.time()
     Y = list(Y)
 
     first_loop = True
@@ -118,19 +120,19 @@ class Likelihood():
 
       # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS
 
-      if self.debug_mode:
-        print(">> Making debug histograms")
-        for x_col in range(X.shape[1]):
-          y_name = GetYName(Y, purpose='plot', prefix="y=")
-          col_name = self.data_parameters[name]['X_columns'][x_col]
-          hist, bins = np.histogram(X[:,x_col], weights=wts.flatten()*log_p.flatten(), bins=40)
-          if col_name not in self.debug_hists.keys():
-            self.debug_hists[col_name] = {}
-          if y_name not in self.debug_hists[col_name].keys():
-            self.debug_hists[col_name][y_name] = {}
-          self.debug_hists[col_name][y_name] = copy.deepcopy(hist)
-          if col_name not in self.debug_bins.keys():
-            self.debug_bins[col_name] = bins
+      #if self.debug_mode:
+      #  print(">> Making debug histograms")
+      #  for x_col in range(X.shape[1]):
+      #    y_name = GetYName(Y, purpose='plot', prefix="y=")
+      #    col_name = self.data_parameters[name]['X_columns'][x_col]
+      #    hist, bins = np.histogram(X[:,x_col], weights=wts.flatten()*log_p.flatten(), bins=40)
+      #    if col_name not in self.debug_hists.keys():
+      #      self.debug_hists[col_name] = {}
+      #    if y_name not in self.debug_hists[col_name].keys():
+      #      self.debug_hists[col_name][y_name] = {}
+      #    self.debug_hists[col_name][y_name] = copy.deepcopy(hist)
+      #    if col_name not in self.debug_bins.keys():
+      #      self.debug_bins[col_name] = bins
 
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
@@ -139,10 +141,10 @@ class Likelihood():
         ln_lklds = copy.deepcopy(ln_lklds_with_rate_params)
         first_loop = False
       else:
-        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds)
+        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
 
     # Rescale so total pdf integrate to 1
-    ln_lklds -= np.log(sum_rate_params)
+    #ln_lklds -= np.log(sum_rate_params)
 
     # Weight the events
     if wts is not None:
@@ -163,8 +165,10 @@ class Likelihood():
           constraint = self._LogNormal(Y[self.Y_columns.index(k)])
         ln_lkld += np.log(constraint)
 
+    end_time = time.time()
+
     if verbose:
-      print(f">> Y={Y}, lnL={ln_lkld}")
+      print(f">> Y={Y}, lnL={ln_lkld}, time={round(end_time-start_time,2)}")
 
     if return_ln:
       return ln_lkld
@@ -199,11 +203,9 @@ class Likelihood():
 
       # Get rate times yield times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
-
       # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS 
 
       ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns)) + log_p
-      #ln_lklds_with_rate_params = np.log(rate_param) + np.log(self._GetYield(name, Y, y_columns=self.Y_columns))
 
       # Sum together probabilities of different files
       if first_loop:
@@ -215,12 +217,10 @@ class Likelihood():
     # Weight the events
     if wts is not None:
       ln_lklds = wts.flatten()*ln_lklds
-    else:
-      ln_lklds = ln_lklds
 
     if before_sum:
       return ln_lklds
-
+    
     # Product the events
     ln_lkld = np.sum(ln_lklds, dtype=np.float128)
 
@@ -273,12 +273,10 @@ class Likelihood():
     """
     start_time = time.time()
     Y = list(Y)
-
     # Make data histogram
-    data_hist, _ = np.histogram(X, weights=wts, bins=self.models["bin_edges"])
+    data_hist, _ = np.histogram(X[:,self.models["column"]].flatten(), weights=wts.flatten(), bins=self.models["bin_edges"])
     data_hist = data_hist.astype(np.float64)
     ln_lkld = 0.0
-
     for bin_number in range(len(self.models["bin_edges"])-1):
 
       yield_sum = 0.0
@@ -320,6 +318,75 @@ class Likelihood():
     else:
       return np.exp(ln_lkld)
 
+  def Binned(self, X, Y, wts=None, return_ln=False, verbose=True):
+    """
+    Computes the extended likelihood for binned data.
+
+    Args:
+        X (array): The independent variables.
+        Y (array): The model parameters.
+        wts (array): The weights for the data points (optional).
+        return_ln (bool): Whether to return the natural logarithm of the likelihood (optional).
+
+    Returns:
+        float: The likelihood value.
+
+    """
+    start_time = time.time()
+    Y = list(Y)
+    # Make data histogram
+    data_hist, _ = np.histogram(X[:,self.models["column"]].flatten(), weights=wts.flatten(), bins=self.models["bin_edges"])
+    data_hist = data_hist.astype(np.float64)
+    total_data_events = np.sum(data_hist)
+    ln_lkld = 0.0
+
+    # get rates first
+    bin_totals = []
+    for bin_number in range(len(self.models["bin_edges"])-1):
+
+      bin_totals.append(0.0)
+      for name, yields in self.models["bin_yields"].items():
+
+        if "mu_"+name in self.Y_columns:
+          rate_param = Y[self.Y_columns.index("mu_"+name)]
+        else:
+          rate_param = 1.0
+        if rate_param == 0.0: continue
+
+        # Get rate times yield times probability
+        Y = np.array(Y)
+        if self.Y_columns is not None:
+          column_indices = [self.Y_columns.index(col) for col in self.data_parameters[name]["Y_columns"]]
+          Y_for_yield = Y[column_indices]
+
+        bin_totals[bin_number] += (yields[bin_number](Y_for_yield) * rate_param)
+
+    # normalise bin_totals
+    sum_bin_totals = np.sum(bin_totals)
+    bin_totals = [total_data_events*i/sum_bin_totals for i in bin_totals]
+
+    # calculate the log likelihood
+    for bin_number in range(len(self.models["bin_edges"])-1):
+      ln_lkld += ((data_hist[bin_number]*np.log(bin_totals[bin_number])) - bin_totals[bin_number])
+
+    # Add constraints
+    if "nuisance_constraints" in self.parameters.keys():
+      for k, v in self.parameters["nuisance_constraints"].items():
+        if v == "Gaussian":
+          constraint = self._Gaussian(Y[self.Y_columns.index(k)])
+        elif v == "LogNormal":
+          constraint = self._LogNormal(Y[self.Y_columns.index(k)])
+        ln_lkld += np.log(constraint)
+
+    end_time = time.time()
+
+    if verbose:
+      print(f">> Y={Y}, lnL={ln_lkld}, time={round(end_time-start_time,2)}")
+
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
       
   def _Gaussian(self, x):
     """
@@ -424,7 +491,7 @@ class Likelihood():
 
     return result
 
-  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=5.4, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
+  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3.2, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
     """
     Computes the scan values for a given column.
 
@@ -758,6 +825,7 @@ class Likelihood():
       max_iter = 25
       simplex = 0.1
       stopping = 4
+      grad_const = 0.01
 
       N = len(initial_guess)
       simplex = np.zeros((2*N + 1, N))
@@ -780,16 +848,19 @@ class Likelihood():
 
       for _ in range(max_iter):
         # Fit a quadratic function to the simplex
-        quad_fit = np.polyfit(x[-3:], np.array(y[-3:], dtype=np.float64), 2)
-        #quad_fit = np.polyfit(x, np.array(y, dtype=np.float64), 2)
+        quad_fit = np.polyfit(np.array(x[-3:], dtype=np.float64), np.array(y[-3:], dtype=np.float64), 2)
         a, b, c = quad_fit
 
         # Calculate the minimum of the quadratic function
         min_index = -b / (2 * a)
         y_val = func_shift([min_index])
-        if not np.isnan(y_val):
-          x = np.append(x, min_index)
-          y = np.append(y, y_val)
+        if np.isnan(y_val): # follow gradient if nan
+          grad = (y[-1]-y[-2])/(x[-1]-x[-2])
+          min_index = x[-1] - grad*grad_const
+          y_val = func_shift([min_index])
+          
+        x = np.append(x, min_index)
+        y = np.append(y, y_val)
 
         # Check convergence
         if np.abs(max(y[-stopping:]) - min(y[-stopping:])) < threshold:
