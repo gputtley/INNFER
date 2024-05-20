@@ -43,6 +43,8 @@ Each of these steps are run through the `scripts/innfer.py` code, with the `--st
 * Plot
 * Summary
 
+To use the snakemake workflow manager to submit all the relevant jobs in parallel you can use `--step=SnakeMake`. To summarise all PDF plots made there is also `--step=MakePDFs` option.
+
 ## Running from Benchmark
 
 To initially setup the benchmark scenario data and config file, you can run the following command.
@@ -74,7 +76,28 @@ python3 scripts/innfer.py --step="ValidateInference" --sub-step="Plot" --benchma
 ```
 python3 scripts/innfer.py --step="ValidateInference" --sub-step="Summary" --benchmark="Gaussian"
 ```
-There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`. Running INNFER on a batch is highly recommended in all cases.
+```
+python3 scripts/innfer.py --step="Infer" --sub-step="InitialFit" --benchmark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="Infer" --sub-step="Scan" --benchmark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="Infer" --sub-step="Collect" --benchmark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="Infer" --sub-step="Plot" --benchmark="Gaussian"
+```
+```
+python3 scripts/innfer.py --step="Infer" --sub-step="Summary" --benchmark="Gaussian"
+```
+
+There is no actual data to infer on in the benchmark scenarios, so this step can be skipped. As these jobs may take a some time, the jobs can be parallelised and submitted to a batch, such as on an SGE cluster, by adding `--submit="SGE"`, or a HTCondor cluster by adding `--submit=condor`. Running INNFER on a batch is highly recommended in all cases.
+
+The bootstrapping in the ValidateInference step is very computationally heavy. If you want to do a quick test of validating the inference (without a correct calculated of uncertainties), you can run:
+```
+python3 scripts/innfer.py --step="Infer" --benchmark="Gaussian" --data-type=sim --extra-dir-name=QuickValInf --scale-to-n-eff --sub-step={InitialFit,Scan,Collect,Plot,Summary}
+```
 
 ## Running from Dataset
 
