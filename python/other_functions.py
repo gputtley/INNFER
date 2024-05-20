@@ -36,10 +36,13 @@ def GetValidateLoop(cfg, parameters_file):
         nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
         row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
         columns = pois+nuisance_in_row+other_nuisances
+        sorted_columns = sorted(columns)
+        sorted_row = [row[columns.index(col)] for col in sorted_columns]
+        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
         val_loop.append({
-          "row" : row,
-          "columns" : columns,
-          "initial_best_fit_guess" : initial_best_fit_guess,
+          "row" : sorted_row,
+          "columns" : sorted_columns,
+          "initial_best_fit_guess" : sorted_initial_best_fit_guess,
         })
         
   return val_loop
@@ -90,7 +93,7 @@ def GetNuisanceLoop(cfg, parameters):
   nuisance_loop = []
 
   for nuisance in cfg["nuisances"]:
-    nuisance_freeze={k:0 for k in cfg["nuisances"] if k != nuisance}
+    nuisance_freeze={k:0.0 for k in cfg["nuisances"] if k != nuisance}
     pois = [v for v in cfg["pois"] if v in parameters["unique_Y_values"]]
     unique_values_for_pois = [parameters["unique_Y_values"][poi] for poi in pois]
     for poi_values in list(product(*unique_values_for_pois)):
@@ -158,10 +161,13 @@ def GetCombinedValidateLoop(cfg, parameters):
         nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
         row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
         columns = pois+nuisance_in_row+other_nuisances
+        sorted_columns = sorted(columns)
+        sorted_row = [row[columns.index(col)] for col in sorted_columns]
+        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
         val_loop.append({
-          "row" : list(row),
-          "columns" : list(columns),
-          "initial_best_fit_guess" : list(initial_best_fit_guess),
+          "row" : sorted_row,
+          "columns" : sorted_columns,
+          "initial_best_fit_guess" : sorted_initial_best_fit_guess,
         })
 
   return val_loop
@@ -273,7 +279,7 @@ def GetVariedRowValue(poi_vars, nuisance_vars, parameters, poi, nuisance, nuisan
 
   return return_dict
 
-def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=0.25):
+def MakeYieldFunction(poi_vars, nuisance_vars, parameters, add_overflow=10.0):
   """
   Make a yield function.
 
@@ -459,6 +465,7 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
       if density:
         hist /= np.sum(hist)
 
+      print(ur,hist)
       hists.append(hist)
 
   else:
@@ -499,7 +506,7 @@ def MakeBinYields(X_dataframe, Y_dataframe, data_parameters, pois, nuisances, wt
         "yield" : {"all" : hists[0][b]},
       }    
 
-    yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=0.25))
+    yields.append(MakeYieldFunction(pois, nuisances, tmp_parameters, add_overflow=5.0))
 
   return yields, bins_ed
 

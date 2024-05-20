@@ -2,7 +2,6 @@ current_directory=$(pwd)
 pp="$current_directory/python"
 bfp="$current_directory/BayesFlow"
 export PYTHONPATH=${pp}:${bfp}:${PYTHONPATH}
-#export PYTHONPATH=${pp}:${PYTHONPATH}
 if ! command -v nvidia-smi &> /dev/null ; then
   echo "Number of threads available $(nproc)"
   export TF_NUM_INTEROP_THREADS=$(nproc)

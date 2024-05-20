@@ -45,7 +45,7 @@ class Likelihood():
       Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
     for _, data_params in self.data_parameters.items():
       Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
-    return Y_columns
+    return sorted(Y_columns)
 
 
   def Run(self, X, Y, wts=None, return_ln=False, before_sum=False):
@@ -62,7 +62,6 @@ class Likelihood():
         float: The likelihood value.
 
     """
-
     if self.type == "unbinned":
       lkld_val = self.Unbinned(X, Y, wts=wts, return_ln=return_ln, before_sum=before_sum)
     elif self.type == "unbinned_extended":
@@ -113,27 +112,11 @@ class Likelihood():
       else:
         rate_param = 1.0
       if rate_param == 0.0: continue
+      rate_param *= self._GetYield(name, Y, y_columns=self.Y_columns)
       sum_rate_params += rate_param
 
       # Get rate times probability
       log_p = pdf.Probability(copy.deepcopy(X), np.array([Y]), y_columns=self.Y_columns, return_log_prob=True)
-
-      # IF PROB FOR AN EVENT IS 0 SKIP EVENT FOR ALL OF THE PDF MODELS
-
-      #if self.debug_mode:
-      #  print(">> Making debug histograms")
-      #  for x_col in range(X.shape[1]):
-      #    y_name = GetYName(Y, purpose='plot', prefix="y=")
-      #    col_name = self.data_parameters[name]['X_columns'][x_col]
-      #    hist, bins = np.histogram(X[:,x_col], weights=wts.flatten()*log_p.flatten(), bins=40)
-      #    if col_name not in self.debug_hists.keys():
-      #      self.debug_hists[col_name] = {}
-      #    if y_name not in self.debug_hists[col_name].keys():
-      #      self.debug_hists[col_name][y_name] = {}
-      #    self.debug_hists[col_name][y_name] = copy.deepcopy(hist)
-      #    if col_name not in self.debug_bins.keys():
-      #      self.debug_bins[col_name] = bins
-
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
       # Sum together probabilities of different files
@@ -144,7 +127,7 @@ class Likelihood():
         ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
 
     # Rescale so total pdf integrate to 1
-    #ln_lklds -= np.log(sum_rate_params)
+    ln_lklds -= np.log(sum_rate_params)
 
     # Weight the events
     if wts is not None:
@@ -398,7 +381,7 @@ class Likelihood():
     Returns:
         float: The Gaussian distribution value.
     """
-    return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2)
+    return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * float(x)**2)
 
   def _LogNormal(self, x):
     """
@@ -410,7 +393,7 @@ class Likelihood():
     Returns:
         float: The Log-Normal distribution value.
     """
-    return 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
+    return 1 / (float(x) * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(float(x)))**2)
 
   def GetBestFit(self, X, initial_guess, wts=None, method="nominal", freeze={}, initial_step_size=0.05):
     """
@@ -491,7 +474,7 @@ class Likelihood():
 
     return result
 
-  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3.2, estimated_sigma_step=0.2, initial_step_fraction=0.001, min_step=0.1):
+  def GetScanXValues(self, X, column, wts=None, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
     """
     Computes the scan values for a given column.
 
@@ -533,7 +516,7 @@ class Likelihood():
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
-  def GetAndWriteBestFitToYaml(self, X, initial_guess, row=None, wt=None, filename="best_fit.yaml", minimisation_method="nominal"):
+  def GetAndWriteBestFitToYaml(self, X, initial_guess, row=None, wt=None, filename="best_fit.yaml", minimisation_method="nominal", freeze={}):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -544,8 +527,17 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetBestFit(X, np.array(initial_guess), wts=wt, method=minimisation_method)
-    self.best_fit = result[0]
+    result = self.GetBestFit(X, np.array(initial_guess), wts=wt, method=minimisation_method, freeze=freeze)
+    #self.best_fit = result[0]
+    self.best_fit = []
+    ind = 0
+    for col in self.Y_columns:
+      if col in freeze.keys():
+        self.best_fit.append(freeze[col])
+      else:
+        self.best_fit.append(result[0][ind])
+        ind += 1
+
     self.best_fit_nll = result[1]
     dump = {
       "columns": self.Y_columns, 
@@ -560,7 +552,7 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteScanRangesToYaml(self, X, col, row=None, wt=None, filename="scan_ranges.yaml"):
+  def GetAndWriteScanRangesToYaml(self, X, col, row=None, wt=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -571,7 +563,7 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "scan_ranges.yaml").
     """
-    scan_values = self.GetScanXValues(X, col, wts=wt)
+    scan_values = self.GetScanXValues(X, col, wts=wt, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step)
     dump = {
       "columns" : self.Y_columns, 
       "varied_column" : col,
@@ -585,15 +577,18 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteScanToYaml(self, X, col, col_val, row=None, wt=None, filename="scan.yaml", minimisation_method="nominal"):
+  def GetAndWriteScanToYaml(self, X, col, col_val, row=None, wt=None, freeze={}, filename="scan.yaml", minimisation_method="nominal"):
 
     col_index = self.Y_columns.index(col)
     Y = copy.deepcopy(self.best_fit)
     Y[col_index] = col_val
-    if len(self.Y_columns) > 1:
+    scan_freeze = copy.deepcopy(freeze)    
+    scan_freeze[col] = col_val
+
+    if len(self.Y_columns) > 1 and not (len(list(scan_freeze.keys())) == len(self.Y_columns)):
       print(f">> Profiled fit for {col}={col_val}")
-      freeze = {col : col_val}
-      result = self.GetBestFit(X, Y, wts=wt, method=minimisation_method, freeze=freeze, initial_step_size=0.001)
+      #freeze = {col : col_val}
+      result = self.GetBestFit(X, Y, wts=wt, method=minimisation_method, freeze=scan_freeze, initial_step_size=0.001)
       dump = {
         "columns" : self.Y_columns, 
         "varied_column" : col,
@@ -795,7 +790,8 @@ class Likelihood():
 
     # minimisation
     if method == "scipy":
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
+      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
+      #minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.00001, options={'xatol': 0.00001, 'fatol': 0.00001, 'initial_simplex': initial_simplex})
       self.ClearProbabilityStore()
       return minimisation.x, minimisation.fun
     

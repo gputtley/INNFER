@@ -20,6 +20,7 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   echo "Installing packages"
   source miniconda/files/etc/profile.d/conda.sh
   conda activate miniconda/files/envs/innfer_env
+  pip3 install snakemake
   pip3 install bayesflow
   pip3 install mplhep
   pip3 install PyYAML

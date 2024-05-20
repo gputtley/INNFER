@@ -1,4 +1,6 @@
 import os
+from other_functions import MakeDirectories
+
 
 class Batch():
   """
@@ -47,6 +49,9 @@ class Batch():
       self.RunSGE()
     if self.submit_to == "condor":
       self.RunCondor()
+    if self.submit_to == "cern_condor":
+      self.RunCondor(cern=True)
+
 
   def RunSGE(self):
     """
@@ -76,7 +81,7 @@ class Batch():
         sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -cwd {self.job_name}'
       os.system(sub_cmd)
 
-  def RunCondor(self):
+  def RunCondor(self, cern=False):
     """
     Run the batch job using the condor submission system.
     """    
@@ -93,33 +98,42 @@ class Batch():
     else:
       error_log = "/dev/null"
     
-    if self.running_hours < 1/3:
-      queue = "espresso"
-    elif self.running_hours < 1:
-      queue = "microcentury"
-    elif self.running_hours < 2:
-      queue = "longlunch"
-    elif self.running_hours < 8:
-      queue = "workday"
-    elif self.running_hours < 24:
-      queue = "tomorrow"
-    elif self.running_hours < 72:
-      queue = "testmatch"
-    else:
-      queue = "nextweek"
+    if cern:
+      if self.running_hours < 1/3:
+        queue = "espresso"
+      elif self.running_hours < 1:
+        queue = "microcentury"
+      elif self.running_hours < 2:
+        queue = "longlunch"
+      elif self.running_hours < 8:
+        queue = "workday"
+      elif self.running_hours < 24:
+        queue = "tomorrow"
+      elif self.running_hours < 72:
+        queue = "testmatch"
+      else:
+        queue = "nextweek"
 
-    sub_file = [
-      f"executable = {os.getcwd()}/{self.job_name}",
-      f"output                = {os.getcwd()}/{output_log}",
-      f"error                 = {os.getcwd()}/{error_log}",
-      f"log                   = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
-      #"on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)",
-      #"periodic_release =  (NumJobStarts < 3) && ((CurrentTime - EnteredCurrentStatus) > 600)",
-      f"+JobFlavour = '{queue}'",
-      f"RequestCpus = {self.cores}",
-      #"Requirements = (OpSysAndVer =?= 'AlmaLinux9')",
-      "queue",
-    ]
+      sub_file = [
+        f"executable = {os.getcwd()}/{self.job_name}",
+        f"output                = {os.getcwd()}/{output_log}",
+        f"error                 = {os.getcwd()}/{error_log}",
+        f"log                   = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
+        f"+JobFlavour = '{queue}'",
+        f"RequestCpus = {self.cores}",
+        "queue",
+      ]
+
+    else:
+      sub_file = [
+        f"executable = {os.getcwd()}/{self.job_name}",
+        f"output                = {os.getcwd()}/{output_log}",
+        f"error                 = {os.getcwd()}/{error_log}",
+        f"log                   = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
+        f"+MaxRuntime = {self.running_hours*3600}",
+        f"RequestCpus = {self.cores}",
+        "queue",
+      ]
 
     self._CreateJob(sub_file, self.job_name.replace(".sh",".sub"))
 
@@ -133,6 +147,7 @@ class Batch():
     Args:
         cmd_list (list): List of commands to be included in the job script.
     """
+    MakeDirectories(job_name)
     if os.path.exists(job_name): os.system(f'rm {job_name}')
     for cmd in cmd_list:
       os.system(f'echo "{cmd}" >> {job_name}')

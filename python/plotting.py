@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.image as mpimg
 import matplotlib.ticker as ticker
 from matplotlib import gridspec
 import mplhep as hep
@@ -9,6 +11,7 @@ import seaborn as sns
 import pandas as pd
 import copy
 import textwrap
+import os
 from other_functions import MakeDirectories
 
 hep.style.use("CMS")
@@ -89,7 +92,89 @@ def plot_histograms(
   print("Created {}.pdf".format(name))
   plt.close()
 
-def plot_histogram_with_ratio(
+def plot_histograms_with_ratio(
+    bins,
+    hists,
+    hist_names,
+    error_bar_hist,
+    error_bar_hist_err,
+    error_bar_name,
+    colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+    linestyles = ["-"]*100,
+    title_right = "",
+    name = "hists.pdf",
+    x_label = "",
+    y_label = "",
+    anchor_y_at_0 = False,
+    drawstyle = "default",
+    vertical_lines = [],
+    vertical_line_names = [],
+    vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+  ):
+  """
+  Plot histograms with optional error bars.
+
+  Parameters:
+      bins (array-like): Bin edges.
+      hists (list of array-like): List of histogram values.
+      hist_names (list of str): Names for each histogram.
+      colors (list of str, optional): Colors for each histogram. Defaults to Matplotlib color cycle.
+      linestyles (list of str, optional): Linestyles for each histogram. Defaults to solid line.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+      name (str, optional): Name of the output file (without extension). Defaults to "hists.pdf".
+      x_label (str, optional): Label for the x-axis.
+      y_label (str, optional): Label for the y-axis.
+      error_bar_hists (list of array-like, optional): List of histograms for error bars.
+      error_bar_hist_errs (list of array-like, optional): List of errors for each error bar histogram.
+      error_bar_names (list of str, optional): Names for each error bar histogram.
+      anchor_y_at_0 (bool, optional): If True, anchor the y-axis at 0. Defaults to False.
+      drawstyle (str, optional): Drawstyle for the histograms. Defaults to "default".
+  """
+  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+  hep.cms.text("Work in progress",ax=ax1)
+
+  for ind, hist in enumerate(hists):
+    ax1.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle)
+
+  non_empty_bins = hist != 0
+  ax1.errorbar(bins[non_empty_bins], error_bar_hist[non_empty_bins], yerr=error_bar_hist_err[non_empty_bins], label=error_bar_name, markerfacecolor='none', linestyle='None', fmt='k+')
+
+  ax1.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes)
+
+  if anchor_y_at_0:
+    ax1.set_ylim(bottom=0, top=1.2*max(np.max(hist) for hist in hists))
+
+  for ind, vertical_line in enumerate(vertical_lines):
+    ax1.axvline(x=vertical_line, color=vertical_line_colors[ind], linestyle='--', linewidth=2, label=vertical_line_names[ind])
+
+  ax1.set_ylabel(y_label)
+  if not all(item is None for item in hist_names+[error_bar_name]):
+    ax1.legend()
+
+  plt.subplots_adjust(hspace=0.1)
+
+  ratio_errs = error_bar_hist_err/error_bar_hist
+  ax2.fill_between(bins,1-ratio_errs,1+ratio_errs,color="gray",alpha=0.3,step='post')
+
+  for ind, hist in enumerate(hists):
+    ax2.plot(bins, hist/error_bar_hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle)  
+
+  ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax2.set_xlabel(x_label)
+  ax2.set_ylabel(f"Ratio")
+  ax2.set_ylim([0.9,1.1])
+
+  plt.tight_layout()
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  print("Created {}.pdf".format(name))
+  plt.close()
+
+
+'''
+def plot_histograms_with_ratio(
     hist_values1, 
     hist_values2, 
     bin_edges, 
@@ -192,7 +277,7 @@ def plot_histogram_with_ratio(
   ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
   ax2.set_xlabel(xlabel)
   ax2.set_ylabel('Ratio')
-  ax2.set_ylim([0.5,1.5])
+  ax2.set_ylim([0.9,1.1])
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1)
@@ -202,6 +287,7 @@ def plot_histogram_with_ratio(
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
+'''
 
 def plot_likelihood(
     x, 
@@ -277,7 +363,7 @@ def plot_likelihood(
   plt.legend(loc='upper right')
 
   if -1 in crossings.keys() and 1 in crossings.keys():
-    text = f'Result: {round(crossings[0],3)} + {round(crossings[1]-crossings[0],3)} - {round(crossings[0]-crossings[-1],3)}'
+    text = f'Result: {round(crossings[0],2)} + {round(crossings[1]-crossings[0],2)} - {round(crossings[0]-crossings[-1],2)}'
     ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left')
 
   plt.xlim(x[0],x[-1])
@@ -874,7 +960,7 @@ def plot_validation_summary(
         if -1 in v[col][key].keys():
           other_x_err_lower[k].append(v[col][key][0]-v[col][key][-1])
         else:
-          other_x_err_lower.append(0.0)
+          other_x_err_lower[k].append(0.0)
 
         if 1 in v[col][key].keys():
           other_x_err_higher[k].append(v[col][key][1]-v[col][key][0])
@@ -974,3 +1060,92 @@ def plot_spline_and_thresholds(
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   plt.close()
+
+
+def make_pdf_summary(frame_plots, name="combined_plots", max_width=0.5, max_height=0.5, columns_to_rows=2.0,tolerance=0.95):
+  # latex code
+  LB = "{"
+  RB = "}"
+  BS = "\\"
+
+  rows = np.ceil(np.sqrt(len(frame_plots)/columns_to_rows))
+  columns = np.ceil(len(frame_plots)/rows)
+
+  width = tolerance*min(1.0/columns,max_width)
+  height = tolerance*min(1.0/rows,max_height)
+
+  #print(rows, columns, height, width)
+
+  beamer = [f"{BS}documentclass{LB}beamer{RB}"]
+
+  beamer += [
+    f"{BS}usepackage{LB}geometry{RB}",
+    f"{BS}usepackage{LB}graphicx{RB}",
+    f"{BS}usepackage{LB}subcaption{RB}",
+    f"{BS}geometry{LB}margin=0cm{RB}",
+    f"{BS}setbeamertemplate{LB}navigation symbols{RB}{LB}{RB}",
+    f"{BS}begin{LB}document{RB}",
+    f"  {BS}begin{LB}frame{RB}{LB}{RB}",
+    f"    {BS}begin{LB}figure{RB}",
+    f"      {BS}centering",
+  ]
+
+  if rows == columns:
+    beamer.append(f"       {BS}begin{LB}minipage{RB}{LB}0.8{BS}textwidth{RB}")
+
+
+  for ind, plot in enumerate(frame_plots):
+    beamer.append(f"       {BS}begin{LB}subfigure{RB}{LB}{width}{BS}textwidth{RB}")
+
+    if columns != rows:
+      beamer.append(f"       {BS}settoheight{LB}{BS}imageheight{RB}{LB}{BS}includegraphics{LB}{plot}{RB}{RB}")
+      beamer.append(f"       {BS}newlength{LB}{BS}desiredheight{RB}")
+      beamer.append(f"       {BS}setlength{LB}{BS}desiredheight{RB}{LB}{height}{BS}paperheight{RB}")
+      beamer.append(f"       {BS}ifdim{BS}imageheight>={BS}desiredheight")
+      beamer.append(f"           {BS}resizebox{LB}!{RB}{LB}{height}{BS}paperheight{RB}{LB}{BS}includegraphics{LB}{plot}{RB}{RB}")
+      beamer.append(f"       {BS}else")
+      beamer.append(f"           {BS}includegraphics[width={BS}linewidth]{LB}{plot}{RB}")
+      beamer.append(f"       {BS}fi")
+    else:
+      beamer.append(f"       {BS}resizebox{LB}{height}{BS}paperheight{RB}{LB}!{RB}{LB}")
+      beamer.append(f"       {BS}includegraphics[width={BS}linewidth]{LB}{plot}{RB}")
+      beamer.append(f"       {RB}"),
+    
+    if plot != frame_plots[-1]:
+      beamer.append(f"       {BS}end{LB}subfigure{RB}%")
+      beamer.append(f"       {BS}hfill")
+    else:
+      beamer.append(f"       {BS}end{LB}subfigure{RB}")
+
+  if rows == columns:
+    beamer.append(f"    {BS}end{LB}minipage{RB}")
+  beamer.append(f"    {BS}end{LB}figure{RB}")
+  beamer.append(f"  {BS}end{LB}frame{RB}")
+  beamer.append(f"{BS}end{LB}document{RB}")
+
+  if os.path.exists(f"{name}.tex"): os.system(f'rm {name}.tex')
+  for cmd in beamer:
+    os.system(f'echo "{cmd}" >> {name}.tex')
+
+  if os.path.isfile(f"{name}.pdf"): os.system(f"rm {name}.pdf")
+
+  if "/" in name:
+    os.system(f"pdflatex -interaction=nonstopmode --output-directory={'/'.join(name.split('/')[:-1])} {name}.tex > /dev/null 2>&1")
+    #os.system(f"pdflatex -interaction=nonstopmode --output-directory={'/'.join(name.split('/')[:-1])} {name}.tex")
+  else:
+    os.system(f"pdflatex -interaction=nonstopmode {name}.tex > /dev/null 2>&1")
+
+  if os.path.isfile(f"{name}.tex"): os.system(f"rm {name}.tex")
+  if os.path.isfile(f"{name}.aux"): os.system(f"rm {name}.aux")
+  if os.path.isfile(f"{name}.nav"): os.system(f"rm {name}.nav")
+  if os.path.isfile(f"{name}.log"): os.system(f"rm {name}.log")
+  if os.path.isfile(f"{name}.out"): os.system(f"rm {name}.out")
+  if os.path.isfile(f"{name}.snm"): os.system(f"rm {name}.snm")
+  if os.path.isfile(f"{name}.toc"): os.system(f"rm {name}.toc")
+
+  if os.path.isfile(f"{name}.pdf"):
+    os.system(f"pdf-crop-margins -p 0 -a -6 {name}.pdf -o {name}_cropped.pdf")
+    os.system(f"mv {name}_cropped.pdf {name}.pdf")
+    print(f"Created {name}.pdf")
+  else:
+    print(f"Error creating {name}.pdf")

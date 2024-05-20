@@ -72,6 +72,7 @@ class Network():
 
     # Running parameters
     self.plot_loss = True
+    self.plot_lr = True
     self.plot_dir = "plots"
 
     # Data parameters
@@ -94,7 +95,7 @@ class Network():
     self.wt_test = DataLoader(wt_test, batch_size=self.batch_size)
 
     # Other
-    self.fix_1d_spline = ((self.X_train.num_columns == 1) and self.coupling_design in ["spline","interleaved"])
+    self.fix_1d = (self.X_train.num_columns == 1)
     self.disable_tqdm = False
     self.use_wandb = False
     self.probability_store = {}
@@ -117,17 +118,17 @@ class Network():
     latent_dim = self.X_train.num_columns
 
     # fix 1d latent space for spline and affine
-    if self.fix_1d_spline:
-      print("WARNING: Running fix for 1D latent space for spline and interleaved couplings. Code may take longer to run.")
+    if self.fix_1d:
+      print("WARNING: Running fix for 1D latent space. Code may take longer to run.")
       latent_dim = 2
 
     # Print warning about mc_dropout:
-    if self.affine_mc_dropout or self.spline_mc_dropout:
+    if (self.coupling_design == "interleaved" and (self.affine_mc_dropout or self.spline_mc_dropout)) or (self.coupling_design == "affine" and self.affine_mc_dropout) or (self.coupling_design == "spline" and self.spline_mc_dropout):
       print("WARNING: Using MC dropout will give variations in the Probability output.")
 
     affine_settings = {
       "dense_args": dict(
-        kernel_regularizer=None, 
+        kernel_regularizer=None,
         units=self.affine_units_per_dense_layer, 
         activation=self.affine_activation), 
       "dropout": self.affine_dropout,
@@ -166,7 +167,20 @@ class Network():
       coupling_settings=settings,
       )
 
-    self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net)
+    if not self.fix_1d:
+      latent_dist = None
+    else:
+      latent_dist = None
+      #import tensorflow_probability as tfp
+      #latent_dist = tfp.distributions.Normal(loc=0.0,scale=1.0)
+      #log_prob_func = latent_dist.log_prob
+      #def log_prob_1d_z(z):
+      #  out = log_prob_func(z[:,1])
+      #  print(out)
+      #  return out
+      #latent_dist.log_prob = log_prob_1d_z
+
+    self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net, latent_dist=latent_dist)
 
   def BuildTrainer(self):
     """
@@ -239,8 +253,8 @@ class Network():
           return learning_rate
       self.lr_scheduler = NestedCosineDecay(
         initial_learning_rate=self.trainer.default_lr,
-        outer_period=self.lr_scheduler_options["outer_period"]*int(self.X_train.num_rows/self.batch_size) if "outer_period" in self.lr_scheduler_options.keys() else self.epochs*int(self.X_train.num_rows/self.batch_size),
-        inner_period=self.lr_scheduler_options["inner_period"]*int(self.X_train.num_rows/self.batch_size) if "inner_period" in self.lr_scheduler_options.keys() else 10*int(self.X_train.num_rows/self.batch_size),
+        outer_period=self.lr_scheduler_options["outer_period"]*int(np.ceil(self.X_train.num_rows/self.batch_size)) if "outer_period" in self.lr_scheduler_options.keys() else self.epochs*int(np.ceil(self.X_train.num_rows/self.batch_size)),
+        inner_period=self.lr_scheduler_options["inner_period"]*int(np.ceil(self.X_train.num_rows/self.batch_size)) if "inner_period" in self.lr_scheduler_options.keys() else 10*int(np.ceil(self.X_train.num_rows/self.batch_size)),
       )
     elif self.lr_scheduler_name == "Cyclic":
       class Cyclic(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -256,7 +270,31 @@ class Network():
       self.lr_scheduler = Cyclic(
         max_lr=self.trainer.default_lr,
         min_lr=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0,
-        step_size=int(self.X_train.num_rows/self.batch_size)/self.lr_scheduler_options["cycles_per_epoch"] if "cycles_per_epoch" in self.lr_scheduler_options.keys() else int(self.X_train.num_rows/self.batch_size)/2,
+        step_size=int(np.ceil(self.X_train.num_rows/self.batch_size))/self.lr_scheduler_options["cycles_per_epoch"] if "cycles_per_epoch" in self.lr_scheduler_options.keys() else int(np.ceil(self.X_train.num_rows/self.batch_size))/2,
+      )
+    elif self.lr_scheduler_name == "CyclicWithExponential":
+      class CyclicWithExponential(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, max_lr, lr_shift, step_size_for_cycle, decay_rate, step_size_for_decay, offset):
+          super(CyclicWithExponential, self).__init__()
+          self.max_lr = max_lr
+          self.lr_shift = lr_shift
+          self.step_size_for_cycle = step_size_for_cycle
+          self.decay_rate = decay_rate
+          self.step_size_for_decay = step_size_for_decay
+          self.offset = offset
+          self.np = np
+        def __call__(self, step):
+          decayed_lr = ((self.max_lr-self.offset) * (self.decay_rate**(tf.cast(step, tf.float32)/float(self.step_size_for_decay)))) + self.offset
+          cycled_lr = self.lr_shift * tf.math.cos(2*self.np.pi*tf.cast(step, tf.float32)/self.step_size_for_cycle)
+          learning_rate = decayed_lr + cycled_lr
+          return learning_rate
+      self.lr_scheduler = CyclicWithExponential(
+          max_lr = self.trainer.default_lr,
+          lr_shift = self.lr_scheduler_options["lr_shift"] if "lr_shift" in self.lr_scheduler_options.keys() else 0.00035,
+          step_size_for_cycle = int(np.ceil(self.X_train.num_rows/self.batch_size))/self.lr_scheduler_options["cycles_per_epoch"] if "cycles_per_epoch" in self.lr_scheduler_options.keys() else int(np.ceil(self.X_train.num_rows/self.batch_size))/0.5,
+          decay_rate = self.lr_scheduler_options["decay_rate"] if "decay_rate" in self.lr_scheduler_options.keys() else 0.5,
+          step_size_for_decay = self.lr_scheduler_options["decay_steps"] if "decay_steps" in self.lr_scheduler_options.keys() else int(np.ceil(self.X_train.num_rows/self.batch_size)),
+          offset = self.lr_scheduler_options["offset"] if "offset" in self.lr_scheduler_options.keys() else 0.0004,
       )
     elif self.lr_scheduler_name == "AdaptiveExponential":
       self.lr_scheduler = self.trainer.default_lr
@@ -385,8 +423,6 @@ class Network():
     self.Y_train.batch_num = 0
     _ = self.inference_net(X_train_batch, Y_train_batch)
     self.inference_net.load_weights(name)
-    #tf.random.set_seed(seed)
-    #tf.keras.utils.set_random_seed(seed)
 
   def Train(self):
     """
@@ -403,7 +439,7 @@ class Network():
       batch_size=self.batch_size, 
       early_stopping=self.early_stopping,
       optimizer=self.optimizer,
-      fix_1d_spline=self.fix_1d_spline,
+      fix_1d=self.fix_1d,
       disable_tqdm=self.disable_tqdm,
       use_wandb=self.use_wandb,
       adaptive_lr_scheduler=self.adaptive_lr_scheduler,
@@ -421,6 +457,17 @@ class Network():
         name = f"{self.plot_dir}/loss",
         x_label = "Epochs",
         y_label = "Loss"
+      )
+
+    if self.plot_lr:
+      plot_histograms(
+        range(len(self.trainer.lr_history)),
+        [self.trainer.lr_history],
+        [self.lr_scheduler_name],
+        title_right = "",
+        name = f"{self.plot_dir}/learning_rate",
+        x_label = "Epochs",
+        y_label = "Learning Rate"
       )
 
   def Sample(self, Y, columns=None, n_events=10**6, transform=False, Y_transformed=False, batch_size=10**6, seed=42):
@@ -462,7 +509,7 @@ class Network():
       else:
         synth = np.vstack((synth, self.amortizer.sample(batch_data, 1)[:,0,:]))
 
-    if self.fix_1d_spline:
+    if self.fix_1d:
       synth = synth[:,0].reshape(-1,1)
 
     synth_wt = np.ones(len(synth))
@@ -515,8 +562,9 @@ class Network():
       del X, Y
       gc.collect()
 
-      if self.fix_1d_spline:
+      if self.fix_1d:
         data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
+        #data["parameters"] = np.column_stack((data["parameters"].flatten(), data["parameters"].flatten()))
 
       # Get probabilities
       #print(data["parameters"])
@@ -532,18 +580,12 @@ class Network():
         batch_data = {}
         for k, v in data.items():
           batch_data[k] = v[i*batch_size:min((i+1)*batch_size,len(data["parameters"]))]
-          #print(k)
-          #print(batch_data[k])
-        #log_prob = self.amortizer.log_posterior(batch_data)
-        #print("Prob")
-        #print(log_prob[:10])
         log_prob = np.append(log_prob, self.amortizer.log_posterior(batch_data))
 
       log_prob = pp.UnTransformProb(log_prob, log_prob=True)
 
-      if self.fix_1d_spline and run_normalise:
-        log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=False))
-        #log_prob += np.log(np.sqrt(2*np.pi)) # quicker but doesn't always work if you do not close the added dimension
+      if self.fix_1d and run_normalise:
+        log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
 
       # Do checks
       if np.any(log_prob == -np.inf) and change_zero_prob:
@@ -574,7 +616,7 @@ class Network():
     else:
       return np.exp(log_prob)
   
-  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=10000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.25, method="histogramdd", verbose=True):
+  def ProbabilityIntegral(self, Y, y_columns=None, n_integral_bins=100000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.5, method="histogramdd", verbose=True):
     """
     Computes the integral of the probability density function over a specified range.
 

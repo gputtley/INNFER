@@ -40,7 +40,7 @@ class InnferTrainer(bf.trainers.Trainer):
       early_stopping=False,
       use_autograph=True,
       disable_tqdm=False,
-      fix_1d_spline=False,
+      fix_1d=False,
       use_wandb = False,
       adaptive_lr_scheduler = False,
       active_learning = False,
@@ -66,14 +66,14 @@ class InnferTrainer(bf.trainers.Trainer):
          early_stopping (bool): Flag to enable early stopping.
          use_autograph (bool): Flag to use Autograph for faster execution.
          disable_tqdm (bool): Flag to disable tqdm progress bar.
-         fix_1d_spline (bool): Flag to fix 1D spline if conditions are met.
+         fix_1d (bool): Flag to fix 1D spline if conditions are met.
          **kwargs: Additional keyword arguments.
 
       Returns:
          dict: Dictionary of plottable loss history.
       """
 
-      self.fix_1d_spline = fix_1d_spline
+      self.fix_1d = fix_1d
       self.active_learning = active_learning
       self.active_learning_options = active_learning_options
       self.resample = resample
@@ -91,6 +91,7 @@ class InnferTrainer(bf.trainers.Trainer):
       self.loss_history._total_train_loss.append(float(loss))
       val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, 0, **kwargs)
       self.loss_history.add_val_entry(0, val_loss)
+      self.lr_history = [extract_current_lr(self.optimizer)]
 
       if use_wandb:
          metrics = {
@@ -111,7 +112,6 @@ class InnferTrainer(bf.trainers.Trainer):
             for bi in range(1,X_train.num_batches+1):
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
-
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
                if adaptive_lr_scheduler is not None:
@@ -127,9 +127,10 @@ class InnferTrainer(bf.trainers.Trainer):
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
          loss = self._get_epoch_loss(X_train, Y_train, wt_train, ep, **kwargs)
+         print(f"INFO:root:Train, Epoch: {ep}, Loss: {round(float(loss),3)}")
          self.loss_history._total_train_loss.append(float(loss))
          val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
-
+         self.lr_history.append(lr)
          if use_wandb:
             metrics = {
                "train_loss": loss,
@@ -229,12 +230,16 @@ class InnferTrainer(bf.trainers.Trainer):
       X_data = X.LoadNextBatch().to_numpy()
       Y_data = Y.LoadNextBatch().to_numpy()
       wt_data = wt.LoadNextBatch().to_numpy().flatten()
-      if self.fix_1d_spline:
+      if self.fix_1d:
          X_data = np.column_stack((X_data.flatten(), np.random.normal(0.0, 1.0, (len(X_data),))))
+         #X_data = np.column_stack((X_data.flatten(),X_data.flatten()))
+         #X_data = np.column_stack((X_data.flatten(),np.zeros((len(X_data),))))
       if self.active_learning:
          X_data, Y_data, wt_data = self._make_active_learning_datasets(X_data, Y_data, wt_data, ep)
       if self.resample:
          (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data)
+      if Y_data.shape[1] == 0:
+         Y_data = np.empty((X_data.shape[0],0))
       return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):
@@ -256,7 +261,7 @@ class InnferTrainer(bf.trainers.Trainer):
             synth = self.amortizer.sample(data, 1)
             if len(synth.shape) > 2:
                synth = synth[:,0,:]
-            if self.fix_1d_spline:
+            if self.fix_1d:
                synth = synth[:,0].reshape(-1,1)
             X[indices,:] = synth
             Y[indices,-1] = np.ones(sample_size)

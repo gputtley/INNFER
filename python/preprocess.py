@@ -36,6 +36,7 @@ class PreProcess():
     self.train_test_val_split = "0.3:0.3:0.4"
     self.remove_quantile = 0.0
     self.equalise_y_wts = False
+    self.decay_y_wts = False
     self.train_test_y_vals = {}
     self.validation_y_vals = {}
     self.cut_values = {}
@@ -70,7 +71,7 @@ class PreProcess():
 
     # Get X and Y column names
     print(">> Getting columns from dataset.")
-    Y_columns = [element for element in self.Y_columns if element in dl.columns]
+    Y_columns = sorted([element for element in self.Y_columns if element in dl.columns])
     self.parameters["X_columns"] = self.X_columns
     self.parameters["Y_columns"] = Y_columns
 
@@ -115,7 +116,6 @@ class PreProcess():
         self.parameters["yield"][name] = float(np.sum(full_dataset.loc[:,"wt"][matching_rows].to_numpy(), dtype=np.float128))
     else:
       self.parameters["yield"]["all"] = float(np.sum(full_dataset.loc[:,"wt"].to_numpy(), dtype=np.float128))
-
 
     # Train test split
     print(">> Train/Test/Val splitting the data.")
@@ -171,32 +171,18 @@ class PreProcess():
     wt_test_df = test_df[["wt"]]
     wt_val_df = val_df[["wt"]]      
 
-    # Remove outliers
-    """
-    print(">> Removing outliers.")
-    # THIS IS NOT THE CORRECT THING TO DO!
-    for k in X_train_df.columns:
-      self.cut_values[k] = [np.quantile(X_train_df.loc[:,k], self.remove_quantile), np.quantile(X_train_df.loc[:,k], 1-self.remove_quantile)]
-      select_indices = ((X_train_df.loc[:,k]>=self.cut_values[k][0]) & (X_train_df.loc[:,k]<=self.cut_values[k][1]))
-      X_train_df = X_train_df.loc[select_indices,:]
-      Y_train_df = Y_train_df.loc[select_indices,:]
-      wt_train_df = wt_train_df.loc[select_indices,:]
-      select_indices = ((X_test_df.loc[:,k]>=self.cut_values[k][0]) & (X_test_df.loc[:,k]<=self.cut_values[k][1]))
-      X_test_df = X_test_df.loc[select_indices,:]
-      Y_test_df = Y_test_df.loc[select_indices,:]
-      wt_test_df = wt_test_df.loc[select_indices,:]
-      select_indices = ((X_val_df.loc[:,k]>=self.cut_values[k][0]) & (X_val_df.loc[:,k]<=self.cut_values[k][1]))
-      X_val_df = X_val_df.loc[select_indices,:]
-      Y_val_df = Y_val_df.loc[select_indices,:]
-      wt_val_df = wt_val_df.loc[select_indices,:]
-    """
-
     # Equalise weights in each unique y values
     if self.equalise_y_wts:
       print(">> Equalising Y weights.")
       wt_train_df = self.EqualiseYWeights(Y_train_df, wt_train_df)
       wt_test_df = self.EqualiseYWeights(Y_test_df, wt_test_df)
-      wt_val_df = self.EqualiseYWeights(Y_val_df, wt_val_df)
+      wt_val_df = self.EqualiseYWeights(Y_val_df, wt_val_df, double_edge=False)
+
+    # Equalise weights in the center and decay them outside
+    if self.decay_y_wts:
+      wt_train_df = self.DecayYWeights(Y_train_df, wt_train_df)
+      wt_test_df = self.DecayYWeights(Y_test_df, wt_test_df)
+      wt_val_df = self.EqualiseYWeights(Y_val_df, wt_val_df) # do not need to do this for val
 
     # Write parquet files
     self.parameters["file_location"] = self.output_dir
@@ -379,7 +365,7 @@ class PreProcess():
     else:
       return column
   
-  def EqualiseYWeights(self, Y, wt):
+  def EqualiseYWeights(self, Y, wt, double_edge=False):
     """
     Equalize weights for target variables.
 
@@ -394,18 +380,79 @@ class PreProcess():
     if len(Y.columns) > 0:
       unique_rows = Y.drop_duplicates()
 
+      vals = []
       sum_weights = []
       for _, ur in unique_rows.iterrows():
+        for r in ur:
+          vals.append(list(ur))
         matching_rows = (Y == ur).all(axis=1)
         sum_weights.append(float(wt[matching_rows].sum().iloc[0]))
       max_sum_weights = max(sum_weights)
+      vals = np.array(vals)
 
       ind = 0
       for _, ur in unique_rows.iterrows():
         if sum_weights[ind] == 0: continue
         matching_rows = (Y == ur).all(axis=1)
-        wt.loc[matching_rows,:] = (max_sum_weights / sum_weights[ind]) * wt.loc[matching_rows,:]
+        edge = False
+        for i, r in enumerate(ur):
+          if r == min(vals[:,i]) or r == max(vals[:,i]):
+            edge = True
+
+        if not (edge and double_edge):
+          wt.loc[matching_rows,:] = (max_sum_weights / sum_weights[ind]) * wt.loc[matching_rows,:]
+        else:
+          wt.loc[matching_rows,:] = 2 * (max_sum_weights / sum_weights[ind]) * wt.loc[matching_rows,:]
+
         ind += 1
+    return wt
+
+  def DecayYWeights(self, Y, wt, bulk=0.3, frac=0.5):
+    """
+    Decays weights for target variables.
+
+    Args:
+        Y (pd.DataFrame): DataFrame containing target variables.
+        wt (pd.DataFrame): DataFrame containing weights.
+
+    Returns:
+        pd.DataFrame: DataFrame with equalized weights.
+    """
+    wt = self.EqualiseYWeights(Y, wt)
+
+    if len(Y.columns) > 0:
+      unique_rows = Y.drop_duplicates()
+      vals = []
+      for _, ur in unique_rows.iterrows():
+        for r in ur:
+          vals.append(list(ur))
+      vals = np.array(vals)
+
+      min_max = []
+      vals_cosine_decay = []
+      for i in range(vals.shape[1]):
+        all_vals = list(vals[:,i])
+        min_all_vals = min(all_vals)
+        max_all_vals = max(all_vals)
+        min_max.append([min_all_vals,max_all_vals])
+        all_vals.remove(min_all_vals)
+        all_vals.remove(max_all_vals)
+        #vals_cosine_decay.append([2*min_all_vals - min(all_vals), 2*max_all_vals - max(all_vals)])
+        vals_cosine_decay.append([min_all_vals - frac*(max_all_vals - min_all_vals), max_all_vals + frac*(max_all_vals - min_all_vals)])
+
+      for _, ur in unique_rows.iterrows():
+        matching_rows = (Y == ur).all(axis=1)
+        for i, r in enumerate(ur):
+          dist = (min_max[i][1] - min_max[i][0])
+          max_bulk = min_max[i][0] + (((bulk/2) + 0.5)*dist)
+          min_bulk = min_max[i][0] + ((0.5 - (bulk/2))*dist)
+          dist_for_cos = 0.0
+          if r > max_bulk:
+            dist_for_cos = (r - max_bulk) / (vals_cosine_decay[i][1] - max_bulk)
+          if r < min_bulk:
+            dist_for_cos = (min_bulk - r) / (min_bulk - vals_cosine_decay[i][0])
+          factor = np.cos(dist_for_cos*np.pi)
+          wt.loc[matching_rows,:] = factor * wt.loc[matching_rows,:]
 
     return wt
 
@@ -572,12 +619,15 @@ class PreProcess():
             final_condition = col_condition
         else:
             final_condition = final_condition & col_condition
+
     if final_condition is not None:
-      indices = Y_data[final_condition].index
-      X_data = X_data.iloc[indices]
-      Y_data = Y_data.iloc[indices]
-      wt_data = wt_data.iloc[indices]
+      X_data = X_data.loc[final_condition,:]
+      Y_data = Y_data.loc[final_condition,:]
+      wt_data = wt_data.loc[final_condition,:]
     
+    if len(X_data) == 0: 
+      return None
+
     #X_data = X_data.reindex(range(len(X_data)))
     X_data = X_data.reset_index(drop=True)
     Y_data = Y_data.reset_index(drop=True)
