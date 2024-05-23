@@ -1,10 +1,10 @@
 data/*
-data/.gitkeep
+!data/.gitkeep
 jobs/*
-jobs/.gitkeep
+!jobs/.gitkeep
 models/*
-models/.gitkeep
+!models/.gitkeep
 plots/*
-plots/.gitkeep
+!plots/.gitkeep
 tmp/*
-tmp/.gitkeep
+!tmp/.gitkeep
