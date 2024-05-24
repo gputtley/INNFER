@@ -25,15 +25,18 @@ def parse_args():
   if args.step is None:
     raise ValueError("The --step is required.")
 
-  # Adjust inputs
-  if os.path.exists(f"configs/run/{args.cfg}"):
+  # Adjust input paths
+  if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
     args.cfg = f"configs/run/{args.cfg}"
-  if os.path.exists(f"configs/architecture/{args.architecture}"):
+  if os.path.exists(f"configs/architecture/{args.architecture}"): # Change architecture path
     args.architecture = f"configs/architecture/{args.architecture}"
-  if args.benchmark is not None:
+  if args.submit is not None: # Change submit path
+    if os.path.exists(f"configs/submit/{args.submit}"):
+      args.submit = f"configs/submit/{args.submit}"
+  if args.benchmark is not None: # Change benchmark path
     if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
       args.benchmark = f"configs/run/{args.benchmark}"
-  if args.step != "MakeBenchmark" and args.benchmark is not None:
+  if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
     if ".yaml" not in args.benchmark:
       args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
     else:
@@ -47,7 +50,7 @@ def main(args):
   if args.step == "MakeBenchmark":
     print("<< Making benchmark inputs >>")
     from make_benchmark import MakeBenchmark
-    run = CheckRunAndSubmit(sys.argv, loop = {}, specific = args.specific, job_name = f"jobs/{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"jobs/{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}")
+    run = CheckRunAndSubmit(sys.argv, submit=args.submit, loop = {}, specific = args.specific, job_name = f"jobs/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"jobs/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}")
     if run:
       mb = MakeBenchmark()
       mb.Configure({"name" : args.benchmark})
@@ -62,7 +65,7 @@ def main(args):
     print("<< Preprocessing datasets >>")
   #  from preprocess import PreProcess
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = CheckRunAndSubmit(sys.argv, submit=args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
   #    if run:
   #      pp = PreProcess()
   #      pp.Configure({"cfg" : cfg})

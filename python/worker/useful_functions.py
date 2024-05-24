@@ -1,6 +1,8 @@
 import copy
 import os
 import yaml
+import pandas as pd
+import numpy as np
 
 def CheckRunAndSubmit(
   argv,
@@ -108,3 +110,25 @@ def MakeDirectories(file_loc):
     # Make directory if it is missing
     if not os.path.isdir(full_dir): 
       os.system(f"mkdir {full_dir}")
+
+def CustomHistogram(data, weights=None, bins=20, density=False):
+  """
+  Compute a custom histogram for the given data.
+
+  Args:
+      data (numpy.ndarray): Input data.
+      weights (numpy.ndarray, optional): Weights associated with the data. Defaults to None.
+      bins (int or array_like, optional): If bins is an integer, it defines the number of equal-width
+          bins in the range. If bins is an array, it defines the bin edges. Defaults to 20.
+
+  Returns:
+      numpy.ndarray: Histogram of data.
+      numpy.ndarray: Bin edges.
+  """
+  unique_vals = pd.DataFrame(data).drop_duplicates()
+  if isinstance(bins, int):
+    if len(unique_vals) < bins:
+      bins = np.sort(unique_vals.to_numpy().flatten())
+      bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+  hist, bins = np.histogram(data, weights=weights, bins=bins, density=density)
+  return hist, bins
