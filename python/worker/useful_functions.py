@@ -1,12 +1,14 @@
 import copy
 import os
+import yaml
 
 def CheckRunAndSubmit(
-  argv, 
+  argv,
+  submit = None,
   loop = {}, 
   specific = "",
   job_name = "job",
-  dry_run = True
+  dry_run = False
   ):
 
   # Add '' when appropriate to command
@@ -30,13 +32,14 @@ def CheckRunAndSubmit(
     if k in loop.keys():
       if str(loop[k]) not in v:
         run = False
-  if run == False:
+
+  if not run:
     return False
 
-  else:
+  if run:
 
     # run if not submit
-    if "--submit" not in cmd:
+    if submit is None:
       return True
 
     # set up batch submission command
@@ -47,7 +50,6 @@ def CheckRunAndSubmit(
         specific_str = copy.deepcopy(string)
       if string.startswith("--submit="):
         sub_str = copy.deepcopy(string)
-        sub_type = string.split("--submit=")[1]
     if specific_str is not None: corrected_argv.remove(specific_str)
     if sub_str is not None: corrected_argv.remove(sub_str)
     specific_sub_string = ";".join([f"{k}={v}" for k, v in loop.items()])
@@ -60,8 +62,12 @@ def CheckRunAndSubmit(
     if extra_name != "":
       extra_name = f"_{extra_name}"
 
+    # Open config
+    with open(submit, 'r') as yaml_file:
+      submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
     # Submit job
-    options = {"submit_to": sub_type, "cmds": [sub_cmd], "job_name": StringToFile(f"{job_name}{extra_name}.sh"), "dry_run": dry_run}
+    options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": [sub_cmd], "job_name": StringToFile(f"{job_name}{extra_name}.sh"), "dry_run": dry_run}
     from batch import Batch
     sub = Batch(options=options)
     sub.Run()

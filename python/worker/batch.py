@@ -18,12 +18,10 @@ class Batch():
     self.running_hours = 3
     self.memory = 24
     self.cores = 1
+    self.options = {}
+
     self.job_name = "job.sh"
-    self.store_output = True
-    self.store_error = True
     self.dry_run = False
-    self.sge_queue = "hep.q"
-    self.condor_gpu = False
     self._SetOptions(options)
 
   def _SetOptions(self, options):
@@ -60,26 +58,16 @@ class Batch():
     """
     self._CreateBatchJob(self.cmds)
 
-    if self.store_output:
-      output_log = self.job_name.replace('.sh','_output.log')
-      if os.path.exists(output_log): os.system(f'rm {output_log}')
-    else:
-      output_log = "/dev/null"
-    if self.store_error:
-      error_log = self.job_name.replace('.sh','_error.log')
-      if os.path.exists(error_log): os.system(f'rm {error_log}')
-    else:
-      error_log = "/dev/null"
+    output_log = self.job_name.replace('.sh','_output.log')
+    if os.path.exists(output_log): os.system(f'rm {output_log}')
+    error_log = self.job_name.replace('.sh','_error.log')
+    if os.path.exists(error_log): os.system(f'rm {error_log}')
 
     if not self.dry_run:
-      if self.sge_queue != "gpu.q":
-        if self.cores>1:
-          sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -pe hep.pe {self.cores} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
-        else:
-          sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -l h_vmem={self.memory}G -cwd {self.job_name}'
+      if self.cores>1:
+        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.options["sge_queue"]} -pe hep.pe {self.options["cores"]} -l h_rt={self.options["running_hours"]}:0:0 -l h_vmem={self.options["self.memory"]}G -cwd {self.job_name}'
       else:
-        if self.running_hours < 24: self.running_hours = 24
-        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.sge_queue} -l h_rt={self.running_hours}:0:0 -cwd {self.job_name}'
+        sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.options["sge_queue"]} -l h_rt={self.options["running_hours"]}:0:0 -l h_vmem={self.options["self.memory"]}G -cwd {self.job_name}'
       os.system(sub_cmd)
 
   def RunCondor(self, cern=False):
@@ -88,16 +76,10 @@ class Batch():
     """    
     self._CreateBatchJob(self.cmds)
 
-    if self.store_output:
-      output_log = self.job_name.replace('.sh','_output.log')
-      if os.path.exists(output_log): os.system(f'rm {output_log}')
-    else:
-      output_log = "/dev/null"
-    if self.store_error:
-      error_log = self.job_name.replace('.sh','_error.log')
-      if os.path.exists(error_log): os.system(f'rm {error_log}')
-    else:
-      error_log = "/dev/null"
+    output_log = self.job_name.replace('.sh','_output.log')
+    if os.path.exists(output_log): os.system(f'rm {output_log}')
+    error_log = self.job_name.replace('.sh','_error.log')
+    if os.path.exists(error_log): os.system(f'rm {error_log}')
     
     exc_and_out = [
       f"executable = {os.getcwd()}/{self.job_name}",
@@ -106,27 +88,22 @@ class Batch():
       f"log                   = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
     ]
 
-    if not self.condor_gpu:
-      node = [
-        f"RequestCpus = {self.cores}"
-      ]
-    else:
-      node = [
-        f"RequestGpus = 1"
-      ]
+    if "extra_lines" in self.options.keys():
+      extra_lines = self.options["extra_lines"]
 
-    if cern:
-      if self.running_hours < 1/3:
+    sub_options = []
+    if cern and "running_hours" in options.keys():
+      if self.options["running_hours"] < 1/3:
         queue = "espresso"
-      elif self.running_hours < 1:
+      elif self.options["running_hours"] < 1:
         queue = "microcentury"
-      elif self.running_hours < 2:
+      elif self.options["running_hours"] < 2:
         queue = "longlunch"
-      elif self.running_hours < 8:
+      elif self.options["running_hours"] < 8:
         queue = "workday"
-      elif self.running_hours < 24:
+      elif self.options["running_hours"] < 24:
         queue = "tomorrow"
-      elif self.running_hours < 72:
+      elif self.options["running_hours"] < 72:
         queue = "testmatch"
       else:
         queue = "nextweek"
@@ -135,12 +112,7 @@ class Batch():
         f"+JobFlavour = '{queue}'",
       ]
 
-    else:
-      sub_options = [
-        f"+MaxRuntime = {self.running_hours*3600}",
-      ]
-
-    sub_file = exc_and_out + node + sub_options+ ["queue"]
+    sub_file = exc_and_out + extra_lines + sub_options + ["queue"]
 
     self._CreateJob(sub_file, self.job_name.replace(".sh",".sub"))
 
