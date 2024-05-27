@@ -72,14 +72,15 @@ class DataProcessor():
       del tmp
 
     # Perform actions on the dataset
+    if self.selection is not None:
+      df = df.loc[col_df.eval(self.selection),:]
+    if self.columns is not None:
+      df = df.loc[:,[col for col in self.columns if col in df.columns]]
     if transform:
       df = self.TransformData(df)
     if untransform:
       df = self.UnTransformData(df)
-    if self.selection is not None:
-      df = df.loc[col_df.eval(self.selection),:]
-    if self.columns is not None:
-      df = df.loc[:,self.columns]
+    df = df.loc[:, sorted(list(df.columns))]
 
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
@@ -93,30 +94,11 @@ class DataProcessor():
 
     return df
 
-  def LoadFullDataset(self):
+  def GetFull(self, method="dataset", column=None, bins=10, density=False, unique_threshold=40):
 
-    self.batch_ind = 0
-    self.file_ind = 0
-
-    first_loop = True
-    for row_ind in range(len(self.datasets)):
-      for file_ind in range(len(self.datasets[row_ind])):
-        for batch_ind in range(self.num_batches[self.file_ind]):
-
-            # Load batch
-            tmp = self.LoadNextBatch()
-
-            # Combine batches into a full dataset
-            if first_loop:
-              df = copy.deepcopy(tmp)
-              first_loop = False
-            else:
-              df = pd.concat([df, tmp], axis=0, ignore_index=True)
-            del tmp
-
-      return df
-
-  def Histogram(self, column, bins=40, density=False):
+    if method == "std": # Get the mean for standard deviation calculation
+      sum_cols, sum_wts = self.GetFull(method="sum_columns")
+      means = {k : v/sum_wts for k, v in sum_cols.items()}
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -127,27 +109,117 @@ class DataProcessor():
         for batch_ind in range(self.num_batches[self.file_ind]):
 
           # Load batch
-          self.file_ind = file_ind
-          self.batch_ind = batch_ind
           tmp = self.LoadNextBatch()
 
-          # Make histogram
-          if self.wt_name is None:
-            tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, density=density)
-          else:
-            tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, density=density)
+          # Run method
+          if method == "dataset": # get full dataset
 
+            if first_loop:
+              out = copy.deepcopy(tmp)
+              first_loop = False
+            else:
+              out = pd.concat([out, tmp], axis=0, ignore_index=True)
+
+          elif method == "histogram": # make a histogram from the dataset
+
+            if self.wt_name is None:
+              tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, density=density)
+            else:
+              tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, density=density)
+
+            if first_loop:
+              out = [copy.deepcopy(tmp_hist), copy.deepcopy(bins)]
+              first_loop = False
+            else:
+              out[0] += tmp_hist
+
+          elif method == "sum": # sum up the weights or count events
+
+            if self.wt_name is None:
+              tmp_total = len(tmp)
+            else:
+              tmp_total = float(np.sum(tmp.loc[:,self.wt_name]))
+
+            if first_loop:
+              out = copy.deepcopy(tmp_total)
+              first_loop = False
+            else:
+              out += tmp_total
+
+          elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
+
+            if self.wt_name is None:
+              tmp_total_column = {col : float(np.sum(tmp.loc[:,col])) for col in tmp.columns}
+              tmp_total_wt = len(tmp)
+            else:
+              tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*tmp.loc[:,col])) for col in tmp.columns if col != self.wt_name}
+              tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
+
+            if first_loop:
+              out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
+              first_loop = False
+            else:
+              out = [
+                {col : val + out[0][col] for col, val in tmp_total_column.items()},
+                out[1] + tmp_total_wt
+              ]
+
+          elif method == "std": # find std of columns
+
+            if self.wt_name is None:
+              tmp_total_column = {col : float(np.sum((tmp.loc[:,col] - means[col])**2)) for col in tmp.columns}
+              tmp_total_wt = len(tmp)
+            else:
+              tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*((tmp.loc[:,col] - means[col])**2))) for col in tmp.columns if col != self.wt_name}
+              tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
+
+            if first_loop:
+              out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
+              first_loop = False
+            else:
+              out = [
+                {col : val + out[0][col] for col, val in tmp_total_column.items()},
+                out[1] + tmp_total_wt
+              ]
+
+          elif method == "unique": # find unique values of a column
+
+            tmp_unique = {}
+            for col in tmp.columns:
+              if col == self.wt_name: continue
+              unique = list(np.unique(tmp.loc[:, col]))
+              if unique is None:
+                tmp_unique[col] = None
+              else:
+                if len(unique) < unique_threshold:
+                  tmp_unique[col] = copy.deepcopy(unique)
+                else:
+                  tmp_unique[col] = None
+
+            if first_loop:
+              out = copy.deepcopy(tmp_unique)
+              first_loop = False
+            else:
+              for k, v in tmp_unique.items():
+                if v is None or out[k] is None:
+                  out[k] = None
+                else:
+                  sets = list(set(out[k] + v))
+                  if len(sets) < unique_threshold:
+                    out[k] = copy.deepcopy(sets)
+                  else:
+                    out[k] = None
+
+          # Remove tmp from memory
           del tmp
 
-          # Combine batches into a full dataset
-          if first_loop:
-            hist = copy.deepcopy(tmp_hist)
-            bins = copy.deepcopy(bins)
-            first_loop = False
-          else:
-            hist += tmp_hist
+      if method == "mean": # calculate means
+        return {k : v/out[1] for k, v in out[0].items()}
 
-      return hist, bins
+      if method == "std": # calculate std
+        return {k : float(np.sqrt(v/out[1])) for k, v in out[0].items()}
+
+      return out
 
   def TransformData(self, data):
     """
