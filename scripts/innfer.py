@@ -63,13 +63,21 @@ def main(args):
   # PreProcess the dataset
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
-  #  from preprocess import PreProcess
+    from preprocess import PreProcess
     for file_name, parquet_name in cfg["files"].items():
+      print(f"* Running file_name={file_name}")
       run = CheckRunAndSubmit(sys.argv, submit=args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
-  #    if run:
-  #      pp = PreProcess()
-  #      pp.Configure({"cfg" : cfg})
-  #      pp.Run()
+      if run:
+        pp = PreProcess()
+        pp.Configure(
+          {
+            "cfg" : args.cfg,
+            "parquet_file_name" : parquet_name,
+            "data_output" : f"data/{cfg['name']}/PreProcess/{file_name}",
+            "plots_output" : f"plots/{cfg['name']}/PreProcess/{file_name}",
+          }
+        )
+        pp.Run()
 
   # Train network
   if args.step == "Train":
@@ -93,8 +101,8 @@ if __name__ == "__main__":
   args = parse_args()
   main(args)
 
-  print("- Finished running without error")
+  print("<< Finished running without error >>")
   end_time = time.time()
   hours, remainder = divmod(end_time-start_time, 3600)
   minutes, seconds = divmod(remainder, 60)
-  print(f"- Time elapsed: {int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds")
+  print(f"<< Time elapsed: {int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds >>")

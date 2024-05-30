@@ -22,7 +22,7 @@ class DataLoader():
     self.columns = [str(i) for i in self.parquet_file.schema.names if i != '__index_level_0__']
     self.num_columns = len(self.columns)
     self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
-
+    
   def LoadNextBatch(self):
     """
     Load the next batch of data.
