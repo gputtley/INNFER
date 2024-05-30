@@ -1,0 +1,3 @@
+[submodule "python/BayesFlow"]
+	path = python/BayesFlow
+	url = https://github.com/gputtley/BayesFlow.git

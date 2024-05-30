@@ -185,6 +185,13 @@ class PreProcess():
     Return a list of outputs given by class
     """
     outputs = []
+    # Add parquet files
+    for data_split in ["train","test","val"]:
+      for i in ["X","Y","wt"]:
+        outputs.append(f"{self.data_output}/{i}_{data_split}.parquet")
+    # Add parameters file
+    outputs.append(f"{self.data_output}/parameters.yaml")
+    
     return outputs
 
   def Inputs(self):
