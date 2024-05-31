@@ -53,11 +53,16 @@ Add stuff
 
 ## Snakemake
 
-Add stuff
+The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
+
+```
+INSERT SNAKEMAKE CONDOR SETUP STEPS
+```
+To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step=SnakeMake --snakemake-cfg=condor_core.yaml`.
 
 ## Structure of Code
 
-The code is built on several classes and sets of functions in the `python` directory. These are split into two types `runner` and `worker`. The `runner` files are typically called by the `scripts/innfer.py` and each represent are specific running step. The `worker` files are called by the `runner` files in order to help perform the required steps. Here I will give an explanation to the `worker` classes as the `runner` files are fairly self explanatory and the motivation for them are described in the description of steps.
+The code is built on several classes and sets of functions in the `python` directory. These are split into two types `runner` and `worker`. The `runner` files are typically called by the `scripts/innfer.py` and each represent a specific running step. The `worker` files are called by the `runner` files in order to help perform the required steps. Here I will give an explanation to the `worker` classes as the `runner` files are fairly self explanatory and the motivation for them is described in the description of steps.
 
 `batch.py`: Add stuff
 
