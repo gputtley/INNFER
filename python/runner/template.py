@@ -23,7 +23,6 @@ class Template():
     """
     Run the code utilising the worker classes
     """
-    self.CheckInputs()
     # Code the run the class
 
   def Outputs(self):
@@ -40,11 +39,4 @@ class Template():
     inputs = []
     return inputs
 
-  def CheckInputs(self):
-    """
-    Check that all the relevant inputs have been parsed to the class
-    """
-    for var in self.inputs:
-      if getattr(self, var) == None:
-        raise AttributeError(f"'{var}' variable required by class.")
         

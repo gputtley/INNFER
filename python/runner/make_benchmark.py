@@ -20,8 +20,6 @@ class MakeBenchmark():
     """
     Run the code utilising the worker classes
     """
-    self.CheckInputs()
-
     from benchmarks import Benchmarks
     benchmark = Benchmarks(name=self.name)
     # Fit splines
@@ -55,16 +53,7 @@ class MakeBenchmark():
     """
     Return a list of inputs required by class
     """
-    inputs = [
-      "name",
-    ]
+    inputs = []
     return inputs
 
-  def CheckInputs(self):
-    """
-    Check that all the relevant inputs have been parsed to the class
-    """
-    for var in self.Inputs():
-      if getattr(self, var) == None:
-        raise AttributeError(f"'{var}' variable required by class.")
         

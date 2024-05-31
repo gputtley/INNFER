@@ -30,7 +30,7 @@ def plot_histograms(
     error_bar_hist_errs = [],
     error_bar_names = [],
     anchor_y_at_0 = False,
-    drawstyle = "steps",
+    drawstyle = "default",
     smooth_func = None,
     smooth_func_name = "",
     smooth_func_color = "green",

@@ -1,7 +1,7 @@
 current_directory=$(pwd)
 worker_pp="$current_directory/python/worker"
 runner_pp="$current_directory/python/runner"
-bfp="$current_directory/BayesFlow"
+bfp="$current_directory/python/BayesFlow"
 export PYTHONPATH=${worker_pp}:${runner_pp}:${bfp}:${PYTHONPATH}
 if ! command -v nvidia-smi &> /dev/null ; then
   echo "Number of threads available $(nproc)"

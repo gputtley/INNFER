@@ -13,6 +13,8 @@ configs/architecture/*
 !configs/architecture/default.yaml
 configs/run/*
 !configs/run/.gitkeep
+configs/snakemake/*
+!configs/snakemake/.gitkeep
 configs/submit/*
 !configs/submit/.gitkeep
 !configs/submit/condor.yaml

@@ -53,7 +53,12 @@ class DataProcessor():
       self.num_batches = [1 for _ in datasets]
     elif dataset_type == "generator":
       self.num_batches = [int(np.ceil(n_events/self.batch_size)) for _ in self.datasets]
-      self.n_events_per_batch = [[self.batch_size]*(num_in_batch-1) + [n_events % self.batch_size] for num_in_batch in self.num_batches]
+      self.n_events_per_batch = []
+      for num_in_batch in self.num_batches:
+        self.n_events_per_batch.append([self.batch_size]*(num_in_batch))
+        remainder = n_events % self.batch_size
+        if remainder != 0:
+          self.n_events_per_batch[-1][-1] = remainder
     elif dataset_type == "parquet":
       self.data_loaders = [[DataLoader(d, batch_size=self.batch_size) for d in ds] for ds in self.datasets]
       self.num_batches = [self.data_loaders[ind][0].num_batches for ind in range(len(self.datasets))]
@@ -185,15 +190,29 @@ class DataProcessor():
       elif method == "histogram": # make a histogram from the dataset
 
         if self.wt_name is None:
-          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, density=density, discrete_binning=discrete_binning)
+          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning)
         else:
-          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, density=density, discrete_binning=discrete_binning)
+          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning)
 
         if first_loop:
           out = [copy.deepcopy(tmp_hist), copy.deepcopy(bins)]
           first_loop = False
         else:
           out[0] += tmp_hist
+
+      elif method == "histogram_and_uncert": # make a histogram from the dataset
+
+        if self.wt_name is None:
+          tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
+        else:
+          tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
+
+        if first_loop:
+          out = [copy.deepcopy(tmp_hist), copy.deepcopy(tmp_hist_uncert), copy.deepcopy(bins)]
+          first_loop = False
+        else:
+          out[0] += tmp_hist
+          out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
 
       elif method in ["sum","count"]: # sum up the weights or count events
 
@@ -298,6 +317,14 @@ class DataProcessor():
 
     if method == "std": # calculate std
       return {k : float(np.sqrt(v/out[1])) for k, v in out[0].items()}
+
+    if method == "histogram" and density: # normalise histograms
+      sum_wt = np.sum(out[0])
+      return out[0]/sum_wt, out[1]
+
+    if method == "histogram_and_uncert" and density: # normalise histograms
+      sum_wt = np.sum(out[0])
+      return out[0]/sum_wt, out[1]/sum_wt, out[2]
 
     return out
 

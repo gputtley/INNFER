@@ -11,12 +11,15 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train", "HyperparameterScan", "Generator", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train", "HyperparameterScan", "PerformanceMetrics", "Generator", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
   parser.add_argument('--submit', help = 'Batch to submit to', type = str, default = None)
   parser.add_argument('--architecture', help = 'Config for running',type = str,   default = "configs/architecture/default.yaml")
+  parser.add_argument('--points-per-job', help= 'The number of points ran per job', type=int, default=1)
+  parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+  parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   args = parser.parse_args()
 
   # Check inputs
@@ -63,15 +66,17 @@ def main(args):
   # PreProcess the dataset
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
-    from preprocess import PreProcess
+    cmds = []
     for file_name, parquet_name in cfg["files"].items():
       print(f"* Running file_name={file_name}")
-      run = CheckRunAndSubmit(sys.argv, submit=args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
+        from preprocess import PreProcess
         pp = PreProcess()
         pp.Configure(
           {
             "cfg" : args.cfg,
+            "file_name" : file_name,
             "parquet_file_name" : parquet_name,
             "data_output" : f"data/{cfg['name']}/PreProcess/{file_name}",
             "plots_output" : f"plots/{cfg['name']}/PreProcess/{file_name}",
@@ -82,14 +87,62 @@ def main(args):
   # Train network
   if args.step == "Train":
     print("<< Training the networks >>")
-  #  from train import Train
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
-  #    if run:
-  #      t = Train()
-  #      t.Configure({"cfg" : cfg})
-  #      t.Run()
+      print(f"* Running file_name={file_name}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      if run:
+        from train import Train
+        t = Train()
+        t.Configure(
+          {
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "architecture" : args.architecture,
+            "data_output" : f"models/{cfg['name']}/{file_name}",
+            "plots_output" : f"plots/{cfg['name']}/Train/{file_name}",
+            "use_wandb" : args.use_wandb,
+            "disable_tqdm" : args.disable_tqdm,
+          }
+        )
+        t.Run()
 
+  # Hyperparameter scan
+  """
+  if args.step == "HyperparameterScan":
+    print("<< Running a hyperparameter scan >>")
+    for file_name, parquet_name in cfg["files"].items():
+      print(f"* Running file_name={file_name}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      if run:
+        from train import Train
+        t = Train()
+        t.Configure(
+          {
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "architecture" : args.architecture,
+            "data_output" : f"models/{cfg['name']}/{file_name}",
+            "plots_output" : f"plots/{cfg['name']}/Train/{file_name}",
+          }
+        )
+        t.Run()
+  """
+  # Performance metrics
+  if args.step == "PerformanceMetrics":
+    print("<< Getting the performance metrics of the trained networks >>")
+    for file_name, parquet_name in cfg["files"].items():
+      print(f"* Running file_name={file_name}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      if run:
+        from performance_metrics import PerformanceMetrics
+        pf = PerformanceMetrics()
+        pf.Configure(
+          {
+            "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
+            "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "data_output" : f"data/{cfg['name']}/PerformanceMetrics/{file_name}",
+          }
+        )
+        pf.Run()
 
 if __name__ == "__main__":
 

@@ -112,7 +112,7 @@ def MakeDirectories(file_loc):
     if not os.path.isdir(full_dir): 
       os.system(f"mkdir {full_dir}")
 
-def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True):
+def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True, add_uncert=False):
   """
   Compute a custom histogram for the given data.
 
@@ -131,8 +131,17 @@ def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning
     if len(unique_vals) < bins and discrete_binning:
       bins = np.sort(unique_vals.to_numpy().flatten())
       bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
-  hist, bins = np.histogram(data, weights=weights, bins=bins, density=density)
-  return hist, bins
+  if not add_uncert:
+    hist, bins = np.histogram(data, weights=weights, bins=bins, density=density)
+    return hist, bins
+  else:
+    hist, bins = np.histogram(data, weights=weights, bins=bins)
+    hist_wt_squared, _ = np.histogram(data, weights=weights**2 if weights is not None else None, bins=bins)
+    hist_uncert = np.sqrt(hist_wt_squared)
+    if density:
+      hist_uncert /= np.sum(hist)
+      hist /= np.sum(hist)
+    return hist, hist_uncert, bins   
 
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   """
@@ -226,3 +235,77 @@ def GetNuisanceLoop(cfg, parameters):
       })
 
   return nuisance_loop
+
+def Resample(datasets, weights, n_samples=None, seed=42):
+
+  # Set up datasets as lists
+  if not isinstance(datasets, list):
+    datasets = [datasets]
+
+  # Set n_samples to the maximum if None
+  if n_samples is None:
+    n_samples = len(weights)
+
+  # Get positive and negative weights indices
+  positive_indices = (weights>=0)
+  negative_indices = (weights<0)
+  do_positive = False
+  do_negative = False
+  if np.sum(weights[positive_indices]) != 0:
+    do_positive = True
+  if np.sum(weights[negative_indices]) != 0:
+    do_negative = True
+  
+  if do_positive:
+    positive_probs = weights[positive_indices]/np.sum(weights[positive_indices])
+  if do_negative:
+    negative_probs = weights[negative_indices]/np.sum(weights[negative_indices])
+  
+  # Set n_samples to the maximum if None
+  n_positive_samples = 0
+  n_negative_samples = 0
+  if n_samples is None:
+    if do_positive:
+      n_positive_samples = len(positive_probs)
+    if do_negative:
+      n_negative_samples = len(negative_probs)
+  else:
+    if do_positive and do_negative: 
+      positive_fraction = len(positive_probs)/len(weights)
+      n_positive_samples = int(round(positive_fraction*n_samples,0))
+      n_negative_samples = n_samples - n_positive_samples
+    elif do_positive:
+      n_positive_samples = n_samples
+    elif do_negative:
+      n_negative_samples = n_samples
+
+  # Loop through datasets
+  resampled_datasets = []
+  resampled_weights = np.hstack((np.ones(n_positive_samples),-1*np.ones(n_negative_samples)))
+  for dataset in datasets:
+
+    # Skip if empty
+    if dataset.shape[1] == 0:
+      resampled_datasets.append(np.zeros((n_positive_samples+n_negative_samples, 0)))
+      continue
+
+    # Resample
+    rng = np.random.RandomState(seed=seed)
+    if do_positive:
+      positive_resampled_indices = rng.choice(len(dataset[positive_indices]), size=n_positive_samples, p=positive_probs)
+    if do_negative:
+      negative_resampled_indices = rng.choice(len(dataset[negative_indices]), size=n_negative_samples, p=negative_probs)
+
+    # Save
+    if do_positive and do_negative:
+      resampled_datasets.append(np.vstack((dataset[positive_indices][positive_resampled_indices],dataset[negative_indices][negative_resampled_indices])))
+    elif do_positive:
+      resampled_datasets.append(dataset[positive_indices][positive_resampled_indices])
+    elif do_negative:
+      resampled_datasets.append(dataset[negative_indices][negative_resampled_indices])
+    
+  # Return individual dataset if originally given
+  if len(resampled_datasets) == 1:
+    resampled_datasets = resampled_datasets[0]
+
+  return resampled_datasets, resampled_weights

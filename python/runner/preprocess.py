@@ -20,8 +20,14 @@ class PreProcess():
     parameters yaml file as well as the train, test and 
     validation datasets.
     """
+    # Required input which is the location of a file
     self.cfg = None
+
+    # Required input which can just be parsed
+    self.file_name = None
     self.parquet_file_name = None
+
+    # Other
     self.verbose = True
     self.data_output = "data/"
     self.plots_output = "plots/"
@@ -39,9 +45,7 @@ class PreProcess():
   def Run(self):
     """
     Run the code utilising the worker classes
-    """
-    self.CheckInputs()
-    
+    """    
     # Open the config
     with open(self.cfg, 'r') as yaml_file:
       cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -58,7 +62,9 @@ class PreProcess():
     )
 
     # Initiate parameters dictionary
-    parameters = {}
+    parameters = {
+      "file_name" : self.file_name,
+    }
 
     # Write X and Y to parameters
     if self.verbose:
@@ -191,7 +197,7 @@ class PreProcess():
         outputs.append(f"{self.data_output}/{i}_{data_split}.parquet")
     # Add parameters file
     outputs.append(f"{self.data_output}/parameters.yaml")
-    
+
     return outputs
 
   def Inputs(self):
@@ -199,17 +205,9 @@ class PreProcess():
     Return a list of inputs required by class
     """
     inputs = [
-      "cfg"
+      self.cfg
     ]
     return inputs
-
-  def CheckInputs(self):
-    """
-    Check that all the relevant inputs have been parsed to the class
-    """
-    for var in self.Inputs():
-      if getattr(self, var) == None:
-        raise AttributeError(f"'{var}' variable required by class.")
         
   def _DoTrainTestValSplit(self, df, split="all", train_test_val_split="0.6:0.1:0.3"):
     train_ratio = float(train_test_val_split.split(":")[0])
