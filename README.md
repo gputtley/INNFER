@@ -47,8 +47,34 @@ Add stuff
 
 `PerformanceMetrics`: This will calculate performance metrics on the trained networks and write them to a yaml file.
 
-`HyperparameterScan`: This will perform a hyperparameter scan based on a scan architecture file given by `--architecture="scan.yaml"` for example.
+`HyperparameterScan`: This will perform a hyperparameter scan based on a scan architecture file given by `--architecture="scan.yaml"` for example. If you want to track your trainings with wandb, you first must need to set up an account at [https://wandb.ai/](https://wandb.ai/). Then you must connect your terminal to your account with the command `wandb login`. You will need to enter the API given on the website. Now you can add `--use-wandb` to the command and track online.
+
+`HyperparameterScanCollect`: This will collect the best performing hyperparameter scan model and copy it and its architecture into the directories required to use that model for the next steps.
 
 ## Snakemake
 
 Add stuff
+
+## Structure of Code
+
+The code is built on several classes and sets of functions in the `python` directory. These are split into two types `runner` and `worker`. The `runner` files are typically called by the `scripts/innfer.py` and each represent are specific running step. The `worker` files are called by the `runner` files in order to help perform the required steps. Here I will give an explanation to the `worker` classes as the `runner` files are fairly self explanatory and the motivation for them are described in the description of steps.
+
+`batch.py`: Add stuff
+
+`benchmarks.py`: Add stuff
+
+`combined_network.py`: Add stuff
+
+`data_loader.py`: Add stuff
+
+`data_processor.py`: Add stuff
+
+`innfer_trainer.py`: Add stuff
+
+`likelihood.py`: Add stuff
+
+`network.py`: Add stuff
+
+`plotting.py`: Add stuff
+
+`useful_functions.py`: Add stuff
