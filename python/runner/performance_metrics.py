@@ -115,6 +115,7 @@ class PerformanceMetrics():
               summed_hist_metrics[metric_name][k2_sum_name] = v2*1.0
             else:
               summed_hist_metrics[metric_name][k2_sum_name] += v2
+        hist_metrics[metric_name] = {**hist_metrics[metric_name], **summed_hist_metrics[metric_name]}
 
       metrics = {**metrics, **hist_metrics}
 

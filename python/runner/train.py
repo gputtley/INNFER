@@ -19,6 +19,7 @@ class Train():
     self.data_output = "data/"
     self.plots_output = "plots/"
     self.save_extra_name = ""
+    self.no_plot = False
 
   def Configure(self, options):
     """
@@ -68,6 +69,10 @@ class Train():
     )  
     network.BuildModel()
     
+    if self.no_plot:
+      network.plot_loss = False
+      network.plot_lr = False
+
     # Training model
     if self.verbose:
       print("- Training the model")

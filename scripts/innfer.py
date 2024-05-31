@@ -5,13 +5,13 @@ import sys
 import yaml
 import pyfiglet as pyg
 
-from useful_functions import CheckRunAndSubmit
+from useful_functions import CheckRunAndSubmit, GetScanArchitectures
 
 def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train", "HyperparameterScan", "PerformanceMetrics", "Generator", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
@@ -66,11 +66,10 @@ def main(args):
   # PreProcess the dataset
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
-    cmds = []
     for file_name, parquet_name in cfg["files"].items():
-      print(f"* Running file_name={file_name}")
       run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
+        print(f"* Running file_name={file_name}")
         from preprocess import PreProcess
         pp = PreProcess()
         pp.Configure(
@@ -88,9 +87,9 @@ def main(args):
   if args.step == "Train":
     print("<< Training the networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      print(f"* Running file_name={file_name}")
       run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
+        print(f"* Running file_name={file_name}")
         from train import Train
         t = Train()
         t.Configure(
@@ -105,33 +104,13 @@ def main(args):
         )
         t.Run()
 
-  # Hyperparameter scan
-  """
-  if args.step == "HyperparameterScan":
-    print("<< Running a hyperparameter scan >>")
-    for file_name, parquet_name in cfg["files"].items():
-      print(f"* Running file_name={file_name}")
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
-      if run:
-        from train import Train
-        t = Train()
-        t.Configure(
-          {
-            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
-            "architecture" : args.architecture,
-            "data_output" : f"models/{cfg['name']}/{file_name}",
-            "plots_output" : f"plots/{cfg['name']}/Train/{file_name}",
-          }
-        )
-        t.Run()
-  """
-  # Performance metrics
+  # Get performance metrics
   if args.step == "PerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      print(f"* Running file_name={file_name}")
       run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
+        print(f"* Running file_name={file_name}")
         from performance_metrics import PerformanceMetrics
         pf = PerformanceMetrics()
         pf.Configure(
@@ -143,6 +122,29 @@ def main(args):
           }
         )
         pf.Run()
+
+  # Perform a hyperparameter scan
+  if args.step == "HyperparameterScan":
+    print("<< Running a hyperparameter scan >>")
+    for file_name, parquet_name in cfg["files"].items():
+      for architecture_ind, architecture  in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
+        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+        if run:
+          print(f"* Running file_name={file_name}, architecture_ind={architecture_ind}")
+          from hyperparameter_scan import HyperparameterScan
+          hs = HyperparameterScan()
+          hs.Configure(
+            {
+              "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+              "architecture" : architecture,
+              "data_output" : f"data/{cfg['name']}/HyperparameterScan/{file_name}",
+              "plots_output" : f"plots/{cfg['name']}/HyperparameterScan/{file_name}",
+              "use_wandb" : args.use_wandb,
+              "disable_tqdm" : args.disable_tqdm,
+              "save_extra_name" : f"_{architecture_ind}",
+            }
+          )
+          hs.Run()
 
 if __name__ == "__main__":
 

@@ -309,3 +309,90 @@ def Resample(datasets, weights, n_samples=None, seed=42):
     resampled_datasets = resampled_datasets[0]
 
   return resampled_datasets, resampled_weights
+
+def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+  """
+  Find keys and values in dictionaries.
+
+  Args:
+      config (dict): Configuration dictionary.
+      keys (list): List of keys (default is []).
+      results_keys (list): List of results keys (default is []).
+      results_vals (list): List of results values (default is []).
+
+  Returns:
+      tuple: Tuple containing lists of results keys and results values.
+  """
+  for k, v in config.items():
+    new_keys = keys+[k]
+    if isinstance(v, dict):
+      results_keys, results_vals = FindKeysAndValuesInDictionaries(v, keys=new_keys, results_keys=results_keys, results_vals=results_vals)
+    else:
+      results_keys.append(new_keys)
+      results_vals.append(v)
+  return results_keys, results_vals
+
+
+def MakeDictionaryEntry(dictionary, keys, val):
+  """
+  Make a dictionary entry.
+
+  Args:
+      dictionary (dict): Dictionary.
+      keys (list): List of keys.
+      val (object): Value.
+
+  Returns:
+      dict: Dictionary containing the entry.
+  """
+  if len(keys) > 1:
+    if keys[0] not in dictionary.keys():
+      dictionary[keys[0]] = {}
+    dictionary[keys[0]] = MakeDictionaryEntry(dictionary[keys[0]], keys[1:], val)
+  else:
+    dictionary[keys[0]] = val
+  return dictionary
+
+
+def GetScanArchitectures(cfg, data_output="data/"):
+  """
+  Get scan architectures.
+
+  Args:
+      config (dict): Configuration dictionary file.
+
+  Returns:
+      list: List of scan architectures.
+  """
+
+  # open config
+  with open(cfg, 'r') as yaml_file:
+    config = yaml.load(yaml_file, Loader=yaml.FullLoader)  
+
+  keys, vals = FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[])
+  all_lists = [v for v in vals if isinstance(v,list)]
+  ind_lists = [ind for ind in range(len(vals)) if isinstance(vals[ind],list)]
+  unique_vals = list(product(*all_lists))
+
+  count = 0
+  outputs = []
+  for uv in unique_vals:
+
+    # Set unique values
+    ind_val = list(vals)
+    for i in range(len(ind_lists)):
+      ind_val[ind_lists[i]] = uv[i]
+
+    output = {}
+    for ind in range(len(keys)):
+      output = MakeDictionaryEntry(output, keys[ind], ind_val[ind])
+
+    name = f"{data_output}/scan_architecture_{count}.yaml"
+    outputs.append(name)
+    MakeDirectories(name)
+    with open(name, 'w') as yaml_file:
+      yaml.dump(output, yaml_file, default_flow_style=False) 
+    
+    count += 1
+
+  return outputs

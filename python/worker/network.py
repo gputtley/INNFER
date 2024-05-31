@@ -478,6 +478,9 @@ class Network():
     # Set up Y correctly
     if len(Y) == 1:
       Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns)
+    elif len(Y) == 0:
+      Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns)
+
 
     # Set up and transform Y input
     Y_dp = DataProcessor(
@@ -487,14 +490,15 @@ class Network():
         "parameters" : self.data_parameters,
       }
     )
-    Y_transformed  = Y_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["transform"]
-    )
+    if len(Y.columns) != 0:
+      Y  = Y_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["transform"]
+      )
 
     # Set up bayesflow dictionary
     batch_data = {
-      "direct_conditions" : Y_transformed.to_numpy().astype(np.float32)
+      "direct_conditions" : Y.to_numpy().astype(np.float32)
     }
 
     # Get samples
@@ -527,18 +531,27 @@ class Network():
     )
 
     # Get unique Y of dataset
-    unique_values = sim_train_dp.GetFull(method="unique", functions_to_apply=["untransform"])
-    unique_y_values = {k : sorted(v) for k, v in unique_values.items() if k in self.data_parameters["Y_columns"]}
-    unique_y_combinations = list(product(*unique_y_values.values()))
+    if len(self.data_parameters["Y_columns"]) > 0:
+      unique_values = sim_train_dp.GetFull(method="unique", functions_to_apply=["untransform"])
+      unique_y_values = {k : sorted(v) for k, v in unique_values.items() if k in self.data_parameters["Y_columns"]}
+      unique_y_combinations = list(product(*unique_y_values.values()))
+    else:
+      unique_y_combinations = [None]
 
     metrics = {}
     # Loop through unique Y
     for uc in unique_y_combinations:
 
-      uc_name = GetYName(uc, purpose="file")
+      if uc == None:
+        uc_name = "all"
+        Y = pd.DataFrame([])
+        selection = None
+      else:
+        uc_name = GetYName(uc, purpose="file")
+        Y = pd.DataFrame(np.array(uc), columns=list(unique_y_values.keys()))
+        selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
 
       # Make synthetic data processors
-      Y = pd.DataFrame(np.array(uc), columns=list(unique_y_values.keys()))
       synth_dp = DataProcessor(
         [[partial(self.Sample, Y)]],
         "generator",
@@ -547,9 +560,6 @@ class Network():
           "parameters" : self.data_parameters
         }
       )
-
-      # Make selection for simulated datasets
-      selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
 
       # Loop through columns
       for col in self.data_parameters["X_columns"]:
