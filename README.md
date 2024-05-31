@@ -15,7 +15,7 @@ source setup.sh conda
 source setup.sh packages
 ```
 
-<span style="color:red">TO DO: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow at the moment, so this needs to be fixed.</span>
+**TO DO: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow at the moment, so this needs to be fixed.**
 
 ## Setup Environment
 
@@ -39,7 +39,11 @@ Add stuff
 
 ## Description of Steps
 
-Add stuff
+`MakeBenchmark`: This will create a dataset and a yaml config file to run fromm for the benchmark scenario specified (with `--benchmark=GaussianWithExpBkg` for example) in the `python/worker/benchmarks.py` class.
+`PreProcess`: This will take preprocess the input dataset ready for training, including perform standardisation and train/test/val splitting of the dataset. It will also produce a parameters file which contains crucial information about the created datasets that will be used in later steps.
+`Train`: This will train invertible neural networks, using BayesFlow, to learn the probability density functions of the datasets provided. Specific network architectures can be specified with `--architecture="default.yaml"` for example.
+`PerformanceMetrics`: This will calculate performance metrics on the trained networks and write them to a yaml file.
+`HyperparameterScan`: This will perform a hyperparameter scan based on a scan architecture file given by `--architecture="scan.yaml"` for example.
 
 ## Snakemake
 
