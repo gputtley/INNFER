@@ -41,13 +41,10 @@ class HyperparameterScan():
     pf = self._SetupPerformanceMetrics()
     pf.Run()
 
-
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     t = self._SetupTrain()
     pf = self._SetupPerformanceMetrics()
@@ -74,6 +71,8 @@ class HyperparameterScan():
     return inputs
 
   def _SetupTrain(self):
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     t = Train()
     t.Configure(
       {
@@ -89,11 +88,13 @@ class HyperparameterScan():
     return t
 
   def _SetupPerformanceMetrics(self):
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     pf = PerformanceMetrics()
     pf.Configure(
       {
-        "model" : f"{self.data_output}/{file_name}{self.save_extra_name}.h5",
-        "architecture" : f"{self.data_output}/{file_name}{self.save_extra_name}_architecture.yaml",
+        "model" : f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5",
+        "architecture" : f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml",
         "parameters" : self.parameters,
         "data_output" : self.data_output,
         "save_extra_name" : self.save_extra_name

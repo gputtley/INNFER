@@ -67,7 +67,7 @@ def main(args):
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
         print(f"* Running file_name={file_name}")
         from preprocess import PreProcess
@@ -87,7 +87,7 @@ def main(args):
   if args.step == "Train":
     print("<< Training the networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
         print(f"* Running file_name={file_name}")
         from train import Train
@@ -108,7 +108,7 @@ def main(args):
   if args.step == "PerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
       if run:
         print(f"* Running file_name={file_name}")
         from performance_metrics import PerformanceMetrics
@@ -128,7 +128,7 @@ def main(args):
     print("<< Running a hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
       for architecture_ind, architecture  in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
-        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"files" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
         if run:
           print(f"* Running file_name={file_name}, architecture_ind={architecture_ind}")
           from hyperparameter_scan import HyperparameterScan
