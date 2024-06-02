@@ -3,22 +3,39 @@
 ## TO DO
 
 `Setup`: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow package imported at the moment but this should be fixed.
+
 `Setup`: It would be good to import the packages required from a yaml file install of pip installing all of them.
-`PreProcess`: Implement discrete to continuous code
-`Train/HyperparameterScan`: Implement wandb
+
+`PreProcess`: Implement discrete to continuous code.
+
+`Train/HyperparameterScan`: Implement wandb.
+
 `Collect`: Write a collection worker class, this will work for all collect steps in the innfer.
+
 `Yield`: Make a yield function file, you should be able to interchange this for something custom.
+
 `CombinedModel`: Write class to combine models together and incorporate rate parameters.
+
 `Generator`: Write generator class.
+
 `Likelihood`: Write likelihood class.
+
 `Bootstrap`: Write bootstrap class.
+
 `Infer`: Write infer class.
+
 `Summary`: Write a class to summarise the validation of inference and the asimov.
+
 `Snakemake`: Write snakemake class.
+
 `Snakemake`: Write instructions for snakemake installation.
+
 `MakeParquetFromRoot`: Add the file to make parquet files from root.
+
 `Testing`: Test it works with a nuisance.
+
 `Other`: Docstrings and sort class functions.
+
 `Other`: Finish README documentation.
 
 ## Installing Repository and Packages
