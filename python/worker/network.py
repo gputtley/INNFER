@@ -74,6 +74,10 @@ class Network():
     self.active_learning_options = {}
     self.resample = False
 
+    # Other
+    self.disable_tqdm = False
+    self.use_wandb = False
+
     # Running parameters
     self.plot_loss = True
     self.plot_lr = True
@@ -100,8 +104,6 @@ class Network():
 
     # Other
     self.fix_1d = (self.X_train.num_columns == 1)
-    self.disable_tqdm = False
-    self.use_wandb = False
     self.probability_store = {}
     self.adaptive_lr_scheduler = None
 

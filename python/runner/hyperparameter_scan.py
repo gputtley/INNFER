@@ -1,4 +1,6 @@
 import yaml
+import wandb
+from random_word import RandomWords
 
 from train import Train
 from performance_metrics import PerformanceMetrics
@@ -15,6 +17,8 @@ class HyperparameterScan():
 
     # other
     self.use_wandb = False
+    self.wandb_project_name = "innfer"
+    self.wandb_submit_name = "innfer"
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
@@ -34,12 +38,30 @@ class HyperparameterScan():
     """
     Run the code utilising the worker classes
     """
+    # Setup wandb
+    if self.use_wandb:
+      with open(self.architecture, 'r') as yaml_file:
+        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      r = RandomWords()
+      wandb.init(project=self.wandb_project_name, name=f"{self.wandb_submit_name}_{r.get_random_word()}", config=architecture)
+
     # Train models
     t = self._SetupTrain()
     t.Run()
 
+    # Get performance metrics
     pf = self._SetupPerformanceMetrics()
     pf.Run()
+
+    # Write performance metrics to wandb
+    if self.use_wandb:
+      metric_name = f"{self.data_output}/metrics{self.save_extra_name}.yaml"
+      with open(metric_name, 'r') as yaml_file:
+        metric = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      wandb.log(metric)
+      wandb.finish()
+
+
 
   def Outputs(self):
     """
@@ -74,6 +96,7 @@ class HyperparameterScan():
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     t = Train()
+    print("Hyper",self.use_wandb)
     t.Configure(
       {
         "parameters" : self.parameters,

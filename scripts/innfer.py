@@ -16,10 +16,12 @@ def parse_args():
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
   parser.add_argument('--submit', help = 'Batch to submit to', type = str, default = None)
-  parser.add_argument('--architecture', help = 'Config for running',type = str,   default = "configs/architecture/default.yaml")
+  parser.add_argument('--architecture', help = 'Config for running', type = str, default = "configs/architecture/default.yaml")
   parser.add_argument('--points-per-job', help= 'The number of points ran per job', type=int, default=1)
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+  parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
+  parser.add_argument('--hyperparameter-scan-metric', help = 'Colon separated metric name and whether you want max or min, separated by a comma.', type = str, default = "chi_squared_test:total,min")
   args = parser.parse_args()
 
   # Check inputs
@@ -98,7 +100,6 @@ def main(args):
             "architecture" : args.architecture,
             "data_output" : f"models/{cfg['name']}/{file_name}",
             "plots_output" : f"plots/{cfg['name']}/Train/{file_name}",
-            "use_wandb" : args.use_wandb,
             "disable_tqdm" : args.disable_tqdm,
           }
         )
@@ -127,7 +128,7 @@ def main(args):
   if args.step == "HyperparameterScan":
     print("<< Running a hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
-      for architecture_ind, architecture  in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
+      for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
         run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
         if run:
           print(f"* Running file_name={file_name}, architecture_ind={architecture_ind}")
@@ -138,13 +139,34 @@ def main(args):
               "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
               "architecture" : architecture,
               "data_output" : f"data/{cfg['name']}/HyperparameterScan/{file_name}",
-              "plots_output" : f"plots/{cfg['name']}/HyperparameterScan/{file_name}",
               "use_wandb" : args.use_wandb,
+              "wandb_project_name" : args.wandb_project_name,
+              "wandb_submit_name" : f"{cfg['name']}_{file_name}",
               "disable_tqdm" : args.disable_tqdm,
               "save_extra_name" : f"_{architecture_ind}",
             }
           )
           hs.Run()
+
+  # Perform a hyperparameter scan
+  if args.step == "HyperparameterScanCollect":
+    print("<< Collecting hyperparameter scan >>")
+    for file_name, parquet_name in cfg["files"].items():
+      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      if run:
+        print(f"* Running file_name={file_name}")
+        from hyperparameter_scan_collect import HyperparameterScanCollect
+        hsc = HyperparameterScanCollect()
+        hsc.Configure(
+          {
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
+            "data_input" : f"data/{cfg['name']}/HyperparameterScan/{file_name}",
+            "data_output" : f"models/{cfg['name']}/{file_name}",
+            "metric" : args.hyperparameter_scan_metric
+          }
+        )
+        hsc.Run()
 
 if __name__ == "__main__":
 

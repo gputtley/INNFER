@@ -33,4 +33,5 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   pip3 install pyfiglet
   pip3 install xgboost
   pip3 install hep_ml
+  pip3 install random-word
 fi

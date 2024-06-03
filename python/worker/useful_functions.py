@@ -354,7 +354,7 @@ def MakeDictionaryEntry(dictionary, keys, val):
   return dictionary
 
 
-def GetScanArchitectures(cfg, data_output="data/"):
+def GetScanArchitectures(cfg, data_output="data/", write=True):
   """
   Get scan architectures.
 
@@ -389,9 +389,11 @@ def GetScanArchitectures(cfg, data_output="data/"):
 
     name = f"{data_output}/scan_architecture_{count}.yaml"
     outputs.append(name)
-    MakeDirectories(name)
-    with open(name, 'w') as yaml_file:
-      yaml.dump(output, yaml_file, default_flow_style=False) 
+
+    if write:
+      MakeDirectories(name)
+      with open(name, 'w') as yaml_file:
+        yaml.dump(output, yaml_file, default_flow_style=False) 
     
     count += 1
 
