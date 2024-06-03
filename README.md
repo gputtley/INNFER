@@ -8,10 +8,6 @@
 
 `PreProcess`: Implement discrete to continuous code.
 
-`Train/HyperparameterScan`: Implement wandb.
-
-`Collect`: Write a collection worker class, this will work for all collect steps in the innfer.
-
 `Yield`: Make a yield function file, you should be able to interchange this for something custom.
 
 `CombinedModel`: Write class to combine models together and incorporate rate parameters.

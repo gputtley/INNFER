@@ -3,15 +3,16 @@ import time
 import os
 import sys
 import yaml
+import copy
 import pyfiglet as pyg
 
-from useful_functions import CheckRunAndSubmit, GetScanArchitectures
+from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateLoop, GetCombinedValidateLoop
 
 def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
@@ -131,7 +132,7 @@ def main(args):
       for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
         run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
         if run:
-          print(f"* Running file_name={file_name}, architecture_ind={architecture_ind}")
+          print(f"* Running file_name={file_name};architecture_ind={architecture_ind}")
           from hyperparameter_scan import HyperparameterScan
           hs = HyperparameterScan()
           hs.Configure(
@@ -167,6 +168,41 @@ def main(args):
           }
         )
         hsc.Run()
+
+  # Need to get some information for future steps
+  parameters = {file_name: f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml" for file_name in cfg["files"].keys()}
+  loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
+  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
+  models = {file_name: f"models/{cfg['name']}/{file_name}/{file_name}.h5" for file_name in cfg["files"].keys()}
+  architectures = {file_name: f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml" for file_name in cfg["files"].keys()}
+  if len(cfg["files"].keys()) > 1:
+    val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
+    parameters["combined"] = copy.deepcopy(parameters)
+    models["combined"] = copy.deepcopy(models)
+    architectures["combined"] = copy.deepcopy(architectures)
+
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "Generator":
+    print("<< Making plots using the network as a generator for individual Y values >>")
+    for file_name, val_loop in val_loops.items():
+      for val_ind, val_info in enumerate(val_loop):
+        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "val_ind" : val_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+        if run:
+          print(f"* Running file_name={file_name};val_ind={val_ind}")
+          from generator import Generator
+          g = Generator()
+          g.Configure(
+            {
+              "Y_sim" : val_info["row"],
+              "Y_synth" : val_info["row"],
+              "parameters" : parameters[file_name],
+              "model" : models[file_name],
+              "architecture" : architectures[file_name],
+              "yield_function" : "default",
+              "plots_output" : f"plots/{cfg['name']}/Generator/{file_name}",
+            }
+          )
+          g.Run()
 
 if __name__ == "__main__":
 

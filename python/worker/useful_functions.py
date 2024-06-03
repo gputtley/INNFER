@@ -398,3 +398,104 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
     count += 1
 
   return outputs
+
+def GetValidateLoop(cfg, parameters_file):
+  """
+  Generate a list of dictionaries representing parameter combinations for validation loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
+      parameters_file (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for validation loops.
+  """
+  val_loop = []
+
+  pois = [poi for poi in cfg["pois"] if poi in parameters_file["Y_columns"]]
+  unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
+  nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
+  unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
+  initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
+  initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
+
+  for poi_values in list(product(*unique_values_for_pois)): 
+    nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
+    for ind, nuisance in enumerate(nuisances_loop):
+      nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
+      for nuisance_value in nuisance_value_loop:
+        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
+        nuisance_in_row = [] if nuisance is None else [nuisance]
+        nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
+        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
+        columns = pois+nuisance_in_row+other_nuisances
+        sorted_columns = sorted(columns)
+        sorted_row = [row[columns.index(col)] for col in sorted_columns]
+        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
+        val_loop.append({
+          "row" : pd.DataFrame(sorted_row, columns=sorted_columns),
+          "initial_best_fit_guess" : pd.DataFrame(sorted_initial_best_fit_guess, columns=sorted_columns),
+        })
+        
+  return val_loop
+
+def GetCombinedValidateLoop(cfg, parameters):
+  """
+  Generate a list of dictionaries representing parameter combinations for combined validation loops.
+
+  Args:
+      cfg (dict): Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
+      parameters (dict): Dictionary containing parameter information.
+
+  Returns:
+      list: List of dictionaries representing parameter combinations for combined validation loops.
+  """
+  val_loop = []
+
+  pois = []
+  unique_values_for_pois = []
+  nuisances = []
+  unique_values_for_nuisances = []
+  initial_poi_guess = []
+  initial_best_fit_guess = []
+
+  if "rate_parameters" in cfg["inference"]:
+    pois += [f"mu_{rp}" for rp in cfg["inference"]["rate_parameters"]]
+    unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in cfg["inference"]["rate_parameters"]]
+    initial_poi_guess += [1.0]*len(pois)
+
+  for poi in cfg["pois"]:
+    pois.append(poi)
+    unique_values_for_pois.append([])
+    for file in cfg["files"]:
+      if poi not in parameters[file]["unique_Y_values"]: continue
+      for val in parameters[file]["unique_Y_values"][poi]:
+        if val not in unique_values_for_pois[-1]:
+          unique_values_for_pois[-1].append(val)
+    initial_poi_guess.append(sum(unique_values_for_pois[-1])/len(unique_values_for_pois[-1]))
+
+  for nuisance in cfg["nuisances"]:
+    nuisances.append(nuisance)
+    unique_values_for_nuisances.append([0.0])
+
+  initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))
+
+  for poi_values in list(product(*unique_values_for_pois)): 
+    nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
+    for ind, nuisance in enumerate(nuisances_loop):
+      nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
+      for nuisance_value in nuisance_value_loop:
+        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
+        nuisance_in_row = [] if nuisance is None else [nuisance]
+        nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
+        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
+        columns = pois+nuisance_in_row+other_nuisances
+        sorted_columns = sorted(columns)
+        sorted_row = [row[columns.index(col)] for col in sorted_columns]
+        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
+        val_loop.append({
+          "row" : pd.DataFrame(sorted_row, columns=sorted_columns),
+          "initial_best_fit_guess" : pd.DataFrame(sorted_initial_best_fit_guess, columns=sorted_columns),
+        })
+
+  return val_loop
