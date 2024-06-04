@@ -1,7 +1,5 @@
 import yaml
 
-from network import Network
-
 class Train():
 
   def __init__(self):
@@ -50,6 +48,7 @@ class Train():
     # Build model
     if self.verbose:
       print("- Building the model")
+    from network import Network
     network = Network(
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 

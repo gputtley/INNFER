@@ -6,7 +6,7 @@ import yaml
 import copy
 import pyfiglet as pyg
 
-from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateLoop, GetCombinedValidateLoop
+from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateInfo
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -80,8 +80,8 @@ def main(args):
             "cfg" : args.cfg,
             "file_name" : file_name,
             "parquet_file_name" : parquet_name,
-            "data_output" : f"data/{cfg['name']}/PreProcess/{file_name}",
-            "plots_output" : f"plots/{cfg['name']}/PreProcess/{file_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/PreProcess",
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/PreProcess",
           }
         )
         pp.Run()
@@ -100,7 +100,7 @@ def main(args):
             "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
             "architecture" : args.architecture,
             "data_output" : f"models/{cfg['name']}/{file_name}",
-            "plots_output" : f"plots/{cfg['name']}/Train/{file_name}",
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",
             "disable_tqdm" : args.disable_tqdm,
           }
         )
@@ -119,8 +119,8 @@ def main(args):
           {
             "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
             "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
-            "data_output" : f"data/{cfg['name']}/PerformanceMetrics/{file_name}",
+            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+            "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
           }
         )
         pf.Run()
@@ -137,9 +137,9 @@ def main(args):
           hs = HyperparameterScan()
           hs.Configure(
             {
-              "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+              "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
               "architecture" : architecture,
-              "data_output" : f"data/{cfg['name']}/HyperparameterScan/{file_name}",
+              "data_output" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
               "use_wandb" : args.use_wandb,
               "wandb_project_name" : args.wandb_project_name,
               "wandb_submit_name" : f"{cfg['name']}_{file_name}",
@@ -160,31 +160,21 @@ def main(args):
         hsc = HyperparameterScanCollect()
         hsc.Configure(
           {
-            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
             "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
-            "data_input" : f"data/{cfg['name']}/HyperparameterScan/{file_name}",
+            "data_input" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
             "data_output" : f"models/{cfg['name']}/{file_name}",
             "metric" : args.hyperparameter_scan_metric
           }
         )
         hsc.Run()
 
-  # Need to get some information for future steps
-  parameters = {file_name: f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml" for file_name in cfg["files"].keys()}
-  loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
-  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
-  models = {file_name: f"models/{cfg['name']}/{file_name}/{file_name}.h5" for file_name in cfg["files"].keys()}
-  architectures = {file_name: f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml" for file_name in cfg["files"].keys()}
-  if len(cfg["files"].keys()) > 1:
-    val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
-    parameters["combined"] = copy.deepcopy(parameters)
-    models["combined"] = copy.deepcopy(models)
-    architectures["combined"] = copy.deepcopy(architectures)
 
   # Making plots using the network as a generator for individual Y values
   if args.step == "Generator":
     print("<< Making plots using the network as a generator for individual Y values >>")
-    for file_name, val_loop in val_loops.items():
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}",cfg)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
         run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "val_ind" : val_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
         if run:
@@ -195,14 +185,17 @@ def main(args):
             {
               "Y_sim" : val_info["row"],
               "Y_synth" : val_info["row"],
-              "parameters" : parameters[file_name],
-              "model" : models[file_name],
-              "architecture" : architectures[file_name],
+              "parameters" : val_loop_info["parameters"][file_name],
+              "model" : val_loop_info["models"][file_name],
+              "architecture" : val_loop_info["architectures"][file_name],
               "yield_function" : "default",
-              "plots_output" : f"plots/{cfg['name']}/Generator/{file_name}",
+              "pois" : cfg["pois"],
+              "nuisances" : cfg["nuisances"],
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator/",
             }
           )
           g.Run()
+
 
 if __name__ == "__main__":
 

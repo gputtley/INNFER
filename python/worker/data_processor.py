@@ -40,6 +40,7 @@ class DataProcessor():
     self.batch_size = 10**5
     self.selection = None
     self.columns = None
+    self.scale = None
 
     # Transform options
     self.parameters = {}
@@ -112,8 +113,6 @@ class DataProcessor():
       del tmp
 
     # Apply functions
-    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
-      df = self.ApplySelection(df, extra_sel=extra_sel)
     for f in functions_to_apply:
       if isinstance(f, str):
         if f == "untransform":
@@ -124,11 +123,22 @@ class DataProcessor():
           df = self.TransformData(df)
       else:
         df = f(df)
+    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
+      df = self.ApplySelection(df, extra_sel=extra_sel)
 
     # Select the columns
     if self.columns is not None:
       df = df.loc[:,[col for col in self.columns if col in df.columns]]
 
+    # Scale weights
+    if self.scale is not None:
+      if self.wt_name is None: self.wt_name = "wt"
+      scale = self.scale if self.dataset_type != "generator" else self.scale/self.n_events  
+      if self.wt_name in df.columns:
+        df.loc[:, self.wt_name] *= scale
+      else:
+        df.loc[:, self.wt_name] = scale
+       
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
       

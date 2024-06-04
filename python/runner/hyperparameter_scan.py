@@ -96,7 +96,6 @@ class HyperparameterScan():
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     t = Train()
-    print("Hyper",self.use_wandb)
     t.Configure(
       {
         "parameters" : self.parameters,

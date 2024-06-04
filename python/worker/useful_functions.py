@@ -112,7 +112,7 @@ def MakeDirectories(file_loc):
     if not os.path.isdir(full_dir): 
       os.system(f"mkdir {full_dir}")
 
-def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True, add_uncert=False):
+def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True, add_uncert=False, ignore_quantile=0.001):
   """
   Compute a custom histogram for the given data.
 
@@ -126,14 +126,33 @@ def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning
       numpy.ndarray: Histogram of data.
       numpy.ndarray: Bin edges.
   """
-  unique_vals = pd.DataFrame(data).drop_duplicates()
+  
+  unique_vals = data.drop_duplicates()
+
+  # Discrete values for bins
+  db = False
   if isinstance(bins, int):
+
     if len(unique_vals) < bins and discrete_binning:
+      db = True
       bins = np.sort(unique_vals.to_numpy().flatten())
       bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+
+    else:
+      # Ignore quantiles
+      qdown = data.quantile(ignore_quantile)
+      qup = data.quantile(1-ignore_quantile)
+      trimmed_indices = data[data.between(qdown, qup)].index
+      data = data.loc[trimmed_indices]
+      if weights is not None:
+        weights = weights.loc[trimmed_indices]
+
+  # run without uncertainties
   if not add_uncert:
     hist, bins = np.histogram(data, weights=weights, bins=bins, density=density)
     return hist, bins
+
+  # run with uncertainties
   else:
     hist, bins = np.histogram(data, weights=weights, bins=bins)
     hist_wt_squared, _ = np.histogram(data, weights=weights**2 if weights is not None else None, bins=bins)
@@ -155,6 +174,9 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   Returns:
       str: Formatted label for the given unique row.
   """
+  if isinstance(ur, pd.DataFrame):
+    ur = ur.to_numpy().flatten()
+
   if len(ur) > 0:
     label_list = [str(round(float(i),round_to)) for i in ur] 
     if purpose in ["file","code"]:
@@ -433,8 +455,8 @@ def GetValidateLoop(cfg, parameters_file):
         sorted_row = [row[columns.index(col)] for col in sorted_columns]
         sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
         val_loop.append({
-          "row" : pd.DataFrame(sorted_row, columns=sorted_columns),
-          "initial_best_fit_guess" : pd.DataFrame(sorted_initial_best_fit_guess, columns=sorted_columns),
+          "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
+          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
         })
         
   return val_loop
@@ -494,8 +516,54 @@ def GetCombinedValidateLoop(cfg, parameters):
         sorted_row = [row[columns.index(col)] for col in sorted_columns]
         sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
         val_loop.append({
-          "row" : pd.DataFrame(sorted_row, columns=sorted_columns),
-          "initial_best_fit_guess" : pd.DataFrame(sorted_initial_best_fit_guess, columns=sorted_columns),
+          "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
+          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
         })
 
   return val_loop
+
+
+def GetValidateInfo(preprocess_loc, models_loc, cfg):
+  parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in cfg["files"].keys()}
+  loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
+  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
+  models = {file_name: f"{models_loc}/{file_name}/{file_name}.h5" for file_name in cfg["files"].keys()}
+  architectures = {file_name: f"{models_loc}/{file_name}/{file_name}_architecture.yaml" for file_name in cfg["files"].keys()}
+  if len(cfg["files"].keys()) > 1:
+    val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
+    parameters["combined"] = copy.deepcopy(parameters)
+    models["combined"] = copy.deepcopy(models)
+    architectures["combined"] = copy.deepcopy(architectures)
+  info = {
+    "val_loops" : val_loops,
+    "parameters" : parameters,
+    "models" : models,
+    "architectures" : architectures,
+  }
+  return info
+
+def FindEqualStatBins(data, bins=5, sf_diff=2):
+    diff = data.quantile(0.75) - data.quantile(0.25)
+    significant_figures = sf_diff - int(np.floor(np.log10(abs(diff)))) - 1
+    rounded_number = round(diff, significant_figures)
+    decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
+    
+    unique_vals = data.drop_duplicates()
+
+    # Discrete and less than bins
+    if len(unique_vals) < bins:
+      equal_bins = list(np.sort(unique_vals.to_numpy().flatten())[1:])
+    # Discrete
+    elif len(unique_vals) < 20:
+      sorted_bins = np.sort(unique_vals.to_numpy().flatten())
+      equal_bins = [round(data.quantile(i/bins), min(decimal_places,significant_figures)) for i in range(1,bins)]
+      equal_bins = list(set(equal_bins))
+      if equal_bins[0] == sorted_bins[0]:
+        equal_bins = equal_bins[1:]
+    # Continuous
+    else:
+      equal_bins = [round(data.quantile(i/bins), min(decimal_places,significant_figures)) for i in range(1,bins)]
+
+    equal_bins = [-np.inf] + equal_bins + [np.inf]
+
+    return equal_bins

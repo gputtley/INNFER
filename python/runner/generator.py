@@ -1,6 +1,7 @@
 import yaml
 import copy
 import numpy as np
+import pandas as pd
 from functools import partial
 
 from useful_functions import GetYName
@@ -15,6 +16,9 @@ class Generator():
     self.architecture = None
     self.Y_sim = None
     self.Y_synth = None
+
+    self.pois = None
+    self.nuisances = None
 
     self.yield_function = "default"
     self.plots_output = "plots/"
@@ -35,6 +39,8 @@ class Generator():
 
     from data_processor import DataProcessor
     from network import Network
+    from yields import Yields
+
 
     # Make singular inputs as dictionaries
     combined_model = True
@@ -50,6 +56,7 @@ class Generator():
     networks = {}
     sim_dps = {}
     synth_dps = {}
+    yields = {}
     for file_name in self.model.keys():
 
       # Open parameters
@@ -87,7 +94,18 @@ class Generator():
         print(f"- Loading the model for {file_name}")
       networks[file_name].Load(name=self.model[file_name])
 
+      # Make yields function
+      yields = Yields(
+        pd.read_parquet(parameters['yield_loc']), 
+        self.pois, 
+        self.nuisances, 
+        file_name,
+        method=self.yield_function, 
+        column_name="yield"
+      )
+
       # Make data processors
+      shape_Y_cols = [col for col in self.Y_sim.columns if "mu_" not in col and col in parameters["Y_columns"]]
       if self.verbose:
         print(f"- Making data processor for {file_name}")
       sim_dps[file_name] = DataProcessor(
@@ -96,7 +114,8 @@ class Generator():
         wt_name = "wt",
         options = {
           "parameters" : parameters,
-          "selection" : " & ".join([f"({list(self.Y_sim.columns)[ind]}=={y_sim})" for ind, y_sim in enumerate(self.Y_sim.to_numpy().flatten())])
+          "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
+          "scale" : yields.GetYield(self.Y_sim),
         }
       )
       synth_dps[file_name] = DataProcessor(
@@ -105,29 +124,41 @@ class Generator():
         n_events = self.n_synth,
         options = {
           "parameters" : parameters,
+          "scale" : yields.GetYield(self.Y_synth),
         }
       )
 
     # Get names for plot
-    sim_file_name = GetYName(self.Y_sim.to_numpy(), purpose="file", prefix="_sim_y_")
-    sample_file_name = GetYName(self.Y_synth.to_numpy(), purpose="file", prefix="_synth_y_")
-    sim_plot_name = GetYName(self.Y_sim.to_numpy(), purpose="plot", prefix="Simulated y=")
-    sample_plot_name = GetYName(self.Y_synth.to_numpy(), purpose="plot", prefix="Synthetic y=")
+    sim_file_name = GetYName(self.Y_sim, purpose="file", prefix="_sim_y_")
+    sample_file_name = GetYName(self.Y_synth, purpose="file", prefix="_synth_y_")
+    sim_plot_name = GetYName(self.Y_sim, purpose="plot", prefix="Simulated y=")
+    sample_plot_name = GetYName(self.Y_synth, purpose="plot", prefix="Synthetic y=")
 
-
+     # Running plotting functions
     if self.verbose:
       print(f"- Making 1D generation plots")
-    # Running plotting functions
     self._PlotGeneration(
       synth_dps, 
-      synth_dps, 
+      sim_dps, 
       parameters["X_columns"],
       sim_file_name,
       sample_file_name,
       sim_plot_name,
-      sample_plot_name
+      sample_plot_name,
+      transform=False,
+      extra_dir="GenerationTrue1D"
     )
-
+    self._PlotGeneration(
+      synth_dps, 
+      sim_dps, 
+      parameters["X_columns"],
+      sim_file_name,
+      sample_file_name,
+      sim_plot_name,
+      sample_plot_name,
+      transform=True,
+      extra_dir="GenerationTrue1DTransformed"
+    )
 
   def Outputs(self):
     """
@@ -153,12 +184,19 @@ class Generator():
     sim_plot_name,
     synth_plot_name,
     n_bins=40, 
-    transform=False
+    transform=False,
+    extra_dir="",
+    extra_name=""
     ):
+
+    if extra_dir != "":
+      extra_dir = f"{extra_dir}/"
 
     functions_to_apply = []
     if not transform:
       functions_to_apply.append("untransform")
+    else:
+      functions_to_apply += ["untransform","transform"]
 
     synth_hists = {}
 
@@ -185,11 +223,11 @@ class Generator():
 
         if ind == 0:
           synth_hist_uncert_squared = synth_hist_uncert**2
-          sim_hist_uncert_squared = synth_hist_uncert**2
+          sim_hist_uncert_squared = sim_hist_uncert**2
           sim_hist_total = copy.deepcopy(sim_hist)
         else:
           synth_hist_uncert_squared += (synth_hist_uncert**2)
-          sim_hist_uncert_squared += (synth_hist_uncert**2)
+          sim_hist_uncert_squared += (sim_hist_uncert**2)
           sim_hist_total += sim_hist
 
         synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
@@ -201,7 +239,7 @@ class Generator():
         data_name = sim_plot_name, 
         xlabel=col,
         ylabel="Events",
-        name=f"{self.plots_output}/generation_{col}{sim_file_name}{synth_file_name}", 
+        name=f"{self.plots_output}/{extra_dir}generation_{col}{sim_file_name}{synth_file_name}{extra_name}", 
         data_errors=np.sqrt(sim_hist_uncert_squared), 
         stack_hist_errors=np.sqrt(synth_hist_uncert_squared), 
         title_right="",

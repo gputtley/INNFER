@@ -8,10 +8,6 @@
 
 `PreProcess`: Implement discrete to continuous code.
 
-`Yield`: Make a yield function file, you should be able to interchange this for something custom.
-
-`CombinedModel`: Write class to combine models together and incorporate rate parameters.
-
 `Generator`: Write generator class.
 
 `Likelihood`: Write likelihood class.

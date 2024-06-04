@@ -2,6 +2,7 @@ import os
 import copy
 import yaml
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from itertools import product
@@ -57,7 +58,7 @@ class PreProcess():
       options = {
         "wt_name" : "wt",
         "selection" : cfg["preprocess"]["selection"] if "selection" in cfg.keys() else None,
-        "columns" : cfg["variables"] + cfg["pois"] + cfg["nuisances"] + ["wt"]
+        "columns" : cfg["variables"] + cfg["pois"] + cfg["nuisances"] + ["wt"],
       }
     )
 
@@ -94,19 +95,22 @@ class PreProcess():
 
     # Get sum of weights for each unique y combination
     if self.verbose:
-      print("- Finding the total yields of entries for specific Y values")
+      print("- Finding the total yields of entries for specific Y values and writing to file")
     unique_y_combinations = list(product(*unique_y_values.values()))
-    parameters["yield"] = {}
-    parameters["effective_events"] = {}
     if len(parameters["Y_columns"]) != 0:
-      for uc in unique_y_combinations:
+      yield_df = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"])
+      for ind, uc in enumerate(unique_y_combinations):
         selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
-        name = GetYName(uc, purpose="file")
-        parameters["yield"][name] = dp.GetFull(method="sum", extra_sel=selection)
-        parameters["effective_events"][name] = dp.GetFull(method="n_eff", extra_sel=selection)
+        yield_df.loc[ind, "yield"] = dp.GetFull(method="sum", extra_sel=selection)
+        yield_df.loc[ind, "effective_events"] = dp.GetFull(method="n_eff", extra_sel=selection)
     else:
-      parameters["yield"]["all"] = dp.GetFull(method="sum")
-      parameters["effective_events"]["all"] = dp.GetFull(method="n_eff")
+      yield_df = pd.DataFrame([[dp.GetFull(method="sum"), dp.GetFull(method="n_eff")]], columns=["yield","effective_events"])
+
+    parameters["yield_loc"] = f"{self.data_output}/yields.parquet"
+    MakeDirectories(parameters["yield_loc"])
+    table = pa.Table.from_pandas(yield_df, preserve_index=False)
+    pq.write_table(table, parameters["yield_loc"], compression='snappy')
+
 
     # Get standardisation parameters
     if self.verbose:
@@ -127,18 +131,40 @@ class PreProcess():
     for k, v in means.items():
       parameters["standardisation"][k] = {"mean": v, "std": stds[k]}
 
+
+    # Get yields in each one train test val split, this is used for normalisation later
+    if self.verbose:
+      print("- Finding the total yields of entries for specific Y values in every train/test/val splitting")
+    split_yields_dfs = {}
+    unique_y_combinations = list(product(*unique_y_values.values()))
+    for split in ["train","test","val"]:
+      count = 0
+      if len(parameters["Y_columns"]) != 0:
+        split_yields_dfs[split] = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"])
+        for ind, uc in enumerate(unique_y_combinations):
+          selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
+          split_yields_dfs[split].loc[ind, "yield"] = dp.GetFull(
+            method="sum", 
+            extra_sel=selection,
+            functions_to_apply = [
+              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+            ]
+          )
+          count += dp.GetFull(
+            method="count", 
+            extra_sel=selection,
+            functions_to_apply = [
+              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+            ]
+          )
+      else:
+        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"])
+
     # Load and write batches
     # TO DO: Find a way to shuffle the dataset without loading it all into memory
     if self.verbose:
       print("- Making X/Y/wt and train/test/val split datasets and writing them to file")
     dp.parameters = parameters
-
-    # Get yield to scale to
-    total_effective_events = dp.GetFull(method="n_eff")
-    if len(parameters["Y_columns"]) != 0:
-      scale = total_effective_events/len(unique_y_combinations)
-    else:
-      scale = total_effective_events
 
     parameters["file_loc"] = self.data_output
     for data_split in ["train","test","val"]:
@@ -153,7 +179,7 @@ class PreProcess():
         method = None,
         functions_to_apply = [
           partial(self._DoTrainTestValSplit, split=data_split, train_test_val_split=cfg["preprocess"]["train_test_val_split"]),
-          partial(self._DoEqualiseYWeights, Y_columns=parameters["Y_columns"], scale_to=scale),
+          partial(self._DoEqualiseYWeights, yields=split_yields_dfs[data_split], Y_columns=parameters["Y_columns"], scale_to=1.0),
           partial(self._DoDropSpecificYValues, data_split=data_split, train_test_y_vals=cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}, validation_y_vals=cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}),
           "transform",
           partial(self._DoWriteDatasets, X_columns=parameters["X_columns"], Y_columns=parameters["Y_columns"], data_split=data_split)
@@ -226,15 +252,18 @@ class PreProcess():
     else:
       return {"train":train_df, "test":test_df, "val":val_df}
   
-  def _DoEqualiseYWeights(self, df, Y_columns=[], scale_to=10000):
+  def _DoEqualiseYWeights(self, df, yields, Y_columns=[], scale_to=1.0):
     if len(Y_columns) > 0:
       unique_rows = df.loc[:,Y_columns].drop_duplicates()
       for _, ur in unique_rows.iterrows():
+        matching_row = (yields.loc[:,Y_columns] == ur).all(axis=1)
+        sum_weights = float(yields.loc[matching_row,"yield"].iloc[0])
         matching_rows = (df.loc[:,Y_columns] == ur).all(axis=1)
-        sum_weights = float(np.sum(df.loc[matching_rows,"wt"].to_numpy()))
         df.loc[matching_rows,"wt"] = (scale_to / sum_weights) * df.loc[matching_rows,"wt"]
+    else:
+      sum_weights = float(yields.loc[:,"yield"].iloc[0])
+      df.loc[:,"wt"] = (scale_to / sum_weights) * df.loc[:,"wt"]      
     return df
-  
 
   def _DoWriteDatasets(self, df, X_columns=[], Y_columns=[], data_split="train"):
 

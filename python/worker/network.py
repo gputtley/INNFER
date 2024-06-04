@@ -477,6 +477,9 @@ class Network():
 
   def Sample(self, Y, n_events):
 
+    # Remove unneccessary Y components
+    Y = Y.loc[:,self.data_parameters["Y_columns"]]
+
     # Set up Y correctly
     if len(Y) == 1:
       Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns)
