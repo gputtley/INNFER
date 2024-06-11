@@ -178,8 +178,8 @@ class DataProcessor():
 
     self.batch_ind = 0
     self.file_ind = 0
+    out = None
 
-    first_loop = True
     while not self.finished:
 
       # Load batch
@@ -190,135 +190,28 @@ class DataProcessor():
 
       # Run method
       if method == "dataset": # get full dataset
-
-        if first_loop:
-          out = copy.deepcopy(tmp)
-          first_loop = False
-        else:
-          out = pd.concat([out, tmp], axis=0, ignore_index=True)
-
+        out = self._method_dataset(tmp, out)
       elif method == "histogram": # make a histogram from the dataset
-
-        if self.wt_name is None:
-          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning)
-        else:
-          tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning)
-
-        if first_loop:
-          out = [copy.deepcopy(tmp_hist), copy.deepcopy(bins)]
-          first_loop = False
-        else:
-          out[0] += tmp_hist
-
+        out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
       elif method == "histogram_and_uncert": # make a histogram from the dataset
-
-        if self.wt_name is None:
-          tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
-        else:
-          tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
-
-        if first_loop:
-          out = [copy.deepcopy(tmp_hist), copy.deepcopy(tmp_hist_uncert), copy.deepcopy(bins)]
-          first_loop = False
-        else:
-          out[0] += tmp_hist
-          out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
-
-      elif method in ["sum","count"]: # sum up the weights or count events
-
-        if self.wt_name is None or method == "count":
-          tmp_total = len(tmp)
-        else:
-          tmp_total = float(np.sum(tmp.loc[:,self.wt_name]))
-
-        if first_loop:
-          out = copy.deepcopy(tmp_total)
-          first_loop = False
-        else:
-          out += tmp_total
-
+        out = self._method_histogram_and_uncert(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
+      elif method in ["sum"]: # sum up the weights
+        out = self._method_sum(tmp, out, count=False)
+      elif method in ["count"]: # count events
+        out = self._method_sum(tmp, out, count=True)
       elif method == "sum_w2": # sum up the weights or count events
-
-        if self.wt_name is None:
-          tmp_total = len(tmp)
-        else:
-          tmp_total = float(np.sum(tmp.loc[:,self.wt_name]**2))
-
-        if first_loop:
-          out = copy.deepcopy(tmp_total)
-          first_loop = False
-        else:
-          out += tmp_total
-
+        out = self._method_sum_w2(tmp, out)
       elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
-
-        if self.wt_name is None:
-          tmp_total_column = {col : float(np.sum(tmp.loc[:,col])) for col in tmp.columns}
-          tmp_total_wt = len(tmp)
-        else:
-          tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*tmp.loc[:,col])) for col in tmp.columns if col != self.wt_name}
-          tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
-
-        if first_loop:
-          out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
-          first_loop = False
-        else:
-          out = [
-            {col : val + out[0][col] for col, val in tmp_total_column.items()},
-            out[1] + tmp_total_wt
-          ]
-
-      elif method == "std": # find std of columns
-
-        if self.wt_name is None:
-          tmp_total_column = {col : float(np.sum((tmp.loc[:,col] - means[col])**2)) for col in tmp.columns}
-          tmp_total_wt = len(tmp)
-        else:
-          tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*((tmp.loc[:,col] - means[col])**2))) for col in tmp.columns if col != self.wt_name}
-          tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
-
-        if first_loop:
-          out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
-          first_loop = False
-        else:
-          out = [
-            {col : val + out[0][col] for col, val in tmp_total_column.items()},
-            out[1] + tmp_total_wt
-          ]
-
+        out = self._method_sum_columns(tmp, out)
+      elif method == "std": # find partial information for std of columns
+        out = self._method_part_std(tmp, out, means)
       elif method == "unique": # find unique values of a column
-
-        tmp_unique = {}
-        for col in tmp.columns:
-          if col == self.wt_name: continue
-          unique = list(np.unique(tmp.loc[:, col]))
-          if unique is None:
-            tmp_unique[col] = None
-          else:
-            if len(unique) < unique_threshold:
-              tmp_unique[col] = copy.deepcopy(unique)
-            else:
-              tmp_unique[col] = None
-
-        if first_loop:
-          out = copy.deepcopy(tmp_unique)
-          first_loop = False
-        else:
-          for k, v in tmp_unique.items():
-            if v is None or out[k] is None:
-              out[k] = None
-            else:
-              sets = list(set(out[k] + v))
-              if len(sets) < unique_threshold:
-                out[k] = copy.deepcopy(sets)
-              else:
-                out[k] = None
-
-          # Remove tmp from memory
-          del tmp
-
+        out = self._method_unique(tmp, out, unique_threshold=unique_threshold)
       else: 
         out = None
+
+      # Remove tmp from memory
+      del tmp
 
     self.finished = False
 
@@ -429,3 +322,122 @@ class DataProcessor():
         selection = f"({self.selection}) & {extra_sel}"
       data = data.loc[data.eval(selection),:]
     return data
+
+  def _method_dataset(self, tmp, out):
+    if out is None:
+      out = copy.deepcopy(tmp)
+    else:
+      out = pd.concat([out, tmp], axis=0, ignore_index=True)
+    return out
+
+  def _method_histogram(self, tmp, out, column, bins=40, discrete_binning=False):
+    if self.wt_name is None:
+      tmp_hist, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning)
+    else:
+      tmp_hist, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning)
+
+    if out is None:
+      out = [copy.deepcopy(tmp_hist), copy.deepcopy(bins)]
+    else:
+      out[0] += tmp_hist
+    return out
+
+  def _method_histogram_and_uncert(self, tmp, out, column, bins=40, discrete_binning=False):
+    if self.wt_name is None:
+      tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
+    else:
+      tmp_hist, tmp_hist_uncert, bins = CustomHistogram(tmp.loc[:,column], weights=tmp.loc[:,self.wt_name], bins=bins, discrete_binning=discrete_binning, add_uncert=True)
+
+    if out is None:
+      out = [copy.deepcopy(tmp_hist), copy.deepcopy(tmp_hist_uncert), copy.deepcopy(bins)]
+    else:
+      out[0] += tmp_hist
+      out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
+    return out
+
+  def _method_sum(self, tmp, out, count=False):
+    if self.wt_name is None or count:
+      tmp_total = len(tmp)
+    else:
+      tmp_total = float(np.sum(tmp.loc[:,self.wt_name]))
+
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out += tmp_total
+    return out
+
+  def _method_sum_w2(self, tmp, out):
+
+    if self.wt_name is None:
+      tmp_total = len(tmp)
+    else:
+      tmp_total = float(np.sum(tmp.loc[:,self.wt_name]**2))
+
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out += tmp_total
+    return out
+
+  def _method_sum_columns(self, tmp, out):
+    if self.wt_name is None:
+      tmp_total_column = {col : float(np.sum(tmp.loc[:,col])) for col in tmp.columns}
+      tmp_total_wt = len(tmp)
+    else:
+      tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*tmp.loc[:,col])) for col in tmp.columns if col != self.wt_name}
+      tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
+
+    if out is None:
+      out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
+    else:
+      out = [
+        {col : val + out[0][col] for col, val in tmp_total_column.items()},
+        out[1] + tmp_total_wt
+      ]
+    return out
+
+  def _method_part_std(self, tmp, out, means):
+
+    if self.wt_name is None:
+      tmp_total_column = {col : float(np.sum((tmp.loc[:,col] - means[col])**2)) for col in tmp.columns}
+      tmp_total_wt = len(tmp)
+    else:
+      tmp_total_column = {col : float(np.sum(tmp.loc[:,self.wt_name]*((tmp.loc[:,col] - means[col])**2))) for col in tmp.columns if col != self.wt_name}
+      tmp_total_wt = float(np.sum(tmp.loc[:,self.wt_name]))
+
+    if out is None:
+      out = [copy.deepcopy(tmp_total_column), copy.deepcopy(tmp_total_wt)]
+    else:
+      out = [
+        {col : val + out[0][col] for col, val in tmp_total_column.items()},
+        out[1] + tmp_total_wt
+      ]
+    return out
+
+  def _method_unique(self, tmp, out, unique_threshold=20):
+    tmp_unique = {}
+    for col in tmp.columns:
+      if col == self.wt_name: continue
+      unique = list(np.unique(tmp.loc[:, col]))
+      if unique is None:
+        tmp_unique[col] = None
+      else:
+        if len(unique) < unique_threshold:
+          tmp_unique[col] = copy.deepcopy(unique)
+        else:
+          tmp_unique[col] = None
+
+    if out is None:
+      out = copy.deepcopy(tmp_unique)
+    else:
+      for k, v in tmp_unique.items():
+        if v is None or out[k] is None:
+          out[k] = None
+        else:
+          sets = list(set(out[k] + v))
+          if len(sets) < unique_threshold:
+            out[k] = copy.deepcopy(sets)
+          else:
+            out[k] = None
+    return out

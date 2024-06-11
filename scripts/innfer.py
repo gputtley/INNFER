@@ -6,7 +6,9 @@ import yaml
 import copy
 import pyfiglet as pyg
 
-from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateInfo
+#from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateInfo
+from useful_functions import GetScanArchitectures, GetValidateInfo
+from useful_classes import CheckRunAndSubmit
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -22,6 +24,7 @@ def parse_args():
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
+  parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--hyperparameter-scan-metric', help = 'Colon separated metric name and whether you want max or min, separated by a comma.', type = str, default = "chi_squared_test:total,min")
   args = parser.parse_args()
 
@@ -52,11 +55,21 @@ def parse_args():
 
 def main(args):
 
+  # Initiate class that determines whether the relevant loop should be ran, skipped or submitted
+  submit = CheckRunAndSubmit(
+    sys.argv, 
+    submit = args.submit,
+    specific = args.specific,
+    points_per_job = args.points_per_job,
+    dry_run = args.dry_run,
+  )
+
   # Make the benchmark scenario
   if args.step == "MakeBenchmark":
     print("<< Making benchmark inputs >>")
     from make_benchmark import MakeBenchmark
-    run = CheckRunAndSubmit(sys.argv, submit=args.submit, loop = {}, specific = args.specific, job_name = f"jobs/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"jobs/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}")
+    submit.job_name = f"jobs/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"jobs/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}"
+    run = submit.Run(loop = {})
     if run:
       mb = MakeBenchmark()
       mb.Configure({"name" : args.benchmark})
@@ -65,12 +78,13 @@ def main(args):
     # Load in configuration file
     with open(args.cfg, 'r') as yaml_file:
       cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    submit.job_name = f"jobs/{cfg['name']}/innfer_{args.step}"
 
   # PreProcess the dataset
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = submit.Run(loop = {"file_name" : file_name})
       if run:
         print(f"* Running file_name={file_name}")
         from preprocess import PreProcess
@@ -85,12 +99,13 @@ def main(args):
           }
         )
         pp.Run()
+    submit.Sweep()
 
   # Train network
   if args.step == "Train":
     print("<< Training the networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = submit.Run(loop = {"file_name" : file_name})
       if run:
         print(f"* Running file_name={file_name}")
         from train import Train
@@ -105,12 +120,14 @@ def main(args):
           }
         )
         t.Run()
+    submit.Sweep()
+
 
   # Get performance metrics
   if args.step == "PerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = submit.Run(loop = {"file_name" : file_name})
       if run:
         print(f"* Running file_name={file_name}")
         from performance_metrics import PerformanceMetrics
@@ -124,13 +141,15 @@ def main(args):
           }
         )
         pf.Run()
+    submit.Sweep()
+
 
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
     print("<< Running a hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
       for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
-        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+        run = submit.Run(loop = {"file_name" : file_name, "architecture_ind" : architecture_ind})
         if run:
           print(f"* Running file_name={file_name};architecture_ind={architecture_ind}")
           from hyperparameter_scan import HyperparameterScan
@@ -148,12 +167,13 @@ def main(args):
             }
           )
           hs.Run()
+    submit.Sweep()
 
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
     print("<< Collecting hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
-      run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+      run = submit.Run(loop = {"file_name" : file_name})
       if run:
         print(f"* Running file_name={file_name}")
         from hyperparameter_scan_collect import HyperparameterScanCollect
@@ -168,6 +188,7 @@ def main(args):
           }
         )
         hsc.Run()
+    submit.Sweep()
 
 
   # Making plots using the network as a generator for individual Y values
@@ -176,7 +197,7 @@ def main(args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}",cfg)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        run = CheckRunAndSubmit(sys.argv, submit = args.submit, loop = {"file_name" : file_name, "val_ind" : val_ind}, specific = args.specific, job_name = f"jobs/{cfg['name']}/innfer_{args.step}")
+        run = submit.Run(loop = {"file_name" : file_name, "val_ind" : val_ind})
         if run:
           print(f"* Running file_name={file_name};val_ind={val_ind}")
           from generator import Generator
@@ -192,9 +213,11 @@ def main(args):
               "pois" : cfg["pois"],
               "nuisances" : cfg["nuisances"],
               "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator/",
+              "scale_to_yield" : "extended" in args.likelihood_type,
             }
           )
           g.Run()
+    submit.Sweep()
 
 
 if __name__ == "__main__":

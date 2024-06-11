@@ -24,6 +24,7 @@ class Generator():
     self.plots_output = "plots/"
     self.verbose = True
     self.n_synth = 10**6
+    self.scale_to_yield = False
 
   def Configure(self, options):
     """
@@ -95,14 +96,15 @@ class Generator():
       networks[file_name].Load(name=self.model[file_name])
 
       # Make yields function
-      yields = Yields(
-        pd.read_parquet(parameters['yield_loc']), 
-        self.pois, 
-        self.nuisances, 
-        file_name,
-        method=self.yield_function, 
-        column_name="yield"
-      )
+      if self.scale_to_yield:
+        yields = Yields(
+          pd.read_parquet(parameters['yield_loc']), 
+          self.pois, 
+          self.nuisances, 
+          file_name,
+          method=self.yield_function, 
+          column_name="yield"
+        )
 
       # Make data processors
       shape_Y_cols = [col for col in self.Y_sim.columns if "mu_" not in col and col in parameters["Y_columns"]]
@@ -115,7 +117,7 @@ class Generator():
         options = {
           "parameters" : parameters,
           "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-          "scale" : yields.GetYield(self.Y_sim),
+          "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
         }
       )
       synth_dps[file_name] = DataProcessor(
@@ -124,7 +126,7 @@ class Generator():
         n_events = self.n_synth,
         options = {
           "parameters" : parameters,
-          "scale" : yields.GetYield(self.Y_synth),
+          "scale" : yields.GetYield(self.Y_synth) if self.scale_to_yield else 1.0,
         }
       )
 
@@ -238,7 +240,7 @@ class Generator():
         bins, 
         data_name = sim_plot_name, 
         xlabel=col,
-        ylabel="Events",
+        ylabel="Events" if self.scale_to_yield else "Density",
         name=f"{self.plots_output}/{extra_dir}generation_{col}{sim_file_name}{synth_file_name}{extra_name}", 
         data_errors=np.sqrt(sim_hist_uncert_squared), 
         stack_hist_errors=np.sqrt(synth_hist_uncert_squared), 
