@@ -158,23 +158,28 @@ class DataProcessor():
   def GetFull(
       self, 
       method = "dataset", 
-      column = None, 
+      column = None,
+      extra_sel = None,
+      functions_to_apply = [],
       bins = 10, 
       density = False, 
       unique_threshold = 40, 
-      extra_sel = None,
-      functions_to_apply = [],
       discrete_binning = True,
+      quantile = 0.01,
+      ignore_quantile = 0.005,
     ):
 
     if method == "std": # Get the mean for standard deviation calculation
-      sum_cols, sum_wts = self.GetFull(method="sum_columns")
+      sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       means = {k : v/sum_wts for k, v in sum_cols.items()}
-
-    if method == "n_eff": # Get the number of effective events
-      sum_wts_squared = self.GetFull(method="sum_w2")
-      sum_wts = self.GetFull(method="sum")
+    elif method == "n_eff": # Get the number of effective events
+      sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+      sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       return (sum_wts**2)/sum_wts_squared
+    elif method == "bins_with_equal_spacing": # Get equally spaced bins
+      return list(np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1))
+    elif method == "bins_with_equal_stats": # Get equal stat bins
+      return [self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)]
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -189,24 +194,30 @@ class DataProcessor():
       )
 
       # Run method
-      if method == "dataset": # get full dataset
+      if method in ["dataset"]: # get full dataset
         out = self._method_dataset(tmp, out)
-      elif method == "histogram": # make a histogram from the dataset
+      elif method in ["histogram"]: # make a histogram from the dataset
         out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
-      elif method == "histogram_and_uncert": # make a histogram from the dataset
+      elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
         out = self._method_histogram_and_uncert(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
+      elif method in ["histogram_2d"]: # make a histogram from the dataset
+        out = self._method_histogram_2d(tmp, out, column, bins=bins)
+      elif method in ["histogram_2d_and_uncert"]: # make a histogram from the dataset
+        out = self._method_histogram_2d_and_uncert(tmp, out, column, bins=bins)
       elif method in ["sum"]: # sum up the weights
         out = self._method_sum(tmp, out, count=False)
       elif method in ["count"]: # count events
         out = self._method_sum(tmp, out, count=True)
-      elif method == "sum_w2": # sum up the weights or count events
+      elif method in ["sum_w2"]: # sum up the weights or count events
         out = self._method_sum_w2(tmp, out)
       elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
         out = self._method_sum_columns(tmp, out)
-      elif method == "std": # find partial information for std of columns
+      elif method in ["std"]: # find partial information for std of columns
         out = self._method_part_std(tmp, out, means)
-      elif method == "unique": # find unique values of a column
-        out = self._method_unique(tmp, out, unique_threshold=unique_threshold)
+      elif method in ["unique"]: # find unique values of a column
+        out = self._method_unique(tmp, out, unique_threshold)
+      elif method in ["quantile"]: # find a quantile of the dataset
+        out = self._method_part_quantile(tmp, out, column, quantile)
       else: 
         out = None
 
@@ -217,17 +228,16 @@ class DataProcessor():
 
     if method == "mean": # calculate means
       return {k : v/out[1] for k, v in out[0].items()}
-
-    if method == "std": # calculate std
+    elif method == "std": # calculate std
       return {k : float(np.sqrt(v/out[1])) for k, v in out[0].items()}
-
-    if method == "histogram" and density: # normalise histograms
+    elif method == "histogram" and density: # normalise histograms
       sum_wt = np.sum(out[0])
       return out[0]/sum_wt, out[1]
-
-    if method == "histogram_and_uncert" and density: # normalise histograms
+    elif method == "histogram_and_uncert" and density: # normalise histograms
       sum_wt = np.sum(out[0])
       return out[0]/sum_wt, out[1]/sum_wt, out[2]
+    elif method == "quantile": # return only average quantile
+      return out[0]
 
     return out
 
@@ -355,6 +365,34 @@ class DataProcessor():
       out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
     return out
 
+  def _method_histogram_2d(self, tmp, out, column, bins=5):
+    if self.wt_name is None:
+      tmp_hist, binsx, binsy = np.histogram2d(tmp.loc[:,column[0]], tmp.loc[:,column[1]], bins=bins)
+    else:
+      tmp_hist, binsx, binsy = np.histogram2d(tmp.loc[:,column[0]], tmp.loc[:,column[1]], weights=tmp.loc[:,self.wt_name], bins=bins)
+
+    if out is None:
+      out = [copy.deepcopy(tmp_hist), copy.deepcopy((binsx,binsy))]
+    else:
+      out[0] += tmp_hist
+    return out
+
+  def _method_histogram_2d_and_uncert(self, tmp, out, column, bins=5):
+    if self.wt_name is None:
+      tmp_hist, binsx, binsy = np.histogram2d(tmp.loc[:,column[0]], tmp.loc[:,column[1]], bins=bins)
+      tmp_hist_uncert = np.sqrt(tmp_hist)
+    else:
+      tmp_hist, binsx, binsy = np.histogram2d(tmp.loc[:,column[0]], tmp.loc[:,column[1]], weights=tmp.loc[:,self.wt_name], bins=bins)
+      tmp_hist_wt_squared, _, _ = np.histogram2d(tmp.loc[:,column[0]], tmp.loc[:,column[1]], weights=tmp.loc[:,self.wt_name]**2, bins=bins)
+      tmp_hist_uncert = np.sqrt(tmp_hist_wt_squared)
+
+    if out is None:
+      out = [copy.deepcopy(tmp_hist), copy.deepcopy(tmp_hist_uncert), copy.deepcopy((binsx,binsy))]
+    else:
+      out[0] += tmp_hist
+      out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
+    return out
+
   def _method_sum(self, tmp, out, count=False):
     if self.wt_name is None or count:
       tmp_total = len(tmp)
@@ -440,4 +478,32 @@ class DataProcessor():
             out[k] = copy.deepcopy(sets)
           else:
             out[k] = None
+    return out
+
+  def _method_part_quantile(self, tmp, out, column, quantile):
+
+    # Find quantile of batch
+    tmp = tmp.reset_index(drop=True)
+    sorter = np.argsort(tmp.loc[:,column].to_numpy())
+    tmp = tmp.loc[sorter,:]
+    tmp_wt_name = False
+    if self.wt_name is None:
+      tmp_wt_name = True
+      self.wt_name = "wt"
+      tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
+    total = float(np.sum(tmp.loc[:,self.wt_name]))
+    cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
+    closest_index = (cum_sum - quantile).abs().idxmin()
+    interval = float(tmp.loc[closest_index, column])
+    if tmp_wt_name:
+      self.wt_name = None
+
+    # do some averaging
+    if out is None:
+      out = [interval, total]
+    else:
+      out = [
+        (out[0]*out[1] + interval*total)/ (out[1]+total),
+        out[1]+total
+      ]
     return out

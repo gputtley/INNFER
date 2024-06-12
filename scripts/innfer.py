@@ -112,7 +112,7 @@ def main(args):
         t = Train()
         t.Configure(
           {
-            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
             "architecture" : args.architecture,
             "data_output" : f"models/{cfg['name']}/{file_name}",
             "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",

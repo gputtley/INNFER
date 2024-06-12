@@ -112,7 +112,7 @@ def MakeDirectories(file_loc):
     if not os.path.isdir(full_dir): 
       os.system(f"mkdir {full_dir}")
 
-def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True, add_uncert=False, ignore_quantile=0.001):
+def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning=True, add_uncert=False, ignore_quantile=0.0):
   """
   Compute a custom histogram for the given data.
 
@@ -138,7 +138,7 @@ def CustomHistogram(data, weights=None, bins=20, density=False, discrete_binning
       bins = np.sort(unique_vals.to_numpy().flatten())
       bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
 
-    else:
+    elif ignore_quantile > 0.0:
       # Ignore quantiles
       qdown = data.quantile(ignore_quantile)
       qup = data.quantile(1-ignore_quantile)
@@ -567,3 +567,11 @@ def FindEqualStatBins(data, bins=5, sf_diff=2):
     equal_bins = [-np.inf] + equal_bins + [np.inf]
 
     return equal_bins
+
+def RoundToSF(num, sig_figs):
+  if num == 0:
+    return 0
+  else:
+    rounded_number = round(num, sig_figs)
+    decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
+    return round(num, decimal_places)

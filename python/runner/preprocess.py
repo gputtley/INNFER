@@ -301,7 +301,7 @@ class PreProcess():
           "parameters" : parameters
         }
       )
-      for transform in [True, False]:
+      for transform in [False, True]:
         functions_to_apply = []
         if not transform:
           functions_to_apply = ["untransform"]
@@ -310,7 +310,7 @@ class PreProcess():
         for col in parameters["X_columns"]:
           hists = []
           hist_names = []
-          _, bins = dp.GetFull(method="histogram", bins=n_bins, functions_to_apply=functions_to_apply, column=col)
+          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col)
           if len(parameters["Y_columns"]) != 0:
             for uc in sorted(unique_values[vary]):
               selection = f"({vary}=={uc})"
@@ -350,14 +350,15 @@ class PreProcess():
           "parameters" : parameters
         }
       )
-      for transform in [True, False]:
+      for transform in [False, True]:
         functions_to_apply = []
         if not transform:
           functions_to_apply = ["untransform"]
 
         for col in parameters["Y_columns"]:
 
-          hist, bins = dp.GetFull(method="histogram", bins=n_bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
+          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
+          hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
 
           extra_name_for_plot = f"{data_split}"
           if transform:
