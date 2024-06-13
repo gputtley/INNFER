@@ -37,7 +37,7 @@ class DataProcessor():
 
     # Options to run
     self.wt_name = wt_name
-    self.batch_size = 10**5
+    self.batch_size = 10**6
     self.selection = None
     self.columns = None
     self.scale = None

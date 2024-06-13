@@ -8,8 +8,6 @@
 
 `PreProcess`: Implement discrete to continuous code.
 
-`Generator`: Write generator class.
-
 `Likelihood`: Write likelihood class.
 
 `Bootstrap`: Write bootstrap class.

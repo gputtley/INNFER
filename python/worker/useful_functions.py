@@ -438,7 +438,9 @@ def GetValidateLoop(cfg, parameters_file):
   unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
   nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
   unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
-  initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
+  #initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
+  average_pois = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
+  initial_poi_guess = [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(pois))]
   initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
 
   for poi_values in list(product(*unique_values_for_pois)): 
@@ -484,7 +486,8 @@ def GetCombinedValidateLoop(cfg, parameters):
   if "rate_parameters" in cfg["inference"]:
     pois += [f"mu_{rp}" for rp in cfg["inference"]["rate_parameters"]]
     unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in cfg["inference"]["rate_parameters"]]
-    initial_poi_guess += [1.0]*len(pois)
+    average_pois = [sum(uv)/len(uv) for uv in unique_values_for_pois]
+    initial_poi_guess += [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(average_pois))]
 
   for poi in cfg["pois"]:
     pois.append(poi)
@@ -494,7 +497,9 @@ def GetCombinedValidateLoop(cfg, parameters):
       for val in parameters[file]["unique_Y_values"][poi]:
         if val not in unique_values_for_pois[-1]:
           unique_values_for_pois[-1].append(val)
-    initial_poi_guess.append(sum(unique_values_for_pois[-1])/len(unique_values_for_pois[-1]))
+
+    average_poi = sum(unique_values_for_pois[-1])/len(unique_values_for_pois[-1])
+    initial_poi_guess.append(min(unique_values_for_pois[-1], key=lambda x: abs(x - average_poi)))
 
   for nuisance in cfg["nuisances"]:
     nuisances.append(nuisance)

@@ -26,7 +26,7 @@ class Generator():
     self.n_synth = 10**6
     self.scale_to_yield = False
     self.do_1d = True
-    self.do_2d_unrolled = True
+    self.do_2d_unrolled = False
 
   def Configure(self, options):
     """
@@ -38,13 +38,6 @@ class Generator():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def Run(self):
-
-    from data_processor import DataProcessor
-    from network import Network
-    from yields import Yields
-
-
     # Make singular inputs as dictionaries
     combined_model = True
     if isinstance(self.model, str):
@@ -55,11 +48,16 @@ class Generator():
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
 
+  def Run(self):
+
+    from data_processor import DataProcessor
+    from network import Network
+    from yields import Yields
+
     # Loop through and make networks
     networks = {}
     sim_dps = {}
     synth_dps = {}
-    yields = {}
     for file_name in self.model.keys():
 
       # Open parameters
@@ -200,6 +198,27 @@ class Generator():
     Return a list of outputs given by class
     """
     outputs = []
+    file_name = list(self.models.keys())[0]
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    sim_file_name = GetYName(self.Y_sim, purpose="file", prefix="_sim_y_")
+    synth_file_name = GetYName(self.Y_synth, purpose="file", prefix="_synth_y_")
+    if self.do_1d:
+      for col in parameters["X_columns"]:
+        outputs += [
+          f"{self.plots_output}/GenerationTrue1D/generation_{col}{sim_file_name}{synth_file_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1DTransform/generation_{col}{sim_file_name}{synth_file_name}.pdf",
+        ]
+    if self.do_2d_unrolled:
+      for plot_col in parameters["X_columns"]:
+        for unrolled_col in parameters["X_columns"]:
+          if plot_col == unrolled_col: continue
+          outputs += [
+            f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{sim_file_name}{synth_file_name}.pdf", 
+            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{sim_file_name}{synth_file_name}.pdf", 
+          ]
+
     return outputs
 
   def Inputs(self):
@@ -207,7 +226,20 @@ class Generator():
     Return a list of inputs required by class
     """
     inputs = []
-    return inputs
+    for file_name in self.model.keys():
+      with open(self.parameters, 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      inputs += [
+        self.model[file_name],
+        self.architecture[file_name],
+        self.parameters[file_name],
+        f"{parameters['file_loc']}/X_train.parquet",
+        f"{parameters['file_loc']}/Y_train.parquet", 
+        f"{parameters['file_loc']}/wt_train.parquet", 
+        f"{parameters['file_loc']}/X_test.parquet",
+        f"{parameters['file_loc']}/Y_test.parquet", 
+        f"{parameters['file_loc']}/wt_test.parquet",        
+      ]
 
   def _PlotGeneration(
     self, 

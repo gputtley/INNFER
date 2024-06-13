@@ -6,7 +6,6 @@ import yaml
 import copy
 import pyfiglet as pyg
 
-#from useful_functions import CheckRunAndSubmit, GetScanArchitectures, GetValidateInfo
 from useful_functions import GetScanArchitectures, GetValidateInfo
 from useful_classes import CheckRunAndSubmit
 
@@ -14,7 +13,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
@@ -26,6 +25,7 @@ def parse_args():
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--hyperparameter-scan-metric', help = 'Colon separated metric name and whether you want max or min, separated by a comma.', type = str, default = "chi_squared_test:total,min")
+  parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   args = parser.parse_args()
 
   # Check inputs
@@ -214,11 +214,38 @@ def main(args):
               "nuisances" : cfg["nuisances"],
               "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator/",
               "scale_to_yield" : "extended" in args.likelihood_type,
+              "do_2d_unrolled" : args.plot_2d_unrolled,
             }
           )
           g.Run()
     submit.Sweep()
 
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "GeneratorSummary":
+    print("<< Making plots using the network as a generator summarising all Y values >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}",cfg)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      run = submit.Run(loop = {"file_name" : file_name})
+      if run:
+        print(f"* Running file_name={file_name}")
+        from generator_summary import GeneratorSummary
+        gs = GeneratorSummary()
+        gs.Configure(
+          {
+            "val_loop" : val_loop,
+            "parameters" : val_loop_info["parameters"][file_name],
+            "model" : val_loop_info["models"][file_name],
+            "architecture" : val_loop_info["architectures"][file_name],
+            "yield_function" : "default",
+            "pois" : cfg["pois"],
+            "nuisances" : cfg["nuisances"],
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary/",
+            "scale_to_yield" : "extended" in args.likelihood_type,
+            "do_2d_unrolled" : args.plot_2d_unrolled,
+          }
+        )
+        gs.Run()
+    submit.Sweep()
 
 if __name__ == "__main__":
 
@@ -228,7 +255,9 @@ if __name__ == "__main__":
   print(title)
 
   args = parse_args()
-  main(args)
+
+  if args.step != "SnakeMake":
+    main(args)
 
   print("<< Finished running without error >>")
   end_time = time.time()
