@@ -580,3 +580,67 @@ def RoundToSF(num, sig_figs):
     rounded_number = round(num, sig_figs)
     decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
     return round(num, decimal_places)
+
+
+def SetupSnakeMakeFile(args, default_args, main):
+
+  # Define variables
+  clear_file = True
+  rules_all = [
+    "rule all:",
+    "  input:",
+  ]
+  all_lines = []
+  output_line = False
+
+  # Open snakemake config
+  with open(args.snakemake_cfg, 'r') as yaml_file:
+    snakemake_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+  # Make snakemake file
+  args.make_snakemake_inputs = True
+  for step, step_info in snakemake_cfg.items():
+    args.step = step
+    if "submit" in step_info.keys():
+      args.submit = step_info["submit"]
+    if "run_options" in step_info.keys():
+      for arg_name, arg_val in step_info["run_options"].items():
+        setattr(args, arg_name, arg_val)
+
+    # Open config when available
+    if args.cfg is not None and clear_file:
+      with open(args.cfg, 'r') as yaml_file:
+        cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+      if os.path.isfile(snakemake_file):
+        os.system(f"rm {snakemake_file}")
+      clear_file = False
+
+    # Write info to file
+    main(args, default_args)
+
+  # make final outputs
+  with open(args.cfg, 'r') as yaml_file:
+    cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+
+  # Find outputs
+  with open(snakemake_file, 'r') as file:
+    for line in file:
+      line = line.rstrip()
+      all_lines.append(line)
+      if line.startswith("  shell:") or line.startswith("  input:") or line.startswith("  params:") or line == "":
+        output_line = False
+        continue
+      elif line.startswith("  output:"):
+        output_line = True
+        continue
+      if output_line:
+        rules_all.append(line)
+
+  rules = rules_all+[""]+all_lines
+  from batch import Batch
+  b_rules = Batch()
+  b_rules._CreateJob(rules, snakemake_file)   
+
+  # Run snakemake

@@ -38,13 +38,6 @@ class GeneratorSummary():
     for key, value in options.items():
       setattr(self, key, value)
 
-  def Run(self):
-
-    from data_processor import DataProcessor
-    from network import Network
-    from yields import Yields
-
-
     # Make singular inputs as dictionaries
     combined_model = True
     if isinstance(self.model, str):
@@ -54,6 +47,12 @@ class GeneratorSummary():
       self.model = {parameters['file_name'] : self.model}
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
+
+  def Run(self):
+
+    from data_processor import DataProcessor
+    from network import Network
+    from yields import Yields
 
     # Loop through, make networks and make histograms
     networks = {}
@@ -283,3 +282,37 @@ class GeneratorSummary():
         name=f"{self.plots_output}/GenerationSummary/generation_summary_{col}", 
         y_label = y_label
       )
+
+  def Outputs(self):
+    """
+    Return a list of outputs given by class
+    """
+    outputs = []
+    file_name = list(self.model.keys())[0]
+    with open(self.parameters[file_name], 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    for col in parameters["X_columns"]:
+      outputs += [f"{self.plots_output}/GenerationSummary/generation_summary_{col}.pdf"]
+
+    return outputs
+
+  def Inputs(self):
+    """
+    Return a list of inputs required by class
+    """
+    inputs = []
+    for file_name in self.model.keys():
+      with open(self.parameters[file_name], 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      inputs += [
+        self.model[file_name],
+        self.architecture[file_name],
+        self.parameters[file_name],
+        f"{parameters['file_loc']}/X_train.parquet",
+        f"{parameters['file_loc']}/Y_train.parquet", 
+        f"{parameters['file_loc']}/wt_train.parquet", 
+        f"{parameters['file_loc']}/X_test.parquet",
+        f"{parameters['file_loc']}/Y_test.parquet", 
+        f"{parameters['file_loc']}/wt_test.parquet",        
+      ]
+    return inputs

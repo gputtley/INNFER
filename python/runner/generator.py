@@ -198,8 +198,8 @@ class Generator():
     Return a list of outputs given by class
     """
     outputs = []
-    file_name = list(self.models.keys())[0]
-    with open(self.parameters, 'r') as yaml_file:
+    file_name = list(self.model.keys())[0]
+    with open(self.parameters[file_name], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     sim_file_name = GetYName(self.Y_sim, purpose="file", prefix="_sim_y_")
@@ -227,7 +227,7 @@ class Generator():
     """
     inputs = []
     for file_name in self.model.keys():
-      with open(self.parameters, 'r') as yaml_file:
+      with open(self.parameters[file_name], 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
       inputs += [
         self.model[file_name],
@@ -240,6 +240,7 @@ class Generator():
         f"{parameters['file_loc']}/Y_test.parquet", 
         f"{parameters['file_loc']}/wt_test.parquet",        
       ]
+    return inputs
 
   def _PlotGeneration(
     self, 

@@ -119,7 +119,7 @@ class Batch():
     if not self.dry_run:
       os.system(f"condor_submit {self.job_name.replace('.sh','.sub')}")
 
-  def _CreateJob(self, cmd_list, job_name):
+  def _CreateJob(self, cmd_list, job_name, delete_job=True):
     """
     Create a job script with the specified command list.
 
@@ -127,11 +127,16 @@ class Batch():
         cmd_list (list): List of commands to be included in the job script.
     """
     MakeDirectories(job_name)
-    if os.path.exists(job_name): os.system(f'rm {job_name}')
+    if os.path.exists(job_name) and delete_job: os.system(f'rm {job_name}')
     for cmd in cmd_list:
-      os.system(f'echo "{cmd}" >> {job_name}')
+      prep_cmd = cmd.replace('"','\\"')
+      os.system(f'echo "{prep_cmd}" >> {job_name}')
     os.system(f'chmod +x {job_name}' % vars())
-    print("Created job:",job_name)
+    if delete_job:
+      print("Created job:",job_name)
+    else:
+      print("Adding to:",job_name)
+
 
   def _CreateBatchJob(self, cmd_list):
     """
