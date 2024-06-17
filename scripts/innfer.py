@@ -193,7 +193,7 @@ def main(args, default_args):
             "yield_function" : "default",
             "pois" : cfg["pois"],
             "nuisances" : cfg["nuisances"],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator/",
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator",
             "scale_to_yield" : "extended" in args.likelihood_type,
             "do_2d_unrolled" : args.plot_2d_unrolled,
           },
@@ -217,7 +217,7 @@ def main(args, default_args):
           "yield_function" : "default",
           "pois" : cfg["pois"],
           "nuisances" : cfg["nuisances"],
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary/",
+          "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary",
           "scale_to_yield" : "extended" in args.likelihood_type,
           "do_2d_unrolled" : args.plot_2d_unrolled,
         },
@@ -241,10 +241,9 @@ if __name__ == "__main__":
 
   else:
 
-    SetupSnakeMakeFile(args, default_args, main)
-
-    # make final outputs
-    # Run snakemake
+    snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+    os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
+    os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}'")
 
 
   print("<< Finished running without error >>")

@@ -3,7 +3,7 @@ import copy
 import yaml
 import os
 
-from useful_functions import StringToFile
+from useful_functions import StringToFile, CamelToSnake
 from batch import Batch
 
 class Module():
@@ -13,7 +13,6 @@ class Module():
     argv, 
     args,
     default_args,
-    snakemake = None,
     job_name = "job",
     ):
 
@@ -132,7 +131,7 @@ class Module():
       return None
 
     # If it should be not be submit or be used to make a snakemake file then run
-    if self.args.submit is None and (self.snakemake is None or force):
+    if self.args.submit is None and ((not self.snakemake) or force):
 
       # Printing loop
       print(f"* Running {self._MakeSpecificString(loop)}")
@@ -155,7 +154,7 @@ class Module():
     self.extra_names.append(self._MakeExtraNames(loop))
 
     # If snakemake gets inputs and outputs
-    if self.snakemake is not None:
+    if self.snakemake:
       module = importlib.import_module(module_name)
       module_class = getattr(module, class_name)
       class_instance = module_class()
@@ -185,7 +184,7 @@ class Module():
       extra_name = f"{self.extra_names[0]}_to{self.extra_names[-1]}"
 
     # Direct submission
-    if self.args.submit is not None and self.snakemake is None:
+    if self.args.submit is not None and (not self.snakemake):
 
       # Open config
       with open(self.args.submit, 'r') as yaml_file:
@@ -197,7 +196,7 @@ class Module():
       sub.Run()
 
     # Add snakemake information
-    elif self.snakemake is not None:
+    elif self.snakemake:
       # Make job
       job_name = StringToFile(f"{self.job_name}{extra_name}.sh")
       b = Batch(options={"job_name":job_name})
@@ -226,14 +225,22 @@ class Module():
       if "options" in submit_cfg.keys():
         if "extra_lines" in submit_cfg["options"].keys():
           rules += ["  params:"]
+          rules += ["    submit_options=["]
           for extra_line in submit_cfg["options"]["extra_lines"]:
-            rules += [f"    '{extra_line}',"]
+            key = extra_line.split("=")[0].replace(" ","")
+            if not key.startswith("+"):
+              key = CamelToSnake(key)
+            val = extra_line.split("=")[1].replace(" ","")
+            rules += [f"      '{key}={val}',"]
       rules[-1] = rules[-1][:-1]
+      rules += ["    ]"]
 
+      error_name = job_name.replace('.sh','_error.log')
+      output_name = job_name.replace('.sh','_output.log')
       # Write command
       rules += [
         "  shell:",
-        f"    'bash {job_name}'",        
+        f"    'bash {job_name}  > {output_name} 2> {error_name}'",        
       ]
 
       # Write rules

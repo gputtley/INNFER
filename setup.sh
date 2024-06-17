@@ -35,3 +35,16 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   pip3 install hep_ml
   pip3 install random-word
 fi
+
+if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
+  echo "Setting up condor for snakemake"
+  #source miniconda/files/etc/profile.d/conda.sh
+  #conda activate miniconda/files/envs/innfer_env
+  #pip3 install --user htcondor snakemake-executor-plugin-cluster-generic
+  #conda install -c conda-forge -c bioconda python-htcondor snakemake-executor-plugin-cluster-generic
+  #pip3 install cookiecutter
+  mkdir ~/.config/snakemake
+  pushd ~/.config/snakemake
+  cookiecutter https://github.com/gputtley/htcondor.git
+  popd
+fi

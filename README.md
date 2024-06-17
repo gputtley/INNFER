@@ -16,10 +16,6 @@
 
 `Summary`: Write a class to summarise the validation of inference and the asimov.
 
-`Snakemake`: Write snakemake class.
-
-`Snakemake`: Write instructions for snakemake installation.
-
 `MakeParquetFromRoot`: Add the file to make parquet files from root.
 
 `Testing`: Test it works with a nuisance.
@@ -77,13 +73,20 @@ Add stuff
 
 `HyperparameterScanCollect`: This will collect the best performing hyperparameter scan model and copy it and its architecture into the directories required to use that model for the next steps.
 
+`Generator`: This will make plots using the network as a generator and comparing it to the input simulation. By default this will only make 1D plots for every Y value. However, you can make 2d plots with the `--plot-2d-unrolled` option.
+
+`GeneratorSummary`: This will make a summary plot of the comparison between the simulation and using the network as a generator, showing all unique Y values.
+
 ## Snakemake
 
 The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
 
 ```
-INSERT SNAKEMAKE CONDOR SETUP STEPS
+source setup.sh snakemake_condor
 ```
+
+You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible.
+
 To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step=SnakeMake --snakemake-cfg=condor_core.yaml`.
 
 ## Structure of Code

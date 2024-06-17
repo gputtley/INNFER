@@ -208,7 +208,7 @@ class Generator():
       for col in parameters["X_columns"]:
         outputs += [
           f"{self.plots_output}/GenerationTrue1D/generation_{col}{sim_file_name}{synth_file_name}.pdf",
-          f"{self.plots_output}/GenerationTrue1DTransform/generation_{col}{sim_file_name}{synth_file_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{sim_file_name}{synth_file_name}.pdf",
         ]
     if self.do_2d_unrolled:
       for plot_col in parameters["X_columns"]:

@@ -3,7 +3,7 @@ coupling_design: "interleaved"
 permutation: "fixed"
 num_coupling_layers: 10
 # training
-epochs: 3
+epochs: 10
 batch_size: 512
 early_stopping: False
 learning_rate: 0.001

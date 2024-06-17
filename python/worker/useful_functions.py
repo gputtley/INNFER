@@ -1,6 +1,7 @@
 import copy
 import os
 import yaml
+import re
 import pandas as pd
 import numpy as np
 from itertools import product
@@ -600,16 +601,17 @@ def SetupSnakeMakeFile(args, default_args, main):
   # Make snakemake file
   args.make_snakemake_inputs = True
   for step, step_info in snakemake_cfg.items():
-    args.step = step
+    args_copy = copy.deepcopy(args)
+    args_copy.step = step
     if "submit" in step_info.keys():
-      args.submit = step_info["submit"]
+      args_copy.submit = step_info["submit"]
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
-        setattr(args, arg_name, arg_val)
+        setattr(args_copy, arg_name, arg_val)
 
     # Open config when available
-    if args.cfg is not None and clear_file:
-      with open(args.cfg, 'r') as yaml_file:
+    if not args_copy.step in ["MakeBenchmark"] and clear_file:
+      with open(args_copy.cfg, 'r') as yaml_file:
         cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
       snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
       if os.path.isfile(snakemake_file):
@@ -617,10 +619,10 @@ def SetupSnakeMakeFile(args, default_args, main):
       clear_file = False
 
     # Write info to file
-    main(args, default_args)
+    main(args_copy, default_args)
 
   # make final outputs
-  with open(args.cfg, 'r') as yaml_file:
+  with open(args_copy.cfg, 'r') as yaml_file:
     cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
   snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
@@ -629,18 +631,28 @@ def SetupSnakeMakeFile(args, default_args, main):
     for line in file:
       line = line.rstrip()
       all_lines.append(line)
-      if line.startswith("  shell:") or line.startswith("  input:") or line.startswith("  params:") or line == "":
+      if line.startswith("  shell:") or line.startswith("  input:") or line.startswith("  params:") or line.startswith("  threads:") or line == "":
         output_line = False
         continue
       elif line.startswith("  output:"):
         output_line = True
         continue
       if output_line:
-        rules_all.append(line)
+        if "," == line[-1]:
+          rules_all.append(line)
+        else:
+          rules_all.append(line+",")
+  rules_all[-1] = rules_all[-1][:-1]
 
+  # Make snakemake file
   rules = rules_all+[""]+all_lines
   from batch import Batch
   b_rules = Batch()
   b_rules._CreateJob(rules, snakemake_file)   
 
-  # Run snakemake
+  return snakemake_file
+
+def CamelToSnake(name):
+  s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+  s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
+  return s2.lower()
