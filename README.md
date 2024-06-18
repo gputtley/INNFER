@@ -24,6 +24,8 @@
 
 `Other`: Finish README documentation.
 
+`Data` : Implement actually putting in actual data to the repository.
+
 ## Installing Repository and Packages
 
 To import the github repository, clone with the following command.

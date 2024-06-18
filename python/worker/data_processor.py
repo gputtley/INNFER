@@ -124,7 +124,11 @@ class DataProcessor():
       else:
         df = f(df)
     if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
+      print(1)
+      print(df)
       df = self.ApplySelection(df, extra_sel=extra_sel)
+      print(df)
+
 
     # Select the columns
     if self.columns is not None:
@@ -167,6 +171,8 @@ class DataProcessor():
       discrete_binning = True,
       quantile = 0.01,
       ignore_quantile = 0.005,
+      custom = None,
+      custom_options = {},
     ):
 
     if method == "std": # Get the mean for standard deviation calculation
@@ -218,6 +224,8 @@ class DataProcessor():
         out = self._method_unique(tmp, out, unique_threshold)
       elif method in ["quantile"]: # find a quantile of the dataset
         out = self._method_part_quantile(tmp, out, column, quantile)
+      elif method in ["custom"]: # custom function
+        out = custom(tmp, out, options=custom_options)
       else: 
         out = None
 
@@ -261,6 +269,7 @@ class DataProcessor():
     for column_name in data.columns:
       if column_name in self.parameters["standardisation"]:
           data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
+
     return data
 
   def UnTransformData(
@@ -315,6 +324,10 @@ class DataProcessor():
     """
     if column_name in self.parameters["standardisation"]:
       return (column*self.parameters["standardisation"][column_name]["std"]) + self.parameters["standardisation"][column_name]["mean"]
+    elif column_name == "log_prob":
+      return column - np.log(self.parameters["standardisation"][column_name]["std"])
+    elif column_name == "prob":
+      return column/np.log(self.parameters["standardisation"][column_name]["std"])
     else:
       return column
     

@@ -104,7 +104,6 @@ class Network():
 
     # Other
     self.fix_1d = (self.X_train.num_columns == 1)
-    self.probability_store = {}
     self.adaptive_lr_scheduler = None
 
   def _SetOptions(self, options):
@@ -690,3 +689,74 @@ class Network():
     tpr = tpr[sorted_indices]
     auc = roc_curve_auc(fpr, tpr)
     return float(abs(0.5-auc) + 0.5)
+
+  def Probability(self, X, Y, return_log_prob=True):
+
+    # Remove unneccessary Y components
+    Y = Y.loc[:,self.data_parameters["Y_columns"]]
+
+    # Set up Y correctly
+    if len(Y) == 1:
+      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (len(X), 1)), columns=Y.columns)
+    elif len(Y) == 0:
+      Y = pd.DataFrame(np.tile(np.array([]), (len(X), 1)), columns=Y.columns)
+
+    # Transform Y input
+    Y_dp = DataProcessor(
+      [[Y]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    if len(Y.columns) != 0:
+      Y = Y_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["transform"]
+      )
+
+    # Transform X
+    X_dp = DataProcessor(
+      [[X]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    X = X_dp.GetFull(
+      method="dataset",
+      functions_to_apply = ["transform"]
+    )
+
+    # Set up inputs for probability
+    data = {
+      "parameters" : X.loc[:,self.data_parameters["X_columns"]].to_numpy().astype(np.float32),
+      "direct_conditions" : Y.to_numpy().astype(np.float32),
+    }
+
+    # Add zeros column onto 1d datasets - need to add integral aswell
+    if self.fix_1d:
+      data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
+
+    # Get probability
+    log_prob = pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"])
+
+    # Untransform probability
+    prob_dp = DataProcessor(
+      [[log_prob]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    if len(Y.columns) != 0:
+      log_prob = prob_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["untransform"]
+      ) 
+
+    # return probability
+    if return_log_prob:
+      return log_prob.to_numpy()
+    else:
+      return np.exp(log_prob.to_numpy())

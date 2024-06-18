@@ -14,9 +14,9 @@ def parse_args():
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--snakemake-cfg', help = 'Config for running with snakemake', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InferInitialFit", "InferScan", "InferCollect", "InferPlot", "InferSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "Scan", "CollectScan", "PlotScan", "PlotSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
-  parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Generator and Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
+  parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
   parser.add_argument('--submit', help = 'Batch to submit to', type = str, default = None)
   parser.add_argument('--architecture', help = 'Config for running', type = str, default = "configs/architecture/default.yaml")
@@ -203,9 +203,8 @@ def main(args, default_args):
   # Making plots using the network as a generator for individual Y values
   if args.step == "GeneratorSummary":
     print("<< Making plots using the network as a generator summarising all Y values >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}",cfg)
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
-      if len(val_loop) == 1: continue
       module.Run(
         module_name = "generator_summary",
         class_name = "GeneratorSummary",
@@ -223,6 +222,34 @@ def main(args, default_args):
         },
         loop = {"file_name" : file_name},
       )
+
+  # Run initial fits from a full dataset
+  if args.step == "InitialFit":
+    print(f"<< Running initial fits for the {args.data_type} dataset >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "infer",
+          class_name = "Infer",
+          config = {
+            "method" : "InitialFit",
+            "true_Y" : val_info["row"],
+            "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+            "data_type" : args.data_type,
+            "parameters" : val_loop_info["parameters"][file_name],
+            "model" : val_loop_info["models"][file_name],
+            "architecture" : val_loop_info["architectures"][file_name],
+            "yield_function" : "default",
+            "pois" : cfg["pois"],
+            "nuisances" : cfg["nuisances"],
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary",
+            "likelihood_type" : args.likelihood_type,
+            "inference_options" : cfg["inference"] if file_name == "combined" else {},
+            "resample" : False,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
 
   module.Sweep()
 

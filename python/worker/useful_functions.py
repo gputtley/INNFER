@@ -439,7 +439,6 @@ def GetValidateLoop(cfg, parameters_file):
   unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
   nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
   unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
-  #initial_poi_guess = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
   average_pois = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
   initial_poi_guess = [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(pois))]
   initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
@@ -529,7 +528,8 @@ def GetCombinedValidateLoop(cfg, parameters):
   return val_loop
 
 
-def GetValidateInfo(preprocess_loc, models_loc, cfg):
+def GetValidateInfo(preprocess_loc, models_loc, cfg, data_type="sim", skip_empty_Y=False):
+
   parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in cfg["files"].keys()}
   loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
   val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
@@ -540,12 +540,25 @@ def GetValidateInfo(preprocess_loc, models_loc, cfg):
     parameters["combined"] = copy.deepcopy(parameters)
     models["combined"] = copy.deepcopy(models)
     architectures["combined"] = copy.deepcopy(architectures)
-  info = {
-    "val_loops" : val_loops,
-    "parameters" : parameters,
-    "models" : models,
-    "architectures" : architectures,
-  }
+
+  if skip_empty_Y and data_type != "data":
+    val_loops = {k : v for k, v in val_loops.items() if len(list(v[0]["row"].columns)) > 0}
+
+  if data_type in ["sim", "asimov"]:
+    info = {
+      "val_loops" : val_loops,
+      "parameters" : parameters,
+      "models" : models,
+      "architectures" : architectures,
+    }
+  elif data_type in ["data"]:
+    info = {
+      "val_loops" : {"combined": [{"row" : None, "initial_best_fit_guess" : val_loops["combined"][0]["initial_best_fit_guess"]}]},
+      "parameters" : {"combined" : parameters["combined"]},
+      "models" : {"combined" : models["combined"]},
+      "architectures" : {"combined" : architectures["combined"]},
+    }
+
   return info
 
 def FindEqualStatBins(data, bins=5, sf_diff=2):
