@@ -1,7 +1,10 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import yaml
 import copy
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from functools import partial
 
 from useful_functions import GetYName
@@ -25,8 +28,12 @@ class Generator():
     self.verbose = True
     self.n_synth = 10**6
     self.scale_to_yield = False
+    self.scale_to_eff_events = False
     self.do_1d = True
     self.do_2d_unrolled = False
+    self.seed = 42
+    self.data_type = "sim"
+    self.extra_name = ""
 
   def Configure(self, options):
     """
@@ -47,6 +54,9 @@ class Generator():
       self.model = {parameters['file_name'] : self.model}
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
+
+    if self.extra_name != "":
+      self.extra_name = f"_{self.extra_name}"
 
   def Run(self):
 
@@ -103,13 +113,43 @@ class Generator():
           self.nuisances, 
           file_name,
           method=self.yield_function, 
-          column_name="yield"
+          column_name="yield" if not self.scale_to_eff_events else "effective_events"
         )
 
       # Make data processors
       shape_Y_cols = [col for col in self.Y_sim.columns if "mu_" not in col and col in parameters["Y_columns"]]
       if self.verbose:
         print(f"- Making data processor for {file_name}")
+
+      if self.data_type == "sim":
+
+        sim_dps[file_name] = DataProcessor(
+          [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
+          "parquet",
+          wt_name = "wt",
+          options = {
+            "parameters" : parameters,
+            "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
+            "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
+          }
+        )
+
+      elif self.data_type == "asimov":
+
+        sim_dps[file_name] = DataProcessor(
+          [[partial(networks[file_name].Sample, self.Y_sim)]],
+          "generator",
+          n_events = self.n_synth,
+          options = {
+            "parameters" : parameters,
+            "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
+          }
+        )
+
+      elif self.data_type == "data":
+
+        print("Still need to implement data")
+
       sim_dps[file_name] = DataProcessor(
         [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
         "parquet",
@@ -151,7 +191,8 @@ class Generator():
         sim_plot_name,
         sample_plot_name,
         transform=False,
-        extra_dir="GenerationTrue1D"
+        extra_dir="GenerationTrue1D",
+        extra_name=self.extra_name,
       )
       self._PlotGeneration(
         synth_dps, 
@@ -162,7 +203,8 @@ class Generator():
         sim_plot_name,
         sample_plot_name,
         transform=True,
-        extra_dir="GenerationTrue1DTransformed"
+        extra_dir="GenerationTrue1DTransformed",
+        extra_name=self.extra_name,
       )
 
     if self.do_2d_unrolled:
@@ -178,7 +220,8 @@ class Generator():
         sim_plot_name,
         sample_plot_name,
         transform=False,
-        extra_dir="GenerationTrue2DUnrolled"
+        extra_dir="GenerationTrue2DUnrolled",
+        extra_name=self.extra_name,
       )
 
       self._Plot2DUnrolledGeneration(
@@ -190,7 +233,8 @@ class Generator():
         sim_plot_name,
         sample_plot_name,
         transform=True,
-        extra_dir="GenerationTrue2DUnrolledTransformed"
+        extra_dir="GenerationTrue2DUnrolledTransformed",
+        extra_name=self.extra_name,
       )
 
   def Outputs(self):
@@ -207,16 +251,16 @@ class Generator():
     if self.do_1d:
       for col in parameters["X_columns"]:
         outputs += [
-          f"{self.plots_output}/GenerationTrue1D/generation_{col}{sim_file_name}{synth_file_name}.pdf",
-          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{sim_file_name}{synth_file_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_name}.pdf",
         ]
     if self.do_2d_unrolled:
       for plot_col in parameters["X_columns"]:
         for unrolled_col in parameters["X_columns"]:
           if plot_col == unrolled_col: continue
           outputs += [
-            f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{sim_file_name}{synth_file_name}.pdf", 
-            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{sim_file_name}{synth_file_name}.pdf", 
+            f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_name}.pdf", 
+            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_name}.pdf", 
           ]
 
     return outputs
@@ -282,6 +326,8 @@ class Generator():
           )
 
         # Make histograms
+        tf.random.set_seed(self.seed)
+        tf.keras.utils.set_random_seed(self.seed)
         synth_hist, synth_hist_uncert, bins = synth_dps[file_name].GetFull(
           method = "histogram_and_uncert",
           functions_to_apply = functions_to_apply,
@@ -289,6 +335,8 @@ class Generator():
           column = col,
           )
 
+        tf.random.set_seed(self.seed)
+        tf.keras.utils.set_random_seed(self.seed)
         sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
           method = "histogram_and_uncert",
           functions_to_apply = functions_to_apply,
@@ -314,7 +362,7 @@ class Generator():
         data_name = sim_plot_name, 
         xlabel=col,
         ylabel="Events" if self.scale_to_yield else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_{col}{sim_file_name}{synth_file_name}{extra_name}", 
+        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}", 
         data_errors=np.sqrt(sim_hist_uncert_squared), 
         stack_hist_errors=np.sqrt(synth_hist_uncert_squared), 
         title_right="",
@@ -375,6 +423,8 @@ class Generator():
         for ind, file_name in enumerate(synth_dps.keys()):
 
           # Make histograms
+          tf.random.set_seed(self.seed)
+          tf.keras.utils.set_random_seed(self.seed)
           synth_hist, synth_hist_uncert, bins = synth_dps[file_name].GetFull(
             method = "histogram_2d_and_uncert",
             functions_to_apply = functions_to_apply,
@@ -382,6 +432,8 @@ class Generator():
             column = [unrolled_col, plot_col],
             )
 
+          tf.random.set_seed(self.seed)
+          tf.keras.utils.set_random_seed(self.seed)
           sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
             method = "histogram_2d_and_uncert",
             functions_to_apply = functions_to_apply,
@@ -409,7 +461,7 @@ class Generator():
           data_name = sim_plot_name, 
           xlabel=plot_col,
           ylabel="Events" if self.scale_to_yield else "Density",
-          name=f"{self.plots_output}/{extra_dir}generation_unrolled_2d_{plot_col}_{unrolled_col}{sim_file_name}{synth_file_name}{extra_name}", 
+          name=f"{self.plots_output}/{extra_dir}generation_unrolled_2d_{plot_col}_{unrolled_col}{extra_name}", 
           data_hists_errors=np.sqrt(sim_hist_uncert_squared), 
           stack_hists_errors=np.sqrt(synth_hist_uncert_squared), 
           title_right="",

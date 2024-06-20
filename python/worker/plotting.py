@@ -148,7 +148,7 @@ def plot_stacked_histogram_with_ratio(
     if ind == 0:
       bottom = None
     else:
-       bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
+      bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
 
     ax1.bar(
        bin_edges[:-1], 
@@ -474,4 +474,91 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf", bbox_inches='tight')
+  plt.close()
+
+def plot_likelihood(
+    x, 
+    y, 
+    crossings, 
+    name="lkld", 
+    xlabel="", 
+    true_value=None, 
+    cap_at=9, 
+    other_lklds={}, 
+    label=None, 
+    title_right=""
+  ):
+  """
+  Plot likelihood curve.
+
+  Parameters:
+      x (array-like): X-axis values.
+      y (array-like): Y-axis values.
+      crossings (dict): Dictionary containing special points in the likelihood curve.
+      name (str, optional): Name of the output file (without extension). Defaults to "lkld".
+      xlabel (str, optional): Label for the x-axis.
+      true_value (float, optional): True value to be marked on the plot.
+      cap_at (float, optional): Cap the y-axis at this value. Defaults to 9.
+      other_lklds (dict, optional): Additional likelihood curves to be overlaid.
+      label (str, optional): Label for the likelihood curve.
+      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
+  """
+  if cap_at != None:
+    sel_inds = []
+    x_plot = []
+    y_plot = []
+    for ind, i in enumerate(y):
+      if i < cap_at:
+        x_plot.append(x[ind])
+        y_plot.append(i)
+        sel_inds.append(ind)
+    x = x_plot
+    y = y_plot
+    y_max = cap_at
+  else:
+    y_max = max(y)
+    sel_inds = range(len(y))
+
+  fig, ax = plt.subplots()
+  hep.cms.text("Work in progress",ax=ax)
+  plt.plot(x, y, label=label)
+
+  colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
+  color_ind = 0
+  for k, v in other_lklds.items():
+    plt.plot(v[0], v[1], label=k, color=colors[color_ind])
+    color_ind += 1
+
+  if true_value != None:
+    plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
+
+    ax.text(1.0, 1.0, title_right,
+        verticalalignment='bottom', horizontalalignment='right',
+        transform=ax.transAxes)
+
+  if -1 in crossings.keys():  
+    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
+  if -2 in crossings.keys():  
+    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
+  if 1 in crossings.keys():  
+    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
+  if 2 in crossings.keys():  
+    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
+  plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
+  plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
+  
+  if label is not None:
+    plt.legend(loc='upper right')
+
+  if -1 in crossings.keys() and 1 in crossings.keys():
+    text = f'Result: {round(crossings[0],2)} + {round(crossings[1]-crossings[0],2)} - {round(crossings[0]-crossings[-1],2)}'
+    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left')
+
+  plt.xlim(x[0],x[-1])
+  plt.ylim(0,y_max)
+  plt.xlabel(xlabel)
+  plt.ylabel(r'$-2\Delta \ln L$')
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig("{}.pdf".format(name))
   plt.close()

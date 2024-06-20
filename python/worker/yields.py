@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -24,7 +25,10 @@ class Yields():
     if not return_matching:
       return matching.any().iloc[0]
     else:
-      return matching.index
+      if len(list(matching.columns)) == 0:
+        return matching.index.to_list()
+      else:
+        return matching[matching[matching.columns[0]]].index.to_list()
 
 
   def GetYield(self, Y):
@@ -51,7 +55,11 @@ class Yields():
     if self.method == "default":
       if len(self.shape_pois) > 1:
         raise ValueError('Default model only works for 0 or 1 shape POIs. Please write your own yield function for your case.')
-      return self.rate_scale * self.Default(Y)
+      yield_from_interp = self.Default(Y)
+      if yield_from_interp is not None:  
+        return self.rate_scale * yield_from_interp
+      else:
+        return np.nan
 
   def Default(self, Y):
 
@@ -64,20 +72,20 @@ class Yields():
     index = np.searchsorted(sorted(poi_vals.to_numpy().flatten()), Y.loc[:,self.shape_pois].iloc[0])
     if (index == 0) or (index == len(poi_vals)): 
       return None
-    min_val = poi_vals[index-1]
-    max_val = poi_val[index]
+    min_val = poi_vals.to_numpy().flatten()[index-1]
+    max_val = poi_vals.to_numpy().flatten()[index]
     min_Y = copy.deepcopy(Y)
     max_Y = copy.deepcopy(Y)
     min_Y.loc[:,self.shape_pois] = min_val
     max_Y.loc[:,self.shape_pois] = max_val
 
-    # If nuisances, do nuisance interpolation]
+    # If nuisances, do nuisance interpolation
     min_Y_yield = self.NuisanceInterpolation(min_Y)
     max_Y_yield = self.NuisanceInterpolation(max_Y)
 
     # Interpolate pois
-    f = interp1d([min_val, max_val], [min_Y_yield, max_Y_yield])
-    return f(Y.loc[:,self.shape_pois].iloc[0])
+    f = interp1d([min_val[0], max_val[0]], [min_Y_yield, max_Y_yield])
+    return f(Y.loc[:,self.shape_pois].iloc[0])[0]
 
 
   def NuisanceInterpolation(self, Y):
@@ -85,7 +93,7 @@ class Yields():
     # Get nominal yield (where nuisances parameters are zero)
     nominal_values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(self.nuisances)], columns = self.shape_pois + self.nuisances)
     matched_rows = self._CheckIfInDataFrame(nominal_values_to_match, self.yield_dataframe, return_matching=True)
-    nominal = self.yield_dataframe[matched_rows, self.column_name].iloc[0]
+    nominal = self.yield_dataframe.loc[matched_rows, self.column_name].iloc[0]
 
     # Set this to the initial total yield
     total_yield = copy.deepcopy(nominal)

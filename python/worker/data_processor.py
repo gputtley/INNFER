@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 from data_loader import DataLoader
-from useful_functions import CustomHistogram
+from useful_functions import CustomHistogram, Resample
 
 class DataProcessor():
 
@@ -41,6 +41,8 @@ class DataProcessor():
     self.selection = None
     self.columns = None
     self.scale = None
+    self.resample = False
+    self.resampling_seed = 1
 
     # Transform options
     self.parameters = {}
@@ -98,7 +100,7 @@ class DataProcessor():
       if self.dataset_type == "dataset":
         tmp = self.datasets[self.file_ind][column_ind]
       elif self.dataset_type == "generator":
-        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind])
+        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind]) # Need to evolve the seed, should be able to set seeds in list and sample through them each time
       elif self.dataset_type == "parquet":
         tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
 
@@ -124,11 +126,7 @@ class DataProcessor():
       else:
         df = f(df)
     if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
-      print(1)
-      print(df)
       df = self.ApplySelection(df, extra_sel=extra_sel)
-      print(df)
-
 
     # Select the columns
     if self.columns is not None:
@@ -143,6 +141,13 @@ class DataProcessor():
       else:
         df.loc[:, self.wt_name] = scale
        
+    # Resample
+    if self.resample and self.wt_name is not None:
+      columns_without_weights = list(df.columns)
+      columns_without_weights.remove(self.wt_name)
+      data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=int(np.floor(np.sum(df.loc[:,self.wt_name].to_numpy()))), seed=self.resampling_seed)
+      df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name])
+
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
       

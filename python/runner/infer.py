@@ -1,5 +1,6 @@
 import yaml
 import pandas as pd
+import numpy as np
 from functools import partial
 
 from data_processor import DataProcessor
@@ -24,12 +25,22 @@ class Infer():
     self.inference_options = {}
     self.yield_function = "default",
     self.data_type = "sim"
+    self.data_input = "data"
     self.data_output = "data"
     self.likelihood_type = "unbinned_extended"
     self.resample = False
     self.resampling_seed = 1
     self.verbose = True
     self.n_asimov_events = 10**6
+    self.minimisation_method = "nominal"
+    self.freeze = {}
+    self.extra_file_name = ""
+    self.scale_to_eff_events = False
+    self.column = None
+    self.scan_value = None
+    self.scan_ind = None
+    self.sigma_between_scan_points = 0.4
+    self.number_of_scan_points = 17
 
   def Configure(self, options):
     """
@@ -51,6 +62,10 @@ class Infer():
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
 
+    if self.extra_file_name != "":
+      self.extra_file_name = f"_{self.extra_file_name}"
+
+
   def Run(self):
 
     lkld = self._BuildLikelihood()
@@ -60,15 +75,74 @@ class Infer():
 
       if self.verbose:
         if self.data_type != "data":
-          print(f"- Performing initial fit for the dataframe on data type {self.data_type}:")
+          print(f"- Performing an initial fit for the dataframe on data type {self.data_type}:")
           print(self.true_Y)
         else:
-          print(f"- Performing initial fit on data")
+          print(f"- Performing an initial fit on data")
+        print("- Likelihood output:")
 
-      for v in [167.0,168.0,169.0,170.0,171.0,172.0,173.0]:
-        lkld.Run(dps.values(), pd.DataFrame([[v]], columns=["true_mass"]))
+      lkld.GetAndWriteBestFitToYaml(
+        dps.values(), 
+        self.initial_best_fit_guess, 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/best_fit{self.extra_file_name}.yaml", 
+        minimisation_method=self.minimisation_method, 
+        freeze=self.freeze,
+      )
 
+    elif self.method == "ScanPoints":
 
+      if self.verbose:
+        print(f"- Loading best fit into likelihood")
+
+      # Open best fit yaml
+      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      lkld.best_fit = np.array(best_fit_info["best_fit"])
+      lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+
+      if self.verbose:
+        print(f"- Finding values to perform the scan")
+        print("- Likelihood output:")
+
+      # Make scan ranges
+      lkld.GetAndWriteScanRangesToYaml(
+        dps.values(), 
+        self.column,
+        row=self.true_Y,
+        estimated_sigmas_shown=((self.number_of_scan_points-1)/2)*self.sigma_between_scan_points, 
+        estimated_sigma_step=self.sigma_between_scan_points,
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"
+      )
+
+    elif self.method == "Scan":
+
+      if self.verbose:
+        print(f"- Loading best fit into likelihood")
+
+      # Open best fit yaml
+      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      lkld.best_fit = np.array(best_fit_info["best_fit"])
+      lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+
+      if self.verbose:
+        print(f"- Performing likelihood profiling")
+        print(f"- Likelihood output:")
+
+      lkld.GetAndWriteScanToYaml(
+        dps.values(), 
+        self.column, 
+        self.scan_value, 
+        row=self.true_Y, 
+        freeze=self.freeze, 
+        filename=f"{self.data_output}/scan_values_{self.column}{self.extra_file_name}_{self.scan_ind}.yaml", 
+        minimisation_method=self.minimisation_method
+      )
 
   def Outputs(self):
     outputs = []
@@ -94,6 +168,8 @@ class Infer():
             "parameters" : lkld.data_parameters[file_name],
             "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
             "scale" : lkld.models["yields"][file_name](self.true_Y),
+            "resample" : self.resample,
+            "resampling_seed" : self.resampling_seed,
           }
         )
 
@@ -130,7 +206,7 @@ class Infer():
         self.nuisances, 
         k,
         method=self.yield_function, 
-        column_name="yield"
+        column_name="yield" if not self.scale_to_eff_events else "effective_events"
       )
       yields[k] = yields_class.GetYield
 

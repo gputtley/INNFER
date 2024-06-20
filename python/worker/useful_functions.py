@@ -669,3 +669,15 @@ def CamelToSnake(name):
   s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
   s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
   return s2.lower()
+
+def GetDictionaryEntryFromYaml(file_name, keys):
+  if os.path.isfile(file_name):
+    with open(file_name, 'r') as yaml_file: 
+      entry = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  else:
+    return None
+
+  for key in keys:
+    entry = entry[key]
+
+  return entry

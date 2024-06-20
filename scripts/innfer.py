@@ -4,9 +4,10 @@ import os
 import sys
 import yaml
 import copy
+import pandas as pd
 import pyfiglet as pyg
 
-from useful_functions import GetScanArchitectures, GetValidateInfo, SetupSnakeMakeFile
+from useful_functions import GetScanArchitectures, GetValidateInfo, SetupSnakeMakeFile, GetDictionaryEntryFromYaml
 from module import Module
 
 def parse_args():
@@ -14,7 +15,7 @@ def parse_args():
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--snakemake-cfg', help = 'Config for running with snakemake', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "Scan", "CollectScan", "PlotScan", "PlotSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapInitialFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "ScanPoints", "Scan", "ScanCollect", "ScanPlot", "BestFitDistributions", "PlotSummary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
@@ -28,6 +29,12 @@ def parse_args():
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--hyperparameter-scan-metric', help = 'Colon separated metric name and whether you want max or min, separated by a comma.', type = str, default = "chi_squared_test:total,min")
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
+  parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
+  parser.add_argument('--extra-infer-dir-name', help= 'Add extra name to infer step data output directory', type=str, default="")
+  parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrap initial fits to run', type=int, default=50)
+  parser.add_argument('--sigma-between-scan-points', help= 'The estimated unprofiled sigma between the scanning points', type=float, default=0.4)
+  parser.add_argument('--number-of-scan-points', help= 'The number of scan points run', type=int, default=17)
+  parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
@@ -193,9 +200,11 @@ def main(args, default_args):
             "yield_function" : "default",
             "pois" : cfg["pois"],
             "nuisances" : cfg["nuisances"],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator",
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator{args.extra_infer_dir_name}",
             "scale_to_yield" : "extended" in args.likelihood_type,
+            "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
+            "extra_name" : str(val_ind),
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -216,8 +225,9 @@ def main(args, default_args):
           "yield_function" : "default",
           "pois" : cfg["pois"],
           "nuisances" : cfg["nuisances"],
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary",
+          "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary{args.extra_infer_dir_name}",
           "scale_to_yield" : "extended" in args.likelihood_type,
+          "scale_to_eff_events" : args.scale_to_eff_events,
           "do_2d_unrolled" : args.plot_2d_unrolled,
         },
         loop = {"file_name" : file_name},
@@ -243,13 +253,234 @@ def main(args, default_args):
             "yield_function" : "default",
             "pois" : cfg["pois"],
             "nuisances" : cfg["nuisances"],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary",
+            "data_output" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
             "likelihood_type" : args.likelihood_type,
             "inference_options" : cfg["inference"] if file_name == "combined" else {},
             "resample" : False,
+            "scale_to_eff_events" : args.scale_to_eff_events,
+            "extra_file_name" : str(val_ind),
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
+
+  # Find sensible scan points
+  if args.step == "ScanPoints":
+    print(f"<< Finding points to scan over >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              "method" : "ScanPoints",
+              "true_Y" : val_info["row"],
+              "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+              "data_type" : args.data_type,
+              "parameters" : val_loop_info["parameters"][file_name],
+              "model" : val_loop_info["models"][file_name],
+              "architecture" : val_loop_info["architectures"][file_name],
+              "yield_function" : "default",
+              "pois" : cfg["pois"],
+              "nuisances" : cfg["nuisances"],
+              "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+              "data_output" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}",
+              "likelihood_type" : args.likelihood_type,
+              "inference_options" : cfg["inference"] if file_name == "combined" else {},
+              "resample" : False,
+              "scale_to_eff_events" : args.scale_to_eff_events,
+              "column" : column,
+              "sigma_between_scan_points" : args.sigma_between_scan_points,
+              "number_of_scan_points" : args.number_of_scan_points,
+              "extra_file_name" : str(val_ind),
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
+          )
+
+  # Run profiled likelihood scan
+  if args.step == "Scan":
+    print(f"<< Running profiled likelihood scans >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          for scan_ind in range(args.number_of_scan_points):
+            module.Run(
+              module_name = "infer",
+              class_name = "Infer",
+              config = {
+                "method" : "Scan",
+                "true_Y" : val_info["row"],
+                "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+                "data_type" : args.data_type,
+                "parameters" : val_loop_info["parameters"][file_name],
+                "model" : val_loop_info["models"][file_name],
+                "architecture" : val_loop_info["architectures"][file_name],
+                "yield_function" : "default",
+                "pois" : cfg["pois"],
+                "nuisances" : cfg["nuisances"],
+                "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+                "data_output" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}",
+                "likelihood_type" : args.likelihood_type,
+                "inference_options" : cfg["inference"] if file_name == "combined" else {},
+                "resample" : False,
+                "scale_to_eff_events" : args.scale_to_eff_events,
+                "column" : column,
+                "scan_value" : GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
+                "scan_ind" : str(scan_ind),
+                "extra_file_name" : str(val_ind),
+              },
+              loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
+            )
+
+  # Collect likelihood scan
+  if args.step == "ScanCollect":
+    print(f"<< Collecting likelihood scan results >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          module.Run(
+            module_name = "scan_collect",
+            class_name = "ScanCollect",
+            config = {
+              "number_of_scan_points" : args.number_of_scan_points,
+              "column" : column,
+              "data_input" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}",
+              "data_output" : f"data/{cfg['name']}/{file_name}/ScanCollect{args.extra_infer_dir_name}", 
+              "extra_file_name" : str(val_ind),
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
+          )
+
+
+  # Plot likelihood scan
+  if args.step == "ScanPlot":
+    print(f"<< Plot likelihood scan >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          module.Run(
+            module_name = "scan_plot",
+            class_name = "ScanPlot",
+            config = {
+              "column" : column,
+              "data_input" : f"data/{cfg['name']}/{file_name}/ScanCollect{args.extra_infer_dir_name}",
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/ScanPlot{args.extra_infer_dir_name}", 
+              "extra_file_name" : str(val_ind),
+              "other_input" : {other_input.split(':')[0] : f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")},
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
+          )
+
+  # Bootstrap initial fits
+  if args.step == "BootstrapInitialFits":
+    print(f"<< Bootstrapping the initial fits >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for bootstrap_ind in range(args.number_of_bootstraps):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              "method" : "InitialFit",
+              "true_Y" : val_info["row"],
+              "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+              "data_type" : args.data_type,
+              "parameters" : val_loop_info["parameters"][file_name],
+              "model" : val_loop_info["models"][file_name],
+              "architecture" : val_loop_info["architectures"][file_name],
+              "yield_function" : "default",
+              "pois" : cfg["pois"],
+              "nuisances" : cfg["nuisances"],
+              "data_output" : f"data/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}",
+              "likelihood_type" : args.likelihood_type,
+              "inference_options" : cfg["inference"] if file_name == "combined" else {},
+              "resample" : True,
+              "resampling_seed" : bootstrap_ind,
+              "scale_to_eff_events" : args.scale_to_eff_events,
+              "extra_file_name" : f"{val_ind}_{bootstrap_ind}",
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "bootstrap_ind": bootstrap_ind},
+        )
+
+  # Collect boostrapped fits
+  if args.step == "BootstrapCollect":
+    print(f"<< Collecting the initial fits >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "bootstrap_collect",
+          class_name = "BootstrapCollect",
+          config = {
+            "number_of_bootstraps" : args.number_of_bootstraps,
+            "columns" : list(val_info["initial_best_fit_guess"].columns),
+            "data_input" : f"data/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/BootstrapCollect{args.extra_infer_dir_name}",
+            "extra_file_name" : f"{val_ind}",
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
+  # Plot the boostrapped fits
+  if args.step == "BootstrapPlot":
+    print(f"<< Plot the bootstrapped fits >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          module.Run(
+            module_name = "bootstrap_plot",
+            class_name = "BootstrapPlot",
+            config = {
+              "column" : column,
+              "data_input" : f"data/{cfg['name']}/{file_name}/BootstrapCollect{args.extra_infer_dir_name}",
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/BootstrapPlot{args.extra_infer_dir_name}",
+              "extra_file_name" : f"{val_ind}",
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
+        )
+
+  # Draw best fit distributions
+  if args.step == "BestFitDistributions":
+    print(f"<< Drawing the distributions for the best values >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        best_fit = GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml", [])
+        module.Run(
+          module_name = "generator",
+          class_name = "Generator",
+          config = {
+            "Y_sim" : val_info["row"],
+            "Y_synth" : pd.DataFrame(best_fit["best_fit"], columns=best_fit["columns"]) if best_fit is not None else None,
+            "data_type" : args.data_type,
+            "parameters" : val_loop_info["parameters"][file_name],
+            "model" : val_loop_info["models"][file_name],
+            "architecture" : val_loop_info["architectures"][file_name],
+            "yield_function" : "default",
+            "pois" : cfg["pois"],
+            "nuisances" : cfg["nuisances"],
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
+            "scale_to_yield" : "extended" in args.likelihood_type,
+            "scale_to_eff_events" : args.scale_to_eff_events,
+            "do_2d_unrolled" : args.plot_2d_unrolled,
+            "extra_name" : str(val_ind),
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind}
+        )
+
+  # Plot the summary of the results
+  if args.step == "Summary":
+    print(f"<< Plot the summary of results >>")
+
+  # Make PDFs of all plots
+  if args.step == "MakePDFs":
+    print(f"<< Making PDFs of all plots produced >>")
 
   module.Sweep()
 

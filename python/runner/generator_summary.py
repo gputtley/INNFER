@@ -26,6 +26,7 @@ class GeneratorSummary():
     self.n_synth = 10**6
     self.n_bins = 40
     self.scale_to_yield = False
+    self.scale_to_eff_events = False
     self.ratio_to = "synth"
 
   def Configure(self, options):
@@ -114,7 +115,7 @@ class GeneratorSummary():
           self.nuisances, 
           file_name,
           method=self.yield_function, 
-          column_name="yield"
+          column_name="yield" if not self.scale_to_eff_events else "effective_events"
         )
 
       # Loop through validation Y values
