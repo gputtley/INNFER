@@ -17,6 +17,7 @@ class ScanPlot():
     self.extra_file_name = ""
     self.other_input = {}
     self.verbose = True
+    self.extra_plot_name = ""
 
   def Configure(self, options):
     """
@@ -31,12 +32,14 @@ class ScanPlot():
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
 
+    if self.extra_plot_name != "":
+      self.extra_plot_name = f"_{self.extra_plot_name}"
+
   def Run(self):
     """
     Run the code utilising the worker classes
     """
     scan_results_file = f"{self.data_input}/scan_results_{self.column}{self.extra_file_name}.yaml"
-
     with open(scan_results_file, 'r') as yaml_file:
       scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -60,7 +63,7 @@ class ScanPlot():
       x, 
       y, 
       crossings, 
-      name = f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}", 
+      name = f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}", 
       xlabel = self.column, 
       true_value = row[ind],
       title_right = f"y={plot_extra_name}" if plot_extra_name != "" else "",
@@ -73,12 +76,18 @@ class ScanPlot():
     """
     Return a list of outputs given by class
     """
-    outputs = []
+    outputs = [
+      f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}"
+    ]
     return outputs
 
   def Inputs(self):
     """
     Return a list of inputs required by class
     """
-    inputs = []
+    inputs = [
+      f"{self.data_input}/scan_results_{self.column}{self.extra_file_name}.yaml"
+    ]
+    for key, val in self.other_input.items():
+      inputs.append(f"{val}/scan_results_{self.column}{self.extra_file_name}.yaml")
     return inputs

@@ -33,7 +33,7 @@ class Generator():
     self.do_2d_unrolled = False
     self.seed = 42
     self.data_type = "sim"
-    self.extra_name = ""
+    self.extra_plot_name = ""
 
   def Configure(self, options):
     """
@@ -55,8 +55,8 @@ class Generator():
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
 
-    if self.extra_name != "":
-      self.extra_name = f"_{self.extra_name}"
+    if self.extra_plot_name != "":
+      self.extra_plot_name = f"_{self.extra_plot_name}"
 
   def Run(self):
 
@@ -192,7 +192,7 @@ class Generator():
         sample_plot_name,
         transform=False,
         extra_dir="GenerationTrue1D",
-        extra_name=self.extra_name,
+        extra_name=self.extra_plot_name,
       )
       self._PlotGeneration(
         synth_dps, 
@@ -204,7 +204,7 @@ class Generator():
         sample_plot_name,
         transform=True,
         extra_dir="GenerationTrue1DTransformed",
-        extra_name=self.extra_name,
+        extra_name=self.extra_plot_name,
       )
 
     if self.do_2d_unrolled:
@@ -221,7 +221,7 @@ class Generator():
         sample_plot_name,
         transform=False,
         extra_dir="GenerationTrue2DUnrolled",
-        extra_name=self.extra_name,
+        extra_name=self.extra_plot_name,
       )
 
       self._Plot2DUnrolledGeneration(
@@ -234,7 +234,7 @@ class Generator():
         sample_plot_name,
         transform=True,
         extra_dir="GenerationTrue2DUnrolledTransformed",
-        extra_name=self.extra_name,
+        extra_name=self.extra_plot_name,
       )
 
   def Outputs(self):
@@ -251,16 +251,16 @@ class Generator():
     if self.do_1d:
       for col in parameters["X_columns"]:
         outputs += [
-          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_name}.pdf",
-          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
         ]
     if self.do_2d_unrolled:
       for plot_col in parameters["X_columns"]:
         for unrolled_col in parameters["X_columns"]:
           if plot_col == unrolled_col: continue
           outputs += [
-            f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_name}.pdf", 
-            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_name}.pdf", 
+            f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
+            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
           ]
 
     return outputs

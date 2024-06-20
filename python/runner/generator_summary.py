@@ -28,6 +28,7 @@ class GeneratorSummary():
     self.scale_to_yield = False
     self.scale_to_eff_events = False
     self.ratio_to = "synth"
+    self.extra_plot_name = ""
 
   def Configure(self, options):
     """
@@ -48,6 +49,9 @@ class GeneratorSummary():
       self.model = {parameters['file_name'] : self.model}
       self.parameters = {parameters['file_name'] : self.parameters}
       self.architecture = {parameters['file_name'] : self.architecture}
+
+    if self.extra_plot_name != "":
+      self.extra_plot_name = f"_{self.extra_plot_name}"
 
   def Run(self):
 
@@ -280,7 +284,7 @@ class GeneratorSummary():
         colors = colours,
         linestyles = linestyles,
         x_label=col,
-        name=f"{self.plots_output}/GenerationSummary/generation_summary_{col}", 
+        name=f"{self.plots_output}/GenerationSummary/generation_summary_{col}{self.extra_plot_name}", 
         y_label = y_label
       )
 
@@ -293,7 +297,7 @@ class GeneratorSummary():
     with open(self.parameters[file_name], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     for col in parameters["X_columns"]:
-      outputs += [f"{self.plots_output}/GenerationSummary/generation_summary_{col}.pdf"]
+      outputs += [f"{self.plots_output}/GenerationSummary/generation_summary_{col}{self.extra_plot_name}.pdf"]
 
     return outputs
 

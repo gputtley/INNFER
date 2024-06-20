@@ -15,7 +15,7 @@ def parse_args():
   parser.add_argument('--cfg', help = 'Config for running', default = None)
   parser.add_argument('--snakemake-cfg', help = 'Config for running with snakemake', default = None)
   parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapInitialFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "ScanPoints", "Scan", "ScanCollect", "ScanPlot", "BestFitDistributions", "PlotSummary"])
+  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapInitialFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "ScanPoints", "Scan", "ScanCollect", "ScanPlot", "BestFitDistributions", "Summary"])
   parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
   parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
   parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
@@ -31,10 +31,12 @@ def parse_args():
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--extra-infer-dir-name', help= 'Add extra name to infer step data output directory', type=str, default="")
+  parser.add_argument('--extra-infer-plot-name', help= 'Add extra name to infer step end of plot', type=str, default="")
   parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrap initial fits to run', type=int, default=50)
   parser.add_argument('--sigma-between-scan-points', help= 'The estimated unprofiled sigma between the scanning points', type=float, default=0.4)
   parser.add_argument('--number-of-scan-points', help= 'The number of scan points run', type=int, default=17)
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default="Scan", choices=["Scan","Bootstrap"])
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
@@ -204,7 +206,7 @@ def main(args, default_args):
             "scale_to_yield" : "extended" in args.likelihood_type,
             "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
-            "extra_name" : str(val_ind),
+            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -229,6 +231,7 @@ def main(args, default_args):
           "scale_to_yield" : "extended" in args.likelihood_type,
           "scale_to_eff_events" : args.scale_to_eff_events,
           "do_2d_unrolled" : args.plot_2d_unrolled,
+          "extra_plot_name" : args.extra_infer_plot_name,
         },
         loop = {"file_name" : file_name},
       )
@@ -370,7 +373,8 @@ def main(args, default_args):
               "data_input" : f"data/{cfg['name']}/{file_name}/ScanCollect{args.extra_infer_dir_name}",
               "plots_output" : f"plots/{cfg['name']}/{file_name}/ScanPlot{args.extra_infer_dir_name}", 
               "extra_file_name" : str(val_ind),
-              "other_input" : {other_input.split(':')[0] : f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")},
+              "other_input" : {other_input.split(':')[0] : f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+              "extra_plot_name" : args.extra_infer_plot_name,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
           )
@@ -441,6 +445,7 @@ def main(args, default_args):
               "data_input" : f"data/{cfg['name']}/{file_name}/BootstrapCollect{args.extra_infer_dir_name}",
               "plots_output" : f"plots/{cfg['name']}/{file_name}/BootstrapPlot{args.extra_infer_dir_name}",
               "extra_file_name" : f"{val_ind}",
+              "extra_plot_name" : args.extra_infer_plot_name,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
         )
@@ -470,6 +475,7 @@ def main(args, default_args):
             "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_name" : str(val_ind),
+            "extra_plot_name" : args.extra_infer_plot_name,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -477,6 +483,22 @@ def main(args, default_args):
   # Plot the summary of the results
   if args.step == "Summary":
     print(f"<< Plot the summary of results >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      module.Run(
+        module_name = "summary",
+        class_name = "Summary",
+        config = {
+          "columns" : list(val_loop[0]["initial_best_fit_guess"].columns),
+          "val_loop" : val_loop,
+          "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}Collect{args.extra_infer_dir_name}",
+          "plots_output" : f"plots/{cfg['name']}/{file_name}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}",
+          "file_name" : f"{args.summary_from}_results".lower(),
+          "other_input" : {other_input.split(':')[0] : [f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1], other_input.split(':')[2]}"] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+          "extra_plot_name" : args.extra_infer_plot_name,
+        },
+        loop = {"file_name" : file_name},
+      )
 
   # Make PDFs of all plots
   if args.step == "MakePDFs":

@@ -17,6 +17,7 @@ class BootstrapPlot():
     self.plots_output = "plots"    
     self.extra_file_name = ""
     self.bins = 20
+    self.extra_plot_name = ""
 
   def Configure(self, options):
     """
@@ -31,6 +32,8 @@ class BootstrapPlot():
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
 
+    if self.extra_plot_name != "":
+      self.extra_plot_name = f"_{self.extra_plot_name}"
 
   def Run(self):
     """
@@ -66,7 +69,7 @@ class BootstrapPlot():
       error_bar_hist_errs = [hist_err],
       error_bar_names = [f"{len(bootstrap_results_info['results'])} Bootstraps"],
       title_right = plot_extra_name,
-      name = f"{self.plots_output}/bootstrap_distribution_{self.column}{self.extra_file_name}",
+      name = f"{self.plots_output}/bootstrap_distribution_{self.column}{self.extra_file_name}{self.extra_plot_name}",
       x_label = f"Best Fit {self.column}",
       y_label = "Density of Bootstraps",
       drawstyle = "steps",
@@ -84,7 +87,7 @@ class BootstrapPlot():
     Return a list of outputs given by class
     """
     outputs = [
-      f"{self.plots_output}/bootstrap_distribution_{self.column}{self.extra_file_name}.pdf"
+      f"{self.plots_output}/bootstrap_distribution_{self.column}{self.extra_file_name}{self.extra_plot_name}.pdf"
     ]
     return outputs
 
