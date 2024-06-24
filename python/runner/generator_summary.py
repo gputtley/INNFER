@@ -1,3 +1,5 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import yaml
 import copy
 import numpy as np
@@ -29,6 +31,7 @@ class GeneratorSummary():
     self.scale_to_eff_events = False
     self.ratio_to = "synth"
     self.extra_plot_name = ""
+    self.seed = 42
 
   def Configure(self, options):
     """
@@ -58,6 +61,8 @@ class GeneratorSummary():
     from data_processor import DataProcessor
     from network import Network
     from yields import Yields
+
+    import tensorflow as tf
 
     # Loop through, make networks and make histograms
     networks = {}
@@ -186,6 +191,8 @@ class GeneratorSummary():
           # Make bins and find central value
           if col not in bins.keys():
 
+            tf.random.set_seed(self.seed)
+            tf.keras.utils.set_random_seed(self.seed)
             bins[col] = ratio_dps[file_name].GetFull(
               method = "bins_with_equal_spacing", 
               functions_to_apply = functions_to_apply,
@@ -194,6 +201,8 @@ class GeneratorSummary():
             )
 
           # Draw ratio histogram
+          tf.random.set_seed(self.seed)
+          tf.keras.utils.set_random_seed(self.seed)
           if val_ind == 0:
             ratio_hist, _ = ratio_dps[file_name].GetFull(
               method = "histogram",
@@ -207,6 +216,8 @@ class GeneratorSummary():
               ratio_hists[col] += ratio_hist
 
           # Draw synth histogram
+          tf.random.set_seed(self.seed)
+          tf.keras.utils.set_random_seed(self.seed)
           synth_hist, _ = synth_dps[file_name].GetFull(
             method = "histogram",
             functions_to_apply = functions_to_apply,

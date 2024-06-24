@@ -77,7 +77,7 @@ class ScanPlot():
     Return a list of outputs given by class
     """
     outputs = [
-      f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}"
+      f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}.pdf"
     ]
     return outputs
 

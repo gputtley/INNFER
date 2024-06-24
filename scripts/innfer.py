@@ -38,6 +38,7 @@ def parse_args():
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default="Scan", choices=["Scan","Bootstrap"])
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
@@ -208,7 +209,7 @@ def main(args, default_args):
             "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-            "data_type" : args.data_type,
+            "data_type" : args.data_type if args.data_type is not None else "sim",
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -557,7 +558,10 @@ if __name__ == "__main__":
 
     snakemake_file = SetupSnakeMakeFile(args, default_args, main)
     os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
-    os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}'")
+    snakemake_extra = ""
+    if args.snakemake_force:
+      snake_extra += " --forceall"
+    os.system(f"snakemake{snake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
 
   print("<< Finished running without error >>")

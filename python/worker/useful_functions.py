@@ -613,9 +613,9 @@ def SetupSnakeMakeFile(args, default_args, main):
 
   # Make snakemake file
   args.make_snakemake_inputs = True
-  for step, step_info in snakemake_cfg.items():
+  for step_info in snakemake_cfg:
     args_copy = copy.deepcopy(args)
-    args_copy.step = step
+    args_copy.step = step_info["step"]
     if "submit" in step_info.keys():
       args_copy.submit = step_info["submit"]
     if "run_options" in step_info.keys():

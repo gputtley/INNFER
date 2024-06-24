@@ -31,10 +31,10 @@ class Yields():
         return matching[matching[matching.columns[0]]].index.to_list()
 
 
-  def GetYield(self, Y):
+  def GetYield(self, Y, ignore_rate=False):
 
     # Separate shape and rate Y terms
-    if f"mu_{self.file_name}" in Y.columns:
+    if f"mu_{self.file_name}" in Y.columns and not ignore_rate:
       self.rate_scale = Y.loc[:,f"mu_{self.file_name}"].iloc[0]
 
     # Get shape varying Y parameters

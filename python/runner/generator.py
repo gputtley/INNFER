@@ -4,7 +4,6 @@ import yaml
 import copy
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from functools import partial
 
 from useful_functions import GetYName
@@ -290,6 +289,8 @@ class Generator():
     extra_name=""
     ):
 
+    import tensorflow as tf
+
     if extra_dir != "":
       extra_dir = f"{extra_dir}/"
 
@@ -388,6 +389,8 @@ class Generator():
     extra_dir="",
     extra_name=""
     ):
+
+    import tensorflow as tf
 
     if extra_dir != "":
       extra_dir = f"{extra_dir}/"

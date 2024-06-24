@@ -229,7 +229,7 @@ class Likelihood():
     elif method == "low_stat_high_stat":
 
       def NLL(Y): 
-        nll = -2*self.Run(X, Y, wts=wts, return_ln=True)
+        nll = -2*self.Run(X_dps, Y, return_ln=True)
         return nll
       
       stats = 1000

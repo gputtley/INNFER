@@ -198,12 +198,23 @@ class Module():
     # Add snakemake information
     elif self.snakemake:
       # Make job
-      job_name = StringToFile(f"{self.job_name}{extra_name}.sh")
+      job_name = StringToFile(f"{self.job_name}{extra_name}")
+
+      rule_name = job_name.split('/')[-1].split('.sh')[0]
+      if self.args.extra_infer_dir_name != "":
+        rule_name += f"_{self.args.extra_infer_dir_name}"
+        job_name += f"_{self.args.extra_infer_dir_name}"
+      if self.args.extra_infer_plot_name != "":
+        rule_name += f"_{self.args.extra_infer_plot_name}"
+        job_name += f"_{self.args.extra_infer_plot_name}"
+
+      job_name += ".sh"
       b = Batch(options={"job_name":job_name})
       b._CreateBatchJob(self.cmd_store)
 
+
       # Begin writting rules
-      rules = [f"rule {job_name.split('/')[-1].split('.sh')[0]}:"]
+      rules = [f"rule {rule_name}:"]
 
       # Write inputs
       rules += ["  input:"]

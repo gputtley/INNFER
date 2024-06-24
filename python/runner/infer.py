@@ -1,12 +1,8 @@
 import yaml
+import copy
 import pandas as pd
 import numpy as np
 from functools import partial
-
-from data_processor import DataProcessor
-from likelihood import Likelihood
-from yields import Yields
-from network import Network
 
 class Infer():
 
@@ -156,14 +152,61 @@ class Infer():
         lkld.Run(dps.values(), [float(i) for i in j.split(',')], Y_columns=list(self.initial_best_fit_guess.columns))
 
   def Outputs(self):
+
+    # Initiate outputs
     outputs = []
+
+    # Add best fit
+    if self.method == "InitialFit":
+      outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
+
+    # Add scan ranges
+    if self.method == "ScanPoints":
+      outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"]
+
+    # Add scan values
+    if self.method == "Scan":
+      outputs += [f"{self.data_output}/scan_values_{self.column}{self.extra_file_name}_{self.scan_ind}.yaml",]
+
     return outputs
 
   def Inputs(self):
+
+    # Initiate inputs
     inputs = []
+
+    # Add parameters and model inputs
+    for k in self.parameters.keys():
+      inputs += [
+        self.model[k],
+        self.architecture[k],
+        self.parameters[k],
+      ]
+
+    # Add input datasets
+    if self.data_type == "sim":
+      for k, v in self.parameters.items():
+        with open(v, 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        inputs += [
+          f"{parameters['file_loc']}/X_val.parquet",
+          f"{parameters['file_loc']}/Y_val.parquet",
+          f"{parameters['file_loc']}/wt_val.parquet",
+        ]
+
+    # Add best fit if Scan or ScanPoints
+    if self.method in ["Scan","ScanPoints"]:
+      inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
+
+    # Add scan points
+    if self.method in ["Scan"]:
+      inputs += [f"{self.data_input}/scan_ranges_{self.column}{self.extra_file_name}.yaml"]
+
     return inputs
 
   def _BuildDataProcessors(self, lkld):
+
+    from data_processor import DataProcessor
 
     dps = {}
     for file_name in self.model.keys():
@@ -203,29 +246,72 @@ class Infer():
 
     return dps
 
-
   def _BuildYieldFunctions(self):
 
-    yields = {}
+    from yields import Yields
+
+    # Load parameters
     parameters = {}
     for k, v in self.parameters.items():
-
       with open(v, 'r') as yaml_file:
         parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      yields_class = Yields(
-        pd.read_parquet(parameters[k]['yield_loc']), 
-        self.pois, 
-        self.nuisances, 
-        k,
-        method=self.yield_function, 
-        column_name="yield" if not self.scale_to_eff_events else "effective_events"
-      )
-      yields[k] = yields_class.GetYield
+    # Build yield function
+    yields = {}
+    wts = {}
+    eff_events = {}
+    for ind, (k, v) in enumerate(self.parameters.items()):
+    
+      if (len(list(self.parameters.keys())) == 1) or not self.scale_to_eff_events:
+
+        yields_class = Yields(
+          pd.read_parquet(parameters[k]['yield_loc']), 
+          self.pois, 
+          self.nuisances, 
+          k,
+          method=self.yield_function, 
+          column_name="yield" if not self.scale_to_eff_events else "effective_events"
+        )
+        yields[k] = yields_class.GetYield
+
+      else:
+
+        wts_class = Yields(
+          pd.read_parquet(parameters[k]['yield_loc']), 
+          self.pois, 
+          self.nuisances, 
+          k,
+          method=self.yield_function, 
+          column_name="yield"
+        )
+        wts[k] = wts_class.GetYield
+
+        eff_events_class = Yields(
+          pd.read_parquet(parameters[k]['yield_loc']), 
+          self.pois, 
+          self.nuisances, 
+          k,
+          method=self.yield_function, 
+          column_name="effective_events"
+        ) 
+        eff_events[k] = partial(eff_events_class.GetYield, ignore_rate=True)
+
+    # Calculate yield if combined scaled to effective events
+    sum_wts_squared = lambda Y, k: (wts[k](Y)**2/eff_events[k](Y))
+    sum_wts = lambda Y, k: wts[k](Y)
+    total_sum_wts = lambda Y: sum(sum_wts(Y,k) for k in self.parameters.keys())
+    total_sum_wts_squared = lambda Y: sum(sum_wts_squared(Y,k) for k in self.parameters.keys())
+
+    if not ((len(list(self.parameters.keys())) == 1) or not self.scale_to_eff_events):
+      for k, v in self.parameters.items():
+        func = lambda Y, k: (wts[k](Y)/total_sum_wts(Y))*(total_sum_wts(Y)**2)/total_sum_wts_squared(Y)
+        yields[k] = partial(func, k=k)
 
     return yields
 
   def _BuildModels(self):
+
+    from network import Network
 
     networks = {}
     parameters = {}
@@ -269,6 +355,8 @@ class Infer():
     return networks
 
   def _BuildLikelihood(self):
+
+    from likelihood import Likelihood
 
     if self.verbose:
       print(f"- Building likelihood")
