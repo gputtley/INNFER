@@ -111,7 +111,6 @@ class PreProcess():
     table = pa.Table.from_pandas(yield_df, preserve_index=False)
     pq.write_table(table, parameters["yield_loc"], compression='snappy')
 
-
     # Get standardisation parameters
     if self.verbose:
       print("- Finding standardisation parameters")

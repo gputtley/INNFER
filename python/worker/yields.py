@@ -36,7 +36,9 @@ class Yields():
     # Separate shape and rate Y terms
     if f"mu_{self.file_name}" in Y.columns:
       self.rate_scale = Y.loc[:,f"mu_{self.file_name}"].iloc[0]
-      Y = Y.loc[:, [col for col in Y.columns if col != f"mu_{self.file_name}"]]
+
+    # Get shape varying Y parameters
+    Y = Y.loc[:, [col for col in Y.columns if not col.startswith("mu_")]]
 
     # If no POIs or nuisances just return the total scale
     if len(self.shape_pois) + len(self.nuisances) == 0:

@@ -690,10 +690,11 @@ class Network():
     auc = roc_curve_auc(fpr, tpr)
     return float(abs(0.5-auc) + 0.5)
 
-  def Probability(self, X, Y, return_log_prob=True):
+  def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True):
 
     # Remove unneccessary Y components
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
+    Y_initial = copy.deepcopy(Y)
 
     # Set up Y correctly
     if len(Y) == 1:
@@ -712,7 +713,7 @@ class Network():
     if len(Y.columns) != 0:
       Y = Y_dp.GetFull(
         method="dataset",
-        functions_to_apply = ["transform"]
+        functions_to_apply = ["transform"] if transform_Y else []
       )
 
     # Transform X
@@ -725,7 +726,7 @@ class Network():
     )
     X = X_dp.GetFull(
       method="dataset",
-      functions_to_apply = ["transform"]
+      functions_to_apply = ["transform"] if transform_X else []
     )
 
     # Set up inputs for probability
@@ -749,14 +750,58 @@ class Network():
         "parameters" : self.data_parameters,
       }
     )
-    if len(Y.columns) != 0:
-      log_prob = prob_dp.GetFull(
-        method="dataset",
-        functions_to_apply = ["untransform"]
-      ) 
+    log_prob = prob_dp.GetFull(
+      method="dataset",
+      functions_to_apply = ["untransform"] if transform_X else []
+    ) 
+
+    # Need to implement in future
+    if self.fix_1d:
+      log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
 
     # return probability
     if return_log_prob:
       return log_prob.to_numpy()
     else:
       return np.exp(log_prob.to_numpy())
+
+  def ProbabilityIntegral(self, Y, n_integral_bins=1000000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.5, verbose=True):
+    """
+    Computes the integral of the probability density function over a specified range.
+
+    Args:
+        Y (array): The values of the model parameters for which the probability integral is computed.
+        y_columns (list): List of column names corresponding to the model parameters (optional).
+        n_integral_bins (int): Number of bins used for the integral calculation (default is 1000).
+        n_samples (int): Number of samples used for generating synthetic data (default is 10**5).
+        ignore_quantile (float): Fraction of extreme values to ignore when computing the integral (default is 0.0001).
+        method (str): The method used for integration, either "histogramdd" or "scipy" (default is "histogramdd").
+        verbose (bool): Whether to print the computed integral value (default is True).
+
+    Returns:
+        float: The computed integral of the probability density function.
+    """
+    synth = self.Sample(Y, n_events=n_samples).to_numpy()
+    n_integral_bins = int(n_integral_bins**(1/synth.shape[1]))
+    for col in range(synth.shape[1]):
+      lower_value = np.quantile(synth[:,col], ignore_quantile)
+      upper_value = np.quantile(synth[:,col], 1-ignore_quantile)
+      if extra_fraction > 0.0:
+        middle_value = np.quantile(synth[:,col], 0.5)
+        lower_value = lower_value - (extra_fraction * (middle_value-lower_value))
+        upper_value = upper_value + (extra_fraction * (upper_value-middle_value))
+      trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
+      synth = synth[trimmed_indices,:]
+    _, edges = np.histogramdd(synth, bins=n_integral_bins)
+    bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
+    meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
+    unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
+
+    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"]), Y, return_log_prob=False, transform_X=False)
+    bin_volumes = np.prod(np.diff(edges)[:,0], axis=None)
+    integral = np.sum(probs, dtype=np.float128) * bin_volumes
+
+    if verbose: 
+      print(self.data_parameters["file_name"])
+      print(f"Integral for Y is {integral}")  
+    return integral

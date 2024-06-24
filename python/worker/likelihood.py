@@ -31,11 +31,12 @@ class Likelihood():
     self.parameters = parameters
     self.data_parameters = data_parameters
     self.Y_columns = self._MakeY()
+    self.seed = 42
+    self.verbose = True
 
     # saved parameters
     self.best_fit = None
     self.best_fit_nll = None
-    self.seed = 42
 
   def _MakeY(self):
     """
@@ -66,6 +67,8 @@ class Likelihood():
         float: The likelihood value.
 
     """
+    start_time = time.time()
+
     # Check type of Y
     if not isinstance(Y, pd.DataFrame):
       Y = pd.DataFrame([Y], columns=self.Y_columns)
@@ -80,6 +83,10 @@ class Likelihood():
     elif self.type == "binned_extended":
       lkld_val = self.BinnedExtended(X_dps, Y, return_ln=return_ln)
 
+    end_time = time.time()
+    if self.verbose:
+      print(f"Y={Y.to_numpy().flatten()}, lnL={lkld_val}, time={round(end_time-start_time,2)}")
+
     return lkld_val*multiply_by
 
   def _LogSumExpTrick(self, ln_a, ln_b):
@@ -91,7 +98,7 @@ class Likelihood():
     yd = self.models["yields"][file_name](Y)
     return yd
 
-  def _GetCombinedPDF(self, X, Y, wt_name=None, before_sum=False):
+  def _GetCombinedPDF(self, X, Y, wt_name=None, before_sum=False, normalise=True):
 
     first_loop = True
     sum_rate_params = 0.0
@@ -100,12 +107,8 @@ class Likelihood():
     for name, pdf in self.models["pdfs"].items():
 
       # Get model scaling
-      if "mu_"+name in self.Y_columns:
-        rate_param = Y[self.Y_columns.index("mu_"+name)]
-      else:
-        rate_param = 1.0
-      if rate_param == 0.0: continue
-      rate_param *= self._GetYield(name, Y)
+      rate_param = self._GetYield(name, Y)
+      if rate_param == 0: continue
       sum_rate_params += rate_param
 
       # Get rate times probability
@@ -119,8 +122,9 @@ class Likelihood():
       else:
         ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
 
-    # Rescale so total pdf integrate to 1
-    ln_lklds -= np.log(sum_rate_params)
+    if normalise:
+      # Rescale so total pdf integrate to 1
+      ln_lklds -= np.log(sum_rate_params)
 
     # Return probability before sum
     if before_sum:
@@ -149,7 +153,7 @@ class Likelihood():
 
   def _CustomDPMethodForCombinedPDF(self, tmp, out, options={}):
 
-    tmp_total = self._GetCombinedPDF(tmp, options["Y"], wt_name=options["wt_name"])
+    tmp_total = self._GetCombinedPDF(tmp, options["Y"], wt_name=options["wt_name"], normalise=options["normalise"])
 
     if out is None:
       out = copy.deepcopy(tmp_total)
@@ -158,7 +162,7 @@ class Likelihood():
 
     return out
 
-  def Unbinned(self, X_dps, Y, return_ln=True, verbose=True):
+  def Unbinned(self, X_dps, Y, return_ln=True, normalise=True):
     """
     Computes the likelihood for unbinned data.
 
@@ -172,23 +176,34 @@ class Likelihood():
         float: The likelihood value.
 
     """
-    start_time = time.time()
 
     ln_lkld = 0
     tf.random.set_seed(self.seed)
     tf.keras.utils.set_random_seed(self.seed)
-    for X_dp in X_dps:
-      ln_lkld += X_dp.GetFull(
+    for dps_ind, X_dp in enumerate(X_dps):
+      dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         functions_to_apply = ["untransform"],
         custom = self._CustomDPMethodForCombinedPDF,
-        custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name if X_dp.wt_name is not None else "wt"}
+        custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name if X_dp.wt_name is not None else "wt", "normalise" : normalise}
       )
+      ln_lkld += dps_ln_lkld
 
-    end_time = time.time()
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
 
-    if verbose:
-      print(f"Y={Y.to_numpy().flatten()}, lnL={ln_lkld}, time={round(end_time-start_time,2)}")
+  def UnbinnedExtended(self, X_dps, Y, return_ln=True):
+
+    # Get densities
+    ln_lkld = self.Unbinned(X_dps, Y, return_ln=True, normalise=False)
+
+    # Add poisson term
+    total_rate = 0.0
+    for name, pdf in self.models["yields"].items():
+      total_rate += self._GetYield(name, Y)
+    ln_lkld -= total_rate
 
     if return_ln:
       return ln_lkld
@@ -273,7 +288,8 @@ class Likelihood():
         m1p1_vals[sign] = step/est_sig
       if fin: nll_could_be_neg = False
 
-    print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
+    if self.verbose:
+      print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
 
     lower_scan_vals = [float(self.best_fit[col_index] - estimated_sigma_step*ind*m1p1_vals[-1]) for ind in range(int(np.ceil(estimated_sigmas_shown/estimated_sigma_step)),0,-1)]
     upper_scan_vals = [float(self.best_fit[col_index] + estimated_sigma_step*ind*m1p1_vals[1]) for ind in range(1,int(np.ceil(estimated_sigmas_shown/estimated_sigma_step))+1)]
@@ -295,7 +311,6 @@ class Likelihood():
 
     # freeze
     if len(list(freeze.keys())) > 0:
-
       initial_guess_before = copy.deepcopy(initial_guess)
       initial_guess = [initial_guess_before[ind] for ind, col in enumerate(self.Y_columns) if col not in freeze.keys()]
       old_func = func
@@ -375,7 +390,8 @@ class Likelihood():
       }
     if row is not None:
       dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
-    pprint(dump)
+    if self.verbose:
+      pprint(dump)
     print(f"Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
@@ -400,7 +416,8 @@ class Likelihood():
     }
     if row is not None:
       dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
-    pprint(dump)
+    if self.verbose:
+      pprint(dump)
     print(f"Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
@@ -415,7 +432,8 @@ class Likelihood():
     scan_freeze[col] = col_val
 
     if len(self.Y_columns) > 1 and not (len(list(scan_freeze.keys())) == len(self.Y_columns)):
-      print(f"Profiled fit for {col}={col_val}")
+      if self.verbose:
+        print(f"Profiled fit for {col}={col_val}")
       result = self.GetBestFit(X_dps, Y, method=minimisation_method, freeze=scan_freeze)
       dump = {
         "columns" : self.Y_columns, 
@@ -435,7 +453,8 @@ class Likelihood():
       }
     if row is not None:
       dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
-    pprint(dump)
+    if self.verbose:
+      pprint(dump)
     print(f"Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:

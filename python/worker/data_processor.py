@@ -273,7 +273,7 @@ class DataProcessor():
     """
     for column_name in data.columns:
       if column_name in self.parameters["standardisation"]:
-          data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
+        data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
 
     return data
 
@@ -291,7 +291,13 @@ class DataProcessor():
         pd.DataFrame: The Untransform dataset.
     """
     for column_name in data.columns:
-      if column_name in self.parameters["standardisation"]:
+      if column_name == "prob":
+        for col in self.parameters["X_columns"]:
+          data.loc[:,column_name] /= self.parameters["standardisation"][col]["std"]
+      elif column_name == "log_prob":
+        for col in self.parameters["X_columns"]:
+          data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
+      elif column_name in list(self.parameters["standardisation"].keys()):
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
     return data
 
@@ -329,10 +335,6 @@ class DataProcessor():
     """
     if column_name in self.parameters["standardisation"]:
       return (column*self.parameters["standardisation"][column_name]["std"]) + self.parameters["standardisation"][column_name]["mean"]
-    elif column_name == "log_prob":
-      return column - np.log(self.parameters["standardisation"][column_name]["std"])
-    elif column_name == "prob":
-      return column/np.log(self.parameters["standardisation"][column_name]["std"])
     else:
       return column
     

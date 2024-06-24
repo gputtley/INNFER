@@ -8,11 +8,7 @@
 
 `PreProcess`: Implement discrete to continuous code.
 
-`Likelihood`: Write likelihood class.
-
-`Bootstrap`: Write bootstrap class.
-
-`Infer`: Write infer class.
+`Likelihood`: Implement extended and binned likelihoods.
 
 `Summary`: Write a class to summarise the validation of inference and the asimov.
 
@@ -25,6 +21,9 @@
 `Other`: Finish README documentation.
 
 `Data` : Implement actually putting in actual data to the repository.
+
+`Parsers` : Make file with explanation of parsers.
+
 
 ## Installing Repository and Packages
 

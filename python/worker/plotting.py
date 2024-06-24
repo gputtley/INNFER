@@ -567,9 +567,8 @@ def plot_summary(
     crossings, 
     name="summary", 
     nominal_name="",
-    show2sigma=True, 
+    show2sigma=False, 
     other_summaries={},
-    other_colors=["red","green","orange"],
     ):
   """
   Plot a validation summary.
@@ -590,6 +589,8 @@ def plot_summary(
   fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
   plt.subplots_adjust(left=0.2, right=0.95)
   hep.cms.text("Work in progress",ax=ax[0])
+
+  other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)
 
   for ind, (col, vals) in enumerate(crossings.items()):
 
@@ -666,13 +667,16 @@ def plot_summary(
             other_x_2err_higher[k].append(0.0)
 
     if show2sigma:
-      ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba("blue", alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
+      ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], y, xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
-
-    ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba("blue", alpha=0.5), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
-    for k_ind, k in enumerate(other_summaries.keys()):
-      ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
+        ax[ind].errorbar(other_x[k], y, xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
+      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
+    else:
+      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[0], alpha=1.0), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k} 1$\sigma$ Best Fit/True")      
 
     ax[ind].axvline(x=1, color='black', linestyle='--') 
     ax[ind].set_xlabel(col)

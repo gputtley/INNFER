@@ -41,6 +41,7 @@ class Infer():
     self.scan_ind = None
     self.sigma_between_scan_points = 0.4
     self.number_of_scan_points = 17
+    self.other_input = None
 
   def Configure(self, options):
     """
@@ -71,14 +72,16 @@ class Infer():
     lkld = self._BuildLikelihood()
     dps = self._BuildDataProcessors(lkld)
 
+    if self.verbose:
+      if self.data_type != "data":
+        print(f"- Performing actions on the likelihood for the dataframe on data type {self.data_type}:")
+        print(self.true_Y)
+      else:
+        print(f"- Performing actions on the likelihood on data")
+
     if self.method == "InitialFit":
 
       if self.verbose:
-        if self.data_type != "data":
-          print(f"- Performing an initial fit for the dataframe on data type {self.data_type}:")
-          print(self.true_Y)
-        else:
-          print(f"- Performing an initial fit on data")
         print("- Likelihood output:")
 
       lkld.GetAndWriteBestFitToYaml(
@@ -144,6 +147,14 @@ class Infer():
         minimisation_method=self.minimisation_method
       )
 
+    elif self.method == "Debug":
+
+      if self.verbose:
+        print(f"- Likelihood output:")
+
+      for j in self.other_input.split(":"):
+        lkld.Run(dps.values(), [float(i) for i in j.split(',')], Y_columns=list(self.initial_best_fit_guess.columns))
+
   def Outputs(self):
     outputs = []
     return outputs
@@ -156,9 +167,9 @@ class Infer():
 
     dps = {}
     for file_name in self.model.keys():
-
       if self.data_type == "sim":
 
+        if lkld.models["yields"][file_name](self.true_Y) == 0: continue
         shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in lkld.data_parameters[file_name]["Y_columns"]]
         dps[file_name] = DataProcessor(
           [[f"{lkld.data_parameters[file_name]['file_loc']}/X_val.parquet", f"{lkld.data_parameters[file_name]['file_loc']}/Y_val.parquet", f"{lkld.data_parameters[file_name]['file_loc']}/wt_val.parquet"]],
@@ -175,6 +186,7 @@ class Infer():
 
       elif self.data_type == "asimov":
 
+        if lkld.models["yields"][file_name](self.true_Y) == 0: continue
         dps[file_name] = DataProcessor(
           [[partial(lkld.models["pdfs"][file_name].Sample, self.true_Y)]],
           "generator",
@@ -189,19 +201,20 @@ class Infer():
 
         print("Still need to implement data")
 
-      return dps
+    return dps
 
 
   def _BuildYieldFunctions(self):
 
     yields = {}
+    parameters = {}
     for k, v in self.parameters.items():
 
       with open(v, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       yields_class = Yields(
-        pd.read_parquet(parameters['yield_loc']), 
+        pd.read_parquet(parameters[k]['yield_loc']), 
         self.pois, 
         self.nuisances, 
         k,
@@ -215,13 +228,14 @@ class Infer():
   def _BuildModels(self):
 
     networks = {}
+    parameters = {}
     for file_name in self.model.keys():
 
       # Open parameters
       if self.verbose:
         print(f"- Loading in the parameters for model {file_name}")
       with open(self.parameters[file_name], 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Load the architecture in
       if self.verbose:
@@ -232,17 +246,17 @@ class Infer():
       # Build model
       if self.verbose:
         print(f"- Building the model for {file_name}")
-      networks[parameters['file_name']] = Network(
-        f"{parameters['file_loc']}/X_train.parquet",
-        f"{parameters['file_loc']}/Y_train.parquet", 
-        f"{parameters['file_loc']}/wt_train.parquet", 
-        f"{parameters['file_loc']}/X_test.parquet",
-        f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",
+      networks[file_name] = Network(
+        f"{parameters[file_name]['file_loc']}/X_train.parquet",
+        f"{parameters[file_name]['file_loc']}/Y_train.parquet", 
+        f"{parameters[file_name]['file_loc']}/wt_train.parquet", 
+        f"{parameters[file_name]['file_loc']}/X_test.parquet",
+        f"{parameters[file_name]['file_loc']}/Y_test.parquet", 
+        f"{parameters[file_name]['file_loc']}/wt_test.parquet",
         options = {
           **architecture,
           **{
-            "data_parameters" : parameters
+            "data_parameters" : parameters[file_name]
           }
         }
       )  

@@ -106,15 +106,14 @@ class Generator():
       networks[file_name].Load(name=self.model[file_name])
 
       # Make yields function
-      if self.scale_to_yield:
-        yields = Yields(
-          pd.read_parquet(parameters['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          file_name,
-          method=self.yield_function, 
-          column_name="yield" if not self.scale_to_eff_events else "effective_events"
-        )
+      yields = Yields(
+        pd.read_parquet(parameters['yield_loc']), 
+        self.pois, 
+        self.nuisances, 
+        file_name,
+        method=self.yield_function, 
+        column_name="yield" if not self.scale_to_eff_events else "effective_events"
+      )
 
       # Make data processors
       shape_Y_cols = [col for col in self.Y_sim.columns if "mu_" not in col and col in parameters["Y_columns"]]
@@ -130,7 +129,7 @@ class Generator():
           options = {
             "parameters" : parameters,
             "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-            "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
+            "scale" : yields.GetYield(self.Y_sim),
           }
         )
 
@@ -142,7 +141,7 @@ class Generator():
           n_events = self.n_synth,
           options = {
             "parameters" : parameters,
-            "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
+            "scale" : yields.GetYield(self.Y_sim),
           }
         )
 
@@ -150,16 +149,6 @@ class Generator():
 
         print("Still need to implement data")
 
-      sim_dps[file_name] = DataProcessor(
-        [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
-        "parquet",
-        wt_name = "wt",
-        options = {
-          "parameters" : parameters,
-          "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-          "scale" : yields.GetYield(self.Y_sim) if self.scale_to_yield else 1.0,
-        }
-      )
 
       synth_dps[file_name] = DataProcessor(
         [[partial(networks[file_name].Sample, self.Y_synth)]],
@@ -167,7 +156,7 @@ class Generator():
         n_events = self.n_synth,
         options = {
           "parameters" : parameters,
-          "scale" : yields.GetYield(self.Y_synth) if self.scale_to_yield else 1.0,
+          "scale" : yields.GetYield(self.Y_synth),
         }
       )
 
@@ -348,12 +337,26 @@ class Generator():
           synth_hist_uncert_squared = synth_hist_uncert**2
           sim_hist_uncert_squared = sim_hist_uncert**2
           sim_hist_total = copy.deepcopy(sim_hist)
+          synth_hist_total = copy.deepcopy(synth_hist)
         else:
           synth_hist_uncert_squared += (synth_hist_uncert**2)
           sim_hist_uncert_squared += (sim_hist_uncert**2)
           sim_hist_total += sim_hist
+          synth_hist_total += synth_hist
 
         synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
+
+      if not self.scale_to_yield:
+        sum_sim_hist_total = np.sum(sim_hist_total)
+        sum_synth_hist_total = np.sum(synth_hist_total)
+        sim_hist_total /= sum_sim_hist_total
+        sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)/sum_sim_hist_total
+        synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)/sum_synth_hist_total
+        for k in synth_hists.keys():
+          synth_hists[k] /= sum_synth_hist_total
+      else:
+        sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
+        synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)       
 
       plot_stacked_histogram_with_ratio(
         sim_hist_total, 
@@ -363,8 +366,8 @@ class Generator():
         xlabel=col,
         ylabel="Events" if self.scale_to_yield else "Density",
         name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}", 
-        data_errors=np.sqrt(sim_hist_uncert_squared), 
-        stack_hist_errors=np.sqrt(synth_hist_uncert_squared), 
+        data_errors=sim_hist_uncert, 
+        stack_hist_errors=synth_hist_uncert, 
         title_right="",
         use_stat_err=False,
         axis_text="",
