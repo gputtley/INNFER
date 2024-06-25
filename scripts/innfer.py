@@ -1,44 +1,50 @@
 import argparse
-import time
+import copy
 import os
 import sys
+import time
 import yaml
-import copy
+
 import pandas as pd
 import pyfiglet as pyg
 
-from useful_functions import GetScanArchitectures, GetValidateInfo, SetupSnakeMakeFile, GetDictionaryEntryFromYaml
 from module import Module
+from useful_functions import (
+    GetScanArchitectures,
+    GetValidateInfo,
+    SetupSnakeMakeFile,
+    GetDictionaryEntryFromYaml
+)
 
 def parse_args():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--cfg', help = 'Config for running', default = None)
-  parser.add_argument('--snakemake-cfg', help = 'Config for running with snakemake', default = None)
-  parser.add_argument('--benchmark', help = 'Run from benchmark scenario', default = None)
-  parser.add_argument('--step', help = 'Step to run.', type = str, default = None, choices = ["SnakeMake","MakeBenchmark", "PreProcess", "Train",  "PerformanceMetrics", "HyperparameterScan", "HyperparameterScanCollect", "Generator", "GeneratorSummary", "BootstrapInitialFits", "BootstrapCollect", "BootstrapPlot", "BootstrapSummary", "InitialFit", "ScanPoints", "Scan", "ScanCollect", "ScanPlot", "BestFitDistributions", "Summary", "LikelihoodDebug"])
-  parser.add_argument('--specific', help = 'Specific part of a step to run.', type = str, default = "")
-  parser.add_argument('--data-type', help = 'The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type = str, default = None, choices = ["data", "asimov", "sim"])
-  parser.add_argument('--likelihood-type', help = 'Type of likelihood to use for fitting.', type = str, default = "unbinned_extended", choices = ["unbinned_extended", "unbinned", "binned_extended", "binned"])
-  parser.add_argument('--submit', help = 'Batch to submit to', type = str, default = None)
-  parser.add_argument('--architecture', help = 'Config for running', type = str, default = "configs/architecture/default.yaml")
-  parser.add_argument('--points-per-job', help= 'The number of points ran per job', type=int, default=1)
-  parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
-  parser.add_argument('--wandb-project-name', help= 'Name of project on wandb', type=str, default="innfer")
+  parser.add_argument('--architecture', help='Config for running', type=str, default='configs/architecture/default.yaml')
+  parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
+  parser.add_argument('--cfg', help='Config for running', default=None)
+  parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default=None, choices=['data', 'asimov', 'sim'])
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
-  parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
-  parser.add_argument('--hyperparameter-scan-metric', help = 'Colon separated metric name and whether you want max or min, separated by a comma.', type = str, default = "chi_squared_test:total,min")
-  parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
-  parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
-  parser.add_argument('--extra-infer-dir-name', help= 'Add extra name to infer step data output directory', type=str, default="")
-  parser.add_argument('--extra-infer-plot-name', help= 'Add extra name to infer step end of plot', type=str, default="")
-  parser.add_argument('--number-of-bootstraps', help= 'The number of bootstrap initial fits to run', type=int, default=50)
-  parser.add_argument('--sigma-between-scan-points', help= 'The estimated unprofiled sigma between the scanning points', type=float, default=0.4)
-  parser.add_argument('--number-of-scan-points', help= 'The number of scan points run', type=int, default=17)
-  parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
-  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default="Scan", choices=["Scan","Bootstrap"])
+  parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
+  parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--hyperparameter-scan-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='chi_squared_test:total,min')
+  parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
+  parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=50)
+  parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=17)
+  parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
+  parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
+  parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
+  parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.4)
+  parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
+  parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
+  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'InitialFit', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
+  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap'])
+  parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+  parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
@@ -511,6 +517,7 @@ def main(args, default_args):
             "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+            "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"]
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -558,9 +565,7 @@ if __name__ == "__main__":
 
     snakemake_file = SetupSnakeMakeFile(args, default_args, main)
     os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
-    snakemake_extra = ""
-    if args.snakemake_force:
-      snakemake_extra += " --forceall"
+    snakemake_extra = " --forceall" if args.snakemake_force else ""
     os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
 

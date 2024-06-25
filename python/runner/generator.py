@@ -33,6 +33,8 @@ class Generator():
     self.seed = 42
     self.data_type = "sim"
     self.extra_plot_name = ""
+    self.other_input_files = []
+    self.other_output_files = []
 
   def Configure(self, options):
     """
@@ -249,6 +251,9 @@ class Generator():
             f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
           ]
 
+    # Add other outputs
+    outputs += self.other_output_files
+
     return outputs
 
   def Inputs(self):
@@ -268,8 +273,15 @@ class Generator():
         f"{parameters['file_loc']}/wt_train.parquet", 
         f"{parameters['file_loc']}/X_test.parquet",
         f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",        
+        f"{parameters['file_loc']}/wt_test.parquet",
+        f"{parameters['file_loc']}/X_val.parquet",
+        f"{parameters['file_loc']}/Y_val.parquet", 
+        f"{parameters['file_loc']}/wt_val.parquet", 
       ]
+
+    # Add other outputs
+    inputs += self.other_input_files
+
     return inputs
 
   def _PlotGeneration(

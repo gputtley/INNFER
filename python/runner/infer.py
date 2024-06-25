@@ -118,10 +118,6 @@ class Infer():
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"
       )
 
-      # Copy across best fit - needed for snakemake
-      os.system(f"cp {self.data_input}/best_fit{self.extra_file_name}.yaml {self.data_output}/best_fit{self.extra_file_name}.yaml")
-
-
     elif self.method == "Scan":
 
       if self.verbose:

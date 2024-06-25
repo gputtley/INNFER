@@ -1,41 +1,5 @@
 # INNFER - Invertible Neural Networks for Extracting Results
 
-## TO DO
-
-`Setup`: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow package imported at the moment but this should be fixed. It would be good to import the packages required from a yaml file install of pip installing all of them.
-
-`PreProcess`: Implement discrete to continuous code.
-
-`PreProcess`: Add large weight removal.
-
-`Likelihood`: Implement extended and binned likelihoods.
-
-`Likelihood`: Need to remove events where one or more models gives back a 0 probability.
-
-`MakeParquetFromRoot`: Add the file to make parquet files from root.
-
-`Testing`: Test it works on boosted top mass example and test with 1 and 2 nuisances.
-
-`Other`: Docstrings and sort class functions. Finish README documentation.
-
-`Data` : Implement actually putting in actual data to the repository. Also do this in benchmarks
-
-`Benchmarks` : Refine benchmark scenarios
-
-`Parsers` : Make file with explanation of parsers.
-
-`MakePDFs` : Add make PDFs file.
-
-`Networks` : Setup so you can use the benchmark scenarios as the probability output.
-
-`Generator` : Add remaining generator plots.
-
-`SnakeMake Configs` : Set up differing snakemake configs, in particular for benchmark scenarios.
-
-`Yield-only Uncertainties` : Add the ability to add a yield only uncertainty.
-
-`Covariance` : Merge in the covariance code.
-
 ## Installing Repository and Packages
 
 To import the github repository, clone with the following command.

@@ -203,6 +203,7 @@ class Likelihood():
     total_rate = 0.0
     for name, pdf in self.models["yields"].items():
       total_rate += self._GetYield(name, Y)
+
     ln_lkld -= total_rate
 
     if return_ln:
