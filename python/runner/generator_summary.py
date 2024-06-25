@@ -28,7 +28,6 @@ class GeneratorSummary():
     self.n_synth = 10**6
     self.n_bins = 40
     self.scale_to_yield = False
-    self.scale_to_eff_events = False
     self.ratio_to = "synth"
     self.extra_plot_name = ""
     self.seed = 42
@@ -124,13 +123,14 @@ class GeneratorSummary():
           self.nuisances, 
           file_name,
           method=self.yield_function, 
-          column_name="yield" if not self.scale_to_eff_events else "effective_events"
+          column_name="yield"
         )
 
       # Loop through validation Y values
       for val_ind, val_info in enumerate(self.val_loop):
 
         val_name = GetYName(val_info["row"], purpose="plot", prefix="y=")
+        ratio_name = GetYName(val_info["initial_best_fit_guess"], purpose="plot", prefix="y=")
 
         # Make data processors
         shape_Y_cols = [col for col in val_info["row"].columns if "mu_" not in col and col in parameters["Y_columns"]]
@@ -268,19 +268,27 @@ class GeneratorSummary():
         sim_hists[col][GetYName(val_info["initial_best_fit_guess"], purpose="plot", prefix="y=")]
       ]
       linestyles = ["-", "--"]
-      for ind in range(len(list(sim_hists[col].keys()))-1):
+
+      ind = 0
+      for _ in range(len(list(sim_hists[col].keys()))):
+
         colour = tuple(x for x in rgb_palette[ind])
+        name = list(synth_hists[col].keys())[ind]
+        ind += 1
+
+        if name == ratio_name: continue
+
         colours.append(colour)
-        names.append(list(synth_hists[col].keys())[ind+1])
+        names.append(name)
         hists.append(synth_hists[col][names[-1]])
         linestyles.append("-")
-
         if names[-1] in sim_hists[col].keys():
           colours.append(colour)
           hists.append(sim_hists[col][names[-1]])
           names.append(None)
           linestyles.append("--")
 
+        
       # Set up y axis name
       if self.ratio_to == "synth":
         y_label = f"Ratio to {GetYName(val_info['initial_best_fit_guess'], purpose='plot', prefix='Synthetic y=')}"

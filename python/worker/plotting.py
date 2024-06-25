@@ -227,7 +227,7 @@ def plot_stacked_histogram_with_ratio(
   ax2.set_ylim([0.5,1.5])
 
   # Adjust spacing between subplots
-  plt.subplots_adjust(hspace=0.1)
+  plt.subplots_adjust(hspace=0.1, left=0.15)
 
   # Show the plot
   print("Created "+name+".pdf")

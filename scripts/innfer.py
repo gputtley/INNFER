@@ -212,7 +212,6 @@ def main(args, default_args):
             "nuisances" : cfg["nuisances"],
             "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator{args.extra_infer_dir_name}",
             "scale_to_yield" : "extended" in args.likelihood_type,
-            "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
             "data_type" : args.data_type if args.data_type is not None else "sim",
@@ -238,7 +237,6 @@ def main(args, default_args):
           "nuisances" : cfg["nuisances"],
           "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary{args.extra_infer_dir_name}",
           "scale_to_yield" : "extended" in args.likelihood_type,
-          "scale_to_eff_events" : args.scale_to_eff_events,
           "do_2d_unrolled" : args.plot_2d_unrolled,
           "extra_plot_name" : args.extra_infer_plot_name,
         },
@@ -362,7 +360,7 @@ def main(args, default_args):
                 "yield_function" : "default",
                 "pois" : cfg["pois"],
                 "nuisances" : cfg["nuisances"],
-                "data_input" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}",
+                "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
                 "data_output" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}",
                 "likelihood_type" : args.likelihood_type,
                 "inference_options" : cfg["inference"] if file_name == "combined" else {},
@@ -373,7 +371,7 @@ def main(args, default_args):
                 "scan_ind" : str(scan_ind),
                 "extra_file_name" : str(val_ind),
                 "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-                "other_input_files": [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"]
+                "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml"]
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
             )
@@ -514,7 +512,6 @@ def main(args, default_args):
             "nuisances" : cfg["nuisances"],
             "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
             "scale_to_yield" : "extended" in args.likelihood_type,
-            "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
             "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"]

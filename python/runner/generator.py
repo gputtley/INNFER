@@ -27,7 +27,6 @@ class Generator():
     self.verbose = True
     self.n_synth = 10**6
     self.scale_to_yield = False
-    self.scale_to_eff_events = False
     self.do_1d = True
     self.do_2d_unrolled = False
     self.seed = 42
@@ -113,7 +112,7 @@ class Generator():
         self.nuisances, 
         file_name,
         method=self.yield_function, 
-        column_name="yield" if not self.scale_to_eff_events else "effective_events"
+        column_name="yield"
       )
 
       # Make data processors

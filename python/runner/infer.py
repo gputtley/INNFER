@@ -266,54 +266,41 @@ class Infer():
 
     # Build yield function
     yields = {}
-    wts = {}
-    eff_events = {}
+    yields_class = {}
+    eff_events_class = {}
+    sum_wts_squared = 0.0
+    sum_wts = 0.0
+
     for ind, (k, v) in enumerate(self.parameters.items()):
     
-      if (len(list(self.parameters.keys())) == 1) or not self.scale_to_eff_events:
+      yields_class[k] = Yields(
+        pd.read_parquet(parameters[k]['yield_loc']), 
+        self.pois, 
+        self.nuisances, 
+        k,
+        method=self.yield_function, 
+        column_name="yield"
+      )
 
-        yields_class = Yields(
-          pd.read_parquet(parameters[k]['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          k,
-          method=self.yield_function, 
-          column_name="yield" if not self.scale_to_eff_events else "effective_events"
-        )
-        yields[k] = yields_class.GetYield
+      if not self.scale_to_eff_events:
+        yields[k] = yields_class[k].GetYield
 
       else:
-
-        wts_class = Yields(
-          pd.read_parquet(parameters[k]['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          k,
-          method=self.yield_function, 
-          column_name="yield"
-        )
-        wts[k] = wts_class.GetYield
-
-        eff_events_class = Yields(
+        eff_events_class[k] = Yields(
           pd.read_parquet(parameters[k]['yield_loc']), 
           self.pois, 
           self.nuisances, 
           k,
           method=self.yield_function, 
           column_name="effective_events"
-        ) 
-        eff_events[k] = partial(eff_events_class.GetYield, ignore_rate=True)
+        )
+        sum_wts_squared += (yields_class[k].GetYield(self.true_Y)**2)/eff_events_class[k].GetYield(self.true_Y)
+        sum_wts += yields_class[k].GetYield(self.true_Y)
 
-    # Calculate yield if combined scaled to effective events
-    sum_wts_squared = lambda Y, k: (wts[k](Y)**2/eff_events[k](Y))
-    sum_wts = lambda Y, k: wts[k](Y)
-    total_sum_wts = lambda Y: sum(sum_wts(Y,k) for k in self.parameters.keys())
-    total_sum_wts_squared = lambda Y: sum(sum_wts_squared(Y,k) for k in self.parameters.keys())
-
-    if not ((len(list(self.parameters.keys())) == 1) or not self.scale_to_eff_events):
-      for k, v in self.parameters.items():
-        func = lambda Y, k: (wts[k](Y)/total_sum_wts(Y))*(total_sum_wts(Y)**2)/total_sum_wts_squared(Y)
-        yields[k] = partial(func, k=k)
+    if self.scale_to_eff_events:
+      eff_events = (sum_wts**2)/sum_wts_squared
+      for k in self.parameters.keys():
+        yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/sum_wts), k=k, eff_events=eff_events, sum_wts=sum_wts)
 
     return yields
 

@@ -684,6 +684,8 @@ class Network():
 
     # Get auc
     fpr, tpr, _ = roc_curve(y_test, y_prob, sample_weight=wt_test)
+    print(fpr)
+    print(tpr)
     sorted_indices = np.argsort(fpr)
     fpr = fpr[sorted_indices]
     tpr = tpr[sorted_indices]
