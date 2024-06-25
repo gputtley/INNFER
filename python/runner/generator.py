@@ -234,8 +234,6 @@ class Generator():
     with open(self.parameters[file_name], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    sim_file_name = GetYName(self.Y_sim, purpose="file", prefix="_sim_y_")
-    synth_file_name = GetYName(self.Y_synth, purpose="file", prefix="_synth_y_")
     if self.do_1d:
       for col in parameters["X_columns"]:
         outputs += [

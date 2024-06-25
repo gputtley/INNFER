@@ -2,28 +2,39 @@
 
 ## TO DO
 
-`Setup`: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow package imported at the moment but this should be fixed.
-
-`Setup`: It would be good to import the packages required from a yaml file install of pip installing all of them.
+`Setup`: Currently there is a bayesflow/snakemake package conflict. We are not actually using bayesflow package imported at the moment but this should be fixed. It would be good to import the packages required from a yaml file install of pip installing all of them.
 
 `PreProcess`: Implement discrete to continuous code.
 
+`PreProcess`: Add large weight removal.
+
 `Likelihood`: Implement extended and binned likelihoods.
 
-`Summary`: Write a class to summarise the validation of inference and the asimov.
+`Likelihood`: Need to remove events where one or more models gives back a 0 probability.
 
 `MakeParquetFromRoot`: Add the file to make parquet files from root.
 
-`Testing`: Test it works with a nuisance.
+`Testing`: Test it works on boosted top mass example and test with 1 and 2 nuisances.
 
-`Other`: Docstrings and sort class functions.
+`Other`: Docstrings and sort class functions. Finish README documentation.
 
-`Other`: Finish README documentation.
+`Data` : Implement actually putting in actual data to the repository. Also do this in benchmarks
 
-`Data` : Implement actually putting in actual data to the repository.
+`Benchmarks` : Refine benchmark scenarios
 
 `Parsers` : Make file with explanation of parsers.
 
+`MakePDFs` : Add make PDFs file.
+
+`Networks` : Setup so you can use the benchmark scenarios as the probability output.
+
+`Generator` : Add remaining generator plots.
+
+`SnakeMake Configs` : Set up differing snakemake configs, in particular for benchmark scenarios.
+
+`Yield-only Uncertainties` : Add the ability to add a yield only uncertainty.
+
+`Covariance` : Merge in the covariance code.
 
 ## Installing Repository and Packages
 
@@ -58,7 +69,80 @@ As some commands may take some time, jobs can be parallelised and submitted to a
 
 ## Input Configuration File
 
-Add stuff
+The input configuration file is how you give key information to INNFER about the input datasets and their preprocessing, how you want to validate the models and how you want to build the likelihood. An example of this is shown below, for a stat-only top mass measurement.
+
+```
+name: TopMass
+files:
+  other: data/top_mass_other.parquet  
+  ttbar: data/top_mass_ttbar.parquet
+variables:
+  - top_mass_rec
+  - W_mass_rec
+  - b_pt_rec
+pois:
+  - top_mass_true
+nuisances: []
+preprocess:
+  selection: "(jec==0)"
+  standardise: all
+  train_test_val_split: 0.6:0.1:0.3
+  equalise_y_wts: True
+  train_test_y_vals:
+    mass:
+    - 166.5
+    - 169.5
+    - 171.5
+    - 173.5
+    - 175.5
+    - 178.5
+  validation_y_vals:
+    mass:
+    - 171.5
+    - 172.5
+    - 173.5    
+inference:
+  rate_parameters:
+  - ttbar
+  nuisance_constraints: {}
+validation: 
+  rate_parameter_vals:
+    ttbar:
+    - 0.8
+    - 1.0
+    - 1.2
+data_file: data/top_mass_data.parquet
+```
+
+The `PreProcess` step will preprocess all the simulated files and the data_file. It will apply the selections to the datasets, select the variables/pois/nuisances specified, standardise the columns of both simulated datasets, train/test/val split the dataset, equalise the weights in each Y category for training and give specific Y values for training/testing to validation. These numbers are set up like this as typically validation on the border Y values does not show good performance, so this range should be larger enough that the borders do not matter in the fit to data. The 172.5 validation sample also gives us a good measure of the interpolation ability of the models. We running the `Train`, separate models will be trained for the two simulated files, trained on the train split and tested on the test split. The inference option gives how the combined likelihood will be build. Included the parsing of rate parameters and nuisance constraints. Finally, the validation option in this case dictates which values of the rate parameter you want to validate for.
+
+## Snakemake
+
+The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
+
+```
+source setup.sh snakemake_condor
+```
+
+You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible.
+
+To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step=SnakeMake --snakemake-cfg=condor_core.yaml`. Other snakemake submission options are not set up. Please contact us if you wish for this to be setup.
+
+Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. An example of this is in `configs/snakemake/condor_core_quick.yaml`. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. INNFER can then be run with the following command:
+
+```
+python3 scripts/innfer.py --cfg="boosted_top_mass.yaml" --step="SnakeMake" --snakemake-cfg="condor_core_quick.yaml"
+```
+
+## Running from a benchmark scenario
+
+There are a number of benchmark scenarios setup in the `python/worker/benchmarks.py` class, that can be used to generate datasets (with a known density) and a running configuration file. These can be generated with the command:
+
+```
+python3 scripts/innfer.py --benchmark="GaussianWithExpBkg" --step="MakeBenchmark"
+```
+
+You can the continue to run the remaining steps with the `--benchmark="GaussianWithExpBkg"` option rather than using the `--cfg` option. You can also use SnakeMake for this whole process with the relevant snakemake configuration files.
 
 ## Description of Steps
 
@@ -77,18 +161,6 @@ Add stuff
 `Generator`: This will make plots using the network as a generator and comparing it to the input simulation. By default this will only make 1D plots for every Y value. However, you can make 2d plots with the `--plot-2d-unrolled` option.
 
 `GeneratorSummary`: This will make a summary plot of the comparison between the simulation and using the network as a generator, showing all unique Y values.
-
-## Snakemake
-
-The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
-
-```
-source setup.sh snakemake_condor
-```
-
-You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible.
-
-To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step=SnakeMake --snakemake-cfg=condor_core.yaml`.
 
 ## Structure of Code
 

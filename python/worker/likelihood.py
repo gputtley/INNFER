@@ -434,7 +434,7 @@ class Likelihood():
     if len(self.Y_columns) > 1 and not (len(list(scan_freeze.keys())) == len(self.Y_columns)):
       if self.verbose:
         print(f"Profiled fit for {col}={col_val}")
-      result = self.GetBestFit(X_dps, Y, method=minimisation_method, freeze=scan_freeze)
+      result = self.GetBestFit(X_dps, pd.DataFrame([Y],columns=self.Y_columns), method=minimisation_method, freeze=scan_freeze)
       dump = {
         "columns" : self.Y_columns, 
         "varied_column" : col,

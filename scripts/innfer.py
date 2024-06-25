@@ -356,7 +356,7 @@ def main(args, default_args):
                 "yield_function" : "default",
                 "pois" : cfg["pois"],
                 "nuisances" : cfg["nuisances"],
-                "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+                "data_input" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}",
                 "data_output" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}",
                 "likelihood_type" : args.likelihood_type,
                 "inference_options" : cfg["inference"] if file_name == "combined" else {},
@@ -366,7 +366,8 @@ def main(args, default_args):
                 "scan_value" : GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
                 "scan_ind" : str(scan_ind),
                 "extra_file_name" : str(val_ind),
-                "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {}
+                "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+                "other_input_files": [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"]
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
             )
@@ -498,7 +499,7 @@ def main(args, default_args):
           config = {
             "Y_sim" : val_info["row"],
             "Y_synth" : pd.DataFrame(best_fit["best_fit"], columns=best_fit["columns"]) if best_fit is not None else None,
-            "data_type" : args.data_type,
+            "data_type" : args.data_type if args.data_type is not None else "sim",
             "parameters" : val_loop_info["parameters"][file_name],
             "model" : val_loop_info["models"][file_name],
             "architecture" : val_loop_info["architectures"][file_name],
@@ -509,8 +510,7 @@ def main(args, default_args):
             "scale_to_yield" : "extended" in args.likelihood_type,
             "scale_to_eff_events" : args.scale_to_eff_events,
             "do_2d_unrolled" : args.plot_2d_unrolled,
-            "extra_name" : str(val_ind),
-            "extra_plot_name" : args.extra_infer_plot_name,
+            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -560,8 +560,8 @@ if __name__ == "__main__":
     os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
     snakemake_extra = ""
     if args.snakemake_force:
-      snake_extra += " --forceall"
-    os.system(f"snakemake{snake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
+      snakemake_extra += " --forceall"
+    os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
 
   print("<< Finished running without error >>")

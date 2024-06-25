@@ -38,6 +38,8 @@ class Infer():
     self.sigma_between_scan_points = 0.4
     self.number_of_scan_points = 17
     self.other_input = None
+    self.other_input_files = []
+    self.other_output_files = []
 
   def Configure(self, options):
     """
@@ -116,6 +118,10 @@ class Infer():
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"
       )
 
+      # Copy across best fit - needed for snakemake
+      os.system(f"cp {self.data_input}/best_fit{self.extra_file_name}.yaml {self.data_output}/best_fit{self.extra_file_name}.yaml")
+
+
     elif self.method == "Scan":
 
       if self.verbose:
@@ -162,11 +168,14 @@ class Infer():
 
     # Add scan ranges
     if self.method == "ScanPoints":
-      outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"]
+      outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",]
 
     # Add scan values
     if self.method == "Scan":
       outputs += [f"{self.data_output}/scan_values_{self.column}{self.extra_file_name}_{self.scan_ind}.yaml",]
+
+    # Add other outputs
+    outputs += self.other_output_files
 
     return outputs
 
@@ -195,12 +204,15 @@ class Infer():
         ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["Scan","ScanPoints"]:
+    if self.method in ["ScanPoints"]:
       inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add scan points
     if self.method in ["Scan"]:
       inputs += [f"{self.data_input}/scan_ranges_{self.column}{self.extra_file_name}.yaml"]
+
+    # Add other inputs
+    inputs += self.other_input_files
 
     return inputs
 
