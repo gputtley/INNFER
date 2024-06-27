@@ -1,3 +1,5 @@
+import importlib
+
 class MakeBenchmark():
 
   def __init__(self):
@@ -20,8 +22,13 @@ class MakeBenchmark():
     """
     Run the code utilising the worker classes
     """
-    from benchmarks import Benchmarks
-    benchmark = Benchmarks(name=self.name)
+    module = importlib.import_module("benchmarks_v2")
+    module_class = getattr(module, self.name)
+    benchmark = module_class()
+
+    #from benchmarks import Benchmarks
+    #benchmark = Benchmarks(name=self.name)
+
     # Fit splines
     if ".yaml" in self.name:
       benchmark.FitSplines()

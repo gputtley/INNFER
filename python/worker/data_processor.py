@@ -43,6 +43,7 @@ class DataProcessor():
     self.scale = None
     self.resample = False
     self.resampling_seed = 1
+    self.functions = []
 
     # Transform options
     self.parameters = {}
@@ -91,6 +92,8 @@ class DataProcessor():
       extra_sel = None, 
       functions_to_apply = []
     ):
+
+    functions_to_apply = self.functions + functions_to_apply
 
     self.finished = False
 
@@ -146,7 +149,7 @@ class DataProcessor():
       columns_without_weights = list(df.columns)
       columns_without_weights.remove(self.wt_name)
       data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=int(np.floor(np.sum(df.loc[:,self.wt_name].to_numpy()))), seed=self.resampling_seed)
-      df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name])
+      df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
 
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]

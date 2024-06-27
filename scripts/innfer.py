@@ -5,15 +5,16 @@ import sys
 import time
 import yaml
 
+import numpy as np
 import pandas as pd
 import pyfiglet as pyg
 
 from module import Module
 from useful_functions import (
+    GetDictionaryEntryFromYaml,
     GetScanArchitectures,
     GetValidateInfo,
-    SetupSnakeMakeFile,
-    GetDictionaryEntryFromYaml
+    SetupSnakeMakeFile
 )
 
 def parse_args():
@@ -30,13 +31,14 @@ def parse_args():
   parser.add_argument('--hyperparameter-scan-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='chi_squared_test:total,min')
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
-  parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=50)
-  parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=17)
+  parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
+  parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
+  parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
-  parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.4)
+  parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
@@ -73,6 +75,10 @@ def parse_args():
       args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
     else:
       args.cfg = f"configs/run/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}.yaml"
+
+  # Adjust other inputs
+  if args.model_type == "Benchmark":
+    args.model_type = f"Benchmark_{args.benchmark}"
 
   return args, default_args
 
@@ -158,7 +164,7 @@ def main(args, default_args):
   if args.step == "HyperparameterScan":
     print("<< Running a hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
-      for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{file_name}")):
+      for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
         module.Run(
           module_name = "hyperparameter_scan",
           class_name = "HyperparameterScan",
@@ -267,6 +273,7 @@ def main(args, default_args):
             "inference_options" : cfg["inference"] if file_name == "combined" else {},
             "scale_to_eff_events" : args.scale_to_eff_events,
             "other_input" : args.other_input,
+            "model_type" : args.model_type,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -297,7 +304,8 @@ def main(args, default_args):
             "resample" : False,
             "scale_to_eff_events" : args.scale_to_eff_events,
             "extra_file_name" : str(val_ind),
-            "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {}
+            "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+            "model_type" : args.model_type,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -333,7 +341,8 @@ def main(args, default_args):
               "sigma_between_scan_points" : args.sigma_between_scan_points,
               "number_of_scan_points" : args.number_of_scan_points,
               "extra_file_name" : str(val_ind),
-              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {}
+              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+              "model_type" : args.model_type,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
           )
@@ -371,7 +380,8 @@ def main(args, default_args):
                 "scan_ind" : str(scan_ind),
                 "extra_file_name" : str(val_ind),
                 "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-                "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml"]
+                "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml"],
+                "model_type" : args.model_type,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
             )
@@ -446,7 +456,8 @@ def main(args, default_args):
               "resampling_seed" : bootstrap_ind,
               "scale_to_eff_events" : args.scale_to_eff_events,
               "extra_file_name" : f"{val_ind}_{bootstrap_ind}",
-              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {}
+              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+              "model_type" : args.model_type,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "bootstrap_ind": bootstrap_ind},
         )
@@ -502,7 +513,7 @@ def main(args, default_args):
           class_name = "Generator",
           config = {
             "Y_sim" : val_info["row"],
-            "Y_synth" : pd.DataFrame(best_fit["best_fit"], columns=best_fit["columns"]) if best_fit is not None else None,
+            "Y_synth" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
             "data_type" : args.data_type if args.data_type is not None else "sim",
             "parameters" : val_loop_info["parameters"][file_name],
             "model" : val_loop_info["models"][file_name],

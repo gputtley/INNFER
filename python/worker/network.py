@@ -105,6 +105,8 @@ class Network():
     # Other
     self.fix_1d = (self.X_train.num_columns == 1)
     self.adaptive_lr_scheduler = None
+    self.prob_integral_store = None
+    self.prob_integral_store_Y = None
 
   def _SetOptions(self, options):
     """
@@ -481,10 +483,9 @@ class Network():
 
     # Set up Y correctly
     if len(Y) == 1:
-      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns)
+      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)
     elif len(Y) == 0:
-      Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns)
-
+      Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns, dtype=np.float64)
 
     # Set up and transform Y input
     Y_dp = DataProcessor(
@@ -512,7 +513,21 @@ class Network():
     if self.fix_1d:
       synth = synth[:,0].reshape(-1,1)
 
-    return pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
+    # Untransform the dataset
+    synth_dp = DataProcessor(
+      [[pd.DataFrame(synth, columns=self.data_parameters["X_columns"], dtype=np.float64)]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    synth  = synth_dp.GetFull(
+      method="dataset",
+      functions_to_apply = ["untransform"]
+    )
+
+    return synth
+
 
   def GetHistogramMetric(self, metric=["chi_squared"], n_samples=100000, n_bins=40):
 
@@ -552,7 +567,7 @@ class Network():
         selection = None
       else:
         uc_name = GetYName(uc, purpose="file")
-        Y = pd.DataFrame(np.array(uc), columns=list(unique_y_values.keys()))
+        Y = pd.DataFrame(np.array(uc), columns=list(unique_y_values.keys()), dtype=np.float64)
         selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
 
       # Make synthetic data processors
@@ -684,15 +699,13 @@ class Network():
 
     # Get auc
     fpr, tpr, _ = roc_curve(y_test, y_prob, sample_weight=wt_test)
-    print(fpr)
-    print(tpr)
     sorted_indices = np.argsort(fpr)
     fpr = fpr[sorted_indices]
     tpr = tpr[sorted_indices]
     auc = roc_curve_auc(fpr, tpr)
     return float(abs(0.5-auc) + 0.5)
 
-  def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True):
+  def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False):
 
     # Remove unneccessary Y components
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
@@ -700,9 +713,9 @@ class Network():
 
     # Set up Y correctly
     if len(Y) == 1:
-      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (len(X), 1)), columns=Y.columns)
+      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (len(X), 1)), columns=Y.columns, dtype=np.float64)
     elif len(Y) == 0:
-      Y = pd.DataFrame(np.tile(np.array([]), (len(X), 1)), columns=Y.columns)
+      Y = pd.DataFrame(np.tile(np.array([]), (len(X), 1)), columns=Y.columns, dtype=np.float64)
 
     # Transform Y input
     Y_dp = DataProcessor(
@@ -733,8 +746,8 @@ class Network():
 
     # Set up inputs for probability
     data = {
-      "parameters" : X.loc[:,self.data_parameters["X_columns"]].to_numpy().astype(np.float32),
-      "direct_conditions" : Y.to_numpy().astype(np.float32),
+      "parameters" : X.loc[:,self.data_parameters["X_columns"]].to_numpy(np.float64).astype(np.float64),
+      "direct_conditions" : Y.to_numpy(np.float64).astype(np.float64),
     }
 
     # Add zeros column onto 1d datasets - need to add integral aswell
@@ -742,7 +755,7 @@ class Network():
       data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
     # Get probability
-    log_prob = pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"])
+    log_prob = pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"], dtype=np.float64)
 
     # Untransform probability
     prob_dp = DataProcessor(
@@ -757,8 +770,8 @@ class Network():
       functions_to_apply = ["untransform"] if transform_X else []
     ) 
 
-    # Need to implement in future
-    if self.fix_1d:
+    # Fix 1d probability by ensuring integral is 1
+    if self.fix_1d and not no_fix:
       log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
 
     # return probability
@@ -767,7 +780,7 @@ class Network():
     else:
       return np.exp(log_prob.to_numpy())
 
-  def ProbabilityIntegral(self, Y, n_integral_bins=1000000, n_samples=10**4, ignore_quantile=0.000, extra_fraction=0.5, verbose=True):
+  def ProbabilityIntegral(self, Y, n_integral_bins=10**6, n_samples=10**4, ignore_quantile=0.0, extra_fraction=0.5, seed=42, verbose=False):
     """
     Computes the integral of the probability density function over a specified range.
 
@@ -783,6 +796,14 @@ class Network():
     Returns:
         float: The computed integral of the probability density function.
     """
+    # If in the store use that
+    if self.prob_integral_store is not None:
+      if Y.equals(self.prob_integral_store_Y):
+        return self.prob_integral_store
+
+    # Calculate probability
+    tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)
     synth = self.Sample(Y, n_events=n_samples).to_numpy()
     n_integral_bins = int(n_integral_bins**(1/synth.shape[1]))
     for col in range(synth.shape[1]):
@@ -798,12 +819,14 @@ class Network():
     bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
     meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
     unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
-
-    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"]), Y, return_log_prob=False, transform_X=False)
-    bin_volumes = np.prod(np.diff(edges)[:,0], axis=None)
+    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=False, no_fix=True)
+    bin_volumes = np.prod(np.diff(edges)[:,0], axis=None, dtype=np.float128)
     integral = np.sum(probs, dtype=np.float128) * bin_volumes
 
+    # Save to store
+    self.prob_integral_store_Y = copy.deepcopy(Y)
+    self.prob_integral_store = copy.deepcopy(integral)
+
     if verbose: 
-      print(self.data_parameters["file_name"])
       print(f"Integral for Y is {integral}")  
     return integral

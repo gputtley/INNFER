@@ -338,7 +338,8 @@ class Benchmarks():
           "reconstructed_mass" : X, 
           "true_mass" : Y, 
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*float(self.model_parameters[self.name]["toy_signal_events"])/float(self.array_size))*np.ones(int(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
 
       # Rescale weights so all are equivalent
@@ -367,7 +368,8 @@ class Benchmarks():
           "reconstructed_mass" : X.flatten(), 
           "true_mass" : Y.flatten(), 
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*float(self.model_parameters[self.name]["toy_signal_events"])/float(signal_entries))*np.ones(int(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
       for mass in self.model_parameters[self.name]["true_masses"]:
         df.loc[(df.loc[:,"true_mass"] == mass), "wt"] *= float(self.model_parameters[self.name]["toy_signal_events"]) / float(self.model_parameters[self.name]["signal_fraction"] * np.sum(df.loc[(df.loc[:,"true_mass"] == mass), "wt"]))
@@ -388,7 +390,8 @@ class Benchmarks():
           "reconstructed_mass" : X, 
           "true_mass" : Y, 
           "wt" : (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
 
       for mass in self.model_parameters[self.name]["true_masses"]:
@@ -410,7 +413,8 @@ class Benchmarks():
         {
           "reconstructed_mass" : X_bkg.flatten(), 
           "wt" : (float(self.model_parameters[self.name]["toy_background_events"])/float(n_bkg_events))*np.ones(n_bkg_events)
-        }
+        },
+        dtype=np.float64
       )
       df = df.sample(frac=1, random_state=42)
       df = df.reset_index(drop=True)
@@ -432,7 +436,8 @@ class Benchmarks():
           "X2": X2, 
           "Y": Y,
           "wt": (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
       # Rescale weights so all are equivalent
       for mass in self.model_parameters[self.name]["true_masses"]:
@@ -464,7 +469,8 @@ class Benchmarks():
           "X5": X5,
           "Y": Y,
           "wt": (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
 
       for mass in self.model_parameters[self.name]["true_masses"]:
@@ -511,7 +517,8 @@ class Benchmarks():
           "X6": X6,
           "Y": Y,
           "wt": (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
 
       for mass in self.model_parameters[self.name]["true_masses"]:
@@ -576,7 +583,8 @@ class Benchmarks():
           "X12": X12,
           "Y": Y,
           "wt": (len(self.model_parameters[self.name]["true_masses"])*(float(self.model_parameters[self.name]["toy_signal_events"])/self.array_size)*np.ones(self.array_size))
-        }
+        },
+        dtype=np.float64
       )
 
       for mass in self.model_parameters[self.name]["true_masses"]:
@@ -631,9 +639,9 @@ class Benchmarks():
             data = np.concatenate((data.reshape(-1,1),wts), axis=1)
 
           if ind == 0:
-            df = pd.DataFrame(data, columns=columns)
+            df = pd.DataFrame(data, columns=columns, dtype=np.float64)
           else:
-            temp_df = pd.DataFrame(data, columns=columns)
+            temp_df = pd.DataFrame(data, columns=columns, dtype=np.float64)
             df = pd.concat([df,temp_df], ignore_index=True)
 
         table = pa.Table.from_pandas(df)

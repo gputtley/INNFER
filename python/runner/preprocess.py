@@ -57,7 +57,7 @@ class PreProcess():
       "parquet",
       options = {
         "wt_name" : "wt",
-        "selection" : cfg["preprocess"]["selection"] if "selection" in cfg.keys() else None,
+        "selection" : cfg["preprocess"]["selection"] if "selection" in cfg["preprocess"].keys() else None,
         "columns" : cfg["variables"] + cfg["pois"] + cfg["nuisances"] + ["wt"],
       }
     )
@@ -98,13 +98,13 @@ class PreProcess():
       print("- Finding the total yields of entries for specific Y values and writing to file")
     unique_y_combinations = list(product(*unique_y_values.values()))
     if len(parameters["Y_columns"]) != 0:
-      yield_df = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"])
+      yield_df = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
       for ind, uc in enumerate(unique_y_combinations):
         selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
         yield_df.loc[ind, "yield"] = dp.GetFull(method="sum", extra_sel=selection)
         yield_df.loc[ind, "effective_events"] = dp.GetFull(method="n_eff", extra_sel=selection)
     else:
-      yield_df = pd.DataFrame([[dp.GetFull(method="sum"), dp.GetFull(method="n_eff")]], columns=["yield","effective_events"])
+      yield_df = pd.DataFrame([[dp.GetFull(method="sum"), dp.GetFull(method="n_eff")]], columns=["yield","effective_events"], dtype=np.float64)
 
     parameters["yield_loc"] = f"{self.data_output}/yields.parquet"
     MakeDirectories(parameters["yield_loc"])
@@ -139,7 +139,7 @@ class PreProcess():
     for split in ["train","test","val"]:
       count = 0
       if len(parameters["Y_columns"]) != 0:
-        split_yields_dfs[split] = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"])
+        split_yields_dfs[split] = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
         for ind, uc in enumerate(unique_y_combinations):
           selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
           split_yields_dfs[split].loc[ind, "yield"] = dp.GetFull(
@@ -157,7 +157,7 @@ class PreProcess():
             ]
           )
       else:
-        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"])
+        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"], dtype=np.float64)
 
     # Load and write batches
     # TO DO: Find a way to shuffle the dataset without loading it all into memory

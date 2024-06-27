@@ -457,8 +457,8 @@ def GetValidateLoop(cfg, parameters_file):
         sorted_row = [row[columns.index(col)] for col in sorted_columns]
         sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
         val_loop.append({
-          "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
-          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
+          "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
+          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
         })
         
   return val_loop

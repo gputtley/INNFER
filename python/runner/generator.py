@@ -130,6 +130,7 @@ class Generator():
             "parameters" : parameters,
             "selection" : " & ".join([f"({col}=={self.Y_sim.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
             "scale" : yields.GetYield(self.Y_sim),
+            "functions" : ["untransform"]
           }
         )
 
@@ -304,10 +305,7 @@ class Generator():
       extra_dir = f"{extra_dir}/"
 
     functions_to_apply = []
-    if not transform:
-      functions_to_apply.append("untransform")
-    else:
-      functions_to_apply += ["untransform","transform"]
+    if transform: functions_to_apply.append("transform")
 
     for col in X_columns:
 
@@ -405,10 +403,7 @@ class Generator():
       extra_dir = f"{extra_dir}/"
 
     functions_to_apply = []
-    if not transform:
-      functions_to_apply.append("untransform")
-    else:
-      functions_to_apply += ["untransform","transform"]
+    if transform: functions_to_apply.append("transform")
 
     for plot_col_ind, plot_col in enumerate(X_columns):
 

@@ -71,7 +71,7 @@ class Likelihood():
 
     # Check type of Y
     if not isinstance(Y, pd.DataFrame):
-      Y = pd.DataFrame([Y], columns=self.Y_columns)
+      Y = pd.DataFrame([Y], columns=self.Y_columns, dtype=np.float64)
 
     # Run likelihood
     if self.type == "unbinned":
@@ -113,6 +113,7 @@ class Likelihood():
 
       # Get rate times probability
       log_p = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True)
+      #log_p = np.ones(len(X)).reshape(-1,1) # uncomment this for yield only unbinned_extended likelihood
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
       # Sum together probabilities of different files
@@ -132,7 +133,7 @@ class Likelihood():
 
     # Weight the events
     if wt_name is not None:
-      ln_lklds = X.loc[:,[wt_name]].to_numpy()*ln_lklds
+      ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
 
     # Product the events
     ln_lkld = np.sum(ln_lklds, dtype=np.float128)
@@ -183,7 +184,7 @@ class Likelihood():
     for dps_ind, X_dp in enumerate(X_dps):
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
-        functions_to_apply = ["untransform"],
+        #functions_to_apply = ["untransform"],
         custom = self._CustomDPMethodForCombinedPDF,
         custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name if X_dp.wt_name is not None else "wt", "normalise" : normalise}
       )
@@ -435,7 +436,7 @@ class Likelihood():
     if len(self.Y_columns) > 1 and not (len(list(scan_freeze.keys())) == len(self.Y_columns)):
       if self.verbose:
         print(f"Profiled fit for {col}={col_val}")
-      result = self.GetBestFit(X_dps, pd.DataFrame([Y],columns=self.Y_columns), method=minimisation_method, freeze=scan_freeze)
+      result = self.GetBestFit(X_dps, pd.DataFrame([Y],columns=self.Y_columns, dtype=np.float64), method=minimisation_method, freeze=scan_freeze)
       dump = {
         "columns" : self.Y_columns, 
         "varied_column" : col,

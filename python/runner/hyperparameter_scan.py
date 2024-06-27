@@ -71,7 +71,7 @@ class HyperparameterScan():
     t = self._SetupTrain()
     pf = self._SetupPerformanceMetrics()
 
-    outputs = t.Output() + pf.Outputs()
+    outputs = t.Outputs() + pf.Outputs()
     return outputs
 
   def Inputs(self):

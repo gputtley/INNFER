@@ -40,6 +40,7 @@ class Infer():
     self.other_input = None
     self.other_input_files = []
     self.other_output_files = []
+    self.model_type = "BayesFlow"
 
   def Configure(self, options):
     """
@@ -200,12 +201,8 @@ class Infer():
         ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPoints"]:
+    if self.method in ["ScanPoints","Scan"]:
       inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
-
-    # Add scan points
-    if self.method in ["Scan"]:
-      inputs += [f"{self.data_input}/scan_ranges_{self.column}{self.extra_file_name}.yaml"]
 
     # Add other inputs
     inputs += self.other_input_files
@@ -232,6 +229,7 @@ class Infer():
             "scale" : lkld.models["yields"][file_name](self.true_Y),
             "resample" : self.resample,
             "resampling_seed" : self.resampling_seed,
+            "functions" : ["untransform"]
           }
         )
 
@@ -306,46 +304,57 @@ class Infer():
 
   def _BuildModels(self):
 
-    from network import Network
+    if self.model_type == "BayesFlow":
 
-    networks = {}
-    parameters = {}
-    for file_name in self.model.keys():
+      from network import Network
 
-      # Open parameters
-      if self.verbose:
-        print(f"- Loading in the parameters for model {file_name}")
-      with open(self.parameters[file_name], 'r') as yaml_file:
-        parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      networks = {}
+      parameters = {}
+      for file_name in self.model.keys():
 
-      # Load the architecture in
-      if self.verbose:
-        print(f"- Loading in the architecture for model {file_name}")
-      with open(self.architecture[file_name], 'r') as yaml_file:
-        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        # Open parameters
+        if self.verbose:
+          print(f"- Loading in the parameters for model {file_name}")
+        with open(self.parameters[file_name], 'r') as yaml_file:
+          parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Build model
-      if self.verbose:
-        print(f"- Building the model for {file_name}")
-      networks[file_name] = Network(
-        f"{parameters[file_name]['file_loc']}/X_train.parquet",
-        f"{parameters[file_name]['file_loc']}/Y_train.parquet", 
-        f"{parameters[file_name]['file_loc']}/wt_train.parquet", 
-        f"{parameters[file_name]['file_loc']}/X_test.parquet",
-        f"{parameters[file_name]['file_loc']}/Y_test.parquet", 
-        f"{parameters[file_name]['file_loc']}/wt_test.parquet",
-        options = {
-          **architecture,
-          **{
-            "data_parameters" : parameters[file_name]
+        # Load the architecture in
+        if self.verbose:
+          print(f"- Loading in the architecture for model {file_name}")
+        with open(self.architecture[file_name], 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Build model
+        if self.verbose:
+          print(f"- Building the model for {file_name}")
+        networks[file_name] = Network(
+          f"{parameters[file_name]['file_loc']}/X_train.parquet",
+          f"{parameters[file_name]['file_loc']}/Y_train.parquet", 
+          f"{parameters[file_name]['file_loc']}/wt_train.parquet", 
+          f"{parameters[file_name]['file_loc']}/X_test.parquet",
+          f"{parameters[file_name]['file_loc']}/Y_test.parquet", 
+          f"{parameters[file_name]['file_loc']}/wt_test.parquet",
+          options = {
+            **architecture,
+            **{
+              "data_parameters" : parameters[file_name]
+            }
           }
-        }
-      )  
-      
-      # Loading model
-      if self.verbose:
-        print(f"- Loading the model for {file_name}")
-      networks[file_name].Load(name=self.model[file_name])
+        )  
+        
+        # Loading model
+        if self.verbose:
+          print(f"- Loading the model for {file_name}")
+        networks[file_name].Load(name=self.model[file_name])
+
+    elif self.model_type.startswith("Benchmark"):
+
+      import importlib
+      module = importlib.import_module("benchmarks_v2")
+      module_class = getattr(module, self.model_type.split("Benchmark_")[1])
+      networks = {}
+      for file_name in self.parameters.keys():
+        networks[file_name] = module_class(file_name=file_name)
 
     return networks
 

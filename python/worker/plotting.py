@@ -15,6 +15,7 @@ import os
 from useful_functions import MakeDirectories, RoundToSF
 
 hep.style.use("CMS")
+cms_label = "Work in progress"
 
 def plot_histograms(
     bins,
@@ -58,7 +59,7 @@ def plot_histograms(
       drawstyle (str, optional): Drawstyle for the histograms. Defaults to "default".
   """
   fig, ax = plt.subplots()
-  hep.cms.text("Work in progress",ax=ax)
+  hep.cms.text(cms_label,ax=ax)
 
   for ind, hist in enumerate(hists):
     plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle)
@@ -196,7 +197,7 @@ def plot_stacked_histogram_with_ratio(
 
 
   ax1.set_ylabel(ylabel)
-  hep.cms.text("Work in progress",ax=ax1)
+  hep.cms.text(cms_label,ax=ax1)
 
   ax1.text(1.0, 1.0, title_right,
       verticalalignment='bottom', horizontalalignment='right',
@@ -430,7 +431,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
 
   #ax1.legend()
   ax1.set_ylabel(ylabel)
-  hep.cms.text("Work in progress",ax=ax1)
+  hep.cms.text(cms_label,ax=ax1)
 
   ax1.text(1.0, 1.0, title_right,
       verticalalignment='bottom', horizontalalignment='right',
@@ -520,7 +521,7 @@ def plot_likelihood(
     sel_inds = range(len(y))
 
   fig, ax = plt.subplots()
-  hep.cms.text("Work in progress",ax=ax)
+  hep.cms.text(cms_label,ax=ax)
   plt.plot(x, y, label=label)
 
   colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
@@ -588,7 +589,7 @@ def plot_summary(
   n_pads = len(list(crossings.keys()))
   fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
   plt.subplots_adjust(left=0.2, right=0.95)
-  hep.cms.text("Work in progress",ax=ax[0])
+  hep.cms.text(cms_label,ax=ax[0])
 
   other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)
 

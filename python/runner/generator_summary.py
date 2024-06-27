@@ -75,7 +75,7 @@ class GeneratorSummary():
     bins = {}
     central_value = {}
 
-    functions_to_apply = ["untransform"]
+    functions_to_apply = []
 
     # Loop though files
     for file_name in self.model.keys():
@@ -146,6 +146,7 @@ class GeneratorSummary():
             "parameters" : parameters,
             "selection" : " & ".join([f"({col}=={val_info['row'].loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
             "scale" : yields.GetYield(val_info["row"]) if self.scale_to_yield else 1.0,
+            "functions" : ["untransform"]
           }
         )
 
@@ -179,6 +180,7 @@ class GeneratorSummary():
                 "parameters" : parameters,
                 "selection" : " & ".join([f"({col}=={val_info['initial_best_fit_guess'].loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
                 "scale" : yields.GetYield(val_info["initial_best_fit_guess"]) if self.scale_to_yield else 1.0,
+                "functions" : ["untransform"]
               }
             )
 

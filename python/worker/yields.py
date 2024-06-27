@@ -66,7 +66,7 @@ class Yields():
   def Default(self, Y):
 
     # Get Y with nuisances all equal to 0
-    nominal_values_to_match = pd.DataFrame([[0.0]*len(self.nuisances)], columns = self.nuisances)
+    nominal_values_to_match = pd.DataFrame([[0.0]*len(self.nuisances)], columns = self.nuisances, dtype=np.float64)
     matched_rows = self._CheckIfInDataFrame(nominal_values_to_match, self.yield_dataframe, return_matching=True)
     poi_vals = self.yield_dataframe.loc[matched_rows,self.shape_pois]
 
@@ -93,7 +93,7 @@ class Yields():
   def NuisanceInterpolation(self, Y):
 
     # Get nominal yield (where nuisances parameters are zero)
-    nominal_values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(self.nuisances)], columns = self.shape_pois + self.nuisances)
+    nominal_values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(self.nuisances)], columns = self.shape_pois + self.nuisances, dtype=np.float64)
     matched_rows = self._CheckIfInDataFrame(nominal_values_to_match, self.yield_dataframe, return_matching=True)
     nominal = self.yield_dataframe.loc[matched_rows, self.column_name].iloc[0]
 
@@ -105,7 +105,7 @@ class Yields():
 
       # Get yields when only this nuisance is varied
       other_nuisances = [k for k in self.nuisances if k != col]
-      values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(other_nuisances)], columns = self.shape_pois + other_nuisances)
+      values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(other_nuisances)], columns = self.shape_pois + other_nuisances, dtype=np.float64)
       matched_rows = self._CheckIfInDataFrame(values_to_match, self.yield_dataframe, return_matching=True)
 
       # Make interpolation function
