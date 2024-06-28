@@ -18,6 +18,7 @@ class BootstrapPlot():
     self.extra_file_name = ""
     self.bins = 20
     self.extra_plot_name = ""
+    self.verbose = True
 
   def Configure(self, options):
     """
@@ -41,9 +42,13 @@ class BootstrapPlot():
     """
 
     # Open bootstraps
+    if self.verbose:
+      print("- Loading in bootstrap results")
     with open(f"{self.data_input}/bootstrap_results_{self.column}{self.extra_file_name}.yaml", 'r') as yaml_file:
       bootstrap_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+    if self.verbose:
+      print("- Making histograms")
     hist, bins = np.histogram(bootstrap_results_info["results"], bins=self.bins, density=True)
     hist_total, _ = np.histogram(bootstrap_results_info["results"], bins=bins)
     hist_total_err = np.sqrt(hist_total)
@@ -60,6 +65,9 @@ class BootstrapPlot():
       exponent = -0.5 * ((x - mean) / std) ** 2    
       coefficient = 1 / (np.sqrt(2 * np.pi) * std)    
       return coefficient * np.exp(exponent)
+
+    if self.verbose:
+      print("- Plotting the bootstrap results")
 
     plot_histograms(
       bins[:-1],

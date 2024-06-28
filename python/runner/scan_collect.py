@@ -13,6 +13,7 @@ class ScanCollect():
     self.number_of_scan_points = None
     self.column = None
 
+    self.verbose = True
     self.data_input = "data"
     self.data_output = "data"    
     self.extra_file_name = ""
@@ -38,6 +39,8 @@ class ScanCollect():
     """
 
     # Load scan results
+    if self.verbose:
+      print("- Collecting scan result files")
     scan_results = {"nlls":[],"scan_values":[]}
     for point_ind, scan_file in enumerate(self.scan_files):      
 
@@ -53,13 +56,19 @@ class ScanCollect():
       scan_results["nlls"] += scan_results_info["nlls"]
 
     # Recheck minimum
+    if self.verbose:
+      print("- Rechecking the minimum")
     min_nll = min(scan_results["nlls"])
     scan_results["nlls"] = [i - min_nll for i in scan_results["nlls"]]
 
     # Get crossings
+    if self.verbose:
+      print("- Finding the intervals")
     scan_results["crossings"] = self._FindCrossings(scan_results["scan_values"], scan_results["nlls"], crossings=[1, 2])
 
     # Dump to yaml
+    if self.verbose:
+      print("- Writing results to yaml")
     file_name = f"{self.data_output}/scan_results_{self.column}{self.extra_file_name}.yaml"
     MakeDirectories(file_name)
     print(f"Created {file_name}")

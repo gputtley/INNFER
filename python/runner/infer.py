@@ -246,9 +246,12 @@ class Infer():
           }
         )
 
-      elif self.data_type == "data":
+    if self.data_type == "data":
 
-        print("Still need to implement data")
+      dps["Data"] = DataProcessor(
+        [[f"{lkld.data_parameters[file_name]['file_loc']}/data.parquet"]],
+        "parquet",
+      )
 
     return dps
 

@@ -39,6 +39,9 @@ class ScanPlot():
     """
     Run the code utilising the worker classes
     """
+
+    if self.verbose:
+      print("- Loading in scan results")
     scan_results_file = f"{self.data_input}/scan_results_{self.column}{self.extra_file_name}.yaml"
     with open(scan_results_file, 'r') as yaml_file:
       scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -59,6 +62,9 @@ class ScanPlot():
     file_extra_name = GetYName(row, purpose="file")
     plot_extra_name = GetYName(row, purpose="plot")
     
+    if self.verbose:
+      print("- Plotting the likelihood scan")
+
     plot_likelihood(
       x, 
       y, 

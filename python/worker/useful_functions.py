@@ -552,11 +552,12 @@ def GetValidateInfo(preprocess_loc, models_loc, cfg, data_type="sim", skip_empty
       "architectures" : architectures,
     }
   elif data_type in ["data"]:
+    key = "combined" if len(list(val_loops.keys())) > 1 else list(val_loops.keys())[0]
     info = {
-      "val_loops" : {"combined": [{"row" : None, "initial_best_fit_guess" : val_loops["combined"][0]["initial_best_fit_guess"]}]},
-      "parameters" : {"combined" : parameters["combined"]},
-      "models" : {"combined" : models["combined"]},
-      "architectures" : {"combined" : architectures["combined"]},
+      "val_loops" : {key: [{"row" : None, "initial_best_fit_guess" : val_loops[key][0]["initial_best_fit_guess"]}]},
+      "parameters" : {key : parameters[key]},
+      "models" : {key : models[key]},
+      "architectures" : {key : architectures[key]},
     }
 
   return info

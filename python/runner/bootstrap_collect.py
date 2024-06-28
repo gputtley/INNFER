@@ -13,6 +13,7 @@ class BootstrapCollect():
     self.number_of_bootstraps = None
     self.columns = None
 
+    self.verbose = True
     self.data_input = "data"
     self.data_output = "data"    
     self.extra_file_name = ""
@@ -38,6 +39,8 @@ class BootstrapCollect():
     """
 
     # Load scan results
+    if self.verbose:
+      print("- Collecting bootstrapped fits")
     bootstrap_results = {}
     for bootstrap_ind, bootstrap_file in enumerate(self.bootstrap_files):      
 
@@ -55,7 +58,10 @@ class BootstrapCollect():
             }
         
         bootstrap_results[column]["results"].append(bootstrap_results_info["best_fit"][bootstrap_results_info["columns"].index(column)])
-        
+
+    if self.verbose:    
+      print("- Finding intervals")
+      
     for column in self.columns:
 
       # Make mean, std and crossings

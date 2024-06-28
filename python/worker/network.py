@@ -819,7 +819,7 @@ class Network():
     bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
     meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
     unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
-    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=False, no_fix=True)
+    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=True, no_fix=True)
     bin_volumes = np.prod(np.diff(edges)[:,0], axis=None, dtype=np.float128)
     integral = np.sum(probs, dtype=np.float128) * bin_volumes
 
@@ -829,4 +829,5 @@ class Network():
 
     if verbose: 
       print(f"Integral for Y is {integral}")  
+
     return integral

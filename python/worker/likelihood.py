@@ -186,7 +186,7 @@ class Likelihood():
         method = "custom",
         #functions_to_apply = ["untransform"],
         custom = self._CustomDPMethodForCombinedPDF,
-        custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name if X_dp.wt_name is not None else "wt", "normalise" : normalise}
+        custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name, "normalise" : normalise}
       )
       ln_lkld += dps_ln_lkld
 

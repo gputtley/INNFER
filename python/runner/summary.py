@@ -21,6 +21,7 @@ class Summary():
     self.freeze = {}
     self.extra_plot_name = ""
     self.show2sigma = False
+    self.verbose = True
 
   def Configure(self, options):
     """
@@ -40,7 +41,9 @@ class Summary():
     Run the code utilising the worker classes
     """
 
-    # Open bootstraps
+    # Open results
+    if self.verbose:
+      print("- Loading in results")
     results = {}
     other_results = {}
     for ind, info in enumerate(self.val_loop):
@@ -67,6 +70,9 @@ class Summary():
           else:
             other_results[other_key][col][info_name] = other_crossings
 
+    if self.verbose:
+      print("- Plotting the summary")
+      
     plot_summary(
       results, 
       name = f"{self.plots_output}/summary{self.extra_plot_name}", 

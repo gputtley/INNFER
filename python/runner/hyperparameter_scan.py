@@ -40,21 +40,31 @@ class HyperparameterScan():
     """
     # Setup wandb
     if self.use_wandb:
+
+      if self.verbose:
+        print("- Initialising wandb")
+
       with open(self.architecture, 'r') as yaml_file:
         architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
       r = RandomWords()
       wandb.init(project=self.wandb_project_name, name=f"{self.wandb_submit_name}_{r.get_random_word()}", config=architecture)
 
     # Train models
+    if self.verbose:
+      print("- Training the models")
     t = self._SetupTrain()
     t.Run()
 
     # Get performance metrics
+    if self.verbose:
+      print("- Getting the performance metrics")
     pf = self._SetupPerformanceMetrics()
     pf.Run()
 
     # Write performance metrics to wandb
     if self.use_wandb:
+      if self.verbose:
+        print("- Writing performance metrics to wandb")
       metric_name = f"{self.data_output}/metrics{self.save_extra_name}.yaml"
       with open(metric_name, 'r') as yaml_file:
         metric = yaml.load(yaml_file, Loader=yaml.FullLoader)

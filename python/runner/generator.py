@@ -116,7 +116,7 @@ class Generator():
       )
 
       # Make data processors
-      shape_Y_cols = [col for col in self.Y_sim.columns if "mu_" not in col and col in parameters["Y_columns"]]
+      shape_Y_cols = [col for col in self.Y_synth.columns if "mu_" not in col and col in parameters["Y_columns"]]
       if self.verbose:
         print(f"- Making data processor for {file_name}")
 
@@ -146,11 +146,6 @@ class Generator():
           }
         )
 
-      elif self.data_type == "data":
-
-        print("Still need to implement data")
-
-
       synth_dps[file_name] = DataProcessor(
         [[partial(networks[file_name].Sample, self.Y_synth)]],
         "generator",
@@ -161,10 +156,17 @@ class Generator():
         }
       )
 
+    if self.data_type == "data":
+      sim_dps["Data"] = DataProcessor(
+        [[f"{parameters['file_loc']}/data.parquet"]],
+        "parquet",
+      )
+
     # Get names for plot
-    sim_file_name = GetYName(self.Y_sim, purpose="file", prefix="_sim_y_")
-    sample_file_name = GetYName(self.Y_synth, purpose="file", prefix="_synth_y_")
-    sim_plot_name = GetYName(self.Y_sim, purpose="plot", prefix="Simulated y=")
+    if self.data_type != "data":
+      sim_plot_name = GetYName(self.Y_sim, purpose="plot", prefix="Simulated y=")
+    else:
+      sim_plot_name = "Data"
     sample_plot_name = GetYName(self.Y_synth, purpose="plot", prefix="Synthetic y=")
 
     # Running plotting functions
@@ -176,26 +178,23 @@ class Generator():
         synth_dps, 
         sim_dps, 
         parameters["X_columns"],
-        sim_file_name,
-        sample_file_name,
         sim_plot_name,
         sample_plot_name,
         transform=False,
         extra_dir="GenerationTrue1D",
         extra_name=self.extra_plot_name,
       )
-      self._PlotGeneration(
-        synth_dps, 
-        sim_dps, 
-        parameters["X_columns"],
-        sim_file_name,
-        sample_file_name,
-        sim_plot_name,
-        sample_plot_name,
-        transform=True,
-        extra_dir="GenerationTrue1DTransformed",
-        extra_name=self.extra_plot_name,
-      )
+      if self.data_type != "data":
+        self._PlotGeneration(
+          synth_dps, 
+          sim_dps, 
+          parameters["X_columns"],
+          sim_plot_name,
+          sample_plot_name,
+          transform=True,
+          extra_dir="GenerationTrue1DTransformed",
+          extra_name=self.extra_plot_name,
+        )
 
     if self.do_2d_unrolled:
       if self.verbose:
@@ -205,8 +204,6 @@ class Generator():
         synth_dps, 
         sim_dps, 
         parameters["X_columns"],
-        sim_file_name,
-        sample_file_name,
         sim_plot_name,
         sample_plot_name,
         transform=False,
@@ -218,8 +215,6 @@ class Generator():
         synth_dps, 
         sim_dps, 
         parameters["X_columns"],
-        sim_file_name,
-        sample_file_name,
         sim_plot_name,
         sample_plot_name,
         transform=True,
@@ -273,7 +268,14 @@ class Generator():
         f"{parameters['file_loc']}/wt_train.parquet", 
         f"{parameters['file_loc']}/X_test.parquet",
         f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",
+        f"{parameters['file_loc']}/wt_test.parquet", 
+      ]
+
+    # Add inputs from the dataset being used
+    if self.data_type == "data":
+      inputs += [f"{parameters['file_loc']}/data.parquet"]
+    elif self.data_type == "sim":
+      inputs += [
         f"{parameters['file_loc']}/X_val.parquet",
         f"{parameters['file_loc']}/Y_val.parquet", 
         f"{parameters['file_loc']}/wt_val.parquet", 
@@ -289,8 +291,6 @@ class Generator():
     synth_dps, 
     sim_dps, 
     X_columns,
-    sim_file_name,
-    synth_file_name,
     sim_plot_name,
     synth_plot_name,
     n_bins=40, 
@@ -309,8 +309,51 @@ class Generator():
 
     for col in X_columns:
 
-      synth_hists = {}
+      # Get binning
+      bins = sim_dps[list(sim_dps.keys())[0]].GetFull(
+        method = "bins_with_equal_spacing", 
+        functions_to_apply = functions_to_apply,
+        bins = n_bins,
+        column = col,
+      )      
 
+      # Make synth hists
+      synth_hists = {}
+      for ind, file_name in enumerate(synth_dps.keys()):
+        tf.random.set_seed(self.seed)
+        tf.keras.utils.set_random_seed(self.seed)
+        synth_hist, synth_hist_uncert, bins = synth_dps[file_name].GetFull(
+          method = "histogram_and_uncert",
+          functions_to_apply = functions_to_apply,
+          bins = bins,
+          column = col,
+        )
+        synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
+        if ind == 0:
+          synth_hist_uncert_squared = synth_hist_uncert**2
+          synth_hist_total = copy.deepcopy(synth_hist)
+        else:
+          synth_hist_uncert_squared += (synth_hist_uncert**2)
+          synth_hist_total += synth_hist
+
+
+      # Make sim hists
+      for ind, file_name in enumerate(sim_dps.keys()):
+        sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
+          method = "histogram_and_uncert",
+          functions_to_apply = functions_to_apply,
+          bins = bins,
+          column = col,
+        )
+        if ind == 0:
+          sim_hist_uncert_squared = sim_hist_uncert**2
+          sim_hist_total = copy.deepcopy(sim_hist)
+        else:
+          sim_hist_uncert_squared += (sim_hist_uncert**2)
+          sim_hist_total += sim_hist
+
+      """
+      synth_hists = {}
       for ind, file_name in enumerate(synth_dps.keys()):
 
         # Get binning
@@ -354,6 +397,8 @@ class Generator():
 
         synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
 
+    """
+
       if not self.scale_to_yield:
         sum_sim_hist_total = np.sum(sim_hist_total)
         sum_synth_hist_total = np.sum(synth_hist_total)
@@ -386,8 +431,6 @@ class Generator():
     synth_dps, 
     sim_dps, 
     X_columns,
-    sim_file_name,
-    synth_file_name,
     sim_plot_name,
     synth_plot_name,
     n_unrolled_bins = 5,

@@ -7,6 +7,7 @@ class MakeBenchmark():
     A class to make the benchmark scenario datasets and configuration file.
     """
     self.name = None
+    self.verbose = True
 
   def Configure(self, options):
     """
@@ -31,9 +32,18 @@ class MakeBenchmark():
 
     # Fit splines
     if ".yaml" in self.name:
+      if self.verbose:
+        print("- Fitting splines")
       benchmark.FitSplines()
-    # Make dataset and config
+
+    # Make dataset
+    if self.verbose:
+      print("- Making the datasets")
     benchmark.MakeDataset()
+
+    # Make config
+    if self.verbose:
+      print("- Making the config file")
     benchmark.MakeConfig()
 
   def Outputs(self):
