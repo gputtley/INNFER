@@ -41,6 +41,7 @@ class Infer():
     self.other_input_files = []
     self.other_output_files = []
     self.model_type = "BayesFlow"
+    self.data_file = None
 
   def Configure(self, options):
     """
@@ -184,7 +185,7 @@ class Infer():
     # Add parameters and model inputs
     for k in self.parameters.keys():
       inputs += [
-        self.model[k],
+        self.model[k], # remove this if not needed
         self.architecture[k],
         self.parameters[k],
       ]
@@ -199,6 +200,8 @@ class Infer():
           f"{parameters['file_loc']}/Y_val.parquet",
           f"{parameters['file_loc']}/wt_val.parquet",
         ]
+    elif self.data_type == "data":
+      inputs += [self.data_file]      
 
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPoints","Scan"]:
@@ -240,6 +243,7 @@ class Infer():
           [[partial(lkld.models["pdfs"][file_name].Sample, self.true_Y)]],
           "generator",
           n_events = self.n_asimov_events,
+          wt_name = "wt",
           options = {
             "parameters" : lkld.data_parameters[file_name],
             "scale" : lkld.models["yields"][file_name](self.true_Y),
@@ -249,7 +253,7 @@ class Infer():
     if self.data_type == "data":
 
       dps["Data"] = DataProcessor(
-        [[f"{lkld.data_parameters[file_name]['file_loc']}/data.parquet"]],
+        [[self.data_file]],
         "parquet",
       )
 
@@ -353,8 +357,9 @@ class Infer():
     elif self.model_type.startswith("Benchmark"):
 
       import importlib
-      module = importlib.import_module("benchmarks_v2")
-      module_class = getattr(module, self.model_type.split("Benchmark_")[1])
+      module_name = self.model_type.split("Benchmark_")[1]
+      module = importlib.import_module(module_name)
+      module_class = getattr(module, module_name)
       networks = {}
       for file_name in self.parameters.keys():
         networks[file_name] = module_class(file_name=file_name)

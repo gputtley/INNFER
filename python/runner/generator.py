@@ -34,6 +34,7 @@ class Generator():
     self.extra_plot_name = ""
     self.other_input_files = []
     self.other_output_files = []
+    self.data_file = None
 
   def Configure(self, options):
     """
@@ -158,7 +159,7 @@ class Generator():
 
     if self.data_type == "data":
       sim_dps["Data"] = DataProcessor(
-        [[f"{parameters['file_loc']}/data.parquet"]],
+        [[self.data_file]],
         "parquet",
       )
 
@@ -235,16 +236,23 @@ class Generator():
       for col in parameters["X_columns"]:
         outputs += [
           f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}.pdf",
-          f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
         ]
+        if self.data_type != "data":
+          outputs += [
+            f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
+          ]
+
     if self.do_2d_unrolled:
       for plot_col in parameters["X_columns"]:
         for unrolled_col in parameters["X_columns"]:
           if plot_col == unrolled_col: continue
           outputs += [
             f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
-            f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
           ]
+          if self.data_type != "data":
+            outputs += [
+              f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
+            ]
 
     # Add other outputs
     outputs += self.other_output_files
@@ -273,7 +281,7 @@ class Generator():
 
     # Add inputs from the dataset being used
     if self.data_type == "data":
-      inputs += [f"{parameters['file_loc']}/data.parquet"]
+      inputs += [self.data_file]
     elif self.data_type == "sim":
       inputs += [
         f"{parameters['file_loc']}/X_val.parquet",

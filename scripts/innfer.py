@@ -230,7 +230,8 @@ def main(args, default_args):
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
             "data_type" : args.data_type if args.data_type is not None else "sim",
-            "verbose" : not args.quiet,        
+            "verbose" : not args.quiet,
+            "data_file" : cfg["data_file"],     
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )
@@ -285,7 +286,8 @@ def main(args, default_args):
             "scale_to_eff_events" : args.scale_to_eff_events,
             "other_input" : args.other_input,
             "model_type" : args.model_type,
-            "verbose" : not args.quiet,        
+            "verbose" : not args.quiet,
+            "data_file" : cfg["data_file"],
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -318,7 +320,8 @@ def main(args, default_args):
             "extra_file_name" : str(val_ind),
             "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
             "model_type" : args.model_type,
-            "verbose" : not args.quiet,        
+            "verbose" : not args.quiet,
+            "data_file" : cfg["data_file"],        
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -356,7 +359,8 @@ def main(args, default_args):
               "extra_file_name" : str(val_ind),
               "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
               "model_type" : args.model_type,
-              "verbose" : not args.quiet,        
+              "verbose" : not args.quiet,    
+              "data_file" : cfg["data_file"],      
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
           )
@@ -397,6 +401,7 @@ def main(args, default_args):
                 "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml"],
                 "model_type" : args.model_type,
                 "verbose" : not args.quiet,
+                "data_file" : cfg["data_file"],  
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
             )
@@ -476,6 +481,7 @@ def main(args, default_args):
               "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
               "model_type" : args.model_type,
               "verbose" : not args.quiet,
+              "data_file" : cfg["data_file"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "bootstrap_ind": bootstrap_ind},
         )
@@ -523,7 +529,7 @@ def main(args, default_args):
 
   # Draw best fit distributions
   if args.step == "BestFitDistributions":
-    print(f"<< Drawing the distributions for the best values >>")
+    print(f"<< Drawing the distributions for the best fit values >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
@@ -547,6 +553,7 @@ def main(args, default_args):
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
             "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
             "verbose" : not args.quiet,
+            "data_file" : cfg["data_file"],
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind}
         )

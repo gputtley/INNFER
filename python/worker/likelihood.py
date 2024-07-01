@@ -388,10 +388,9 @@ class Likelihood():
     dump = {
       "columns": self.Y_columns, 
       "best_fit": [float(i) for i in self.best_fit], 
-      "best_fit_nll": float(self.best_fit_nll)
+      "best_fit_nll": float(self.best_fit_nll),
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
       }
-    if row is not None:
-      dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
     if self.verbose:
       pprint(dump)
     print(f"Created {filename}")
@@ -414,10 +413,9 @@ class Likelihood():
     dump = {
       "columns" : self.Y_columns, 
       "varied_column" : col,
-      "scan_values" : scan_values
+      "scan_values" : scan_values,
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
     }
-    if row is not None:
-      dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
     if self.verbose:
       pprint(dump)
     print(f"Created {filename}")
@@ -444,6 +442,8 @@ class Likelihood():
         "profiled_columns" : [k for k in self.Y_columns if k != col],
         "profiled_values" : [float(i) for i in result[0]],
         "scan_values" : [float(col_val)],
+        "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+
       }
     else:
       result = self.Run(X_dps, Y, return_ln=True, multiply_by=-2)
@@ -452,12 +452,11 @@ class Likelihood():
         "varied_column" : col,
         "nlls": [float(result - self.best_fit_nll)],
         "scan_values" : [float(col_val)],
+        "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
       }
-    if row is not None:
-      dump["row"] = [float(row.loc[0,col]) for col in self.Y_columns]
     if self.verbose:
       pprint(dump)
     print(f"Created {filename}")
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
-      yaml.dump(dump, yaml_file, default_flow_style=False)  
+      yaml.dump(dump, yaml_file, default_flow_style=False)

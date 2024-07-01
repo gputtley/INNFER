@@ -630,7 +630,6 @@ class Benchmarks():
               "wt"
             ]
             data = np.concatenate((data.reshape(-1,1),key*np.ones((events_per_file,1)),wts), axis=1)
-            print(key, np.mean(data[:,0]))
           else:
             columns = [
               self.benchmark_info["cfg"]["variables"][0],

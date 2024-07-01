@@ -23,7 +23,8 @@ class MakeBenchmark():
     """
     Run the code utilising the worker classes
     """
-    module = importlib.import_module("benchmarks_v2")
+    #module = importlib.import_module("benchmarks_v2")
+    module = importlib.import_module(self.name)
     module_class = getattr(module, self.name)
     benchmark = module_class()
 

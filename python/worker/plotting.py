@@ -83,6 +83,8 @@ def plot_histograms(
   for ind, vertical_line in enumerate(vertical_lines):
     ax.axvline(x=vertical_line, color=vertical_line_colors[ind], linestyle='--', linewidth=2, label=vertical_line_names[ind])
 
+  ax.xaxis.get_major_formatter().set_useOffset(False)
+
   plt.xlabel(x_label)
   plt.ylabel(y_label)
   if not all(item is None for item in hist_names+error_bar_names):
@@ -226,6 +228,7 @@ def plot_stacked_histogram_with_ratio(
   ax2.set_xlabel(xlabel)
   ax2.set_ylabel('Ratio')
   ax2.set_ylim([0.5,1.5])
+  ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1, left=0.15)
@@ -460,6 +463,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   ax2.set_xlabel(xlabel)
   ax2.set_ylabel('Ratio')
   ax2.set_ylim([0.5,1.5])
+  ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Draw lines showing unrolled bin splits
   for i in range(1,len(data_hists)):
@@ -524,6 +528,8 @@ def plot_likelihood(
   hep.cms.text(cms_label,ax=ax)
   plt.plot(x, y, label=label)
 
+  ax.xaxis.get_major_formatter().set_useOffset(False)
+
   colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
   color_ind = 0
   for k, v in other_lklds.items():
@@ -570,6 +576,7 @@ def plot_summary(
     nominal_name="",
     show2sigma=False, 
     other_summaries={},
+    shift = 0.2,
     ):
   """
   Plot a validation summary.
@@ -604,6 +611,7 @@ def plot_summary(
       x_2err_higher = []
 
     other_x = {}
+    other_y = {}
     other_x_err_lower = {}
     other_x_err_higher = {}
     if show2sigma:
@@ -611,6 +619,7 @@ def plot_summary(
       other_x_2err_higher = {}
     for k in other_summaries.keys():
       other_x[k] = []
+      other_y[k] = []
       other_x_err_lower[k] = []
       other_x_err_higher[k] = []
       if show2sigma:
@@ -619,10 +628,15 @@ def plot_summary(
 
     for val_ind, (key, val) in enumerate(vals.items()):
 
-      y.append(-1*val_ind)
+      num_lines = 1+len(list(other_summaries.keys()))
+      starting_point = (-1*val_ind) + (((num_lines-1)/2)*shift)
+
+      y.append(starting_point)
       x.append(val[0])
-      for k, v in other_summaries.items():
+
+      for other_ind, (k, v) in enumerate(other_summaries.items()):
         other_x[k].append(v[col][key][0])
+        other_y[k].append(starting_point - ((other_ind+1)*shift))
 
       if -1 in val.keys():
         x_err_lower.append(val[0]-val[-1])
@@ -670,15 +684,18 @@ def plot_summary(
     if show2sigma:
       ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], y, xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
       ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
     else:
       ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[0], alpha=1.0), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], y, xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k} 1$\sigma$ Best Fit/True")      
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k} 1$\sigma$ Best Fit/True")      
 
+
+    for y in range(len(list(vals.keys()))-1):
+      ax[ind].axhline(y=(-1*y)-0.5, color='black', linestyle='--') 
     ax[ind].axvline(x=1, color='black', linestyle='--') 
     ax[ind].set_xlabel(col)
     if ind == 0:
@@ -686,6 +703,8 @@ def plot_summary(
       ax[ind].set_yticklabels(list(vals.keys()))
     else:
       ax[ind].tick_params(labelleft=False)      
+    ax[ind].set_ylim((-1*len(list(vals.keys())))+0.5, 0.5)
+    ax[ind].xaxis.get_major_formatter().set_useOffset(False)
 
   # Legend
   ax[-1].spines['top'].set_visible(False)
@@ -696,8 +715,6 @@ def plot_summary(
                 labelbottom=False, labeltop=False, labelleft=False, labelright=False)
 
   handles, labels = ax[0].get_legend_handles_labels()
-  handles = handles[::-1]
-  labels = labels[::-1]
   legend = ax[-1].legend(handles, labels, loc='center', frameon=True, framealpha=1, facecolor='white', edgecolor="white")
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():

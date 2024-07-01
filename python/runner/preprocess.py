@@ -188,10 +188,6 @@ class PreProcess():
     # Delete data processor
     del dp
 
-    # Copy data file to directory
-    if cfg["data_file"] is not None:
-      os.system(f"cp {cfg['data_file']} {self.data_output}/data.parquet")
-
     # Write parameters file
     if self.verbose:
       print("- Writing parameters yaml")
@@ -226,8 +222,6 @@ class PreProcess():
         outputs.append(f"{self.data_output}/{i}_{data_split}.parquet")
     # Add parameters file
     outputs.append(f"{self.data_output}/parameters.yaml")
-    if cfg["data_file"] is not None:
-      outputs.append(f"{self.data_output}/data.parquet")
     return outputs
 
   def Inputs(self):

@@ -59,8 +59,10 @@ class ScanPlot():
         other_scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
       other_lklds[key] = [other_scan_results["scan_values"], other_scan_results["nlls"]]
 
-    file_extra_name = GetYName(row, purpose="file")
-    plot_extra_name = GetYName(row, purpose="plot")
+    if row is not None:
+      plot_extra_name = GetYName(row, purpose="plot")
+    else:
+      plot_extra_name = ""
     
     if self.verbose:
       print("- Plotting the likelihood scan")
@@ -71,7 +73,7 @@ class ScanPlot():
       crossings, 
       name = f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}", 
       xlabel = self.column, 
-      true_value = row[ind],
+      true_value = row[ind] if row is not None else None,
       title_right = f"y={plot_extra_name}" if plot_extra_name != "" else "",
       cap_at = 9,
       label = None if len(list(other_lklds.keys())) == 0 else "Nominal",
