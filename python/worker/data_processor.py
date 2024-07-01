@@ -1,4 +1,6 @@
 import copy
+import pickle
+
 import pandas as pd
 import numpy as np
 
@@ -275,6 +277,13 @@ class DataProcessor():
         pd.DataFrame: The transformed dataset.
     """
     for column_name in data.columns:
+
+      # Apply discrete to continuous transformation
+      if "discrete_thresholds" in self.parameters.keys():
+        if column_name in self.parameters["discrete_thresholds"].keys():
+          self.DiscreteToContinuous(data.loc[:,column_name], column_name)
+
+      # Apply standardisation
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
 
@@ -294,14 +303,26 @@ class DataProcessor():
         pd.DataFrame: The Untransform dataset.
     """
     for column_name in data.columns:
+
+      # Unstandardise the probabilities
       if column_name == "prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] /= self.parameters["standardisation"][col]["std"]
-      elif column_name == "log_prob":
+
+      # Unstandardise the log probabilities
+      if column_name == "log_prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
-      elif column_name in list(self.parameters["standardisation"].keys()):
+        
+      # Unstandardise columns
+      if column_name in list(self.parameters["standardisation"].keys()):
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
+
+      # Convert previously discrete columns back to discrete
+      if "discrete_thresholds" in self.parameters.keys():
+        if column_name in self.parameters["discrete_thresholds"].keys():
+          self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
+
     return data
 
   def Standardise(
@@ -341,6 +362,58 @@ class DataProcessor():
     else:
       return column
     
+  def DiscreteToContinuous(
+      self,
+      column,
+      column_name,
+      n_integral_bins = 100000
+    ):
+    # Open spline
+    with open(self.parameters["spline_locations"][column_name], 'rb') as file:
+      spline = pickle.load(file)
+
+    column = column.to_numpy()
+    for k, v in self.parameters["discrete_thresholds"][column_name].items():
+      # Find matching indices
+      indices = (column == k)
+      n_samples = len(column[indices]) 
+
+      # Compute the CDF
+      param_values = np.linspace(v[0], v[1], n_integral_bins)
+      cdf_vals = np.cumsum(np.abs(spline(param_values))) / np.sum(np.abs(spline(param_values)))
+
+      # Normalise the CDF
+      cdf_vals /= cdf_vals[-1]
+
+      # Generate random numbers
+      rng = np.random.RandomState(seed=42)
+      random_nums = rng.rand(n_samples)
+
+      # Inverse transform sampling
+      column[indices] = np.interp(random_nums, cdf_vals, param_values)
+
+    return pd.DataFrame({column_name : column.flatten()})
+
+  def UnDiscreteToContinuous(
+      self,
+      column,
+      column_name,
+    ):
+    for k, v in self.parameters["discrete_thresholds"][column_name].items():
+
+      # Find matching indices
+      if k == min(list(output_ranges.keys())):
+        indices = (column < v[1])
+      elif k == max(list(output_ranges.keys())):
+        indices = (column >= v[0])
+      else:
+        indices = ((column >= v[0])) & (column < v[1])
+
+      # Do inverse
+      column[indices] = k
+
+    return column
+
   def ApplySelection(
       self, 
       data,

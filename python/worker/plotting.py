@@ -12,6 +12,7 @@ import pandas as pd
 import copy
 import textwrap
 import os
+
 from useful_functions import MakeDirectories, RoundToSF
 
 hep.style.use("CMS")
@@ -719,6 +720,40 @@ def plot_summary(
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+def plot_spline_and_thresholds(
+    spline, 
+    thresholds, 
+    unique_vals, 
+    counts, 
+    x_label="", 
+    y_label="Events",
+    name="spline_and_thresholds"
+    ):
+
+  fig, ax = plt.subplots()
+  hep.cms.text(cms_label,ax=ax)
+
+  plt.scatter(unique_vals, counts, label='Data')
+
+  x_smooth = np.linspace(min(unique_vals), max(unique_vals), 500)
+  y_smooth = spline(x_smooth)
+  plt.plot(x_smooth, y_smooth, color='blue', label='Spline')
+
+  for key, val in thresholds.items():
+    x_frac = np.linspace(val[0], val[1], 500)
+    y_frac = spline(x_frac)    
+    plt.fill_between(x_frac, y_frac, alpha=0.5)
+
+  plt.xlabel(x_label)
+  plt.ylabel(y_label)
+  plt.legend()
+  plt.subplots_adjust(left=0.2)
 
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")

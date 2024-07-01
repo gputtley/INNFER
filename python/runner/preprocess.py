@@ -1,6 +1,7 @@
 import os
 import copy
 import yaml
+import pickle
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -8,9 +9,11 @@ import pyarrow.parquet as pq
 from itertools import product
 from sklearn.model_selection import train_test_split
 from functools import partial
+from scipy.interpolate import UnivariateSpline
+from scipy.optimize import root_scalar
 
 from useful_functions import GetYName, MakeDirectories, GetPOILoop, GetNuisanceLoop
-from plotting import plot_histograms
+from plotting import plot_histograms, plot_spline_and_thresholds
 from data_processor import DataProcessor
 
 class PreProcess():
@@ -91,7 +94,20 @@ class PreProcess():
     if self.verbose:
       print("- Finding discrete X variables and converting them to continuous ones")    
     discrete_X = {k : sorted(v) for k, v in unique_values.items() if k in parameters["X_columns"] and v is not None}
-    # TO DO: Do discrete to continuous stuff
+    if len(list(discrete_X.keys())) > 0:
+      parameters["discrete_thresholds"] = {}
+      parameters["spline_locations"] = {}
+    for k, v in discrete_X.items():
+      hist, _ = dp.GetFull(method="histogram", bins=v+[(2*v[-1])-v[-2]], column=k)
+      pdf_spline, intervals, pre_integral = self._FitSplineAndFindIntervals(hist, v)
+      spline_loc = f"{self.data_output}/spline_{k}.pkl"
+      MakeDirectories(spline_loc)
+      with open(spline_loc, 'wb') as file:
+        pickle.dump(pdf_spline, file)
+      parameters["discrete_thresholds"][k] = intervals
+      parameters["spline_locations"][k] = spline_loc
+      plot_spline_and_thresholds(pdf_spline, intervals, v, hist/pre_integral, x_label=k, name=f"{self.plots_output}/spline_for_{k}")
+
 
     # Get sum of weights for each unique y combination
     if self.verbose:
@@ -193,6 +209,7 @@ class PreProcess():
       print("- Writing parameters yaml")
     with open(self.data_output+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(parameters, yaml_file, default_flow_style=False)  
+    print(f"Created {self.data_output}/parameters.yaml")
 
     # Run plotting of POIs
     if self.verbose:
@@ -233,6 +250,29 @@ class PreProcess():
     ]
     return inputs
         
+  def _FitSplineAndFindIntervals(self, hist, bins):
+
+    # Fit pdf
+    unnormalised_pdf_spline = UnivariateSpline(bins, hist, s=0)
+    integral = unnormalised_pdf_spline.integral(bins[0],bins[-1])
+    hist_for_normalised_spline = hist/integral
+    pdf_spline = UnivariateSpline(bins, hist_for_normalised_spline, s=0)
+
+    # Find threholds for where the pdf integrals equal the cdf values
+    cdf = [np.sum(hist[:ind+1]) for ind in range(len(bins))]
+    cdf /= cdf[-1]
+    intervals = [float(bins[0])]
+    for desired_integral in cdf[:-1]:
+      integral_diff = lambda b, bins, desired_integral: pdf_spline.integral(bins[0], b) - desired_integral
+      integral_diff = partial(integral_diff, bins=bins, desired_integral=desired_integral)
+      result = root_scalar(integral_diff, bracket=[bins[0], bins[-1]], method='brentq')
+      intervals.append(float(result.root))
+    intervals.append(float(bins[-1]))
+    
+    thresholds = {float(bins[ind]) : [intervals[ind],intervals[ind+1]] for ind in range(len(bins))}
+
+    return pdf_spline, thresholds, integral
+
   def _DoTrainTestValSplit(self, df, split="all", train_test_val_split="0.6:0.1:0.3"):
     train_ratio = float(train_test_val_split.split(":")[0])
     train_df, temp_df = train_test_split(df, test_size=(1 - train_ratio), random_state=42)
