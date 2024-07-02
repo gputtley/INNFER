@@ -360,53 +360,6 @@ class Generator():
           sim_hist_uncert_squared += (sim_hist_uncert**2)
           sim_hist_total += sim_hist
 
-      """
-      synth_hists = {}
-      for ind, file_name in enumerate(synth_dps.keys()):
-
-        # Get binning
-        if ind == 0:
-          bins = sim_dps[file_name].GetFull(
-            method = "bins_with_equal_spacing", 
-            functions_to_apply = functions_to_apply,
-            bins = n_bins,
-            column = col,
-          )
-
-        # Make histograms
-        tf.random.set_seed(self.seed)
-        tf.keras.utils.set_random_seed(self.seed)
-        synth_hist, synth_hist_uncert, bins = synth_dps[file_name].GetFull(
-          method = "histogram_and_uncert",
-          functions_to_apply = functions_to_apply,
-          bins = bins,
-          column = col,
-          )
-
-        tf.random.set_seed(self.seed)
-        tf.keras.utils.set_random_seed(self.seed)
-        sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
-          method = "histogram_and_uncert",
-          functions_to_apply = functions_to_apply,
-          bins = bins,
-          column = col,
-          )
-
-        if ind == 0:
-          synth_hist_uncert_squared = synth_hist_uncert**2
-          sim_hist_uncert_squared = sim_hist_uncert**2
-          sim_hist_total = copy.deepcopy(sim_hist)
-          synth_hist_total = copy.deepcopy(synth_hist)
-        else:
-          synth_hist_uncert_squared += (synth_hist_uncert**2)
-          sim_hist_uncert_squared += (sim_hist_uncert**2)
-          sim_hist_total += sim_hist
-          synth_hist_total += synth_hist
-
-        synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
-
-    """
-
       if not self.scale_to_yield:
         sum_sim_hist_total = np.sum(sim_hist_total)
         sum_synth_hist_total = np.sum(synth_hist_total)

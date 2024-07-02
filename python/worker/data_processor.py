@@ -193,9 +193,19 @@ class DataProcessor():
       sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       return (sum_wts**2)/sum_wts_squared
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
-      return list(np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1))
+      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
+      if unique is not None: # Discrete bins
+        unique = sorted(unique)
+        return unique + [2*unique[-1] - unique[-2]]
+      else:
+        return list(np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1))
     elif method == "bins_with_equal_stats": # Get equal stat bins
-      return [self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)]
+      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
+      if unique is not None: # Discrete bins
+        unique = sorted(unique)
+        return unique + [2*unique[-1] - unique[-2]]
+      else:
+        return [self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)]
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -402,9 +412,9 @@ class DataProcessor():
     for k, v in self.parameters["discrete_thresholds"][column_name].items():
 
       # Find matching indices
-      if k == min(list(output_ranges.keys())):
+      if k == min(list(self.parameters["discrete_thresholds"][column_name].keys())):
         indices = (column < v[1])
-      elif k == max(list(output_ranges.keys())):
+      elif k == max(list(self.parameters["discrete_thresholds"][column_name].keys())):
         indices = (column >= v[0])
       else:
         indices = ((column >= v[0])) & (column < v[1])

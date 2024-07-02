@@ -58,7 +58,6 @@ for output_file, input_files in input.items():
       branch_for_weight_shifts = [string for string in branch_for_weight_shifts if not string.isdigit()]
 
     get_branches = list(set(parameters["Columns"] + branch_for_weight + branch_for_weight_shifts))
-    #final_branches = parameters["Columns"] + ["wt"] + final_branch_for_weight_shifts
 
     arrays = tree.arrays(get_branches, cut=parameters["Selection"])
 
@@ -68,8 +67,6 @@ for output_file, input_files in input.items():
       continue
 
     df.eval("wt = " + parameters["Weight"], inplace=True)
-
-    #df = df.loc[:,final_branches]
 
     if "Extra_Columns" in parameters.keys():
       for k, v in parameters["Extra_Columns"].items():

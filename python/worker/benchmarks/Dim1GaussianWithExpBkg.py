@@ -11,6 +11,15 @@ from useful_functions import MakeDirectories
 class Dim1GaussianWithExpBkg():
 
   def __init__(self, file_name=None): 
+    """
+    A class used to simulate and handle a 1-dimensional Gaussian dataset with
+    an exponentially falling background.
+
+    Parameters
+    ----------
+    file_name : str, optional
+        The name of the file to save or load the dataset (default is None).
+    """
 
     self.name = "Dim1GaussianWithExpBkg"
     self.file_name = file_name
@@ -41,6 +50,19 @@ class Dim1GaussianWithExpBkg():
     self.dir_name = f"data/Benchmark_{self.name}/Inputs"    
 
   def MakeConfig(self, return_cfg=False):
+    """
+    Creates a configuration dictionary for the dataset and saves it as a YAML file.
+
+    Parameters
+    ----------
+    return_cfg : bool, optional
+        If True, the configuration dictionary is returned (default is False).
+
+    Returns
+    -------
+    dict
+        The configuration dictionary if return_cfg is True.
+    """
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
@@ -67,6 +89,9 @@ class Dim1GaussianWithExpBkg():
       yaml.dump(cfg, file)
 
   def MakeDataset(self):
+    """
+    Creates a simulated dataset and saves it as a Parquet file.
+    """
 
     # Make directory
     MakeDirectories(self.dir_name)
@@ -97,6 +122,23 @@ class Dim1GaussianWithExpBkg():
     pq.write_table(data_table, data_parquet_file_path)
 
   def Probability(self, X, Y, return_log_prob=True):
+    """
+    Computes the probability density function for a Gaussian distribution.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The input dataframe containing X values.
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    return_log_prob : bool, optional
+        If True, the log probability is returned (default is True).
+
+    Returns
+    -------
+    numpy.ndarray
+        The (log) probability values.
+    """
 
     if self.file_name == "GaussianWithExpBkg":
 
@@ -124,7 +166,22 @@ class Dim1GaussianWithExpBkg():
 
 
   def Sample(self, Y, n_events):
+    """
+    Samples values from a Gaussian distribution.
 
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    n_events : int
+        The number of events to sample.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A dataframe containing sampled X values.
+    """
+    
     if self.file_name == "GaussianWithExpBkg":
 
       # Set up Y correctly

@@ -11,6 +11,17 @@ from useful_functions import MakeDirectories
 class Dim1GaussianWithExpBkgVaryingYield():
 
   def __init__(self, file_name=None): 
+    """
+    A class used to simulate and handle a 1-dimensional Gaussian dataset with
+    an exponentially falling background, where the background and Gaussian
+    signal are treated separately with a floating rate parameter on the Gaussian
+    yield.
+
+    Parameters
+    ----------
+    file_name : str, optional
+        The name of the file to save or load the dataset (default is None).
+    """
 
     self.name = "Dim1GaussianWithExpBkgVaryingYield"
     self.file_name = file_name
@@ -43,6 +54,19 @@ class Dim1GaussianWithExpBkgVaryingYield():
     self.dir_name = f"data/Benchmark_{self.name}/Inputs"    
 
   def MakeConfig(self, return_cfg=False):
+    """
+    Creates a configuration dictionary for the dataset and saves it as a YAML file.
+
+    Parameters
+    ----------
+    return_cfg : bool, optional
+        If True, the configuration dictionary is returned (default is False).
+
+    Returns
+    -------
+    dict
+        The configuration dictionary if return_cfg is True.
+    """
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
@@ -65,7 +89,7 @@ class Dim1GaussianWithExpBkgVaryingYield():
       },
       "validation" : {
         "rate_parameter_vals" : {
-          "Gaussian" : [0.2,0.4,0.6]
+          "Gaussian" : [0.2,0.4]
         }
       },
       "data_file" : f"{self.dir_name}/{self.name}_data.parquet"
@@ -78,6 +102,9 @@ class Dim1GaussianWithExpBkgVaryingYield():
       yaml.dump(cfg, file)
 
   def MakeDataset(self):
+    """
+    Creates a simulated dataset and saves it as a Parquet file.
+    """
 
     # Make directory
     MakeDirectories(self.dir_name)
@@ -126,6 +153,23 @@ class Dim1GaussianWithExpBkgVaryingYield():
     pq.write_table(data_table, data_parquet_file_path)
 
   def Probability(self, X, Y, return_log_prob=True):
+    """
+    Computes the probability density function for a Gaussian distribution.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The input dataframe containing X values.
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    return_log_prob : bool, optional
+        If True, the log probability is returned (default is True).
+
+    Returns
+    -------
+    numpy.ndarray
+        The (log) probability values.
+    """
 
     if self.file_name == "Gaussian":
 
@@ -152,7 +196,22 @@ class Dim1GaussianWithExpBkgVaryingYield():
       return pdf.to_numpy().reshape(-1,1)
 
   def Sample(self, Y, n_events):
+    """
+    Samples values from a Gaussian distribution.
 
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    n_events : int
+        The number of events to sample.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A dataframe containing sampled X values.
+    """
+    
     # Set up Y correctly
     if len(Y) == 1:
       Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)

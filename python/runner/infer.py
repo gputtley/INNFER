@@ -297,7 +297,7 @@ class Infer():
           self.nuisances, 
           k,
           method=self.yield_function, 
-          column_name="effective_events"
+          column_name="effective_events_val"
         )
         sum_wts_squared += (yields_class[k].GetYield(self.true_Y)**2)/eff_events_class[k].GetYield(self.true_Y)
         sum_wts += yields_class[k].GetYield(self.true_Y)

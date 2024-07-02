@@ -26,6 +26,7 @@ miniconda/*
 !miniconda/.gitkeep
 python/*/__pycache__/*
 python/*/*/__pycache__/*
+python/worker/benchmarks/__pycache__/*
 python/*/*.pyc
 snakemake/*
 wandb/*

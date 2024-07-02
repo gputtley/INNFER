@@ -15,6 +15,14 @@ from useful_functions import MakeDirectories
 class Dim5():
 
   def __init__(self, file_name=None): 
+    """
+    A class used to simulate and handle a 5-dimensional dataset.
+
+    Parameters
+    ----------
+    file_name : str, optional
+        The name of the file to save or load the dataset (default is None).
+    """
 
     self.name = "Dim5"
     self.file_name = file_name
@@ -47,6 +55,19 @@ class Dim5():
     
 
   def MakeConfig(self, return_cfg=False):
+    """
+    Creates a configuration dictionary for the dataset and saves it as a YAML file.
+
+    Parameters
+    ----------
+    return_cfg : bool, optional
+        If True, the configuration dictionary is returned (default is False).
+
+    Returns
+    -------
+    dict
+        The configuration dictionary if return_cfg is True.
+    """
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
@@ -79,6 +100,9 @@ class Dim5():
       yaml.dump(cfg, file)
 
   def MakeDataset(self):
+    """
+    Creates a simulated dataset and saves it as a Parquet file.
+    """
 
     # Make directory
     MakeDirectories(self.dir_name)
@@ -111,6 +135,23 @@ class Dim5():
     pq.write_table(data_table, data_parquet_file_path)
 
   def Probability(self, X, Y, return_log_prob=True):
+    """
+    Computes the probability density function for a Gaussian distribution.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        The input dataframe containing X values.
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    return_log_prob : bool, optional
+        If True, the log probability is returned (default is True).
+
+    Returns
+    -------
+    numpy.ndarray
+        The (log) probability values.
+    """
 
     if self.file_name == "Signal":
 
@@ -128,8 +169,8 @@ class Dim5():
       exponential_pdf = (1/beta_val)*np.exp(-X.loc[:,"X3"]/beta_val)
 
       # Get X4 pdf
-      alpha = self.alpha + Y.loc[0,"Y1"] * 0.02
-      beta_val = self.beta * (Y.loc[0,"Y1"] - 160.0) * 0.1
+      alpha = self.alpha + Y.loc[0,"Y1"] * 0.01
+      beta_val = self.beta * (Y.loc[0,"Y1"] - 165.0) * 0.1
       beta_pdf = beta.pdf(X.loc[:,"X4"], alpha, beta_val)
 
       # Get X5 pdf
@@ -145,6 +186,21 @@ class Dim5():
       return pdf.to_numpy().reshape(-1,1)
 
   def Sample(self, Y, n_events):
+    """
+    Samples values from a Gaussian distribution.
+
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        The input dataframe containing Y values.
+    n_events : int
+        The number of events to sample.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A dataframe containing sampled X values.
+    """
 
     if self.file_name == "Signal":
 
@@ -155,8 +211,11 @@ class Dim5():
       # Define beta function
       def beta_rvs(Y):
         alpha = self.alpha + Y * 0.01
-        beta_val = self.beta * (Y - 165.0) * 0.1        
-        return beta.rvs(alpha, beta_val)
+        beta_val = self.beta * (Y - 165.0) * 0.1
+        beta_rvs_val = beta.rvs(alpha, beta_val)
+        if beta_rvs_val == 1.0: # To avoid breaking the pdf
+          beta_rvs_val = beta_rvs(Y)        
+        return beta_rvs_val
 
       # Define weibull function
       def weibull(Y):

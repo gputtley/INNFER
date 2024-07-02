@@ -122,11 +122,6 @@ class PreProcess():
     else:
       yield_df = pd.DataFrame([[dp.GetFull(method="sum"), dp.GetFull(method="n_eff")]], columns=["yield","effective_events"], dtype=np.float64)
 
-    parameters["yield_loc"] = f"{self.data_output}/yields.parquet"
-    MakeDirectories(parameters["yield_loc"])
-    table = pa.Table.from_pandas(yield_df, preserve_index=False)
-    pq.write_table(table, parameters["yield_loc"], compression='snappy')
-
     # Get standardisation parameters
     if self.verbose:
       print("- Finding standardisation parameters")
@@ -172,6 +167,13 @@ class PreProcess():
               partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
             ]
           )
+          yield_df.loc[ind, f"effective_events_{split}"] = dp.GetFull(
+            method="n_eff", 
+            extra_sel=selection,
+            functions_to_apply = [
+              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+            ]
+          )
       else:
         split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"], dtype=np.float64)
 
@@ -203,6 +205,15 @@ class PreProcess():
 
     # Delete data processor
     del dp
+
+    # Write yields file
+    if self.verbose:
+      print("- Writing yields yaml")
+    parameters["yield_loc"] = f"{self.data_output}/yields.parquet"
+    MakeDirectories(parameters["yield_loc"])
+    table = pa.Table.from_pandas(yield_df, preserve_index=False)
+    pq.write_table(table, parameters["yield_loc"], compression='snappy')
+    print(f"Created {parameters['yield_loc']}")
 
     # Write parameters file
     if self.verbose:

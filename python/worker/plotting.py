@@ -559,8 +559,14 @@ def plot_likelihood(
     plt.legend(loc='upper right')
 
   if -1 in crossings.keys() and 1 in crossings.keys():
-    text = f'Result: {round(crossings[0],2)} + {round(crossings[1]-crossings[0],2)} - {round(crossings[0]-crossings[-1],2)}'
-    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left')
+    # round crossings difference to two SF
+    sig_figs = 2
+    decimal_places_up = sig_figs - int(np.floor(np.log10(abs(crossings[1]-crossings[0])))) - 1
+    decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
+    decimal_places = min(decimal_places_down,decimal_places_up)
+
+    text = f'Result: {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
+    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
 
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)
@@ -732,7 +738,7 @@ def plot_spline_and_thresholds(
     unique_vals, 
     counts, 
     x_label="", 
-    y_label="Events",
+    y_label="Density",
     name="spline_and_thresholds"
     ):
 
