@@ -1,17 +1,19 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.lines import Line2D
-from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.image as mpimg
-import matplotlib.ticker as ticker
-from matplotlib import gridspec
-import mplhep as hep
-import seaborn as sns
-import pandas as pd
 import copy
-import textwrap
 import os
+import textwrap
+
+import matplotlib.colors as mcolors
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import mplhep as hep
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
+from matplotlib import gridspec
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.lines import Line2D
 
 from useful_functions import MakeDirectories, RoundToSF
 

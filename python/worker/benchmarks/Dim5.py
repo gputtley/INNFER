@@ -1,5 +1,5 @@
-import yaml
 import copy
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -7,7 +7,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from math import gamma
-from scipy.stats import vonmises
 from scipy.stats import beta
 
 from useful_functions import MakeDirectories

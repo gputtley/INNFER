@@ -1,5 +1,5 @@
-import yaml
 import copy
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -58,7 +58,7 @@ class Dim1Gaussian():
     dict
         The configuration dictionary if return_cfg is True.
     """
-    
+
     cfg = {
       "name" : f"Benchmark_{self.name}",
       "files" : {"Gaussian" : f"{self.dir_name}/Gaussian.parquet"},

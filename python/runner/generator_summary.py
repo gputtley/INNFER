@@ -305,7 +305,7 @@ class GeneratorSummary():
         colors = colours,
         linestyles = linestyles,
         x_label=col,
-        name=f"{self.plots_output}/GenerationSummary/generation_summary_{col}{self.extra_plot_name}", 
+        name=f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}", 
         y_label = y_label
       )
 
@@ -318,7 +318,7 @@ class GeneratorSummary():
     with open(self.parameters[file_name], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     for col in parameters["X_columns"]:
-      outputs += [f"{self.plots_output}/GenerationSummary/generation_summary_{col}{self.extra_plot_name}.pdf"]
+      outputs += [f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}.pdf"]
 
     return outputs
 

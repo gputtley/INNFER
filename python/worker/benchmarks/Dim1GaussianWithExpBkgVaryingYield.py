@@ -1,5 +1,5 @@
-import yaml
 import copy
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -211,7 +211,7 @@ class Dim1GaussianWithExpBkgVaryingYield():
     pandas.DataFrame
         A dataframe containing sampled X values.
     """
-    
+
     # Set up Y correctly
     if len(Y) == 1:
       Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)

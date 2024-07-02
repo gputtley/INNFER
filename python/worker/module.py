@@ -190,8 +190,15 @@ class Module():
       with open(self.args.submit, 'r') as yaml_file:
         submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+      # Make job name
+      job_name = StringToFile(f"{self.job_name}{extra_name}")
+      if self.args.extra_infer_dir_name != "":
+        job_name += f"_{self.args.extra_infer_dir_name}"
+      if self.args.extra_infer_plot_name != "":
+        job_name += f"_{self.args.extra_infer_plot_name}"      
+
       # Submit job
-      options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": StringToFile(f"{self.job_name}{extra_name}.sh"), "dry_run": self.args.dry_run}
+      options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run}
       sub = Batch(options=options)
       sub.Run()
 

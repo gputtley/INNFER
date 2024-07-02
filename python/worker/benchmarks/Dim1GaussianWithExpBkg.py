@@ -1,5 +1,5 @@
-import yaml
 import copy
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -181,7 +181,7 @@ class Dim1GaussianWithExpBkg():
     pandas.DataFrame
         A dataframe containing sampled X values.
     """
-    
+
     if self.file_name == "GaussianWithExpBkg":
 
       # Set up Y correctly

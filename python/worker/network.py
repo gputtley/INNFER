@@ -586,7 +586,6 @@ class Network():
         # Make histograms
         synth_hist, synth_hist_uncert, bins = synth_dp.GetFull(
           method = "histogram_and_uncert",
-          functions_to_apply = ["untransform"],
           bins = n_bins,
           column = col,
           density = True,
@@ -661,7 +660,7 @@ class Network():
         "batch_size" : len(sim)
       }
     )
-    synth = synth_dp.GetFull("dataset", functions_to_apply=["untransform"])
+    synth = synth_dp.GetFull("dataset")
     synth.loc[:,self.data_parameters["Y_columns"]] = sim.loc[:,self.data_parameters["Y_columns"]]
     synth.loc[:, "wt"] = 1.0
     synth.loc[:, "y"] = 1.0

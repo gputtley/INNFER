@@ -1,12 +1,42 @@
 import copy
+
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
 
+from scipy.interpolate import interp1d
 
 class Yields():
 
-  def __init__(self, yield_dataframe, pois, nuisances, file_name, rate_params=[], method="default", column_name="yields"):
+  def __init__(
+      self, 
+      yield_dataframe, 
+      pois, 
+      nuisances, 
+      file_name, 
+      rate_params = [], 
+      method = "default", 
+      column_name = "yields"
+    ):
+    """
+    A class used to compute and interpolate yield values based on parameters of interest (POIs) and nuisances.
+
+    Parameters
+    ----------
+    yield_dataframe : pandas.DataFrame
+        DataFrame containing yield data.
+    pois : list
+        List of parameters of interest.
+    nuisances : list
+        List of nuisance parameters.
+    file_name : str
+        Name of the file.
+    rate_params : list, optional
+        List of rate parameters (default is []).
+    method : str, optional
+        Method for interpolation (default is "default").
+    column_name : str, optional
+        Name of the column containing yield values (default is "yields").
+    """
 
     self.yield_dataframe = yield_dataframe
     self.shape_pois = [poi for poi in pois if poi in self.yield_dataframe.columns]
@@ -18,6 +48,24 @@ class Yields():
     self.rate_scale = 1.0
 
   def _CheckIfInDataFrame(self, Y, df, return_matching=False):
+    """
+    Checks if the values in DataFrame Y are present in df.
+
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        DataFrame containing values to check.
+    df : pandas.DataFrame
+        DataFrame to check against.
+    return_matching : bool, optional
+        If True, return the indices of matching rows (default is False).
+
+    Returns
+    -------
+    bool or list
+        Boolean indicating if values are present, or list of matching indices if return_matching is True.
+    """
+
     sorted_columns = sorted(list(Y.columns))
     Y = Y.loc[:, sorted_columns]
     df = df.loc[:, sorted_columns]
@@ -30,8 +78,61 @@ class Yields():
       else:
         return matching[matching[matching.columns[0]]].index.to_list()
 
+  def Default(self, Y):
+    """
+    Default method for interpolation when there is one shape POI.
+
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        DataFrame containing the POI and nuisance values.
+
+    Returns
+    -------
+    float or None
+        Interpolated yield value or None if interpolation is not possible.
+    """
+
+    # Get Y with nuisances all equal to 0
+    nominal_values_to_match = pd.DataFrame([[0.0]*len(self.nuisances)], columns = self.nuisances, dtype=np.float64)
+    matched_rows = self._CheckIfInDataFrame(nominal_values_to_match, self.yield_dataframe, return_matching=True)
+    poi_vals = self.yield_dataframe.loc[matched_rows,self.shape_pois]
+
+    # Find values either side of Y
+    index = np.searchsorted(sorted(poi_vals.to_numpy().flatten()), Y.loc[:,self.shape_pois].iloc[0])
+    if (index == 0) or (index == len(poi_vals)): 
+      return None
+    min_val = poi_vals.to_numpy().flatten()[index-1]
+    max_val = poi_vals.to_numpy().flatten()[index]
+    min_Y = copy.deepcopy(Y)
+    max_Y = copy.deepcopy(Y)
+    min_Y.loc[:,self.shape_pois] = min_val
+    max_Y.loc[:,self.shape_pois] = max_val
+
+    # If nuisances, do nuisance interpolation
+    min_Y_yield = self.NuisanceInterpolation(min_Y)
+    max_Y_yield = self.NuisanceInterpolation(max_Y)
+
+    # Interpolate pois
+    f = interp1d([min_val[0], max_val[0]], [min_Y_yield, max_Y_yield])
+    return f(Y.loc[:,self.shape_pois].iloc[0])[0]
 
   def GetYield(self, Y, ignore_rate=False):
+    """
+    Computes the yield based on the given POI and nuisance values.
+
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        DataFrame containing the POI and nuisance values.
+    ignore_rate : bool, optional
+        If True, the rate scaling is ignored (default is False).
+
+    Returns
+    -------
+    float
+        Computed yield value.
+    """
 
     # Separate shape and rate Y terms
     if f"mu_{self.file_name}" in Y.columns and not ignore_rate:
@@ -63,34 +164,20 @@ class Yields():
       else:
         return np.nan
 
-  def Default(self, Y):
-
-    # Get Y with nuisances all equal to 0
-    nominal_values_to_match = pd.DataFrame([[0.0]*len(self.nuisances)], columns = self.nuisances, dtype=np.float64)
-    matched_rows = self._CheckIfInDataFrame(nominal_values_to_match, self.yield_dataframe, return_matching=True)
-    poi_vals = self.yield_dataframe.loc[matched_rows,self.shape_pois]
-
-    # Find values either side of Y
-    index = np.searchsorted(sorted(poi_vals.to_numpy().flatten()), Y.loc[:,self.shape_pois].iloc[0])
-    if (index == 0) or (index == len(poi_vals)): 
-      return None
-    min_val = poi_vals.to_numpy().flatten()[index-1]
-    max_val = poi_vals.to_numpy().flatten()[index]
-    min_Y = copy.deepcopy(Y)
-    max_Y = copy.deepcopy(Y)
-    min_Y.loc[:,self.shape_pois] = min_val
-    max_Y.loc[:,self.shape_pois] = max_val
-
-    # If nuisances, do nuisance interpolation
-    min_Y_yield = self.NuisanceInterpolation(min_Y)
-    max_Y_yield = self.NuisanceInterpolation(max_Y)
-
-    # Interpolate pois
-    f = interp1d([min_val[0], max_val[0]], [min_Y_yield, max_Y_yield])
-    return f(Y.loc[:,self.shape_pois].iloc[0])[0]
-
-
   def NuisanceInterpolation(self, Y):
+    """
+    Performs interpolation for nuisance parameters.
+
+    Parameters
+    ----------
+    Y : pandas.DataFrame
+        DataFrame containing the POI and nuisance values.
+
+    Returns
+    -------
+    float
+        Interpolated yield value.
+    """
 
     # Get nominal yield (where nuisances parameters are zero)
     nominal_values_to_match = pd.DataFrame([[Y.loc[:,poi].iloc[0] for poi in self.shape_pois] + [0.0]*len(self.nuisances)], columns = self.shape_pois + self.nuisances, dtype=np.float64)
