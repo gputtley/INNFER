@@ -176,6 +176,13 @@ class PreProcess():
           )
       else:
         split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"], dtype=np.float64)
+        yield_df.loc[0,f"effective_events_{split}"] = dp.GetFull(
+          method="n_eff", 
+          functions_to_apply = [
+            partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+          ]
+        )
+
 
     # Load and write batches
     # TO DO: Find a way to shuffle the dataset without loading it all into memory
