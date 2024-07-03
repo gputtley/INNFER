@@ -1,6 +1,6 @@
+import copy
 import os
 import yaml
-import copy
 
 class HyperparameterScanCollect():
 

@@ -1,5 +1,6 @@
-import yaml
 import wandb
+import yaml
+
 from random_word import RandomWords
 
 from train import Train

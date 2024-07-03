@@ -1,7 +1,9 @@
-import yaml
 import copy
-import pandas as pd
+import yaml
+
 import numpy as np
+import pandas as pd
+
 from functools import partial
 
 class Infer():
@@ -356,13 +358,20 @@ class Infer():
 
     elif self.model_type.startswith("Benchmark"):
 
-      import importlib
-      module_name = self.model_type.split("Benchmark_")[1]
-      module = importlib.import_module(module_name)
-      module_class = getattr(module, module_name)
-      networks = {}
-      for file_name in self.parameters.keys():
-        networks[file_name] = module_class(file_name=file_name)
+      if not "Dim1CfgToBenchmark" in self.model_type:
+        import importlib
+        module_name = self.model_type.split("Benchmark_")[1]
+        module = importlib.import_module(module_name)
+        module_class = getattr(module, module_name)
+        networks = {}
+        for file_name in self.parameters.keys():
+          networks[file_name] = module_class(file_name=file_name)
+      else:
+        from Dim1CfgToBenchmark import Dim1CfgToBenchmark
+        cfg_name = self.model_type.split("Dim1CfgToBenchmark_")[-1]
+        for file_name, params in self.parameters.items():
+          networks[file_name] = module_class(cfg_name, params, file_name=file_name)                  
+
 
     return networks
 

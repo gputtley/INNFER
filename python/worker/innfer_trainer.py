@@ -1,16 +1,19 @@
+import copy
+import logging
 import os
 import random
-import logging
-import warnings
-import copy
 import wandb
+import warnings
+
 import numpy as np
 import bayesflow as bf
 import tensorflow as tf
+
 from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
 from useful_functions import Resample
+
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 seed = 42

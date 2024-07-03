@@ -79,7 +79,12 @@ def parse_args():
 
   # Adjust other inputs
   if args.model_type == "Benchmark":
-    args.model_type = f"Benchmark_{args.benchmark}"
+    if ".yaml" not in args.benchmark:
+      args.model_type = f"Benchmark_{args.benchmark}"
+    else:
+      with open(args.benchmark, 'r') as yaml_file:
+        cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      args.model_type = f"Benchmark_Dim1CfgToBenchmark_{cfg['name']}"
 
   return args, default_args
 

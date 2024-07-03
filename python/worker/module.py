@@ -1,20 +1,34 @@
-import importlib
 import copy
-import yaml
+import importlib
 import os
+import yaml
 
-from useful_functions import StringToFile, CamelToSnake
 from batch import Batch
+from useful_functions import StringToFile, CamelToSnake
 
 class Module():
 
   def __init__(
-    self,
-    argv, 
-    args,
-    default_args,
-    job_name = "job",
+      self,
+      argv, 
+      args,
+      default_args,
+      job_name = "job",
     ):
+    """
+    A class to facilitate module execution and batch processing.
+
+    Parameters
+    ----------
+    argv : list
+        List of command-line arguments.
+    args : argparse.Namespace
+        Parsed command-line arguments.
+    default_args : argparse.Namespace
+        Default command-line arguments.
+    job_name : str, optional
+        Name of the job (default is "job").
+    """
 
     self.argv = argv
     self.args = args
@@ -30,10 +44,45 @@ class Module():
     self.input_store = []
     self.output_store = []
 
-  def _MakeCommandOptions(
-    self,
-    args,
-  ):
+  def _CheckRunFromSpecific(self, specific, loop):
+    """
+    Checks if the current loop should be executed based on specific conditions.
+
+    Parameters
+    ----------
+    specific : dict
+        Dictionary containing specific conditions for job execution.
+    loop : dict
+        Current loop conditions.
+
+    Returns
+    -------
+    bool
+        True if the loop should be executed, False otherwise.
+    """
+
+    run = True
+    for k, v in specific.items():
+      if k in loop.keys():
+        if str(loop[k]) not in v:
+          run = False
+    return run
+
+  def _MakeCommandOptions(self, args):
+    """
+    Generates command-line options based on parsed arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    list
+        List of command-line options.
+    """
+
     parsers = []
     for attr, value in vars(args).items():
       if value == getattr(self.default_args, attr):
@@ -49,10 +98,40 @@ class Module():
         parsers.append(f'--{attr_name}={value}')
     return parsers
 
-  def _MakeSpecificDictionary(
-    self, 
-    specific
-    ):
+  def _MakeExtraNames(self, specific):
+    """
+    Generates extra names based on specific conditions.
+
+    Parameters
+    ----------
+    specific : dict
+        Dictionary containing specific conditions for job execution.
+
+    Returns
+    -------
+    str
+        Extra name string generated from specific conditions.
+    """
+
+    extra_name = "_".join([f"{k}_{v}" for k, v in specific.items()])
+    if extra_name != "":
+      extra_name = f"_{extra_name}"
+    return extra_name
+
+  def _MakeSpecificDictionary(self, specific):
+    """
+    Converts specific conditions string into a dictionary format.
+
+    Parameters
+    ----------
+    specific : str
+        String representing specific conditions.
+
+    Returns
+    -------
+    dict
+        Dictionary of specific conditions.
+    """
 
     if specific == "":
       specific_dict = {}
@@ -60,10 +139,20 @@ class Module():
       specific_dict = {i.split("=")[0]:i.split("=")[1].split(",") for i in specific.split(";")}
     return specific_dict
 
-  def _MakeSpecificString(
-    self,
-    specific,
-    ):
+  def _MakeSpecificString(self, specific):
+    """
+    Converts specific conditions dictionary into a string format.
+
+    Parameters
+    ----------
+    specific : dict
+        Dictionary containing specific conditions for job execution.
+
+    Returns
+    -------
+    str
+        String representation of specific conditions.
+    """
 
     specific_strings = []
     for k, v in specific.items():
@@ -73,23 +162,20 @@ class Module():
         specific_strings.append(f"{k}={','.join(v)}")
     return ";".join(specific_strings)
 
-  def _CheckRunFromSpecific(
-    self,
-    specific,
-    loop,
-    ):
+  def _SetupBatchCommand(self, loop):
+    """
+    Sets up the batch command for execution.
 
-    run = True
-    for k, v in specific.items():
-      if k in loop.keys():
-        if str(loop[k]) not in v:
-          run = False
-    return run
+    Parameters
+    ----------
+    loop : dict
+        Current loop conditions.
 
-  def _SetupBatchCommand(
-    self,
-    loop,
-    ):
+    Returns
+    -------
+    str
+        Batch command string.
+    """
 
     argv = self._MakeCommandOptions(self.args)
     to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg"]
@@ -107,25 +193,31 @@ class Module():
 
     return f"python3 {self.argv[0]} {' '.join(argv)} {specific_sub_string}"
 
-  def _MakeExtraNames(
-    self,
-    specific,
-    ):
-    extra_name = "_".join([f"{k}_{v}" for k, v in specific.items()])
-    if extra_name != "":
-      extra_name = f"_{extra_name}"
-    return extra_name
-
-
   def Run(
-    self,    
-    module_name,
-    class_name,
-    config = {},
-    loop = {},
-    force = False,
+      self,    
+      module_name,
+      class_name,
+      config = {},
+      loop = {},
+      force = False,
     ):
-    
+    """
+    Executes the module and optionally submits jobs or creates Snakemake rules.
+
+    Parameters
+    ----------
+    module_name : str
+        Name of the module to import.
+    class_name : str
+        Name of the class to instantiate.
+    config : dict, optional
+        Configuration dictionary for the module (default is {}).
+    loop : dict, optional
+        Loop conditions dictionary (default is {}).
+    force : bool, optional
+        Force flag to bypass certain conditions (default is False).
+    """
+
     # If specific does not require the loop to be run than end function
     if not self._CheckRunFromSpecific(self.specific, loop):
       return None
@@ -172,6 +264,11 @@ class Module():
     self.Sweep()
 
   def Sweep(self):
+    """
+    Executes the batch of commands stored in cmd_store.
+
+    If Snakemake is enabled, also generates Snakemake rules based on inputs and outputs.
+    """
 
     # If no commands do not run
     if len(self.cmd_store) == 0:

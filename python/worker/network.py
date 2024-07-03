@@ -1,26 +1,27 @@
+import copy
+import gc
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import copy
+
 import bayesflow as bf
-import tensorflow as tf
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import xgboost as xgb
-import gc
+
 from data_loader import DataLoader
-from innfer_trainer import InnferTrainer
-from plotting import plot_histograms
-from scipy import integrate
-from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_curve
-from sklearn.metrics import auc as roc_curve_auc
-from itertools import product
 from functools import partial
+from itertools import product
+from scipy import integrate
+from sklearn.metrics import auc as roc_curve_auc
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
+from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
+from innfer_trainer import InnferTrainer
+from plotting import plot_histograms
 from useful_functions import GetYName, MakeDirectories
-
 
 class Network():
   """
@@ -28,16 +29,24 @@ class Network():
   """
   def __init__(self, X_train, Y_train, wt_train, X_test, Y_test, wt_test, options={}):
     """
-    Initialize the Network instance.
+    Network class for building and training BayesFlow neural networks.
 
-    Args:
-        X_train (str): Path to the training data for features.
-        Y_train (str): Path to the training data for target variables.
-        wt_train (str): Path to the training data for weights.
-        X_test (str): Path to the test data for features.
-        Y_test (str): Path to the test data for target variables.
-        wt_test (str): Path to the test data for weights.
-        options (dict): Additional options for customization.
+    Parameters
+    ----------
+    X_train : str
+        Path to the training data for features.
+    Y_train : str
+        Path to the training data for target variables.
+    wt_train : str
+        Path to the training data for weights.
+    X_test : str
+        Path to the test data for features.
+    Y_test : str
+        Path to the test data for target variables.
+    wt_test : str
+        Path to the test data for weights.
+    options : dict, optional
+        Additional options for customization (default is an empty dictionary).
     """
     # Coupling parameters
     self.coupling_design = "affine"
@@ -112,8 +121,10 @@ class Network():
     """
     Set options for the Network instance.
 
-    Args:
-        options (dict): Dictionary of options to set.
+    Parameters
+    ----------
+    options : dict
+        Dictionary of options to set.
     """
     for key, value in options.items():
       setattr(self, key, value)
@@ -122,6 +133,7 @@ class Network():
     """
     Build the conditional invertible neural network model.
     """
+    
     latent_dim = self.X_train.num_columns
 
     # fix 1d latent space for spline and affine
@@ -397,139 +409,121 @@ class Network():
     else:
       print("ERROR: optimizer not valid.")
 
-  def Save(self, name="model.h5"):
+  def GetAUC(self, dataset="train"):
     """
-    Save the trained model weights.
+    Calculate the Area Under the Curve (AUC) for the ROC curve.
 
-    Args:
-        name (str): Name of the file to save the model weights.
+    Parameters
+    ----------
+    dataset : str, optional
+        Dataset to use for calculating AUC. Can be "train" or "test". Defaults to "train".
+
+    Returns
+    -------
+    float
+        AUC value calculated from the ROC curve.
+        
+    Notes
+    -----
+    This method involves loading a significant amount of data into memory and is recommended to be run on a GPU for efficiency.
     """
-    MakeDirectories(name)
-    self.inference_net.save_weights(name)
 
-  def Load(self, name="model.h5", seed=42):
-    """
-    Load the model weights.
+    print("WARNING: GetAUC involves loading a lot of data into memory. This option should preferably be run on a GPU.")
 
-    Args:
-        name (str): Name of the file containing the model weights.
-    """
-    self.BuildModel()
-    X_train_batch = self.X_train.LoadNextBatch().to_numpy()
-    Y_train_batch = self.Y_train.LoadNextBatch().to_numpy()
-    self.X_train.batch_num = 0
-    self.Y_train.batch_num = 0
-    _ = self.inference_net(X_train_batch, Y_train_batch)
-    self.inference_net.load_weights(name)
-
-  def Train(self):
-    """
-    Train the conditional invertible neural network.
-    """
-    self.trainer.train_innfer(
-      X_train=self.X_train,
-      Y_train=self.Y_train,
-      wt_train=self.wt_train,
-      X_test=self.X_test,
-      Y_test=self.Y_test,
-      wt_test=self.wt_test,       
-      epochs=self.epochs, 
-      batch_size=self.batch_size, 
-      early_stopping=self.early_stopping,
-      optimizer=self.optimizer,
-      fix_1d=self.fix_1d,
-      disable_tqdm=self.disable_tqdm,
-      use_wandb=self.use_wandb,
-      adaptive_lr_scheduler=self.adaptive_lr_scheduler,
-      active_learning=self.active_learning,
-      active_learning_options=self.active_learning_options,
-      resample=self.resample,
-    )
-
-    if self.plot_loss:
-      plot_histograms(
-        range(len(self.trainer.loss_history._total_train_loss)),
-        [self.trainer.loss_history._total_train_loss, self.trainer.loss_history._total_val_loss],
-        ["Train", "Test"],
-        title_right = "",
-        name = f"{self.plot_dir}/loss",
-        x_label = "Epochs",
-        y_label = "Loss"
-      )
-
-    if self.plot_lr:
-      plot_histograms(
-        range(len(self.trainer.lr_history)),
-        [self.trainer.lr_history],
-        [self.lr_scheduler_name],
-        title_right = "",
-        name = f"{self.plot_dir}/learning_rate",
-        x_label = "Epochs",
-        y_label = "Learning Rate"
-      )
-
-  def GetLoss(self, dataset="train"):
-    self.BuildTrainer()
+    # Set up parquet files
     if dataset == "train":
-      loss = float(self.trainer._get_epoch_loss(self.X_train, self.Y_train, self.wt_train, 0))
+      parquet_files = [[self.X_train.parquet_file_name,self.Y_train.parquet_file_name,self.wt_train.parquet_file_name]]
     elif dataset == "test":
-      loss = float(self.trainer._get_epoch_loss(self.X_test, self.Y_test, self.wt_test, 0))
-    return float(loss)
+      parquet_files = [[self.X_test.parquet_file_name,self.Y_test.parquet_file_name,self.wt_test.parquet_file_name]]
 
-  def Sample(self, Y, n_events):
-
-    # Remove unneccessary Y components
-    Y = Y.loc[:,self.data_parameters["Y_columns"]]
-
-    # Set up Y correctly
-    if len(Y) == 1:
-      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)
-    elif len(Y) == 0:
-      Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns, dtype=np.float64)
-
-    # Set up and transform Y input
-    Y_dp = DataProcessor(
-      [[Y]],
-      "dataset",
+    # Get simulated data
+    sim_dp = DataProcessor(
+      parquet_files,
+      "parquet",
+      wt_name = "wt",
       options = {
-        "parameters" : self.data_parameters,
+        "parameters" : self.data_parameters
       }
     )
-    if len(Y.columns) != 0:
-      Y  = Y_dp.GetFull(
-        method="dataset",
-        functions_to_apply = ["transform"]
-      )
+    sim = sim_dp.GetFull("dataset", functions_to_apply=["untransform"])
+    sim.loc[:, "y"] = 0.0
 
-    # Set up bayesflow dictionary
-    batch_data = {
-      "direct_conditions" : Y.to_numpy().astype(np.float32)
-    }
-
-    # Get samples
-    synth = self.amortizer.sample(batch_data, 1)[:,0,:]
-
-    # Fix 1d couplings
-    if self.fix_1d:
-      synth = synth[:,0].reshape(-1,1)
-
-    # Untransform the dataset
+    # Get synthetic data
     synth_dp = DataProcessor(
-      [[pd.DataFrame(synth, columns=self.data_parameters["X_columns"], dtype=np.float64)]],
-      "dataset",
+      [[partial(self.Sample, sim.loc[:,self.data_parameters["Y_columns"]])]],
+      "generator",
+      n_events = len(sim),
       options = {
         "parameters" : self.data_parameters,
+        "batch_size" : len(sim)
       }
     )
-    synth  = synth_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["untransform"]
-    )
+    synth = synth_dp.GetFull("dataset")
+    synth.loc[:,self.data_parameters["Y_columns"]] = sim.loc[:,self.data_parameters["Y_columns"]]
+    synth.loc[:, "wt"] = 1.0
+    synth.loc[:, "y"] = 1.0
 
-    return synth
+    # Get unique Y and equalise weights
+    Y_unique = np.unique(sim.loc[:, self.data_parameters["Y_columns"]].to_numpy())
+    for y in Y_unique:
+      inds = (synth.loc[:,self.data_parameters["Y_columns"]].to_numpy() == y).flatten()
+      sum_sim = np.sum(sim.loc[inds, "wt"])
+      sum_synth = np.sum(synth.loc[inds, "wt"])
+      synth.loc[inds, "wt"] *= sum_sim/sum_synth
 
+    total = pd.concat([synth, sim], ignore_index=True)
+    del sim, synth
+
+    # Make training and testing datasets
+    X_wt_train, X_wt_test, y_train, y_test = train_test_split(total.loc[:, self.data_parameters["X_columns"] + self.data_parameters["Y_columns"] + ["wt"]], total.loc[:,"y"], test_size=0.5, random_state=42)
+    wt_train = X_wt_train.loc[:,"wt"].to_numpy()
+    wt_test = X_wt_test.loc[:,"wt"].to_numpy()
+    X_train = X_wt_train.loc[:,self.data_parameters["X_columns"] + self.data_parameters["Y_columns"]].to_numpy()
+    X_test = X_wt_test.loc[:,self.data_parameters["X_columns"] + self.data_parameters["Y_columns"]].to_numpy()
+    del X_wt_train, X_wt_test
+
+    # Do fix if negative weights
+    neg_train_wt_inds = (wt_train<0)
+    neg_train_wt = (len(wt_train[neg_train_wt_inds]) > 0)
+    if neg_train_wt:
+      y_train[neg_train_wt_inds] += 2
+      wt_train[neg_train_wt_inds] *= -1
+
+    # Train separator
+    clf = xgb.XGBClassifier()
+    clf.fit(X_train, y_train, sample_weight=wt_train)
+    y_prob = clf.predict_proba(X_test)[:,1]
+
+    # Get auc
+    fpr, tpr, _ = roc_curve(y_test, y_prob, sample_weight=wt_test)
+    sorted_indices = np.argsort(fpr)
+    fpr = fpr[sorted_indices]
+    tpr = tpr[sorted_indices]
+    auc = roc_curve_auc(fpr, tpr)
+    return float(abs(0.5-auc) + 0.5)
 
   def GetHistogramMetric(self, metric=["chi_squared"], n_samples=100000, n_bins=40):
+    """
+    Calculate histogram-based metrics such as chi-squared for synthetic and simulated data.
+
+    Parameters
+    ----------
+    metric : list of str, optional
+        List of metrics to calculate. Currently supports "chi_squared". Defaults to ["chi_squared"].
+    n_samples : int, optional
+        Number of samples to generate for synthetic data. Defaults to 100000.
+    n_bins : int, optional
+        Number of bins to use for histograms. Defaults to 40.
+
+    Returns
+    -------
+    dict
+        Dictionary containing computed metrics. Keys include:
+        - "chi_squared_train": Chi-squared per degree of freedom for training data.
+        - "chi_squared_test": Chi-squared per degree of freedom for test data.
+          Each key maps to another dictionary with keys representing unique combinations of Y values
+          and values representing the metric values per feature column.
+    """
 
     # Set up sim data processors
     sim_train_dp = DataProcessor(
@@ -628,83 +622,73 @@ class Network():
 
     return metrics
 
-  def GetAUC(self, dataset="train"):
+  def GetLoss(self, dataset="train"):
+    """
+    Calculate the loss for the specified dataset using the trained model.
 
-    print("WARNING: GetAUC involves loading a lot of data into memory. This option should preferably be run on a GPU.")
+    Parameters
+    ----------
+    dataset : str, optional
+        Dataset for which to calculate the loss. Possible values are "train" (default) or "test".
 
-    # Set up parquet files
+    Returns
+    -------
+    float
+        Loss value calculated for the specified dataset.
+    """
+
+    self.BuildTrainer()
     if dataset == "train":
-      parquet_files = [[self.X_train.parquet_file_name,self.Y_train.parquet_file_name,self.wt_train.parquet_file_name]]
+      loss = float(self.trainer._get_epoch_loss(self.X_train, self.Y_train, self.wt_train, 0))
     elif dataset == "test":
-      parquet_files = [[self.X_test.parquet_file_name,self.Y_test.parquet_file_name,self.wt_test.parquet_file_name]]
+      loss = float(self.trainer._get_epoch_loss(self.X_test, self.Y_test, self.wt_test, 0))
+    return float(loss)
 
-    # Get simulated data
-    sim_dp = DataProcessor(
-      parquet_files,
-      "parquet",
-      wt_name = "wt",
-      options = {
-        "parameters" : self.data_parameters
-      }
-    )
-    sim = sim_dp.GetFull("dataset", functions_to_apply=["untransform"])
-    sim.loc[:, "y"] = 0.0
+  def Load(self, name="model.h5", seed=42):
+    """
+    Load the model weights from a specified file.
 
-    # Get synthetic data
-    synth_dp = DataProcessor(
-      [[partial(self.Sample, sim.loc[:,self.data_parameters["Y_columns"]])]],
-      "generator",
-      n_events = len(sim),
-      options = {
-        "parameters" : self.data_parameters,
-        "batch_size" : len(sim)
-      }
-    )
-    synth = synth_dp.GetFull("dataset")
-    synth.loc[:,self.data_parameters["Y_columns"]] = sim.loc[:,self.data_parameters["Y_columns"]]
-    synth.loc[:, "wt"] = 1.0
-    synth.loc[:, "y"] = 1.0
+    Parameters
+    ----------
+    name : str, optional
+        Name of the file containing the model weights. Default is 'model.h5'.
+    seed : int, optional
+        Seed value for reproducibility. Default is 42.
+    """
 
-    # Get unique Y and equalise weights
-    Y_unique = np.unique(sim.loc[:, self.data_parameters["Y_columns"]].to_numpy())
-    for y in Y_unique:
-      inds = (synth.loc[:,self.data_parameters["Y_columns"]].to_numpy() == y).flatten()
-      sum_sim = np.sum(sim.loc[inds, "wt"])
-      sum_synth = np.sum(synth.loc[inds, "wt"])
-      synth.loc[inds, "wt"] *= sum_sim/sum_synth
-
-    total = pd.concat([synth, sim], ignore_index=True)
-    del sim, synth
-
-    # Make training and testing datasets
-    X_wt_train, X_wt_test, y_train, y_test = train_test_split(total.loc[:, self.data_parameters["X_columns"] + self.data_parameters["Y_columns"] + ["wt"]], total.loc[:,"y"], test_size=0.5, random_state=42)
-    wt_train = X_wt_train.loc[:,"wt"].to_numpy()
-    wt_test = X_wt_test.loc[:,"wt"].to_numpy()
-    X_train = X_wt_train.loc[:,self.data_parameters["X_columns"] + self.data_parameters["Y_columns"]].to_numpy()
-    X_test = X_wt_test.loc[:,self.data_parameters["X_columns"] + self.data_parameters["Y_columns"]].to_numpy()
-    del X_wt_train, X_wt_test
-
-    # Do fix if negative weights
-    neg_train_wt_inds = (wt_train<0)
-    neg_train_wt = (len(wt_train[neg_train_wt_inds]) > 0)
-    if neg_train_wt:
-      y_train[neg_train_wt_inds] += 2
-      wt_train[neg_train_wt_inds] *= -1
-
-    # Train separator
-    clf = xgb.XGBClassifier()
-    clf.fit(X_train, y_train, sample_weight=wt_train)
-    y_prob = clf.predict_proba(X_test)[:,1]
-
-    # Get auc
-    fpr, tpr, _ = roc_curve(y_test, y_prob, sample_weight=wt_test)
-    sorted_indices = np.argsort(fpr)
-    fpr = fpr[sorted_indices]
-    tpr = tpr[sorted_indices]
-    auc = roc_curve_auc(fpr, tpr)
-    return float(abs(0.5-auc) + 0.5)
+    self.BuildModel()
+    X_train_batch = self.X_train.LoadNextBatch().to_numpy()
+    Y_train_batch = self.Y_train.LoadNextBatch().to_numpy()
+    self.X_train.batch_num = 0
+    self.Y_train.batch_num = 0
+    _ = self.inference_net(X_train_batch, Y_train_batch)
+    self.inference_net.load_weights(name)
 
   def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False):
+    """
+    Calculate the logarithmic or exponential probability density function.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input data for features.
+    Y : pandas.DataFrame
+        Input data for target variables.
+    return_log_prob : bool, optional
+        Whether to return the logarithmic probability (True) or the exponential probability (False). 
+        Default is True.
+    transform_X : bool, optional
+        Whether to transform the input data X. Default is True.
+    transform_Y : bool, optional
+        Whether to transform the input data Y. Default is True.
+    no_fix : bool, optional
+        If True, skip fixing 1D probability by ensuring integral is 1. Default is False.
+
+    Returns
+    -------
+    numpy.ndarray
+        Logarithmic or exponential probability density values.
+    """
 
     # Remove unneccessary Y components
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
@@ -781,20 +765,31 @@ class Network():
 
   def ProbabilityIntegral(self, Y, n_integral_bins=10**6, n_samples=10**4, ignore_quantile=0.0, extra_fraction=0.5, seed=42, verbose=False):
     """
-    Computes the integral of the probability density function over a specified range.
+    Compute the integral of the probability density function over a specified range.
 
-    Args:
-        Y (array): The values of the model parameters for which the probability integral is computed.
-        y_columns (list): List of column names corresponding to the model parameters (optional).
-        n_integral_bins (int): Number of bins used for the integral calculation (default is 1000).
-        n_samples (int): Number of samples used for generating synthetic data (default is 10**5).
-        ignore_quantile (float): Fraction of extreme values to ignore when computing the integral (default is 0.0001).
-        method (str): The method used for integration, either "histogramdd" or "scipy" (default is "histogramdd").
-        verbose (bool): Whether to print the computed integral value (default is True).
+    Parameters
+    ----------
+    Y : array-like
+        Values of the model parameters for which the probability integral is computed.
+    n_integral_bins : int, optional
+        Number of bins used for the integral calculation. Default is 10**6.
+    n_samples : int, optional
+        Number of samples used for generating synthetic data. Default is 10**4.
+    ignore_quantile : float, optional
+        Fraction of extreme values to ignore when computing the integral. Default is 0.0.
+    extra_fraction : float, optional
+        Fractional increase in the integration range around the median value. Default is 0.5.
+    seed : int, optional
+        Seed for random number generation. Default is 42.
+    verbose : bool, optional
+        Whether to print the computed integral value. Default is False.
 
-    Returns:
-        float: The computed integral of the probability density function.
+    Returns
+    -------
+    float
+        Computed integral of the probability density function.
     """
+
     # If in the store use that
     if self.prob_integral_store is not None:
       if Y.equals(self.prob_integral_store_Y):
@@ -830,3 +825,128 @@ class Network():
       print(f"Integral for Y is {integral}")  
 
     return integral
+
+  def Sample(self, Y, n_events):
+    """
+    Generate synthetic data samples based on given conditions.
+
+    Parameters
+    ----------
+    Y : DataFrame
+        DataFrame containing values of the model parameters for which samples are generated.
+    n_events : int
+        Number of synthetic data samples to generate.
+
+    Returns
+    -------
+    DataFrame
+        DataFrame containing the synthetic data samples.
+    """
+
+    # Remove unneccessary Y components
+    Y = Y.loc[:,self.data_parameters["Y_columns"]]
+
+    # Set up Y correctly
+    if len(Y) == 1:
+      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)
+    elif len(Y) == 0:
+      Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns, dtype=np.float64)
+
+    # Set up and transform Y input
+    Y_dp = DataProcessor(
+      [[Y]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    if len(Y.columns) != 0:
+      Y  = Y_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["transform"]
+      )
+
+    # Set up bayesflow dictionary
+    batch_data = {
+      "direct_conditions" : Y.to_numpy().astype(np.float32)
+    }
+
+    # Get samples
+    synth = self.amortizer.sample(batch_data, 1)[:,0,:]
+
+    # Fix 1d couplings
+    if self.fix_1d:
+      synth = synth[:,0].reshape(-1,1)
+
+    # Untransform the dataset
+    synth_dp = DataProcessor(
+      [[pd.DataFrame(synth, columns=self.data_parameters["X_columns"], dtype=np.float64)]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    synth  = synth_dp.GetFull(
+      method="dataset",
+      functions_to_apply = ["untransform"]
+    )
+
+    return synth
+
+  def Save(self, name="model.h5"):
+    """
+    Save the trained model weights.
+
+    Parameters
+    ----------
+    name : str, optional
+        Name of the file to save the model weights (default is "model.h5").
+    """
+    MakeDirectories(name)
+    self.inference_net.save_weights(name)
+
+  def Train(self):
+    """
+    Train the conditional invertible neural network.
+    """
+    self.trainer.train_innfer(
+      X_train=self.X_train,
+      Y_train=self.Y_train,
+      wt_train=self.wt_train,
+      X_test=self.X_test,
+      Y_test=self.Y_test,
+      wt_test=self.wt_test,       
+      epochs=self.epochs, 
+      batch_size=self.batch_size, 
+      early_stopping=self.early_stopping,
+      optimizer=self.optimizer,
+      fix_1d=self.fix_1d,
+      disable_tqdm=self.disable_tqdm,
+      use_wandb=self.use_wandb,
+      adaptive_lr_scheduler=self.adaptive_lr_scheduler,
+      active_learning=self.active_learning,
+      active_learning_options=self.active_learning_options,
+      resample=self.resample,
+    )
+
+    if self.plot_loss:
+      plot_histograms(
+        range(len(self.trainer.loss_history._total_train_loss)),
+        [self.trainer.loss_history._total_train_loss, self.trainer.loss_history._total_val_loss],
+        ["Train", "Test"],
+        title_right = "",
+        name = f"{self.plot_dir}/loss",
+        x_label = "Epochs",
+        y_label = "Loss"
+      )
+
+    if self.plot_lr:
+      plot_histograms(
+        range(len(self.trainer.lr_history)),
+        [self.trainer.lr_history],
+        [self.lr_scheduler_name],
+        title_right = "",
+        name = f"{self.plot_dir}/learning_rate",
+        x_label = "Epochs",
+        y_label = "Learning Rate"
+      )

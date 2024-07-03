@@ -23,13 +23,14 @@ class MakeBenchmark():
     """
     Run the code utilising the worker classes
     """
-    #module = importlib.import_module("benchmarks_v2")
-    module = importlib.import_module(self.name)
-    module_class = getattr(module, self.name)
-    benchmark = module_class()
+    if ".yaml" not in self.name:
+      module = importlib.import_module(self.name)
+      module_class = getattr(module, self.name)
+      benchmark = module_class()
+    else:
+      from Dim1CfgToBenchmark import Dim1CfgToBenchmark
+      benchmark = Dim1CfgToBenchmark()
 
-    #from benchmarks import Benchmarks
-    #benchmark = Benchmarks(name=self.name)
 
     # Fit splines
     if ".yaml" in self.name:

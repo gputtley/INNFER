@@ -45,22 +45,38 @@ def plot_histograms(
   """
   Plot histograms with optional error bars.
 
-  Parameters:
-      bins (array-like): Bin edges.
-      hists (list of array-like): List of histogram values.
-      hist_names (list of str): Names for each histogram.
-      colors (list of str, optional): Colors for each histogram. Defaults to Matplotlib color cycle.
-      linestyles (list of str, optional): Linestyles for each histogram. Defaults to solid line.
-      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
-      name (str, optional): Name of the output file (without extension). Defaults to "hists.pdf".
-      x_label (str, optional): Label for the x-axis.
-      y_label (str, optional): Label for the y-axis.
-      error_bar_hists (list of array-like, optional): List of histograms for error bars.
-      error_bar_hist_errs (list of array-like, optional): List of errors for each error bar histogram.
-      error_bar_names (list of str, optional): Names for each error bar histogram.
-      anchor_y_at_0 (bool, optional): If True, anchor the y-axis at 0. Defaults to False.
-      drawstyle (str, optional): Drawstyle for the histograms. Defaults to "default".
+  Parameters
+  ----------
+  bins : array-like
+      Bin edges.
+  hists : list of array-like
+      List of histogram values.
+  hist_names : list of str
+      Names for each histogram.
+  colors : list of str, optional
+      Colors for each histogram. Defaults to Matplotlib color cycle.
+  linestyles : list of str, optional
+      Linestyles for each histogram. Defaults to solid line.
+  title_right : str, optional
+      Text to be displayed at the top-right corner of the plot.
+  name : str, optional
+      Name of the output file (without extension). Defaults to "hists.pdf".
+  x_label : str, optional
+      Label for the x-axis.
+  y_label : str, optional
+      Label for the y-axis.
+  error_bar_hists : list of array-like, optional
+      List of histograms for error bars.
+  error_bar_hist_errs : list of array-like, optional
+      List of errors for each error bar histogram.
+  error_bar_names : list of str, optional
+      Names for each error bar histogram.
+  anchor_y_at_0 : bool, optional
+      If True, anchor the y-axis at 0. Defaults to False.
+  drawstyle : str, optional
+      Drawstyle for the histograms. Defaults to "default".
   """
+
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
 
@@ -98,6 +114,166 @@ def plot_histograms(
   print("Created {}.pdf".format(name))
   plt.close()
 
+def plot_likelihood(
+    x, 
+    y, 
+    crossings, 
+    name="lkld", 
+    xlabel="", 
+    true_value=None, 
+    cap_at=9, 
+    other_lklds={}, 
+    label=None, 
+    title_right=""
+  ):
+  """
+  Plot likelihood curve.
+
+  Parameters
+  ----------
+  x : array-like
+      X-axis values.
+  y : array-like
+      Y-axis values.
+  crossings : dict
+      Dictionary containing special points in the likelihood curve.
+  name : str, optional
+      Name of the output file (without extension). Defaults to "lkld".
+  xlabel : str, optional
+      Label for the x-axis.
+  true_value : float, optional
+      True value to be marked on the plot.
+  cap_at : float, optional
+      Cap the y-axis at this value. Defaults to 9.
+  other_lklds : dict, optional
+      Additional likelihood curves to be overlaid.
+  label : str, optional
+      Label for the likelihood curve.
+  title_right : str, optional
+      Text to be displayed at the top-right corner of the plot.
+  """
+
+  if cap_at != None:
+    sel_inds = []
+    x_plot = []
+    y_plot = []
+    for ind, i in enumerate(y):
+      if i < cap_at:
+        x_plot.append(x[ind])
+        y_plot.append(i)
+        sel_inds.append(ind)
+    x = x_plot
+    y = y_plot
+    y_max = cap_at
+  else:
+    y_max = max(y)
+    sel_inds = range(len(y))
+
+  fig, ax = plt.subplots()
+  hep.cms.text(cms_label,ax=ax)
+  plt.plot(x, y, label=label)
+
+  ax.xaxis.get_major_formatter().set_useOffset(False)
+
+  colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
+  color_ind = 0
+  for k, v in other_lklds.items():
+    plt.plot(v[0], v[1], label=k, color=colors[color_ind])
+    color_ind += 1
+
+  if true_value != None:
+    plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
+
+    ax.text(1.0, 1.0, title_right,
+        verticalalignment='bottom', horizontalalignment='right',
+        transform=ax.transAxes)
+
+  if -1 in crossings.keys():  
+    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
+  if -2 in crossings.keys():  
+    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
+  if 1 in crossings.keys():  
+    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
+  if 2 in crossings.keys():  
+    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
+  plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
+  plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
+  
+  if label is not None:
+    plt.legend(loc='upper right')
+
+  if -1 in crossings.keys() and 1 in crossings.keys():
+    # round crossings difference to two SF
+    sig_figs = 2
+    decimal_places_up = sig_figs - int(np.floor(np.log10(abs(crossings[1]-crossings[0])))) - 1
+    decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
+    decimal_places = min(decimal_places_down,decimal_places_up)
+
+    text = f'Result: {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
+    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
+
+  plt.xlim(x[0],x[-1])
+  plt.ylim(0,y_max)
+  plt.xlabel(xlabel)
+  plt.ylabel(r'$-2\Delta \ln L$')
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig("{}.pdf".format(name))
+  plt.close()
+
+def plot_spline_and_thresholds(
+    spline, 
+    thresholds, 
+    unique_vals, 
+    counts, 
+    x_label="", 
+    y_label="Density",
+    name="spline_and_thresholds"
+  ):
+  """
+  Plot a spline curve along with data points and shaded threshold regions.
+
+  Parameters
+  ----------
+  spline : callable
+      A spline function that takes an array of x values and returns corresponding y values.
+  thresholds : dict
+      Dictionary containing threshold regions with keys as labels and values as tuples (start, end).
+  unique_vals : array-like
+      Array of unique x values for the data points.
+  counts : array-like
+      Array of y values (counts) corresponding to the unique x values.
+  x_label : str, optional
+      Label for the x-axis. Defaults to an empty string.
+  y_label : str, optional
+      Label for the y-axis. Defaults to "Density".
+  name : str, optional
+      Name of the output file (without extension) where the plot will be saved. Defaults to "spline_and_thresholds".
+  """
+
+  fig, ax = plt.subplots()
+  hep.cms.text(cms_label,ax=ax)
+
+  plt.scatter(unique_vals, counts, label='Data')
+
+  x_smooth = np.linspace(min(unique_vals), max(unique_vals), 500)
+  y_smooth = spline(x_smooth)
+  plt.plot(x_smooth, y_smooth, color='blue', label='Spline')
+
+  for key, val in thresholds.items():
+    x_frac = np.linspace(val[0], val[1], 500)
+    y_frac = spline(x_frac)    
+    plt.fill_between(x_frac, y_frac, alpha=0.5)
+
+  plt.xlabel(x_label)
+  plt.ylabel(y_label)
+  plt.legend()
+  plt.subplots_adjust(left=0.2)
+
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
 
 def plot_stacked_histogram_with_ratio(
     data_hist, 
@@ -116,20 +292,34 @@ def plot_stacked_histogram_with_ratio(
   """
   Plot a stacked histogram with a ratio plot.
 
-  Args:
-      data_hist (array-like): Histogram values for the data.
-      stack_hist_dict (dict): Dictionary of histogram values for stacked components.
-      bin_edges (array-like): Bin edges for the histograms.
-      data_name (str, optional): Label for the data histogram (default is 'Data').
-      xlabel (str, optional): Label for the x-axis (default is '').
-      ylabel (str, optional): Label for the y-axis (default is 'Events').
-      name (str, optional): Name of the output plot file without extension (default is 'fig').
-      data_errors (array-like, optional): Errors for the data histogram (default is None).
-      stack_hist_errors (array-like, optional): Errors for the stacked histograms (default is None).
-      title_right (str, optional): Text to be displayed on the upper right corner of the plot (default is '').
-      use_stat_err (bool, optional): If True, use statistical errors for the data and stacked histograms (default is False).
-      axis_text (str, optional): Text to be displayed on the bottom left corner of the plot (default is '').
+  Parameters
+  ----------
+  data_hist : array-like
+      Histogram values for the data.
+  stack_hist_dict : dict
+      Dictionary of histogram values for stacked components.
+  bin_edges : array-like
+      Bin edges for the histograms.
+  data_name : str, optional
+      Label for the data histogram (default is 'Data').
+  xlabel : str, optional
+      Label for the x-axis (default is '').
+  ylabel : str, optional
+      Label for the y-axis (default is 'Events').
+  name : str, optional
+      Name of the output plot file without extension (default is 'fig').
+  data_errors : array-like, optional
+      Errors for the data histogram (default is None).
+  stack_hist_errors : array-like, optional
+      Errors for the stacked histograms (default is None).
+  title_right : str, optional
+      Text to be displayed on the upper right corner of the plot (default is '').
+  use_stat_err : bool, optional
+      If True, use statistical errors for the data and stacked histograms (default is False).
+  axis_text : str, optional
+      Text to be displayed on the bottom left corner of the plot (default is '').
   """
+
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
 
@@ -262,22 +452,38 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   """
   Plot a stacked histogram with a ratio plot for 2D unrolled histogram.
 
-  Args:
-      data_hists (list of array-like): Histogram values for the data.
-      stack_hists_dict (dict): Dictionary of histogram values for stacked components.
-      bin_edges_1d (array-like): Bin edges for the 1D histograms.
-      unrolled_bins (list): Bin edges for the unrolled dimension.
-      unrolled_bin_name (str): Name of the unrolled dimension.
-      data_name (str, optional): Label for the data histogram (default is 'Data').
-      xlabel (str, optional): Label for the x-axis (default is '').
-      ylabel (str, optional): Label for the y-axis (default is 'Events').
-      name (str, optional): Name of the output plot file without extension (default is 'fig').
-      data_hists_errors (list of array-like, optional): Errors for the data histogram (default is None).
-      stack_hists_errors (list of array-like, optional): Errors for the stacked histograms (default is None).
-      title_right (str, optional): Text to be displayed on the upper right corner of the plot (default is '').
-      use_stat_err (bool, optional): If True, use statistical errors for the data and stacked histograms (default is False).
-      axis_text (str, optional): Text to be displayed on the bottom left corner of the plot (default is '').
+  Parameters
+  ----------
+  data_hists : list of array-like
+      Histogram values for the data.
+  stack_hists_dict : dict
+      Dictionary of histogram values for stacked components.
+  bin_edges_1d : array-like
+      Bin edges for the 1D histograms.
+  unrolled_bins : list
+      Bin edges for the unrolled dimension.
+  unrolled_bin_name : str
+      Name of the unrolled dimension.
+  data_name : str, optional
+      Label for the data histogram (default is 'Data').
+  xlabel : str, optional
+      Label for the x-axis (default is '').
+  ylabel : str, optional
+      Label for the y-axis (default is 'Events').
+  name : str, optional
+      Name of the output plot file without extension (default is 'fig').
+  data_hists_errors : list of array-like, optional
+      Errors for the data histogram (default is None).
+  stack_hists_errors : list of array-like, optional
+      Errors for the stacked histograms (default is None).
+  title_right : str, optional
+      Text to be displayed on the upper right corner of the plot (default is '').
+  use_stat_err : bool, optional
+      If True, use statistical errors for the data and stacked histograms (default is False).
+  axis_text : str, optional
+      Text to be displayed on the bottom left corner of the plot (default is '').
   """
+
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
 
   bin_edges = []
@@ -484,101 +690,6 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   plt.savefig(name+".pdf", bbox_inches='tight')
   plt.close()
 
-def plot_likelihood(
-    x, 
-    y, 
-    crossings, 
-    name="lkld", 
-    xlabel="", 
-    true_value=None, 
-    cap_at=9, 
-    other_lklds={}, 
-    label=None, 
-    title_right=""
-  ):
-  """
-  Plot likelihood curve.
-
-  Parameters:
-      x (array-like): X-axis values.
-      y (array-like): Y-axis values.
-      crossings (dict): Dictionary containing special points in the likelihood curve.
-      name (str, optional): Name of the output file (without extension). Defaults to "lkld".
-      xlabel (str, optional): Label for the x-axis.
-      true_value (float, optional): True value to be marked on the plot.
-      cap_at (float, optional): Cap the y-axis at this value. Defaults to 9.
-      other_lklds (dict, optional): Additional likelihood curves to be overlaid.
-      label (str, optional): Label for the likelihood curve.
-      title_right (str, optional): Text to be displayed at the top-right corner of the plot.
-  """
-  if cap_at != None:
-    sel_inds = []
-    x_plot = []
-    y_plot = []
-    for ind, i in enumerate(y):
-      if i < cap_at:
-        x_plot.append(x[ind])
-        y_plot.append(i)
-        sel_inds.append(ind)
-    x = x_plot
-    y = y_plot
-    y_max = cap_at
-  else:
-    y_max = max(y)
-    sel_inds = range(len(y))
-
-  fig, ax = plt.subplots()
-  hep.cms.text(cms_label,ax=ax)
-  plt.plot(x, y, label=label)
-
-  ax.xaxis.get_major_formatter().set_useOffset(False)
-
-  colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
-  color_ind = 0
-  for k, v in other_lklds.items():
-    plt.plot(v[0], v[1], label=k, color=colors[color_ind])
-    color_ind += 1
-
-  if true_value != None:
-    plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
-
-    ax.text(1.0, 1.0, title_right,
-        verticalalignment='bottom', horizontalalignment='right',
-        transform=ax.transAxes)
-
-  if -1 in crossings.keys():  
-    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
-  if -2 in crossings.keys():  
-    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
-  if 1 in crossings.keys():  
-    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
-  if 2 in crossings.keys():  
-    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
-  plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
-  plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
-  
-  if label is not None:
-    plt.legend(loc='upper right')
-
-  if -1 in crossings.keys() and 1 in crossings.keys():
-    # round crossings difference to two SF
-    sig_figs = 2
-    decimal_places_up = sig_figs - int(np.floor(np.log10(abs(crossings[1]-crossings[0])))) - 1
-    decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
-    decimal_places = min(decimal_places_down,decimal_places_up)
-
-    text = f'Result: {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
-    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
-
-  plt.xlim(x[0],x[-1])
-  plt.ylim(0,y_max)
-  plt.xlabel(xlabel)
-  plt.ylabel(r'$-2\Delta \ln L$')
-  print("Created "+name+".pdf")
-  MakeDirectories(name+".pdf")
-  plt.savefig("{}.pdf".format(name))
-  plt.close()
-
 def plot_summary(
     crossings, 
     name="summary", 
@@ -586,18 +697,24 @@ def plot_summary(
     show2sigma=False, 
     other_summaries={},
     shift = 0.2,
-    ):
+  ):
   """
   Plot a validation summary.
 
-  Args:
-      crossings (dict): Dictionary of crossing points.
-      name (str, optional): Name of the output plot file (default is "validation_summary").
-      nominal_name (str, optional): Name of the nominal value (default is "").
-      show2sigma (bool, optional): Whether to show 2 sigma (default is True).
-      other_summaries (dict, optional): Other summaries to plot (default is {}).
-      other_colors (list, optional): Colors for other summaries (default is ["red","green","orange"]).
+  Parameters
+  ----------
+  crossings : dict
+      Dictionary of crossing points.
+  name : str, optional
+      Name of the output plot file (default is "validation_summary").
+  nominal_name : str, optional
+      Name of the nominal value (default is "").
+  show2sigma : bool, optional
+      Whether to show 2 sigma (default is True).
+  other_summaries : dict, optional
+      Other summaries to plot (default is {}).
   """
+
   if nominal_name != "":
     nominal_name += " "
 
@@ -728,40 +845,6 @@ def plot_summary(
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
-
-  print("Created "+name+".pdf")
-  MakeDirectories(name+".pdf")
-  plt.savefig(name+".pdf")
-  plt.close()
-
-def plot_spline_and_thresholds(
-    spline, 
-    thresholds, 
-    unique_vals, 
-    counts, 
-    x_label="", 
-    y_label="Density",
-    name="spline_and_thresholds"
-    ):
-
-  fig, ax = plt.subplots()
-  hep.cms.text(cms_label,ax=ax)
-
-  plt.scatter(unique_vals, counts, label='Data')
-
-  x_smooth = np.linspace(min(unique_vals), max(unique_vals), 500)
-  y_smooth = spline(x_smooth)
-  plt.plot(x_smooth, y_smooth, color='blue', label='Spline')
-
-  for key, val in thresholds.items():
-    x_frac = np.linspace(val[0], val[1], 500)
-    y_frac = spline(x_frac)    
-    plt.fill_between(x_frac, y_frac, alpha=0.5)
-
-  plt.xlabel(x_label)
-  plt.ylabel(y_label)
-  plt.legend()
-  plt.subplots_adjust(left=0.2)
 
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")

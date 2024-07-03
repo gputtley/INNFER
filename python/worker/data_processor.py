@@ -1,8 +1,8 @@
 import copy
 import pickle
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from data_loader import DataLoader
 from useful_functions import CustomHistogram, Resample

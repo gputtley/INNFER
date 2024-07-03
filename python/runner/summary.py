@@ -1,8 +1,9 @@
 import yaml
+
 import numpy as np
 
-from useful_functions import MakeDirectories, GetYName
 from plotting import plot_summary
+from useful_functions import MakeDirectories, GetYName
 
 class Summary():
 

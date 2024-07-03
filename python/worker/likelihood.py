@@ -1,14 +1,16 @@
+import copy
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import copy
-import yaml
 import time
+import yaml
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from scipy.optimize import minimize
+
 from functools import partial
 from pprint import pprint
+from scipy.optimize import minimize
 
 from useful_functions import GetYName, MakeDirectories
 

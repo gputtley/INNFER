@@ -12,11 +12,15 @@ def CamelToSnake(name):
   """
   Convert a CamelCase string to a snake_case string.
 
-  Args:
-      name (str): The CamelCase string to be converted.
+  Parameters
+  ----------
+  name : str
+      The CamelCase string to be converted.
 
-  Returns:
-      str: The converted snake_case string.
+  Returns
+  -------
+  str
+      The converted snake_case string.
   """
   s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
   s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
@@ -34,21 +38,33 @@ def CustomHistogram(
   """
   Compute a custom histogram for the given data.
 
-  Args:
-      data (numpy.ndarray): Input data.
-      weights (numpy.ndarray, optional): Weights associated with the data. Defaults to None.
-      bins (int or array_like, optional): If bins is an integer, it defines the number of equal-width
-          bins in the range. If bins is an array, it defines the bin edges. Defaults to 20.
-      density (bool, optional): If True, the result is the value of the probability density function at the bin, 
-          normalized such that the integral over the range is 1. Defaults to False.
-      discrete_binning (bool, optional): If True, uses discrete binning. Defaults to True.
-      add_uncert (bool, optional): If True, calculates and returns uncertainties. Defaults to False.
-      ignore_quantile (float, optional): If greater than 0.0, ignores the given quantile range. Defaults to 0.0.
+  Parameters
+  ----------
+  data : numpy.ndarray
+      Input data.
+  weights : numpy.ndarray, optional
+      Weights associated with the data. Defaults to None.
+  bins : int or array_like, optional
+      If bins is an integer, it defines the number of equal-width bins in the range.
+      If bins is an array, it defines the bin edges. Defaults to 20.
+  density : bool, optional
+      If True, the result is the value of the probability density function at the bin,
+      normalized such that the integral over the range is 1. Defaults to False.
+  discrete_binning : bool, optional
+      If True, uses discrete binning. Defaults to True.
+  add_uncert : bool, optional
+      If True, calculates and returns uncertainties. Defaults to False.
+  ignore_quantile : float, optional
+      If greater than 0.0, ignores the given quantile range. Defaults to 0.0.
 
-  Returns:
-      numpy.ndarray: Histogram of data.
-      numpy.ndarray: Bin edges.
-      numpy.ndarray, optional: Uncertainties (if add_uncert is True).
+  Returns
+  -------
+  numpy.ndarray
+      Histogram of data.
+  numpy.ndarray
+      Bin edges.
+  numpy.ndarray, optional
+      Uncertainties (if add_uncert is True).
   """
   
   unique_vals = data.drop_duplicates()
@@ -90,13 +106,19 @@ def FindEqualStatBins(data, bins=5, sf_diff=2):
   """
   Find bins with equal statistical weight for the given data.
 
-  Args:
-      data (pandas.Series): Input data.
-      bins (int, optional): Number of bins. Defaults to 5.
-      sf_diff (int, optional): Significant figures difference for rounding. Defaults to 2.
+  Parameters
+  ----------
+  data : pandas.Series
+      Input data.
+  bins : int, optional
+      Number of bins. Defaults to 5.
+  sf_diff : int, optional
+      Significant figures difference for rounding. Defaults to 2.
 
-  Returns:
-      list: Bin edges with equal statistical weight.
+  Returns
+  -------
+  list
+      Bin edges with equal statistical weight.
   """
 
   diff = data.quantile(0.75) - data.quantile(0.25)
@@ -128,15 +150,23 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
   """
   Find keys and values in dictionaries.
 
-  Args:
-      config (dict): Configuration dictionary.
-      keys (list, optional): List of keys. Defaults to [].
-      results_keys (list, optional): List of results keys. Defaults to [].
-      results_vals (list, optional): List of results values. Defaults to [].
+  Parameters
+  ----------
+  config : dict
+      Configuration dictionary.
+  keys : list, optional
+      List of keys. Defaults to [].
+  results_keys : list, optional
+      List of results keys. Defaults to [].
+  results_vals : list, optional
+      List of results values. Defaults to [].
 
-  Returns:
-      tuple: Tuple containing lists of results keys and results values.
+  Returns
+  -------
+  tuple
+      Tuple containing lists of results keys and results values.
   """
+
   for k, v in config.items():
     new_keys = keys+[k]
     if isinstance(v, dict):
@@ -150,13 +180,19 @@ def GetCombinedValidateLoop(cfg, parameters):
   """
   Generate a list of dictionaries representing parameter combinations for combined validation loops.
 
-  Args:
-      cfg (dict): Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
-      parameters (dict): Dictionary containing parameter information.
+  Parameters
+  ----------
+  cfg : dict
+      Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
+  parameters : dict
+      Dictionary containing parameter information.
 
-  Returns:
-      list: List of dictionaries representing parameter combinations for combined validation loops.
+  Returns
+  -------
+  list
+      List of dictionaries representing parameter combinations for combined validation loops.
   """
+
   val_loop = []
 
   pois = []
@@ -214,11 +250,16 @@ def GetDictionaryEntryFromYaml(file_name, keys):
   """
   Retrieve a nested dictionary entry from a YAML file using a list of keys.
 
-  Args:
-      file_name (str): The path to the YAML file.
-      keys (list of str): A list of keys to navigate through the nested dictionary.
+  Parameters
+  ----------
+  file_name : str
+      The path to the YAML file.
+  keys : list of str
+      A list of keys to navigate through the nested dictionary.
 
-  Returns:
+  Returns
+  -------
+  object or None
       The value associated with the provided keys if the file and keys exist,
       otherwise None.
   """
@@ -238,13 +279,19 @@ def GetNuisanceLoop(cfg, parameters):
   """
   Generate a list of dictionaries representing parameter combinations for nuisance loops.
 
-  Args:
-      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
-      parameters (dict): Dictionary containing parameter information.
+  Parameters
+  ----------
+  cfg : dict
+      Configuration dictionary containing "pois" and "nuisances".
+  parameters : dict
+      Dictionary containing parameter information.
 
-  Returns:
-      list: List of dictionaries representing parameter combinations for nuisance loops.
+  Returns
+  -------
+  list
+      List of dictionaries representing parameter combinations for nuisance loops.
   """
+
   nuisance_loop = []
 
   for nuisance in cfg["nuisances"]:
@@ -269,13 +316,19 @@ def GetPOILoop(cfg, parameters):
   """
   Generate a list of dictionaries representing parameter combinations for POI loops.
 
-  Args:
-      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
-      parameters (dict): Dictionary containing parameter information.
+  Parameters
+  ----------
+  cfg : dict
+      Configuration dictionary containing "pois" and "nuisances".
+  parameters : dict
+      Dictionary containing parameter information.
 
-  Returns:
-      list: List of dictionaries representing parameter combinations for POI loops.
+  Returns
+  -------
+  list
+      List of dictionaries representing parameter combinations for POI loops.
   """
+
   poi_loop = []
 
   for poi in cfg["pois"]:
@@ -300,13 +353,19 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
   """
   Generate scan architectures based on configurations provided in a YAML file.
 
-  Args:
-      cfg (str): Path to the YAML configuration file containing scan architecture parameters.
-      data_output (str, optional): Directory where generated YAML files will be saved. Defaults to "data/".
-      write (bool, optional): Whether to write the generated YAML files to disk. Defaults to True.
+  Parameters
+  ----------
+  cfg : str
+      Path to the YAML configuration file containing scan architecture parameters.
+  data_output : str, optional
+      Directory where generated YAML files will be saved. Defaults to "data/".
+  write : bool, optional
+      Whether to write the generated YAML files to disk. Defaults to True.
 
-  Returns:
-      list: List of paths to the generated YAML files.
+  Returns
+  -------
+  list
+      List of paths to the generated YAML files.
   """
 
   # open config
@@ -353,16 +412,25 @@ def GetValidateInfo(
   """
   Generate validation information based on configuration and data type.
 
-  Args:
-      preprocess_loc (str): Location of the preprocessed data.
-      models_loc (str): Location of the trained models.
-      cfg (dict): Configuration dictionary containing file names and parameters.
-      data_type (str, optional): Type of data ('sim', 'asimov', 'data'). Defaults to "sim".
-      skip_empty_Y (bool, optional): Whether to skip validation loops with empty target data. Defaults to False.
+  Parameters
+  ----------
+  preprocess_loc : str
+      Location of the preprocessed data.
+  models_loc : str
+      Location of the trained models.
+  cfg : dict
+      Configuration dictionary containing file names and parameters.
+  data_type : str, optional
+      Type of data ('sim', 'asimov', 'data'). Defaults to "sim".
+  skip_empty_Y : bool, optional
+      Whether to skip validation loops with empty target data. Defaults to False.
 
-  Returns:
-      dict: Dictionary containing validation information structured based on data_type.
+  Returns
+  -------
+  dict
+      Dictionary containing validation information structured based on data_type.
   """
+
   parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in cfg["files"].keys()}
   loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
   val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
@@ -399,13 +467,19 @@ def GetValidateLoop(cfg, parameters_file):
   """
   Generate a list of dictionaries representing parameter combinations for validation loops.
 
-  Args:
-      cfg (dict): Configuration dictionary containing "pois" and "nuisances".
-      parameters_file (dict): Dictionary containing parameter information.
+  Parameters
+  ----------
+  cfg : dict
+      Configuration dictionary containing "pois" and "nuisances".
+  parameters_file : dict
+      Dictionary containing parameter information.
 
-  Returns:
-      list: List of dictionaries representing parameter combinations for validation loops.
+  Returns
+  -------
+  list
+      List of dictionaries representing parameter combinations for validation loops.
   """
+
   val_loop = []
 
   pois = [poi for poi in cfg["pois"] if poi in parameters_file["Y_columns"]]
@@ -440,15 +514,23 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   """
   Generate a formatted label for a given unique row.
 
-  Args:
-      ur (list or pd.DataFrame): List or DataFrame representing the unique row.
-      purpose (str, optional): Purpose of the label. Can be "plot" (default) or "file".
-      round_to (int, optional): Number of decimal places to round the values. Defaults to 2.
-      prefix (str, optional): Prefix to prepend to the generated label. Defaults to "".
+  Parameters
+  ----------
+  ur : list or pd.DataFrame
+      List or DataFrame representing the unique row.
+  purpose : str, optional
+      Purpose of the label. Can be "plot" (default) or "file".
+  round_to : int, optional
+      Number of decimal places to round the values. Defaults to 2.
+  prefix : str, optional
+      Prefix to prepend to the generated label. Defaults to "".
 
-  Returns:
-      str or None: Formatted label for the given unique row, or None if the row is empty.
+  Returns
+  -------
+  str or None
+      Formatted label for the given unique row, or None if the row is empty.
   """
+
   if isinstance(ur, pd.DataFrame):
     ur = ur.to_numpy().flatten()
 
@@ -475,14 +557,21 @@ def MakeDictionaryEntry(dictionary, keys, val):
   """
   Make a dictionary entry.
 
-  Args:
-      dictionary (dict): Dictionary.
-      keys (list): List of keys.
-      val (object): Value.
+  Parameters
+  ----------
+  dictionary : dict
+      Dictionary.
+  keys : list
+      List of keys.
+  val : object
+      Value.
 
-  Returns:
-      dict: Dictionary containing the entry.
+  Returns
+  -------
+  dict
+      Dictionary containing the entry.
   """
+
   if len(keys) > 1:
     if keys[0] not in dictionary.keys():
       dictionary[keys[0]] = {}
@@ -495,11 +584,14 @@ def MakeDirectories(file_loc):
   """
   Make directories.
 
-  Args:
-      file_loc (str): File location.
+  Parameters
+  ----------
+  file_loc : str
+      File location.
 
-  Returns:
-      None
+  Returns
+  -------
+  None
   """
   if file_loc[0] == "/":
     initial = "/"
@@ -524,14 +616,21 @@ def Resample(datasets, weights, n_samples=None, seed=42):
   """
   Resamples datasets based on provided weights.
 
-  Args:
-      datasets (list or np.ndarray): List of datasets or a single numpy array to be resampled.
-      weights (np.ndarray): Array of weights corresponding to each sample in the datasets.
-      n_samples (int, optional): Number of samples to generate after resampling. If None, defaults to the length of weights.
-      seed (int, optional): Seed for the random number generator. Defaults to 42.
+  Parameters
+  ----------
+  datasets : list or np.ndarray
+      List of datasets or a single numpy array to be resampled.
+  weights : np.ndarray
+      Array of weights corresponding to each sample in the datasets.
+  n_samples : int, optional
+      Number of samples to generate after resampling. If None, defaults to the length of weights.
+  seed : int, optional
+      Seed for the random number generator. Defaults to 42.
 
-  Returns:
-      tuple: Tuple containing:
+  Returns
+  -------
+  tuple
+      Tuple containing:
           - resampled_datasets (list or np.ndarray): Resampled datasets based on the weights.
           - resampled_weights (np.ndarray): Weights corresponding to the resampled datasets.
   """
@@ -612,12 +711,17 @@ def RoundToSF(num, sig_figs):
   """
   Round a number to a specified number of significant figures.
 
-  Args:
-      num (float): The number to be rounded.
-      sig_figs (int): Number of significant figures to round to.
+  Parameters
+  ----------
+  num : float
+      The number to be rounded.
+  sig_figs : int
+      Number of significant figures to round to.
 
-  Returns:
-      float: The rounded number to the specified number of significant figures.
+  Returns
+  -------
+  float
+      The rounded number to the specified number of significant figures.
   """
   if num == 0:
     return 0
@@ -630,13 +734,19 @@ def SetupSnakeMakeFile(args, default_args, main):
   """
   Setup a SnakeMake file based on configuration and input arguments.
 
-  Args:
-      args (object): Input arguments object containing configuration details.
-      default_args (object): Default arguments object for fallback values.
-      main (function): Main function to execute for each step defined in SnakeMake configuration.
+  Parameters
+  ----------
+  args : object
+      Input arguments object containing configuration details.
+  default_args : object
+      Default arguments object for fallback values.
+  main : function
+      Main function to execute for each step defined in SnakeMake configuration.
 
-  Returns:
-      str: File path of the generated SnakeMake file.
+  Returns
+  -------
+  str
+      File path of the generated SnakeMake file.
   """
 
   # Define variables
@@ -710,11 +820,15 @@ def StringToFile(string):
   """
   Convert a string into a format suitable for file naming.
 
-  Args:
-      string (str): Input string to be converted.
+  Parameters
+  ----------
+  string : str
+      Input string to be converted.
 
-  Returns:
-      str: Converted string formatted for file naming.
+  Returns
+  -------
+  str
+      Converted string formatted for file naming.
   """
 
   string = string.replace(",","_").replace(";","_").replace(">=","_geq_").replace("<=","_leq_").replace(">","_g_").replace("<","_l_").replace("!=","_noteq_").replace("=","_eq_")

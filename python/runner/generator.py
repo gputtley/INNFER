@@ -1,13 +1,15 @@
+import copy
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import yaml
-import copy
+
 import numpy as np
 import pandas as pd
+
 from functools import partial
 
-from useful_functions import GetYName
 from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
+from useful_functions import GetYName
 
 class Generator():
 

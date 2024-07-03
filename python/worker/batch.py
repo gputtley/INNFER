@@ -1,6 +1,6 @@
 import os
-from useful_functions import MakeDirectories
 
+from useful_functions import MakeDirectories
 
 class Batch():
   """
