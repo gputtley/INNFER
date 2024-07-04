@@ -17,6 +17,7 @@ class Summary():
 
     self.file_name = "scan_results"
     self.data_input = "data"
+    self.nominal_name = "Nominal"
     self.plots_output = "plots"    
     self.other_input = {}
     self.freeze = {}
@@ -79,7 +80,7 @@ class Summary():
       name = f"{self.plots_output}/summary{self.extra_plot_name}", 
       other_summaries = other_results,
       show2sigma = self.show2sigma,
-      nominal_name = "" if len(list(other_results.keys())) == 0 else "Nominal"
+      nominal_name = "" if len(list(other_results.keys())) == 0 else self.nominal_name
     )
 
   def Outputs(self):

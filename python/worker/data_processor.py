@@ -39,7 +39,7 @@ class DataProcessor():
 
     # Options to run
     self.wt_name = wt_name
-    self.batch_size = 10**5
+    self.batch_size = 10**6
     self.selection = None
     self.columns = None
     self.scale = None
@@ -119,6 +119,9 @@ class DataProcessor():
         df = pd.concat([df, tmp], axis=1)
       del tmp
 
+    # Set data type
+    df = df.astype(float)
+
     # Apply functions
     for f in functions_to_apply:
       if isinstance(f, str):
@@ -175,7 +178,8 @@ class DataProcessor():
       column = None,
       extra_sel = None,
       functions_to_apply = [],
-      bins = 10, 
+      bins = 10,
+      ignore_discrete = False,
       density = False, 
       unique_threshold = 40, 
       discrete_binning = True,
@@ -194,14 +198,14 @@ class DataProcessor():
       return (sum_wts**2)/sum_wts_squared
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
-      if unique is not None: # Discrete bins
+      if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
         return unique + [2*unique[-1] - unique[-2]]
       else:
         return list(np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1))
     elif method == "bins_with_equal_stats": # Get equal stat bins
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
-      if unique is not None: # Discrete bins
+      if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
         return unique + [2*unique[-1] - unique[-2]]
       else:
@@ -291,7 +295,7 @@ class DataProcessor():
       # Apply discrete to continuous transformation
       if "discrete_thresholds" in self.parameters.keys():
         if column_name in self.parameters["discrete_thresholds"].keys():
-          self.DiscreteToContinuous(data.loc[:,column_name], column_name)
+          data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name)
 
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
@@ -331,7 +335,7 @@ class DataProcessor():
       # Convert previously discrete columns back to discrete
       if "discrete_thresholds" in self.parameters.keys():
         if column_name in self.parameters["discrete_thresholds"].keys():
-          self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
+          data.loc[:,column_name] = self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
 
     return data
 
@@ -382,6 +386,7 @@ class DataProcessor():
     with open(self.parameters["spline_locations"][column_name], 'rb') as file:
       spline = pickle.load(file)
 
+    column_indices = column.index
     column = column.to_numpy()
     for k, v in self.parameters["discrete_thresholds"][column_name].items():
       # Find matching indices
@@ -402,7 +407,7 @@ class DataProcessor():
       # Inverse transform sampling
       column[indices] = np.interp(random_nums, cdf_vals, param_values)
 
-    return pd.DataFrame({column_name : column.flatten()})
+    return pd.DataFrame({column_name : column.flatten()}, index=column_indices)
 
   def UnDiscreteToContinuous(
       self,
@@ -420,7 +425,8 @@ class DataProcessor():
         indices = ((column >= v[0])) & (column < v[1])
 
       # Do inverse
-      column[indices] = k
+      column = column.copy()
+      column.loc[indices] = k
 
     return column
 

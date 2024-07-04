@@ -14,6 +14,7 @@ import seaborn as sns
 from matplotlib import gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
 
 from useful_functions import MakeDirectories, RoundToSF
 
@@ -807,6 +808,7 @@ def plot_summary(
           else:
             other_x_2err_higher[k].append(0.0)
 
+    """
     if show2sigma:
       ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
@@ -818,6 +820,32 @@ def plot_summary(
       ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[0], alpha=1.0), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
       for k_ind, k in enumerate(other_summaries.keys()):
         ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k} 1$\sigma$ Best Fit/True")      
+    """
+
+    # dummy for legend
+    if len(list(other_summaries.keys())) > 0:
+      colour = "black"
+    else:
+      colour = other_colors[0]
+    if show2sigma:
+      ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colour, alpha=0.5), label=rf"1$\sigma$ Intervals of Best Fits / True Values")
+      if show2sigma:
+        ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"2$\sigma$ Intervals of Best Fits / True Values")
+    else:
+      ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"1$\sigma$ Intervals of Best Fits / True Values")
+
+
+    if show2sigma:
+      ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[0], alpha=0.5))
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5))
+      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}")
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k}")
+    else:
+      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[0], alpha=1.0), label=rf"{nominal_name}")
+      for k_ind, k in enumerate(other_summaries.keys()):
+        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k}")  
 
 
     for y in range(len(list(vals.keys()))-1):
@@ -841,10 +869,32 @@ def plot_summary(
                 labelbottom=False, labeltop=False, labelleft=False, labelright=False)
 
   handles, labels = ax[0].get_legend_handles_labels()
-  legend = ax[-1].legend(handles, labels, loc='center', frameon=True, framealpha=1, facecolor='white', edgecolor="white")
-  max_label_length = 15  # Adjust the maximum length of each legend label
-  for text in legend.get_texts():
+
+  if show2sigma:
+    legend_upper = ax[-1].legend(handles[:2], labels[:2], loc='upper left', frameon=False, framealpha=1, facecolor='white', edgecolor="black", bbox_to_anchor=(-0.6, 1))
+    plt.gca().add_artist(legend_upper)
+    if len(list(other_summaries.keys())) > 0:
+      new_handles = []
+      for handle in handles:
+        new_handles.append(handle.lines[0])
+      legend = ax[-1].legend(new_handles[2:], labels[2:], loc='upper left', frameon=False, framealpha=1, facecolor='white', edgecolor="black", bbox_to_anchor=(-0.6, 0.6))
+  else:
+    legend_upper = ax[-1].legend(handles[:1], labels[:1], loc='upper left', frameon=False, framealpha=1, facecolor='white', edgecolor="black", bbox_to_anchor=(-0.6, 1))
+    plt.gca().add_artist(legend_upper)
+    if len(list(other_summaries.keys())) > 0:
+      new_handles = []
+      for handle in handles:
+        new_handles.append(handle.lines[0])
+      legend = ax[-1].legend(new_handles[1:], labels[1:], loc='upper left', frameon=False, framealpha=1, facecolor='white', edgecolor="black", bbox_to_anchor=(-0.6, 0.8))
+
+  if len(list(other_summaries.keys())) > 0:
+    max_label_length = 14  # Adjust the maximum length of each legend label
+    for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+  max_label_length = 14  # Adjust the maximum length of each legend label
+  for text in legend_upper.get_texts():
+    text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")

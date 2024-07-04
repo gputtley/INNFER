@@ -273,10 +273,10 @@ class PreProcess():
   def _FitSplineAndFindIntervals(self, hist, bins):
 
     # Fit pdf
-    unnormalised_pdf_spline = UnivariateSpline(bins, hist, s=0)
+    unnormalised_pdf_spline = UnivariateSpline(bins, hist, s=0, k=min(len(bins)-1,3))
     integral = unnormalised_pdf_spline.integral(bins[0],bins[-1])
     hist_for_normalised_spline = hist/integral
-    pdf_spline = UnivariateSpline(bins, hist_for_normalised_spline, s=0)
+    pdf_spline = UnivariateSpline(bins, hist_for_normalised_spline, s=0, k=min(len(bins)-1,3))
 
     # Find threholds for where the pdf integrals equal the cdf values
     cdf = [np.sum(hist[:ind+1]) for ind in range(len(bins))]
@@ -368,7 +368,7 @@ class PreProcess():
         for col in parameters["X_columns"]:
           hists = []
           hist_names = []
-          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col)
+          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_discrete=True)
           if len(parameters["Y_columns"]) != 0:
             for uc in sorted(unique_values[vary]):
               selection = f"({vary}=={uc})"
@@ -415,7 +415,7 @@ class PreProcess():
 
         for col in parameters["Y_columns"]:
 
-          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
+          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False, ignore_discrete=True)
           hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
 
           extra_name_for_plot = f"{data_split}"
