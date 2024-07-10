@@ -55,12 +55,17 @@ class Likelihood():
       Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
     return sorted(Y_columns)
 
-  def Run(self, X_dps, Y, return_ln=True, multiply_by=1, Y_columns=[]):
+  def _SetSeed(self):
+    tf.random.set_seed(self.seed)
+    tf.keras.utils.set_random_seed(self.seed)
+    np.random.seed(self.seed)
+
+  def Run(self, inputs, Y, return_ln=True, multiply_by=1, Y_columns=[]):
     """
     Evaluates the likelihood for given data.
 
     Args:
-        X (array): The independent variables.
+        inputs (array): The data processors for an unbinned/unbinned_extended fit or the bin values in the binned/binned_extended case.
         Y (array): The model parameters.
         wts (array): The weights for the data points (optional).
         return_ln (bool): Whether to return the natural logarithm of the likelihood (optional).
@@ -77,13 +82,13 @@ class Likelihood():
 
     # Run likelihood
     if self.type == "unbinned":
-      lkld_val = self.Unbinned(X_dps, Y, return_ln=return_ln)
+      lkld_val = self.Unbinned(inputs, Y, return_ln=return_ln)
     elif self.type == "unbinned_extended":
-      lkld_val = self.UnbinnedExtended(X_dps, Y, return_ln=return_ln)
+      lkld_val = self.UnbinnedExtended(inputs, Y, return_ln=return_ln)
     elif self.type == "binned":
-      lkld_val = self.Binned(X_dps, Y, return_ln=return_ln)
+      lkld_val = self.Binned(inputs, Y, return_ln=return_ln)
     elif self.type == "binned_extended":
-      lkld_val = self.BinnedExtended(X_dps, Y, return_ln=return_ln)
+      lkld_val = self.BinnedExtended(inputs, Y, return_ln=return_ln)
 
     end_time = time.time()
     if self.verbose:
@@ -115,6 +120,7 @@ class Likelihood():
 
       # Get rate times probability
       log_p = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True)
+      #print(log_p)
       #log_p = np.ones(len(X)).reshape(-1,1) # uncomment this for yield only unbinned_extended likelihood
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
@@ -139,6 +145,9 @@ class Likelihood():
 
     # Product the events
     ln_lkld = np.sum(ln_lklds, dtype=np.float128)
+
+    #print("len(X)", len(X))
+    #print("ln_lkld", ln_lkld)
 
     return ln_lkld
 
@@ -181,12 +190,10 @@ class Likelihood():
     """
 
     ln_lkld = 0
-    tf.random.set_seed(self.seed)
-    tf.keras.utils.set_random_seed(self.seed)
+    self._SetSeed()
     for dps_ind, X_dp in enumerate(X_dps):
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
-        #functions_to_apply = ["untransform"],
         custom = self._CustomDPMethodForCombinedPDF,
         custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name, "normalise" : normalise}
       )
@@ -256,6 +263,22 @@ class Likelihood():
       result = self.Minimise(NLL, initial_guess, method="low_stat_high_stat", func_low_stat=NLL_lowstat, freeze=freeze)
 
     return result
+
+  def GetHessian(self, X_dps, freeze={}):
+    x = tf.Variable([self.best_fit], dtype=tf.float32)
+    with tf.GradientTape(persistent=True) as g:
+      g.watch(x)
+      with tf.GradientTape(persistent=True) as gg:
+        gg.watch(x)
+        log_prob = tf.convert_to_tensor([self.Run(X_dps, x.numpy()[0], return_ln=True, multiply_by=-1)], dtype=tf.float32)
+        print(log_prob)
+      grad = gg.gradient(log_prob, x)
+    print(g, grad)
+    tf.print(g)
+    hessian = g.jacobian(grad, x)
+    print(hessian)
+
+    return hessian
 
   def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
     """
@@ -399,6 +422,20 @@ class Likelihood():
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
+
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, filename="hessian.yaml", freeze={}):
+    """
+    Finds the best-fit parameters and writes them to a YAML file.
+
+    Args:
+        X (array): The independent variables.
+        row (array): The row values.
+        initial_guess (array): Initial values for the model parameters.
+        wt (array): The weights for the data points (optional).
+        filename (str): The name of the YAML file (default is "best_fit.yaml").
+    """
+    result = self.GetHessian(X_dps, freeze=freeze)
+    #dump
 
   def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4):
     """

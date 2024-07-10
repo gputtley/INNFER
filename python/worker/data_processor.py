@@ -1,4 +1,5 @@
 import copy
+import os
 import pickle
 
 import numpy as np
@@ -39,7 +40,7 @@ class DataProcessor():
 
     # Options to run
     self.wt_name = wt_name
-    self.batch_size = 10**6
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
     self.selection = None
     self.columns = None
     self.scale = None
@@ -122,6 +123,15 @@ class DataProcessor():
     # Set data type
     df = df.astype(float)
 
+    # Scale weights
+    if self.scale is not None:
+      if self.wt_name is None: self.wt_name = "wt"
+      scale = self.scale if self.dataset_type != "generator" else self.scale/self.n_events  
+      if self.wt_name in df.columns:
+        df.loc[:, self.wt_name] *= scale
+      else:
+        df.loc[:, self.wt_name] = scale
+
     # Apply functions
     for f in functions_to_apply:
       if isinstance(f, str):
@@ -139,21 +149,12 @@ class DataProcessor():
     # Select the columns
     if self.columns is not None:
       df = df.loc[:,[col for col in self.columns if col in df.columns]]
-
-    # Scale weights
-    if self.scale is not None:
-      if self.wt_name is None: self.wt_name = "wt"
-      scale = self.scale if self.dataset_type != "generator" else self.scale/self.n_events  
-      if self.wt_name in df.columns:
-        df.loc[:, self.wt_name] *= scale
-      else:
-        df.loc[:, self.wt_name] = scale
        
     # Resample
     if self.resample and self.wt_name is not None:
       columns_without_weights = list(df.columns)
       columns_without_weights.remove(self.wt_name)
-      data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=int(np.floor(np.sum(df.loc[:,self.wt_name].to_numpy()))), seed=self.resampling_seed)
+      data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=int(round(np.sum(df.loc[:,self.wt_name].to_numpy()),0)), seed=self.resampling_seed)
       df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
 
     # Sort columns
@@ -195,7 +196,10 @@ class DataProcessor():
     elif method == "n_eff": # Get the number of effective events
       sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
-      return (sum_wts**2)/sum_wts_squared
+      if sum_wts_squared != 0:
+        return (sum_wts**2)/sum_wts_squared
+      else:
+        return 0
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
@@ -293,9 +297,9 @@ class DataProcessor():
     for column_name in data.columns:
 
       # Apply discrete to continuous transformation
-      if "discrete_thresholds" in self.parameters.keys():
-        if column_name in self.parameters["discrete_thresholds"].keys():
-          data.loc[:,column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name)
+      #if "discrete_thresholds" in self.parameters.keys():
+      #  if column_name in self.parameters["discrete_thresholds"].keys():
+      #    data[column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name).astype(np.float64)
 
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
@@ -401,13 +405,12 @@ class DataProcessor():
       cdf_vals /= cdf_vals[-1]
 
       # Generate random numbers
-      rng = np.random.RandomState(seed=42)
-      random_nums = rng.rand(n_samples)
+      random_nums = np.random.rand(n_samples)
 
       # Inverse transform sampling
       column[indices] = np.interp(random_nums, cdf_vals, param_values)
 
-    return pd.DataFrame({column_name : column.flatten()}, index=column_indices)
+    return pd.DataFrame({column_name : column.flatten()}, index=column_indices, dtype=np.float64)
 
   def UnDiscreteToContinuous(
       self,

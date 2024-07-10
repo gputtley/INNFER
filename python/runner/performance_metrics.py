@@ -17,7 +17,7 @@ class PerformanceMetrics():
     self.verbose = True
     self.do_loss = True
     self.do_chi_squared = True
-    self.do_bdt_separation = True
+    self.do_bdt_separation = False
     self.save_extra_name = ""
 
   def Configure(self, options):

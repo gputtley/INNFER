@@ -166,8 +166,10 @@ class Generator():
       )
 
     # Get names for plot
-    if self.data_type != "data":
+    if self.data_type == "sim":
       sim_plot_name = GetYName(self.Y_sim, purpose="plot", prefix="Simulated y=")
+    elif self.data_type == "asimov":
+      sim_plot_name = GetYName(self.Y_sim, purpose="plot", prefix="Asimov y=")
     else:
       sim_plot_name = "Data"
     sample_plot_name = GetYName(self.Y_synth, purpose="plot", prefix="Synthetic y=")

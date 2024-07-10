@@ -115,9 +115,13 @@ class PreProcess():
     if self.verbose:
       print("- Finding the total yields of entries for specific Y values and writing to file")
     unique_y_combinations = list(product(*unique_y_values.values()))
+    train_test_y_vals = cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}
+    validation_y_vals = cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}
     if len(parameters["Y_columns"]) != 0:
       yield_df = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
       for ind, uc in enumerate(unique_y_combinations):
+        if self.verbose:
+          print(f" - For Y = {list(uc)}")
         selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
         yield_df.loc[ind, "yield"] = dp.GetFull(method="sum", extra_sel=selection)
         yield_df.loc[ind, "effective_events"] = dp.GetFull(method="n_eff", extra_sel=selection)
@@ -131,13 +135,13 @@ class PreProcess():
     means = dp.GetFull(
       method="mean",
       functions_to_apply = [
-        partial(self._DoTrainTestValSplit, split="train", train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+        partial(self._DoTrainTestValSplit, split="train", train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
       ]
     )
     stds = dp.GetFull(
       method="std",
       functions_to_apply = [
-        partial(self._DoTrainTestValSplit, split="train", train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+        partial(self._DoTrainTestValSplit, split="train", train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
       ]
     )    
     for k, v in means.items():
@@ -150,38 +154,36 @@ class PreProcess():
     split_yields_dfs = {}
     unique_y_combinations = list(product(*unique_y_values.values()))
     for split in ["train","test","val"]:
-      count = 0
+      if self.verbose:
+        print(f" - For split {split}")
       if len(parameters["Y_columns"]) != 0:
         split_yields_dfs[split] = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
         for ind, uc in enumerate(unique_y_combinations):
+          if self.verbose:
+            print(f"  - For Y = {list(uc)}")
           selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
           split_yields_dfs[split].loc[ind, "yield"] = dp.GetFull(
             method="sum", 
             extra_sel=selection,
             functions_to_apply = [
-              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
             ]
           )
-          count += dp.GetFull(
-            method="count", 
-            extra_sel=selection,
-            functions_to_apply = [
-              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
-            ]
-          )
+          yield_df.loc[ind,f"yields_{split}"] = float(split_yields_dfs[split].loc[ind, "yield"])
           yield_df.loc[ind, f"effective_events_{split}"] = dp.GetFull(
             method="n_eff", 
             extra_sel=selection,
             functions_to_apply = [
-              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
             ]
           )
       else:
-        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])])]], columns=["yield"], dtype=np.float64)
+        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)])]], columns=["yield"], dtype=np.float64)
+        yield_df.loc[0,f"yields_{split}"] = float(split_yields_dfs[split].iloc[0].values[0])
         yield_df.loc[0,f"effective_events_{split}"] = dp.GetFull(
           method="n_eff", 
           functions_to_apply = [
-            partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"])
+            partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
           ]
         )
 
@@ -204,9 +206,8 @@ class PreProcess():
       dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoTrainTestValSplit, split=data_split, train_test_val_split=cfg["preprocess"]["train_test_val_split"]),
+          partial(self._DoTrainTestValSplit, split=data_split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals),
           partial(self._DoEqualiseYWeights, yields=split_yields_dfs[data_split], Y_columns=parameters["Y_columns"], scale_to=1.0),
-          partial(self._DoDropSpecificYValues, data_split=data_split, train_test_y_vals=cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}, validation_y_vals=cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}),
           "transform",
           partial(self._DoWriteDatasets, X_columns=parameters["X_columns"], Y_columns=parameters["Y_columns"], data_split=data_split)
         ]
@@ -292,23 +293,6 @@ class PreProcess():
     thresholds = {float(bins[ind]) : [intervals[ind],intervals[ind+1]] for ind in range(len(bins))}
 
     return pdf_spline, thresholds, integral
-
-  def _DoTrainTestValSplit(self, df, split="all", train_test_val_split="0.6:0.1:0.3"):
-    train_ratio = float(train_test_val_split.split(":")[0])
-    train_df, temp_df = train_test_split(df, test_size=(1 - train_ratio), random_state=42)
-    if split in ["test","val","all"]:
-      test_ratio = float(train_test_val_split.split(":")[1])
-      val_ratio = float(train_test_val_split.split(":")[2])   
-      val_df, test_df = train_test_split(temp_df, test_size=test_ratio / (test_ratio + val_ratio), random_state=42)
-
-    if split == "train":
-      return train_df    
-    if split == "test":
-      return test_df
-    elif split == "val":
-      return val_df
-    else:
-      return {"train":train_df, "test":test_df, "val":val_df}
   
   def _DoEqualiseYWeights(self, df, yields, Y_columns=[], scale_to=1.0):
     if len(Y_columns) > 0:
@@ -335,16 +319,63 @@ class PreProcess():
         pq.write_table(table, file_path, compression='snappy')
     return df
 
-  def _DoDropSpecificYValues(self, df, data_split="train", train_test_y_vals={}, validation_y_vals={}):
-    if data_split in ["train","test"]:
-      for k, v in train_test_y_vals.items():
-        if k in df.columns:
-          df = df[df[k].isin(v)]
-    if data_split in ["val"]:
-      for k, v in validation_y_vals.items():
-        if k in df.columns:
-          df = df[df[k].isin(v)]
-    return df
+  def _DoTrainTestValSplit(self, df, split="train", train_test_val_split="0.6:0.1:0.3", train_test_y_vals={}, validation_y_vals={}):
+
+    # Do train/test/val split
+    train_ratio = float(train_test_val_split.split(":")[0])
+    train_df, temp_df = train_test_split(df, test_size=(1 - train_ratio), random_state=42)
+    test_ratio = float(train_test_val_split.split(":")[1])
+    val_ratio = float(train_test_val_split.split(":")[2])   
+    val_df, test_df = train_test_split(temp_df, test_size=test_ratio / (test_ratio + val_ratio), random_state=42)
+
+    # Move train/test values to validation if unused
+    removed_train_df = None
+    removed_test_df = None
+    for k, v in train_test_y_vals.items():
+      # do for train
+      if k in train_df.columns:
+        if removed_train_df is None:
+          removed_train_df = train_df[~train_df[k].isin(v)]
+        else:
+          removed_train_df = pd.concat([removed_train_df, train_df[~train_df[k].isin(v)]])
+        train_df = train_df[train_df[k].isin(v)]
+      # do for test
+      if k in test_df.columns:
+        if removed_test_df is None:
+          removed_test_df = test_df[~test_df[k].isin(v)]
+        else:
+          removed_test_df = pd.concat([removed_test_df, test_df[~test_df[k].isin(v)]])
+        test_df = test_df[test_df[k].isin(v)]
+    if removed_train_df is not None:
+      val_df = pd.concat([val_df, removed_train_df])
+    if removed_test_df is not None:
+      val_df = pd.concat([val_df, removed_test_df])
+
+    # Move validation values to train/test if unused
+    removed_val_df = None
+    for k, v in validation_y_vals.items():
+      if k in val_df.columns:
+        if removed_val_df is None:
+          removed_val_df = val_df[~val_df[k].isin(v)]
+        else:
+          removed_val_df = pd.concat([removed_val_df, val_df[~val_df[k].isin(v)]])
+        val_df = val_df[val_df[k].isin(v)]
+    if removed_val_df is not None:
+      train_ratio = float(train_test_val_split.split(":")[0])
+      test_ratio = float(train_test_val_split.split(":")[1])
+      sum_ratio = train_ratio + test_ratio
+      test_ratio /= sum_ratio
+      train_add_df, test_add_df = train_test_split(removed_val_df, test_size=test_ratio, random_state=42)
+      train_df = pd.concat([train_df, train_add_df])
+      test_df = pd.concat([test_df, test_add_df])
+
+    # Return correct split
+    if split == "train":
+      return train_df    
+    if split == "test":
+      return test_df
+    elif split == "val":
+      return val_df
 
   def _PlotX(self, vary, freeze, extra_name, parameters, n_bins=40):
 

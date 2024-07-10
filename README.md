@@ -49,9 +49,7 @@ pois:
 nuisances: []
 preprocess:
   selection: "(jec==0)"
-  standardise: all
   train_test_val_split: 0.6:0.1:0.3
-  equalise_y_wts: True
   train_test_y_vals:
     mass:
     - 166.5

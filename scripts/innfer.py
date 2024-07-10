@@ -11,6 +11,7 @@ import pyfiglet as pyg
 
 from module import Module
 from useful_functions import (
+    CommonInferConfigOptions,
     GetDictionaryEntryFromYaml,
     GetScanArchitectures,
     GetValidateInfo,
@@ -21,6 +22,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--architecture', help='Config for running', type=str, default='configs/architecture/default.yaml')
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
+  parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default=None, choices=['data', 'asimov', 'sim'])
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
@@ -28,10 +30,11 @@ def parse_args():
   parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
   parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
-  parser.add_argument('--hyperparameter-scan-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='chi_squared_test:total,min')
+  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
+  parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
@@ -43,7 +46,7 @@ def parse_args():
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'InitialFit', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'Hessian', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
@@ -208,8 +211,31 @@ def main(args, default_args):
           "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
           "data_input" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
           "data_output" : f"models/{cfg['name']}/{file_name}",
-          "metric" : args.hyperparameter_scan_metric,
+          "metric" : args.hyperparameter_metric,
           "verbose" : not args.quiet,        
+        },
+        loop = {"file_name" : file_name}
+      )
+
+  # Perform a hyperparameter scan
+  if args.step == "BayesianHyperparameterTuning":
+    print("<< Running a bayesian hyperparameter tuning >>")
+    for file_name, parquet_name in cfg["files"].items():
+      module.Run(
+        module_name = "bayesian_hyperparameter_tuning",
+        class_name = "BayesianHyperparameterTuning",
+        config = {
+          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+          "tune_architecture" : args.architecture,
+          "data_output" : f"data/{cfg['name']}/{file_name}/BayesianHyperparameterTuning",
+          "best_model_output" : f"models/{cfg['name']}/{file_name}",
+          "use_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
+          "disable_tqdm" : args.disable_tqdm,
+          "verbose" : not args.quiet,
+          "metric" : args.hyperparameter_metric,
+          "n_trials" : args.number_of_trials,
         },
         loop = {"file_name" : file_name}
       )
@@ -268,6 +294,23 @@ def main(args, default_args):
         loop = {"file_name" : file_name},
       )
 
+  # Make the asimov datasets
+  if args.step == "MakeAsimov":
+    print(f"<< Making the asimov datasets >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "infer",
+          class_name = "Infer",
+          config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
+            "method" : "MakeAsimov",
+            "extra_file_name" : str(val_ind),
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
     print(f"<< Running a single likelihood value for Y={args.other_input} for the {args.data_type} dataset >>")
@@ -278,23 +321,11 @@ def main(args, default_args):
           module_name = "infer",
           class_name = "Infer",
           config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
             "method" : "Debug",
-            "true_Y" : val_info["row"],
-            "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-            "data_type" : args.data_type if args.data_type is not None else "sim",
-            "parameters" : val_loop_info["parameters"][file_name],
-            "model" : val_loop_info["models"][file_name],
-            "architecture" : val_loop_info["architectures"][file_name],
-            "yield_function" : "default",
-            "pois" : cfg["pois"],
-            "nuisances" : cfg["nuisances"],
-            "likelihood_type" : args.likelihood_type,
-            "inference_options" : cfg["inference"] if file_name == "combined" else {},
-            "scale_to_eff_events" : args.scale_to_eff_events,
             "other_input" : args.other_input,
             "model_type" : args.model_type,
-            "verbose" : not args.quiet,
-            "data_file" : cfg["data_file"],
+            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -309,26 +340,34 @@ def main(args, default_args):
           module_name = "infer",
           class_name = "Infer",
           config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
             "method" : "InitialFit",
-            "true_Y" : val_info["row"],
-            "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-            "data_type" : args.data_type if args.data_type is not None else "asimov",
-            "parameters" : val_loop_info["parameters"][file_name],
-            "model" : val_loop_info["models"][file_name],
-            "architecture" : val_loop_info["architectures"][file_name],
-            "yield_function" : "default",
-            "pois" : cfg["pois"],
-            "nuisances" : cfg["nuisances"],
             "data_output" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
-            "likelihood_type" : args.likelihood_type,
-            "inference_options" : cfg["inference"] if file_name == "combined" else {},
-            "resample" : False,
-            "scale_to_eff_events" : args.scale_to_eff_events,
             "extra_file_name" : str(val_ind),
-            "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
             "model_type" : args.model_type,
-            "verbose" : not args.quiet,
-            "data_file" : cfg["data_file"],        
+            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
+  # Run initial fits from a full dataset
+  if args.step == "Hessian":
+    print(f"<< Calculating the Hessian matrix >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "infer",
+          class_name = "Infer",
+          config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
+            "method" : "Hessian",
+            "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}",
+            "model_type" : args.model_type,
+            "extra_file_name" : str(val_ind),
+            "data_file" : cfg["data_file"],
+            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -344,30 +383,16 @@ def main(args, default_args):
             module_name = "infer",
             class_name = "Infer",
             config = {
+              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
               "method" : "ScanPoints",
-              "true_Y" : val_info["row"],
-              "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-              "data_type" : args.data_type if args.data_type is not None else "asimov",
-              "parameters" : val_loop_info["parameters"][file_name],
-              "model" : val_loop_info["models"][file_name],
-              "architecture" : val_loop_info["architectures"][file_name],
-              "yield_function" : "default",
-              "pois" : cfg["pois"],
-              "nuisances" : cfg["nuisances"],
               "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
               "data_output" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}",
-              "likelihood_type" : args.likelihood_type,
-              "inference_options" : cfg["inference"] if file_name == "combined" else {},
-              "resample" : False,
-              "scale_to_eff_events" : args.scale_to_eff_events,
               "column" : column,
               "sigma_between_scan_points" : args.sigma_between_scan_points,
               "number_of_scan_points" : args.number_of_scan_points,
               "extra_file_name" : str(val_ind),
-              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
               "model_type" : args.model_type,
-              "verbose" : not args.quiet,    
-              "data_file" : cfg["data_file"],      
+              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
           )
@@ -384,31 +409,17 @@ def main(args, default_args):
               module_name = "infer",
               class_name = "Infer",
               config = {
+                **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
                 "method" : "Scan",
-                "true_Y" : val_info["row"],
-                "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-                "data_type" : args.data_type if args.data_type is not None else "asimov",
-                "parameters" : val_loop_info["parameters"][file_name],
-                "model" : val_loop_info["models"][file_name],
-                "architecture" : val_loop_info["architectures"][file_name],
-                "yield_function" : "default",
-                "pois" : cfg["pois"],
-                "nuisances" : cfg["nuisances"],
                 "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
                 "data_output" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}",
-                "likelihood_type" : args.likelihood_type,
-                "inference_options" : cfg["inference"] if file_name == "combined" else {},
-                "resample" : False,
-                "scale_to_eff_events" : args.scale_to_eff_events,
                 "column" : column,
                 "scan_value" : GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
                 "scan_ind" : str(scan_ind),
                 "extra_file_name" : str(val_ind),
-                "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
                 "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}/scan_ranges_{column}_{val_ind}.yaml"],
                 "model_type" : args.model_type,
-                "verbose" : not args.quiet,
-                "data_file" : cfg["data_file"],  
+                "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
             )
@@ -468,27 +479,14 @@ def main(args, default_args):
             module_name = "infer",
             class_name = "Infer",
             config = {
+              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
               "method" : "InitialFit",
-              "true_Y" : val_info["row"],
-              "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-              "data_type" : args.data_type if args.data_type is not None else "sim",
-              "parameters" : val_loop_info["parameters"][file_name],
-              "model" : val_loop_info["models"][file_name],
-              "architecture" : val_loop_info["architectures"][file_name],
-              "yield_function" : "default",
-              "pois" : cfg["pois"],
-              "nuisances" : cfg["nuisances"],
               "data_output" : f"data/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}",
-              "likelihood_type" : args.likelihood_type,
-              "inference_options" : cfg["inference"] if file_name == "combined" else {},
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}",
               "resample" : True,
               "resampling_seed" : bootstrap_ind,
-              "scale_to_eff_events" : args.scale_to_eff_events,
               "extra_file_name" : f"{val_ind}_{bootstrap_ind}",
-              "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
               "model_type" : args.model_type,
-              "verbose" : not args.quiet,
-              "data_file" : cfg["data_file"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "bootstrap_ind": bootstrap_ind},
         )
@@ -613,7 +611,6 @@ if __name__ == "__main__":
     os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
     snakemake_extra = " --forceall" if args.snakemake_force else ""
     os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
-
 
   print("<< Finished running without error >>")
   end_time = time.time()

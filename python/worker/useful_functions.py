@@ -26,6 +26,30 @@ def CamelToSnake(name):
   s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
   return s2.lower()
 
+def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name):
+  common_config = {
+    "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+    "true_Y" : val_info["row"],
+    "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+    "parameters" : val_loop_info["parameters"][file_name],
+    "model" : val_loop_info["models"][file_name],
+    "architecture" : val_loop_info["architectures"][file_name],
+    "data_output" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+    "inference_options" : cfg["inference"] if file_name == "combined" else {},
+    "data_type": args.data_type if args.data_type is not None else "sim",
+    "yield_function": "default",
+    "pois": cfg["pois"],
+    "nuisances": cfg["nuisances"],
+    "likelihood_type": args.likelihood_type,
+    "scale_to_eff_events": args.scale_to_eff_events,
+    "freeze": {k.split("=")[0]: float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+    "model_type": args.model_type,
+    "verbose": not args.quiet,
+    "data_file": cfg["data_file"],
+    "binned_fit_input" : args.binned_fit_input,
+  }
+  return common_config
+
 def CustomHistogram(
     data, 
     weights = None, 
@@ -659,22 +683,14 @@ def Resample(datasets, weights, n_samples=None, seed=42):
     negative_probs = weights[negative_indices]/np.sum(weights[negative_indices])
   
   # Set n_samples to the maximum if None
-  n_positive_samples = 0
-  n_negative_samples = 0
-  if n_samples is None:
-    if do_positive:
-      n_positive_samples = len(positive_probs)
-    if do_negative:
-      n_negative_samples = len(negative_probs)
-  else:
-    if do_positive and do_negative: 
-      positive_fraction = len(positive_probs)/len(weights)
-      n_positive_samples = int(round(positive_fraction*n_samples,0))
-      n_negative_samples = n_samples - n_positive_samples
-    elif do_positive:
-      n_positive_samples = n_samples
-    elif do_negative:
-      n_negative_samples = n_samples
+  if do_positive and do_negative: 
+    positive_fraction = np.sum(weights[positive_indices])/np.sum(weights)
+    n_positive_samples = int(round(positive_fraction*n_samples,0))
+    n_negative_samples = n_positive_samples - n_samples
+  elif do_positive:
+    n_positive_samples = n_samples
+  elif do_negative:
+    n_negative_samples = n_samples
 
   # Loop through datasets
   resampled_datasets = []
