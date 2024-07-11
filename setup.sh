@@ -35,6 +35,7 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   pip3 install hep_ml
   pip3 install random-word
   pip3 install optuna
+  #conda env create -f configs/setup/environment.yaml
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then

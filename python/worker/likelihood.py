@@ -174,6 +174,36 @@ class Likelihood():
 
     return out
 
+  def Binned(self, bin_values, Y, return_ln=True):
+
+    # find the prediction
+    predicted_bin_values = []
+    for bin_index, bin_value in enumerate(bin_values):
+      predicted_bin_values.append(np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()]))
+
+    # normalise predicted_bin_values
+    predicted_bin_values = [predicted_bin_value*(np.sum(bin_values))/float(np.sum(predicted_bin_values)) for predicted_bin_value in predicted_bin_values]
+
+    # Get log likelihood
+    ln_lkld = np.sum([(bin_values[bin_index]*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index in range(len(bin_values))])
+
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
+
+  def BinnedExtended(self, bin_values, Y, return_ln=True):
+
+    ln_lkld = 0.0
+    for bin_index, bin_value in enumerate(bin_values):
+      predicted_bin_values = np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()])
+      ln_lkld += (bin_value*np.log(predicted_bin_values)) - predicted_bin_values
+
+    if return_ln:
+      return ln_lkld
+    else:
+      return np.exp(ln_lkld)
+
   def Unbinned(self, X_dps, Y, return_ln=True, normalise=True):
     """
     Computes the likelihood for unbinned data.

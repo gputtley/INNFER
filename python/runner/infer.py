@@ -100,7 +100,20 @@ class Infer():
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       lkld_input = self.dps.values()
     elif self.likelihood_type in ["binned", "binned_extended"]:
-      lkld_input = None
+      categories = self._BuildCategories()
+      lkld_input = [0.0 for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
+      for file_name in self.parameters.keys():
+        bin_cat_num = 0        
+        for cat_num, cat_info in categories.items():
+          hist, _ = self.dps[file_name].GetFull(
+            method = "histogram",
+            extra_sel = cat_info[0],
+            column = cat_info[1],
+            bins = cat_info[2],
+          )
+          for b in hist:
+            lkld_input[bin_cat_num] += b
+            bin_cat_num += 1
 
     # Method to make the asimov datasets
     if self.method == "MakeAsimov" and self.likelihood_type in ["unbinned", "unbinned_extended"]:
@@ -288,7 +301,7 @@ class Infer():
       ]
 
     # Add input datasets
-    if self.data_type == "sim":
+    if self.data_type == "sim" or (args.data_type == "asimov" and args.likelihood_type in ["binned", "binned_extended"]):
       for k, v in self.parameters.items():
         with open(v, 'r') as yaml_file:
           parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -299,7 +312,7 @@ class Infer():
         ]
     elif self.data_type == "data":
       inputs += [self.data_file]      
-    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov":
+    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
       for file_name in self.parameters.keys():
         inputs += [f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"]
 
@@ -334,61 +347,92 @@ class Infer():
   def _BuildBinYields(self):
 
     from data_processor import DataProcessor
+    from yields import Yields
 
     # Make selection, variable and bins
     categories = self._BuildCategories()
 
+    # Define bin_yields dictionary
+    bin_yields = {}
+
     # Loop through files
     for file_name, v in self.parameters.items():
+
+      # Define bin_yields list per file
+      bin_yields[file_name] = []
 
       # Open data parameters
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Loop through Y values - will do this from the yields file  
+      # Get original yields function
       yields_df = pd.read_parquet(parameters['yield_loc'])
       Y_columns = [i for i in self.pois+self.nuisances if i in yields_df.columns]
       yields_df = yields_df.loc[:,Y_columns]
+
+      # Define bin yields dataframe
+      bin_yields_dataframes = [copy.deepcopy(yields_df) for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
+
+      # Loop through Y values
       for index, row in yields_df.iterrows():
         y_selection = " & ".join([f"({k}=={row.iloc[ind]})" for ind, k in enumerate(row.keys())])
         if y_selection == "": y_selection = None
 
-        # Make data processor
-        asimov_dp = DataProcessor(
-          [
-            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"],
-            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
-          ],
-          "parquet",
-          wt_name = "wt",
-          options = {
-            "parameters" : parameters,
-            "selection" : y_selection,
-            "scale" : self.yields[file_name](yields_df.iloc[[index]]) if self.yields is not None else 1.0,
-            "functions" : ["untransform"]
-          }
-        )
-
         # Loop through categories
+        bin_cat_num = 0
         for cat_num, cat_info in categories.items():
 
-          # Make histograms
-          hist, _ = asimov_dp.GetFull(
+          # Make data processor
+          asimov_dps = DataProcessor(
+            [
+              [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
+              [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"],
+              [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
+            ],
+            "parquet",
+            wt_name = "wt",
+            options = {
+              "parameters" : parameters,
+              "selection" : y_selection,
+              "scale" : [
+                self._BuildYieldFunctions(column_name=f"yields_train")[file_name](yields_df.iloc[[index]]),
+                self._BuildYieldFunctions(column_name=f"yields_test")[file_name](yields_df.iloc[[index]]),
+                self._BuildYieldFunctions(column_name=f"yields_val")[file_name](yields_df.iloc[[index]]),
+              ],
+              "functions" : ["untransform"]
+            }
+          )
+
+          hist, _ = asimov_dps.GetFull(
             method = "histogram",
             extra_sel = cat_info[0],
             column = cat_info[1],
             bins = cat_info[2],
           )
 
-          print(file_name, y_selection, cat_num, cat_info)
-          print(hist)
-          print()
           # Loop through histogram bins
+          for bin_num, hist_val in enumerate(hist):
 
-          # Fill yield dataframes
+            # Fill yield dataframes
+            if "yield" not in bin_yields_dataframes[bin_cat_num].columns:
+              bin_yields_dataframes[bin_cat_num].loc[:,"yield"] = 0.0
+            bin_yields_dataframes[bin_cat_num].loc[index, "yield"] = hist_val
+            bin_cat_num += 1
 
-    exit()
+      # Make yield functions
+      bin_yields[file_name] = []
+      for b_ind, b in enumerate(bin_yields_dataframes):
+        bin_yield_class = Yields(
+          b, 
+          self.pois, 
+          self.nuisances, 
+          file_name,
+          method=self.yield_function, 
+          column_name="yield"
+        )
+        bin_yields[file_name].append(bin_yield_class.GetYield)
+
+    return bin_yields
 
   def _BuildDataProcessors(self):
 
@@ -410,9 +454,28 @@ class Infer():
         else:
           scale = None
 
+        if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+          sim_inputs = [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]]
+          if self.yields is not None:
+            scale = self.yields[file_name](self.true_Y)
+            if scale == 0: continue
+          else:
+            scale = None
+        else:
+          sim_inputs = [
+            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
+            [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"],
+            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
+          ]
+          scale = [
+            self._BuildYieldFunctions(column_name=f"yields_train")[file_name](self.true_Y),
+            self._BuildYieldFunctions(column_name=f"yields_test")[file_name](self.true_Y),
+            self._BuildYieldFunctions(column_name=f"yields_val")[file_name](self.true_Y),
+          ]
+
         shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in parameters["Y_columns"]]
         dps[file_name] = DataProcessor(
-          [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
+          sim_inputs,
           "parquet",
           wt_name = "wt",
           options = {
@@ -428,7 +491,7 @@ class Infer():
         # plot resampling
         if self.plot_resampling and self.resample:
           non_resampling_dp = DataProcessor(
-            [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
+            sim_inputs,
             "parquet",
             wt_name = "wt",
             options = {
@@ -515,7 +578,7 @@ class Infer():
 
     return dps
 
-  def _BuildYieldFunctions(self):
+  def _BuildYieldFunctions(self, column_name="yield"):
 
     from yields import Yields
 
@@ -540,7 +603,7 @@ class Infer():
         self.nuisances, 
         k,
         method=self.yield_function, 
-        column_name="yield"
+        column_name=column_name
       )
 
       if not self.scale_to_eff_events:

@@ -69,6 +69,8 @@ class DataProcessor():
     elif dataset_type == "parquet":
       self.data_loaders = [[DataLoader(d, batch_size=self.batch_size) for d in ds] for ds in self.datasets]
       self.num_batches = [self.data_loaders[ind][0].num_batches for ind in range(len(self.datasets))]
+    if not isinstance(self.scale, list):
+      self.scale = [self.scale]*len(self.datasets)
 
     # Variables needed for running
     self.file_ind = 0
@@ -124,9 +126,9 @@ class DataProcessor():
     df = df.astype(float)
 
     # Scale weights
-    if self.scale is not None:
+    if self.scale[self.file_ind] is not None:
       if self.wt_name is None: self.wt_name = "wt"
-      scale = self.scale if self.dataset_type != "generator" else self.scale/self.n_events  
+      scale = self.scale[self.file_ind] if self.dataset_type != "generator" else self.scale[self.file_ind]/self.n_events  
       if self.wt_name in df.columns:
         df.loc[:, self.wt_name] *= scale
       else:
