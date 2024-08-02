@@ -47,6 +47,7 @@ def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name):
     "verbose": not args.quiet,
     "data_file": cfg["data_file"],
     "binned_fit_input" : args.binned_fit_input,
+    "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
   }
   return common_config
 

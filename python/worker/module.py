@@ -43,6 +43,7 @@ class Module():
     self.extra_names = []
     self.input_store = []
     self.output_store = []
+    self.saved_class = None
 
   def _CheckRunFromSpecific(self, specific, loop):
     """
@@ -200,6 +201,7 @@ class Module():
       config = {},
       loop = {},
       force = False,
+      save_class = False,
     ):
     """
     Executes the module and optionally submits jobs or creates Snakemake rules.
@@ -229,13 +231,22 @@ class Module():
       print(f"* Running {self._MakeSpecificString(loop)}")
 
       # Import modules and initiating class
-      module = importlib.import_module(module_name)
-      module_class = getattr(module, class_name)
-      class_instance = module_class()
+      if self.saved_class is None:
+        module = importlib.import_module(module_name)
+        module_class = getattr(module, class_name)
+        class_instance = module_class()
+      else:
+        class_instance = self.saved_class
 
       # Configure and run
       class_instance.Configure(config)
       class_instance.Run()
+
+      if save_class:
+        self.saved_class = class_instance
+      else:
+        self.saved_class = None
+
       return None
 
     # Setup batch command and add it to the command store

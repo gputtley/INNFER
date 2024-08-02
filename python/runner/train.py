@@ -17,6 +17,7 @@ class Train():
     self.data_output = "data/"
     self.plots_output = "plots/"
     self.save_extra_name = ""
+    self.test_name = "test"
     self.no_plot = False
 
   def Configure(self, options):
@@ -53,9 +54,9 @@ class Train():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
       options = {
         **architecture,
         **{
@@ -109,9 +110,9 @@ class Train():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
     ]
     return inputs
 

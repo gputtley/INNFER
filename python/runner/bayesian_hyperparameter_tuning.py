@@ -29,6 +29,10 @@ class BayesianHyperparameterTuning():
     self.disable_tqdm = False
     self.data_output = "data/"
     self.n_trials = 10
+    self.test_name = "test"
+    self.val_loop = []
+    self.pois = None
+    self.nuisances = None
 
     self.objective_ind = 0
     self.tune_architecture_name = None
@@ -181,9 +185,9 @@ class BayesianHyperparameterTuning():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
     ]
     return inputs
 
@@ -199,6 +203,7 @@ class BayesianHyperparameterTuning():
         "use_wandb" : self.use_wandb,
         "disable_tqdm" : self.disable_tqdm,
         "no_plot" : True,
+        "test_name" : self.test_name,
         "save_extra_name" : f"_{self.objective_ind}"
       }
     )
@@ -214,7 +219,11 @@ class BayesianHyperparameterTuning():
         "architecture" : self.tune_architecture_name,
         "parameters" : self.parameters,
         "data_output" : self.data_output,
-        "save_extra_name" : f"_{self.objective_ind}"
+        "save_extra_name" : f"_{self.objective_ind}",
+        "test_name" : self.test_name,
+        "val_loop" : self.val_loop,
+        "pois": self.pois,
+        "nuisances": self.nuisances,
       }
     )
     return pf

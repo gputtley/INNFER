@@ -610,6 +610,8 @@ class DataProcessor():
       tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
     total = float(np.sum(tmp.loc[:,self.wt_name]))
     cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
+    if len(cum_sum) == 0: 
+      return out
     closest_index = (cum_sum - quantile).abs().idxmin()
     interval = float(tmp.loc[closest_index, column])
     if tmp_wt_name:

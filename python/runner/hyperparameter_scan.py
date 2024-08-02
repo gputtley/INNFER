@@ -23,7 +23,11 @@ class HyperparameterScan():
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
+    self.test_name = "test"
     self.save_extra_name = ""
+    self.val_loop = []
+    self.pois = None
+    self.nuisances = None
 
   def Configure(self, options):
     """
@@ -97,9 +101,9 @@ class HyperparameterScan():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
     ]
     return inputs
 
@@ -115,6 +119,7 @@ class HyperparameterScan():
         "use_wandb" : self.use_wandb,
         "disable_tqdm" : self.disable_tqdm,
         "no_plot" : True,
+        "test_name" : self.test_name,
         "save_extra_name" : self.save_extra_name
       }
     )
@@ -130,7 +135,11 @@ class HyperparameterScan():
         "architecture" : f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml",
         "parameters" : self.parameters,
         "data_output" : self.data_output,
-        "save_extra_name" : self.save_extra_name
+        "test_name" : self.test_name,
+        "save_extra_name" : self.save_extra_name,
+        "val_loop" : self.val_loop,
+        "pois": self.pois,
+        "nuisances": self.nuisances,
       }
     )
     return pf

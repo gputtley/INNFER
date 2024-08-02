@@ -21,7 +21,6 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   source miniconda/files/etc/profile.d/conda.sh
   conda activate miniconda/files/envs/innfer_env
   pip3 install snakemake
-  pip3 install bayesflow
   pip3 install mplhep
   pip3 install PyYAML
   pip3 install pyarrow
@@ -32,9 +31,9 @@ if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
   pip3 install wandb
   pip3 install pyfiglet
   pip3 install xgboost
-  pip3 install hep_ml
   pip3 install random-word
   pip3 install optuna
+  pip3 install bayesflow
   #conda env create -f configs/setup/environment.yaml
 fi
 

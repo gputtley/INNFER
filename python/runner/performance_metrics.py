@@ -1,6 +1,9 @@
 import yaml
 
-from useful_functions import MakeDirectories
+import numpy as np
+import pandas as pd
+
+from useful_functions import MakeDirectories, GetYName
 
 class PerformanceMetrics():
 
@@ -12,12 +15,17 @@ class PerformanceMetrics():
     self.model = None
     self.parameters = None
     self.architecture = None
+    self.val_loop = []
+    self.pois = None
+    self.nuisances = None
 
     self.data_output = "data/"
     self.verbose = True
     self.do_loss = True
-    self.do_chi_squared = True
+    self.do_chi_squared = False
     self.do_bdt_separation = False
+    self.do_inference = True
+    self.test_name = "test"
     self.save_extra_name = ""
 
   def Configure(self, options):
@@ -54,9 +62,9 @@ class PerformanceMetrics():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
       options = {
         **architecture,
         **{
@@ -119,6 +127,92 @@ class PerformanceMetrics():
 
       metrics = {**metrics, **hist_metrics}
 
+    if self.do_inference:
+
+      if self.verbose:
+        print("- Getting chi squared from quick inference")
+
+      # Build yields
+      from yields import Yields
+      eff_events_class = Yields(
+        pd.read_parquet(parameters['yield_loc']), 
+        self.pois, 
+        self.nuisances, 
+        parameters["file_name"],
+        method="default", 
+        column_name=f"effective_events_{self.test_name}"
+      )
+
+      # Build likelihood
+      from likelihood import Likelihood
+      lkld = Likelihood(
+        {
+          "pdfs" : {parameters["file_name"] : network},
+        },
+        likelihood_type = "unbinned", 
+        data_parameters = {parameters["file_name"] : parameters},
+      )
+
+      # Loop through validation values
+      inf_chi_squared = {}
+      for loop_ind, loop in enumerate(self.val_loop):
+
+        if self.verbose:
+          print("- Running fit for Y:")
+          print(loop["row"])
+
+        # Build yields
+        from yields import Yields
+        eff_events_class = Yields(
+          pd.read_parquet(parameters['yield_loc']), 
+          self.pois, 
+          self.nuisances, 
+          parameters["file_name"],
+          method="default", 
+          column_name=f"effective_events_{self.test_name}"
+        )
+
+        # Build test data loader
+        from data_processor import DataProcessor
+        dps = DataProcessor(
+          [[f"{parameters['file_loc']}/X_{self.test_name}.parquet", f"{parameters['file_loc']}/Y_{self.test_name}.parquet", f"{parameters['file_loc']}/wt_{self.test_name}.parquet"]],
+          "parquet",
+          wt_name = "wt",
+          options = {
+            "parameters" : parameters,
+            "selection" : " & ".join([f"({col}=={loop['row'].loc[:,col].iloc[0]})" for col in loop['row'].columns]),
+            "scale" : eff_events_class.GetYield(loop["row"]),
+            "functions" : ["untransform"]
+          }
+        )
+
+        # Do initial fit
+        lkld.GetBestFit([dps], loop["initial_best_fit_guess"])
+
+        # Get uncertainty
+        y_name = GetYName(loop['row'], purpose="file")
+        inf_chi_squared[y_name] = {}
+        for col in loop['row'].columns:
+          if self.verbose:
+            print(f"- Finding uncertainty estimates for {col}")
+          uncert = lkld.GetApproximateUncertainty([dps], col)
+          col_index = list(loop['row'].columns).index(col)
+          true_value = float(loop['row'].loc[0,col])
+          if true_value > lkld.best_fit[col_index]:
+            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
+          else:
+            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
+
+      # Get chi squared values
+      total_sum = 0.0
+      total_count = 0.0
+      for val_name, val_dict in inf_chi_squared.items():
+        total_sum += np.sum(list(val_dict.values()))
+        total_count += len(list(val_dict.values()))
+        inf_chi_squared[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
+      inf_chi_squared["all"] = float(total_sum/total_count)
+      metrics["inference_chi_squared"] = inf_chi_squared
+
     # Write to yaml
     if self.verbose:
       print("- Writing metrics yaml")
@@ -164,9 +258,9 @@ class PerformanceMetrics():
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_test.parquet",
-      f"{parameters['file_loc']}/Y_test.parquet", 
-      f"{parameters['file_loc']}/wt_test.parquet",
+      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
     ]
     return inputs
 

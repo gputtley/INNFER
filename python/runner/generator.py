@@ -92,9 +92,6 @@ class Generator():
         f"{parameters['file_loc']}/X_train.parquet",
         f"{parameters['file_loc']}/Y_train.parquet", 
         f"{parameters['file_loc']}/wt_train.parquet", 
-        f"{parameters['file_loc']}/X_test.parquet",
-        f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",
         options = {
           **architecture,
           **{
@@ -278,9 +275,6 @@ class Generator():
         f"{parameters['file_loc']}/X_train.parquet",
         f"{parameters['file_loc']}/Y_train.parquet", 
         f"{parameters['file_loc']}/wt_train.parquet", 
-        f"{parameters['file_loc']}/X_test.parquet",
-        f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet", 
       ]
 
     # Add inputs from the dataset being used

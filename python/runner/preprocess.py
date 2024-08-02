@@ -150,10 +150,15 @@ class PreProcess():
 
     # Get yields in each one train test val split, this is used for normalisation later
     if self.verbose:
-      print("- Finding the total yields of entries for specific Y values in every train/test/val splitting")
+      if cfg["preprocess"]["train_test_val_split"].count(":") == 2:
+        print("- Finding the total yields of entries for specific Y values in every train/test/val splitting")
+      else:
+        print("- Finding the total yields of entries for specific Y values in both train and val splittings")
+
     split_yields_dfs = {}
     unique_y_combinations = list(product(*unique_y_values.values()))
-    for split in ["train","test","val"]:
+    self.dataset_loop = ["train","test","val"] if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else ["train", "val"]
+    for split in self.dataset_loop:
       if self.verbose:
         print(f" - For split {split}")
       if len(parameters["Y_columns"]) != 0:
@@ -191,11 +196,14 @@ class PreProcess():
     # Load and write batches
     # TO DO: Find a way to shuffle the dataset without loading it all into memory
     if self.verbose:
-      print("- Making X/Y/wt and train/test/val split datasets and writing them to file")
+      if cfg["preprocess"]["train_test_val_split"].count(":") == 2:
+        print("- Making X/Y/wt and train/test/val split datasets and writing them to file")
+      else:
+        print("- Making X/Y/wt and train/val split datasets and writing them to file")
     dp.parameters = parameters
 
     parameters["file_loc"] = self.data_output
-    for data_split in ["train","test","val"]:
+    for data_split in self.dataset_loop:
 
       for i in ["X","Y","wt"]:
         name = f"{self.data_output}/{i}_{data_split}.parquet"
@@ -255,7 +263,7 @@ class PreProcess():
     """
     outputs = []
     # Add parquet files
-    for data_split in ["train","test","val"]:
+    for data_split in self.dataset_loop:
       for i in ["X","Y","wt"]:
         outputs.append(f"{self.data_output}/{i}_{data_split}.parquet")
     # Add parameters file
@@ -321,12 +329,18 @@ class PreProcess():
 
   def _DoTrainTestValSplit(self, df, split="train", train_test_val_split="0.6:0.1:0.3", train_test_y_vals={}, validation_y_vals={}):
 
+    # Check whether to do test/val split
+    test_val_split = (train_test_val_split.count(":") == 2)
+
     # Do train/test/val split
     train_ratio = float(train_test_val_split.split(":")[0])
     train_df, temp_df = train_test_split(df, test_size=(1 - train_ratio), random_state=42)
-    test_ratio = float(train_test_val_split.split(":")[1])
-    val_ratio = float(train_test_val_split.split(":")[2])   
-    val_df, test_df = train_test_split(temp_df, test_size=test_ratio / (test_ratio + val_ratio), random_state=42)
+    if test_val_split:
+      test_ratio = float(train_test_val_split.split(":")[1])
+      val_ratio = float(train_test_val_split.split(":")[2])   
+      val_df, test_df = train_test_split(temp_df, test_size=test_ratio / (test_ratio + val_ratio), random_state=42)
+    else:
+      val_df = copy.deepcopy(temp_df)
 
     # Move train/test values to validation if unused
     removed_train_df = None
@@ -340,16 +354,18 @@ class PreProcess():
           removed_train_df = pd.concat([removed_train_df, train_df[~train_df[k].isin(v)]])
         train_df = train_df[train_df[k].isin(v)]
       # do for test
-      if k in test_df.columns:
-        if removed_test_df is None:
-          removed_test_df = test_df[~test_df[k].isin(v)]
-        else:
-          removed_test_df = pd.concat([removed_test_df, test_df[~test_df[k].isin(v)]])
-        test_df = test_df[test_df[k].isin(v)]
+      if test_val_split:
+        if k in test_df.columns:
+          if removed_test_df is None:
+            removed_test_df = test_df[~test_df[k].isin(v)]
+          else:
+            removed_test_df = pd.concat([removed_test_df, test_df[~test_df[k].isin(v)]])
+          test_df = test_df[test_df[k].isin(v)]
     if removed_train_df is not None:
       val_df = pd.concat([val_df, removed_train_df])
-    if removed_test_df is not None:
-      val_df = pd.concat([val_df, removed_test_df])
+    if test_val_split:
+      if removed_test_df is not None:
+        val_df = pd.concat([val_df, removed_test_df])
 
     # Move validation values to train/test if unused
     removed_val_df = None
@@ -361,13 +377,16 @@ class PreProcess():
           removed_val_df = pd.concat([removed_val_df, val_df[~val_df[k].isin(v)]])
         val_df = val_df[val_df[k].isin(v)]
     if removed_val_df is not None:
-      train_ratio = float(train_test_val_split.split(":")[0])
-      test_ratio = float(train_test_val_split.split(":")[1])
-      sum_ratio = train_ratio + test_ratio
-      test_ratio /= sum_ratio
-      train_add_df, test_add_df = train_test_split(removed_val_df, test_size=test_ratio, random_state=42)
-      train_df = pd.concat([train_df, train_add_df])
-      test_df = pd.concat([test_df, test_add_df])
+      if test_val_split:
+        train_ratio = float(train_test_val_split.split(":")[0])
+        test_ratio = float(train_test_val_split.split(":")[1])
+        sum_ratio = train_ratio + test_ratio
+        test_ratio /= sum_ratio
+        train_add_df, test_add_df = train_test_split(removed_val_df, test_size=test_ratio, random_state=42)
+        train_df = pd.concat([train_df, train_add_df])
+        test_df = pd.concat([test_df, test_add_df])
+      else:
+        train_df = pd.concat([train_df, removed_val_df])
 
     # Return correct split
     if split == "train":
@@ -380,7 +399,7 @@ class PreProcess():
   def _PlotX(self, vary, freeze, extra_name, parameters, n_bins=40):
 
     baseline_selection = " & ".join([f"({k}=={v})" for k,v in freeze.items()])
-    for data_split in ["train","test", "val"]:
+    for data_split in self.dataset_loop:
       dp = DataProcessor(
         [[f"{self.data_output}/X_{data_split}.parquet", f"{self.data_output}/Y_{data_split}.parquet", f"{self.data_output}/wt_{data_split}.parquet"]], 
         "parquet",
@@ -429,7 +448,7 @@ class PreProcess():
 
   def _PlotY(self, parameters, n_bins=40):
 
-    for data_split in ["train","test", "val"]:
+    for data_split in self.dataset_loop:
       dp = DataProcessor(
         [[f"{self.data_output}/Y_{data_split}.parquet", f"{self.data_output}/wt_{data_split}.parquet"]], 
         "parquet",

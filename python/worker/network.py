@@ -23,11 +23,16 @@ from innfer_trainer import InnferTrainer
 from plotting import plot_histograms
 from useful_functions import GetYName, MakeDirectories
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
+
 class Network():
   """
   Network class for building and training Bayesian neural networks.
   """
-  def __init__(self, X_train, Y_train, wt_train, X_test, Y_test, wt_test, options={}):
+  def __init__(self, X_train, Y_train, wt_train, X_test=None, Y_test=None, wt_test=None, options={}):
     """
     Network class for building and training BayesFlow neural networks.
 
@@ -107,15 +112,25 @@ class Network():
     self.X_train = DataLoader(X_train, batch_size=self.batch_size)
     self.Y_train = DataLoader(Y_train, batch_size=self.batch_size)
     self.wt_train = DataLoader(wt_train, batch_size=self.batch_size)
-    self.X_test = DataLoader(X_test, batch_size=self.batch_size)
-    self.Y_test = DataLoader(Y_test, batch_size=self.batch_size)
-    self.wt_test = DataLoader(wt_test, batch_size=self.batch_size)
+    if X_test is not None:
+      self.X_test = DataLoader(X_test, batch_size=self.batch_size)
+    else:
+      self.X_test = None
+    if Y_test is not None:
+      self.Y_test = DataLoader(Y_test, batch_size=self.batch_size)
+    else:
+      self.Y_test = None
+    if wt_test is not None:
+      self.wt_test = DataLoader(wt_test, batch_size=self.batch_size)
+    else:
+      self.wt_test = None
 
     # Other
     self.fix_1d = (self.X_train.num_columns == 1)
     self.adaptive_lr_scheduler = None
     self.prob_integral_store = None
     self.prob_integral_store_Y = None
+    self.prob_integral_batch_size = int(os.getenv("EVENTS_PER_BATCH"))
 
   def _SetOptions(self, options):
     """
@@ -810,10 +825,21 @@ class Network():
       trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
       synth = synth[trimmed_indices,:]
     _, edges = np.histogramdd(synth, bins=n_integral_bins)
+    del synth
+    gc.collect()
     bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
     meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
     unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
-    probs = self.Probability(pd.DataFrame(unique_values, columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=True, no_fix=True)
+
+    # Do probs in batches
+    num_batches = int(np.ceil(len(unique_values)/self.prob_integral_batch_size))
+    for batch_num in range(num_batches):
+      start_ind = batch_num*self.prob_integral_batch_size
+      end_ind = min((batch_num+1)*self.prob_integral_batch_size, len(unique_values))
+      if batch_num == 0:
+        probs = self.Probability(pd.DataFrame(unique_values[start_ind:end_ind,:], columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=True, no_fix=True)
+      else:
+        probs = np.vstack((probs, self.Probability(pd.DataFrame(unique_values[start_ind:end_ind,:], columns=self.data_parameters["X_columns"], dtype=np.float64), Y, return_log_prob=False, transform_X=True, no_fix=True)))
     bin_volumes = np.prod(np.diff(edges)[:,0], axis=None, dtype=np.float128)
     integral = np.sum(probs, dtype=np.float128) * bin_volumes
 

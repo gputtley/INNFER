@@ -37,6 +37,7 @@ def parse_args():
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
+  parser.add_argument('--no-gpu', help='Do not use available GPU', type=int, default=41)
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
@@ -46,11 +47,12 @@ def parse_args():
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'Hessian', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
-  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap'])
+  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap','ApproximateUncertainty'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
+  parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
@@ -81,6 +83,8 @@ def parse_args():
       args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
     else:
       args.cfg = f"configs/run/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}.yaml"
+    if args.submit is not None:
+      args.disable_tqdm = True
 
   # Adjust other inputs
   if args.model_type == "Benchmark":
@@ -155,6 +159,7 @@ def main(args, default_args):
           "data_output" : f"models/{cfg['name']}/{file_name}",
           "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",
           "disable_tqdm" : args.disable_tqdm,
+          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
           "verbose" : not args.quiet,        
         },
         loop = {"file_name" : file_name}
@@ -164,6 +169,7 @@ def main(args, default_args):
   if args.step == "PerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for file_name, parquet_name in cfg["files"].items():
+      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
       module.Run(
         module_name = "performance_metrics",
         class_name = "PerformanceMetrics",
@@ -172,7 +178,11 @@ def main(args, default_args):
           "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
           "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
           "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
-          "verbose" : not args.quiet,        
+          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
+          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+          "pois": cfg["pois"],
+          "nuisances": cfg["nuisances"],
+          "verbose" : not  args.quiet,        
         },
         loop = {"file_name" : file_name}
       )
@@ -182,6 +192,7 @@ def main(args, default_args):
     print("<< Running a hyperparameter scan >>")
     for file_name, parquet_name in cfg["files"].items():
       for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
+        val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
         module.Run(
           module_name = "hyperparameter_scan",
           class_name = "HyperparameterScan",
@@ -194,6 +205,10 @@ def main(args, default_args):
             "wandb_submit_name" : f"{cfg['name']}_{file_name}",
             "disable_tqdm" : args.disable_tqdm,
             "save_extra_name" : f"_{architecture_ind}",
+            "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
+            "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+            "pois": cfg["pois"],
+            "nuisances": cfg["nuisances"],
             "verbose" : not args.quiet,        
           },
           loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}
@@ -221,6 +236,7 @@ def main(args, default_args):
   if args.step == "BayesianHyperparameterTuning":
     print("<< Running a bayesian hyperparameter tuning >>")
     for file_name, parquet_name in cfg["files"].items():
+      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
@@ -236,6 +252,10 @@ def main(args, default_args):
           "verbose" : not args.quiet,
           "metric" : args.hyperparameter_metric,
           "n_trials" : args.number_of_trials,
+          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
+          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+          "pois": cfg["pois"],
+          "nuisances": cfg["nuisances"],
         },
         loop = {"file_name" : file_name}
       )
@@ -350,6 +370,29 @@ def main(args, default_args):
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
 
+  # Run approximate uncertainties
+  if args.step == "ApproximateUncertainty":
+    print(f"<< Finding the approximate uncertainties >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        for column in list(val_info["initial_best_fit_guess"].columns):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name),
+              "method" : "ApproximateUncertainty",
+              "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+              "data_output" : f"data/{cfg['name']}/{file_name}/ApproximateUncertaintyCollect{args.extra_infer_dir_name}",
+              "column" : column,
+              "extra_file_name" : str(val_ind),
+              "model_type" : args.model_type,
+              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
+          )
+
   # Run initial fits from a full dataset
   if args.step == "Hessian":
     print(f"<< Calculating the Hessian matrix >>")
@@ -422,6 +465,7 @@ def main(args, default_args):
                 "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "scan_ind" : scan_ind},
+              save_class = not ((scan_ind + 1 == args.number_of_scan_points))
             )
 
   # Collect likelihood scan
@@ -539,29 +583,72 @@ def main(args, default_args):
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
         best_fit = GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml", [])
-        module.Run(
-          module_name = "generator",
-          class_name = "Generator",
-          config = {
-            "Y_sim" : val_info["row"],
-            "Y_synth" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
-            "data_type" : args.data_type if args.data_type is not None else "sim",
-            "parameters" : val_loop_info["parameters"][file_name],
-            "model" : val_loop_info["models"][file_name],
-            "architecture" : val_loop_info["architectures"][file_name],
-            "yield_function" : "default",
-            "pois" : cfg["pois"],
-            "nuisances" : cfg["nuisances"],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
-            "scale_to_yield" : "extended" in args.likelihood_type,
-            "do_2d_unrolled" : args.plot_2d_unrolled,
-            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-            "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
-            "verbose" : not args.quiet,
-            "data_file" : cfg["data_file"],
-          },
-          loop = {"file_name" : file_name, "val_ind" : val_ind}
-        )
+        if args.likelihood_type in ["unbinned", "unbinned_extended"]:
+          module.Run(
+            module_name = "generator",
+            class_name = "Generator",
+            config = {
+              "Y_sim" : val_info["row"],
+              "Y_synth" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
+              "data_type" : args.data_type if args.data_type is not None else "sim",
+              "parameters" : val_loop_info["parameters"][file_name],
+              "model" : val_loop_info["models"][file_name],
+              "architecture" : val_loop_info["architectures"][file_name],
+              "yield_function" : "default",
+              "pois" : cfg["pois"],
+              "nuisances" : cfg["nuisances"],
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
+              "scale_to_yield" : "extended" in args.likelihood_type,
+              "do_2d_unrolled" : args.plot_2d_unrolled,
+              "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+              "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
+              "verbose" : not args.quiet,
+              "data_file" : cfg["data_file"],
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind}
+          )
+        elif args.likelihood_type in ["binned", "binned_extended"]:
+          module.Run(
+            module_name = "binned_distributions",
+            class_name = "BinnedDistributions",
+            config = {
+              "Y_data" : val_info["row"],
+              "Y_stack" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
+              "data_type" : args.data_type if args.data_type is not None else "sim",
+              "binned_fit_input" : args.binned_fit_input,
+              "parameters" : val_loop_info["parameters"][file_name],
+              "pois" : cfg["pois"],
+              "nuisances" : cfg["nuisances"],
+              "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
+              "scale_to_yield" : "extended" in args.likelihood_type,
+              "do_2d_unrolled" : args.plot_2d_unrolled,
+              "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+              "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
+              "verbose" : not args.quiet,
+              "data_file" : cfg["data_file"],
+              "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind}
+          )
+
+  # Calculate the chi squared of the summary
+  if args.step == "SummaryChiSquared":
+    print(f"<< Getting the chi squared of the summary >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      module.Run(
+        module_name = "summary_chi_squared",
+        class_name = "SummaryChiSquared",
+        config = {
+          "val_loop" : val_loop,
+          "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}Collect{args.extra_infer_dir_name}",
+          "data_output" : f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}",
+          "file_name" : f"{args.summary_from}_results".lower(),
+          "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+          "verbose" : not args.quiet,
+        },
+        loop = {"file_name" : file_name},
+      )
 
   # Plot the summary of the results
   if args.step == "Summary":
@@ -572,7 +659,6 @@ def main(args, default_args):
         module_name = "summary",
         class_name = "Summary",
         config = {
-          "columns" : list(val_loop[0]["initial_best_fit_guess"].columns),
           "val_loop" : val_loop,
           "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}Collect{args.extra_infer_dir_name}",
           "plots_output" : f"plots/{cfg['name']}/{file_name}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}",
@@ -580,7 +666,9 @@ def main(args, default_args):
           "other_input" : {other_input.split(':')[0] : [f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
           "extra_plot_name" : args.extra_infer_plot_name,
           "show2sigma" : args.summary_show_2sigma,
+          "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
+          "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},

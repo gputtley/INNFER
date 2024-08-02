@@ -673,7 +673,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   ax2.set_xlabel(xlabel)
   ax2.set_ylabel('Ratio')
   ax2.set_ylim([0.5,1.5])
-  ax2.xaxis.get_major_formatter().set_useOffset(False)
+  #ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Draw lines showing unrolled bin splits
   for i in range(1,len(data_hists)):
@@ -698,6 +698,7 @@ def plot_summary(
     show2sigma=False, 
     other_summaries={},
     shift = 0.2,
+    text = "",
   ):
   """
   Plot a validation summary.
@@ -808,19 +809,10 @@ def plot_summary(
           else:
             other_x_2err_higher[k].append(0.0)
 
-    """
-    if show2sigma:
-      ax[ind].errorbar(x, y, xerr=[x_2err_lower, x_2err_higher], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}2$\sigma$ Best Fit/True")
-      for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_2err_lower[k], other_x_2err_higher[k]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 2$\sigma$ Best Fit/True")
-      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[0], alpha=0.5), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
-      for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=0.5), label=rf"{k} 1$\sigma$ Best Fit/True")
-    else:
-      ax[ind].errorbar(x, y, xerr=[x_err_lower, x_err_higher], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[0], alpha=1.0), label=rf"{nominal_name}1$\sigma$ Best Fit/True")
-      for k_ind, k in enumerate(other_summaries.keys()):
-        ax[ind].errorbar(other_x[k], other_y[k], xerr=[other_x_err_lower[k], other_x_err_higher[k]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(other_colors[k_ind+1], alpha=1.0), label=rf"{k} 1$\sigma$ Best Fit/True")      
-    """
+    if text is not None:
+      ax[ind].text(0.98, 0.97, text[col],
+          verticalalignment='top', horizontalalignment='right',
+          transform=ax[ind].transAxes)
 
     # dummy for legend
     if len(list(other_summaries.keys())) > 0:

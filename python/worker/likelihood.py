@@ -102,7 +102,10 @@ class Likelihood():
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
 
   def _GetYield(self, file_name, Y):
-    yd = self.models["yields"][file_name](Y)
+    if "yields" in self.models.keys():
+      yd = self.models["yields"][file_name](Y)
+    else:
+      yd = 1.0
     return yd
 
   def _GetCombinedPDF(self, X, Y, wt_name=None, before_sum=False, normalise=True):
@@ -171,6 +174,19 @@ class Likelihood():
       out = copy.deepcopy(tmp_total)
     else:
       out += tmp_total
+
+    return out
+
+  def _CustomDPMethodForDmatrix(self, tmp, out, options={"epsilon":1e-4,"n_extra":2}):
+
+    # Get pdf for different values of epsilon
+    tmp_total = self._GetCombinedPDF(tmp, options["Y"], wt_name=options["wt_name"], normalise=options["normalise"], before_sum=True)
+
+    # Calculate gradients
+    # get first and second derivative
+
+    # Sum with weights
+    exit()
 
     return out
 
@@ -243,7 +259,6 @@ class Likelihood():
     total_rate = 0.0
     for name, pdf in self.models["yields"].items():
       total_rate += self._GetYield(name, Y)
-
     ln_lkld -= total_rate
 
     if return_ln:
@@ -291,24 +306,60 @@ class Likelihood():
         return nll
       
       result = self.Minimise(NLL, initial_guess, method="low_stat_high_stat", func_low_stat=NLL_lowstat, freeze=freeze)
+      
+    self.best_fit = result[0]
+    self.best_fit_nll = result[1]
 
     return result
 
-  def GetHessian(self, X_dps, freeze={}):
-    x = tf.Variable([self.best_fit], dtype=tf.float32)
-    with tf.GradientTape(persistent=True) as g:
-      g.watch(x)
-      with tf.GradientTape(persistent=True) as gg:
-        gg.watch(x)
-        log_prob = tf.convert_to_tensor([self.Run(X_dps, x.numpy()[0], return_ln=True, multiply_by=-1)], dtype=tf.float32)
-        print(log_prob)
-      grad = gg.gradient(log_prob, x)
-    print(g, grad)
-    tf.print(g)
-    hessian = g.jacobian(grad, x)
-    print(hessian)
+  def GetHessian(self, X_dps, column_1, column_2):
+
+    nll = -2*self.Run(X_dps, self.best_fit, return_ln=True)
 
     return hessian
+
+
+  def GetApproximateUncertainty(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1):
+
+    # Find approximate value
+    col_index = self.Y_columns.index(column)
+    nll_could_be_neg = True
+
+    while nll_could_be_neg:
+      m1p1_vals = {}
+      fin = True
+
+      for sign in [1,-1]:
+
+        # Get initial guess
+        Y = copy.deepcopy(self.best_fit)
+        step = max(self.best_fit[col_index]*initial_step_fraction,min_step)
+        Y[col_index] = self.best_fit[col_index] + sign*step
+        nll = self.Run(X_dps, Y, return_ln=True, multiply_by=-2) - self.best_fit_nll
+
+        # Check if negative
+        if nll < 0.0:
+          self.best_fit[col_index] = Y[col_index]
+          self.best_fit_nll += nll
+          fin = False
+          break
+
+        # Get shift
+        est_sig = np.sqrt(nll)
+        m1p1_vals[sign] = step/est_sig
+
+        # Test shift and reshuffle 
+        Y[col_index] = self.best_fit[col_index] + sign*m1p1_vals[sign]
+        nll = self.Run(X_dps, Y, return_ln=True, multiply_by=-2) - self.best_fit_nll
+        est_sig = np.sqrt(nll)
+        if nll > 0.0:
+          m1p1_vals[sign] = m1p1_vals[sign]/est_sig
+
+      if fin: 
+        nll_could_be_neg = False
+
+    return m1p1_vals
+
 
   def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
     """
@@ -326,24 +377,9 @@ class Likelihood():
     Returns:
         list: The scan values.
     """
+
     col_index = self.Y_columns.index(column)
-    nll_could_be_neg = True
-    while nll_could_be_neg:
-      m1p1_vals = {}
-      fin = True
-      for sign in [1,-1]:
-        Y = copy.deepcopy(self.best_fit)
-        step = max(self.best_fit[col_index]*initial_step_fraction,min_step)
-        Y[col_index] = self.best_fit[col_index] + sign*step
-        nll = self.Run(X_dps, Y, return_ln=True, multiply_by=-2) - self.best_fit_nll
-        if nll < 0.0:
-          self.best_fit[col_index] = Y[col_index]
-          self.best_fit_nll += nll
-          fin = False
-          break
-        est_sig = np.sqrt(nll)
-        m1p1_vals[sign] = step/est_sig
-      if fin: nll_could_be_neg = False
+    m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
 
     if self.verbose:
       print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
@@ -418,6 +454,30 @@ class Likelihood():
       return minimisation.x, minimisation.fun
     
 
+  def GetAndWriteApproximateUncertaintyToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml"):  
+
+    uncerts = self.GetApproximateUncertainty(X_dps, col)
+    col_index = self.Y_columns.index(col)
+    dump = {
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+      "columns" : self.Y_columns, 
+      "varied_column" : col,
+      "crossings" : {
+        -2 : float(self.best_fit[col_index] - 2*uncerts[-1]),
+        -1 : float(self.best_fit[col_index] - 1*uncerts[-1]),
+        0  : float(self.best_fit[col_index]),
+        1  : float(self.best_fit[col_index] + 1*uncerts[1]),
+        2  : float(self.best_fit[col_index] + 2*uncerts[1]),
+      }
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)
+
+
   def GetAndWriteBestFitToYaml(self, X_dps, initial_guess, row=None, filename="best_fit.yaml", minimisation_method="nominal", freeze={}):
     """
     Finds the best-fit parameters and writes them to a YAML file.
@@ -453,7 +513,7 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteHessianToYaml(self, X_dps, row=None, filename="hessian.yaml", freeze={}):
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, filename="hessian.yaml"):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -464,7 +524,7 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetHessian(X_dps, freeze=freeze)
+    result = self.GetHessian(X_dps, column_1, column_2)
     #dump
 
   def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4):

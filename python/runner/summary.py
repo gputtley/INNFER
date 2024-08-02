@@ -12,13 +12,13 @@ class Summary():
     A template class.
     """
     # Default values - these will be set by the configure function
-    self.columns = None
     self.val_loop = None
 
     self.file_name = "scan_results"
     self.data_input = "data"
     self.nominal_name = "Nominal"
-    self.plots_output = "plots"    
+    self.plots_output = "plots"
+    self.chi_squared = None
     self.other_input = {}
     self.freeze = {}
     self.extra_plot_name = ""
@@ -80,7 +80,8 @@ class Summary():
       name = f"{self.plots_output}/summary{self.extra_plot_name}", 
       other_summaries = other_results,
       show2sigma = self.show2sigma,
-      nominal_name = "" if len(list(other_results.keys())) == 0 else self.nominal_name
+      nominal_name = "" if len(list(other_results.keys())) == 0 else self.nominal_name,
+      text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)}
     )
 
   def Outputs(self):

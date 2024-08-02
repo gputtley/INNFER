@@ -101,9 +101,6 @@ class GeneratorSummary():
         f"{parameters['file_loc']}/X_train.parquet",
         f"{parameters['file_loc']}/Y_train.parquet", 
         f"{parameters['file_loc']}/wt_train.parquet", 
-        f"{parameters['file_loc']}/X_test.parquet",
-        f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",
         options = {
           **architecture,
           **{
@@ -339,9 +336,6 @@ class GeneratorSummary():
         f"{parameters['file_loc']}/X_train.parquet",
         f"{parameters['file_loc']}/Y_train.parquet", 
         f"{parameters['file_loc']}/wt_train.parquet", 
-        f"{parameters['file_loc']}/X_test.parquet",
-        f"{parameters['file_loc']}/Y_test.parquet", 
-        f"{parameters['file_loc']}/wt_test.parquet",
         f"{parameters['file_loc']}/X_val.parquet",
         f"{parameters['file_loc']}/Y_val.parquet", 
         f"{parameters['file_loc']}/wt_val.parquet",        

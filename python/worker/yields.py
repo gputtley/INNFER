@@ -138,6 +138,7 @@ class Yields():
     if f"mu_{self.file_name}" in Y.columns and not ignore_rate:
       self.rate_scale = Y.loc[:,f"mu_{self.file_name}"].iloc[0]
 
+
     # Get shape varying Y parameters
     Y = Y.loc[:, [col for col in Y.columns if not col.startswith("mu_")]]
 
