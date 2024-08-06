@@ -37,12 +37,14 @@ def parse_args():
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
-  parser.add_argument('--no-gpu', help='Do not use available GPU', type=int, default=41)
+  parser.add_argument('--no-gpu', help='Do not use available GPU', action='store_true') # Needs to be implemented
+  parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
+  parser.add_argument('--scan-over-nuisances', help='Perform likelihood scans over nuisance parameters as well as POIs', action='store_true') # To be implemented
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
@@ -53,6 +55,7 @@ def parse_args():
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
+  parser.add_argument('--summary-subtract', help='Use subtraction instead of division in summary', action='store_true') # Needs to be implemented
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
@@ -333,7 +336,7 @@ def main(args, default_args):
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
-    print(f"<< Running a single likelihood value for Y={args.other_input} for the {args.data_type} dataset >>")
+    print(f"<< Running a single likelihood value for Y={args.other_input} >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
@@ -352,7 +355,7 @@ def main(args, default_args):
 
   # Run initial fits from a full dataset
   if args.step == "InitialFit":
-    print(f"<< Running initial fits for the {args.data_type} dataset >>")
+    print(f"<< Running initial fits >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
@@ -421,7 +424,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in list(val_info["initial_best_fit_guess"].columns):
+        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -446,7 +449,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in list(val_info["initial_best_fit_guess"].columns):
+        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
           for scan_ind in range(args.number_of_scan_points):
             module.Run(
               module_name = "infer",
@@ -474,7 +477,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in list(val_info["initial_best_fit_guess"].columns):
+        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
           module.Run(
             module_name = "scan_collect",
             class_name = "ScanCollect",
@@ -496,7 +499,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=(args.data_type if args.data_type is not None else "asimov"), skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in list(val_info["initial_best_fit_guess"].columns):
+        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
           module.Run(
             module_name = "scan_plot",
             class_name = "ScanPlot",
@@ -510,7 +513,7 @@ def main(args, default_args):
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
-          )
+          ) 
 
   # Bootstrap initial fits
   if args.step == "BootstrapInitialFits":
@@ -645,6 +648,7 @@ def main(args, default_args):
           "data_output" : f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])],
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
@@ -669,6 +673,8 @@ def main(args, default_args):
           "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])],
+          "subtract" : args.summary_subtract,
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},

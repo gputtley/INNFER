@@ -188,6 +188,7 @@ class DataProcessor():
       discrete_binning = True,
       quantile = 0.01,
       ignore_quantile = 0.005,
+      unique_combinations = None,
       custom = None,
       custom_options = {},
     ):
@@ -202,6 +203,14 @@ class DataProcessor():
         return (sum_wts**2)/sum_wts_squared
       else:
         return 0
+    elif method == "n_eff_unique_columns": # Get the number of effective events in unique columns
+      sum_wts_squared = self.GetFull(method="sum_w2_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations)
+      sum_wts = self.GetFull(method="sum_w_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations)
+      eff_events = copy.deepcopy(sum_wts)
+      eff_events.loc[:, "eff_events"] = eff_events.loc[:,"sum_w"]**2
+      eff_events.drop(["sum_w"], axis=1, inplace=True)
+      eff_events.loc[:,"eff_events"] = np.where(sum_wts_squared.loc[:,"sum_w2"] == 0, 0, eff_events.loc[:,"eff_events"] / sum_wts_squared.loc[:,"sum_w2"])
+      return eff_events
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
@@ -242,10 +251,14 @@ class DataProcessor():
         out = self._method_histogram_2d_and_uncert(tmp, out, column, bins=bins)
       elif method in ["sum"]: # sum up the weights
         out = self._method_sum(tmp, out, count=False)
+      elif method in ["sum_w_unique_columns"]: # sum up the weights for unique values of columns
+        out = self._method_sum_w_unique_columns(tmp, out, unique_combinations)
       elif method in ["count"]: # count events
         out = self._method_sum(tmp, out, count=True)
       elif method in ["sum_w2"]: # sum up the weights or count events
         out = self._method_sum_w2(tmp, out)
+      elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
+        out = self._method_sum_w2_unique_columns(tmp, out, unique_combinations)
       elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
         out = self._method_sum_columns(tmp, out)
       elif method in ["std"]: # find partial information for std of columns
@@ -522,6 +535,26 @@ class DataProcessor():
       out += tmp_total
     return out
 
+  def _method_sum_w_unique_columns(self, tmp, out, unique_combinations, count=False):
+
+    for ind, uc in unique_combinations.iterrows():
+
+      selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      tmp_tmp = tmp.loc[tmp.eval(selection),:]
+
+      if self.wt_name is None or count:
+        tmp_total = len(tmp_tmp)
+      else:
+        tmp_total = float(np.sum(tmp_tmp.loc[:,self.wt_name]))
+
+      if out is None:
+        out = copy.deepcopy(unique_combinations)
+        out.loc[:, "sum_w"] = 0.0
+
+      out.loc[ind, "sum_w"] = float(out.loc[ind, "sum_w"]) + tmp_total
+
+    return out
+
   def _method_sum_w2(self, tmp, out):
 
     if self.wt_name is None:
@@ -533,6 +566,26 @@ class DataProcessor():
       out = copy.deepcopy(tmp_total)
     else:
       out += tmp_total
+    return out
+
+  def _method_sum_w2_unique_columns(self, tmp, out, unique_combinations):
+
+    for ind, uc in unique_combinations.iterrows():
+
+      selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      tmp_tmp = tmp.loc[tmp.eval(selection),:]
+
+      if self.wt_name is None:
+        tmp_total = len(tmp_tmp)
+      else:
+        tmp_total = float(np.sum(tmp_tmp.loc[:,self.wt_name]**2))
+
+      if out is None:
+        out = copy.deepcopy(unique_combinations)
+        out.loc[:, "sum_w2"] = 0.0
+
+      out.loc[ind, "sum_w2"] = float(out.loc[ind, "sum_w2"]) + tmp_total
+
     return out
 
   def _method_sum_columns(self, tmp, out):
@@ -574,7 +627,7 @@ class DataProcessor():
     tmp_unique = {}
     for col in tmp.columns:
       if col == self.wt_name: continue
-      unique = list(np.unique(tmp.loc[:, col]))
+      unique = [float(i) for i in np.unique(tmp.loc[:, col])]
       if unique is None:
         tmp_unique[col] = None
       else:

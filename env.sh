@@ -14,6 +14,9 @@ if ! command -v nvidia-smi &> /dev/null ; then
 else
   export EVENTS_PER_BATCH=100000
 fi
+export PLOTTING_CMS_LABEL="Work In Progress"
+export PLOTTING_LUMINOSITY="\$138\ fb^{-1}\$"
+
 ulimit -s unlimited
 source miniconda/files/etc/profile.d/conda.sh
 conda activate miniconda/files/envs/innfer_env

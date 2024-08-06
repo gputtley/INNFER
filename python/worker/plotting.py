@@ -19,7 +19,8 @@ import matplotlib.patches as mpatches
 from useful_functions import MakeDirectories, RoundToSF
 
 hep.style.use("CMS")
-cms_label = "Work in progress"
+cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
 def plot_histograms(
     bins,
@@ -125,7 +126,7 @@ def plot_likelihood(
     cap_at=9, 
     other_lklds={}, 
     label=None, 
-    title_right=""
+    under_result=""
   ):
   """
   Plot likelihood curve.
@@ -150,8 +151,6 @@ def plot_likelihood(
       Additional likelihood curves to be overlaid.
   label : str, optional
       Label for the likelihood curve.
-  title_right : str, optional
-      Text to be displayed at the top-right corner of the plot.
   """
 
   if cap_at != None:
@@ -185,7 +184,7 @@ def plot_likelihood(
   if true_value != None:
     plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
 
-    ax.text(1.0, 1.0, title_right,
+    ax.text(1.0, 1.0, lumi_label,
         verticalalignment='bottom', horizontalalignment='right',
         transform=ax.transAxes)
 
@@ -212,6 +211,9 @@ def plot_likelihood(
 
     text = f'Result: {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
     ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
+
+  if under_result != "":
+    ax.text(0.03, 0.9, under_result, transform=ax.transAxes, va='top', ha='left', fontsize=20)
 
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)
@@ -286,9 +288,9 @@ def plot_stacked_histogram_with_ratio(
     name="fig", 
     data_errors=None, 
     stack_hist_errors=None, 
-    title_right="",
     use_stat_err=False,
     axis_text="",
+    top_space=1.2,
   ):
   """
   Plot a stacked histogram with a ratio plot.
@@ -313,12 +315,10 @@ def plot_stacked_histogram_with_ratio(
       Errors for the data histogram (default is None).
   stack_hist_errors : array-like, optional
       Errors for the stacked histograms (default is None).
-  title_right : str, optional
-      Text to be displayed on the upper right corner of the plot (default is '').
   use_stat_err : bool, optional
       If True, use statistical errors for the data and stacked histograms (default is False).
   axis_text : str, optional
-      Text to be displayed on the bottom left corner of the plot (default is '').
+      Text to be displayed on the top left corner of the plot (default is '').
   """
 
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
@@ -331,13 +331,13 @@ def plot_stacked_histogram_with_ratio(
   total_stack_hist = np.sum(list(stack_hist_dict.values()), axis=0)
 
   if data_errors is None:
-      data_errors = 0*data_hist
+    data_errors = 0*data_hist
   if stack_hist_errors is None:
-      stack_hist_errors = 0*total_stack_hist   
+    stack_hist_errors = 0*total_stack_hist   
 
   if use_stat_err:
-      data_errors = np.sqrt(data_hist)
-      stack_hist_errors = np.sqrt(total_stack_hist)
+    data_errors = np.sqrt(data_hist)
+    stack_hist_errors = np.sqrt(total_stack_hist)
 
   # Plot the histograms on the top pad
   rgb_palette = sns.color_palette("Set2", 8)
@@ -367,6 +367,7 @@ def plot_stacked_histogram_with_ratio(
     ax1.step(step_edges, step_histvals, color='black')
 
   ax1.set_xlim([bin_edges[0],bin_edges[-1]])
+  ax1.set_ylim([0.0,top_space*max(np.maximum(data_hist,total_stack_hist))])
 
   ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
 
@@ -389,13 +390,12 @@ def plot_stacked_histogram_with_ratio(
 
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():
-      text.set_text(textwrap.fill(text.get_text(), max_label_length))
-
+    text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
   ax1.set_ylabel(ylabel)
   hep.cms.text(cms_label,ax=ax1)
 
-  ax1.text(1.0, 1.0, title_right,
+  ax1.text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax1.transAxes)
 
@@ -445,7 +445,6 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     name="fig", 
     data_hists_errors=None, 
     stack_hists_errors=None, 
-    title_right="",
     use_stat_err=False,
     axis_text="",
     sf_diff=2,
@@ -477,8 +476,6 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
       Errors for the data histogram (default is None).
   stack_hists_errors : list of array-like, optional
       Errors for the stacked histograms (default is None).
-  title_right : str, optional
-      Text to be displayed on the upper right corner of the plot (default is '').
   use_stat_err : bool, optional
       If True, use statistical errors for the data and stacked histograms (default is False).
   axis_text : str, optional
@@ -646,7 +643,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   ax1.set_ylabel(ylabel)
   hep.cms.text(cms_label,ax=ax1)
 
-  ax1.text(1.0, 1.0, title_right,
+  ax1.text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax1.transAxes)
 
@@ -698,6 +695,7 @@ def plot_summary(
     show2sigma=False, 
     other_summaries={},
     shift = 0.2,
+    subtract = False,
     text = "",
   ):
   """
@@ -720,10 +718,10 @@ def plot_summary(
   if nominal_name != "":
     nominal_name += " "
 
-  legend_width = 0.2
+  legend_width = 0.15
   n_pads = len(list(crossings.keys()))
   fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
-  plt.subplots_adjust(left=0.2, right=0.95)
+  plt.subplots_adjust(left=0.2, right=0.9)
   hep.cms.text(cms_label,ax=ax[0])
 
   other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)
@@ -819,12 +817,20 @@ def plot_summary(
       colour = "black"
     else:
       colour = other_colors[0]
-    if show2sigma:
-      ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colour, alpha=0.5), label=rf"1$\sigma$ Intervals of Best Fits / True Values")
-      if show2sigma:
-        ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"2$\sigma$ Intervals of Best Fits / True Values")
+
+    if subtract:
+      sign = "-"
+      loc = 0.0
     else:
-      ax[ind].errorbar([1.0], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"1$\sigma$ Intervals of Best Fits / True Values")
+      sign = "/"
+      loc = 1.0
+
+    if show2sigma:
+      ax[ind].errorbar([loc], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colour, alpha=0.5), label=rf"1$\sigma$ Intervals of Best Fits {sign} True Values")
+      if show2sigma:
+        ax[ind].errorbar([loc], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"2$\sigma$ Intervals of Best Fits {sign} True Values")
+    else:
+      ax[ind].errorbar([loc], [-1000], xerr=[[0.0], [0.0]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colour, alpha=1.0), label=rf"1$\sigma$ Intervals of Best Fits {sign} True Values")
 
 
     if show2sigma:
@@ -842,7 +848,11 @@ def plot_summary(
 
     for y in range(len(list(vals.keys()))-1):
       ax[ind].axhline(y=(-1*y)-0.5, color='black', linestyle='--') 
-    ax[ind].axvline(x=1, color='black', linestyle='--') 
+    if not subtract:
+      ax[ind].axvline(x=1, color='black', linestyle='--') 
+    else:
+      ax[ind].axvline(x=0, color='black', linestyle='--') 
+
     ax[ind].set_xlabel(col)
     if ind == 0:
       ax[ind].set_yticks([-1*i for i in range(len(list(vals.keys())))])
@@ -851,6 +861,10 @@ def plot_summary(
       ax[ind].tick_params(labelleft=False)      
     ax[ind].set_ylim((-1*len(list(vals.keys())))+0.5, 0.5)
     ax[ind].xaxis.get_major_formatter().set_useOffset(False)
+
+  ax[-2].text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax[-2].transAxes)
 
   # Legend
   ax[-1].spines['top'].set_visible(False)
@@ -878,13 +892,12 @@ def plot_summary(
       for handle in handles:
         new_handles.append(handle.lines[0])
       legend = ax[-1].legend(new_handles[1:], labels[1:], loc='upper left', frameon=False, framealpha=1, facecolor='white', edgecolor="black", bbox_to_anchor=(-0.6, 0.8))
-
+  
+  max_label_length = 14  # Adjust the maximum length of each legend label
   if len(list(other_summaries.keys())) > 0:
-    max_label_length = 14  # Adjust the maximum length of each legend label
     for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
-  max_label_length = 14  # Adjust the maximum length of each legend label
   for text in legend_upper.get_texts():
     text.set_text(textwrap.fill(text.get_text(), max_label_length))
 

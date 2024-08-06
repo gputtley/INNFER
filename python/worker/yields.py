@@ -71,12 +71,13 @@ class Yields():
     df = df.loc[:, sorted_columns]
     matching = (df == Y.iloc[0])
     if not return_matching:
-      return matching.any().iloc[0]
+      return matching.all(axis=1).any(axis=0)
     else:
-      if len(list(matching.columns)) == 0:
-        return matching.index.to_list()
-      else:
-        return matching[matching[matching.columns[0]]].index.to_list()
+      return matching[matching.all(axis=1)].index.to_list()
+      #if len(list(matching.columns)) == 0:
+      #  return matching.index.to_list()
+      #else:
+      #  return matching[matching[matching.columns[0]]].index.to_list()
 
   def Default(self, Y):
     """
@@ -102,6 +103,7 @@ class Yields():
     index = np.searchsorted(sorted(poi_vals.to_numpy().flatten()), Y.loc[:,self.shape_pois].iloc[0])
     if (index == 0) or (index == len(poi_vals)): 
       return None
+
     min_val = poi_vals.to_numpy().flatten()[index-1]
     max_val = poi_vals.to_numpy().flatten()[index]
     min_Y = copy.deepcopy(Y)
@@ -115,7 +117,56 @@ class Yields():
 
     # Interpolate pois
     f = interp1d([min_val[0], max_val[0]], [min_Y_yield, max_Y_yield])
+
     return f(Y.loc[:,self.shape_pois].iloc[0])[0]
+
+  def ExtendRanges(self, X, Y, extend_range_by=5):
+    """
+    Performs an extension of the parameter ranges.
+
+    Parameters
+    ----------
+    X : pandas.Series
+        Series containing the axis to extend.
+    Y : pandas.Series
+        Series containing the values.
+
+    Returns
+    -------
+    pandas.Series
+        Extended Series.
+    """
+
+    # Find minimum and maxixum  X values
+    min_index = X.nsmallest(1).index.tolist()[0]
+    min_indices = X.nsmallest(2).index.tolist()
+    min_2_index = [i for i in min_indices if i != min_index][0]
+    max_index = X.nlargest(1).index.tolist()[0]
+    max_indices = X.nlargest(2).index.tolist()
+    max_2_index = [i for i in max_indices if i != max_index][0]
+
+    # Find new min and max
+    current_range = X[max_index] - X[min_index]
+    new_range = extend_range_by * current_range
+    new_max = X[max_index] + ((new_range - current_range)/2)
+    new_min = X[min_index] - ((new_range - current_range)/2)
+
+    # Build linear function
+    m_top = (Y[max_index] - Y[max_2_index]) / (X[max_index] - X[max_2_index])
+    c_top = Y[max_2_index] - m_top * X[max_2_index]    
+    m_bottom = (Y[min_2_index] - Y[min_index]) / (X[min_2_index] - X[min_index])
+    c_bottom = Y[min_index] - m_bottom * X[min_index]    
+
+    # Extrapolate and tidy
+    X_list = list(X.to_numpy()) + [new_min, new_max]
+    Y_list = list(Y.to_numpy()) + [(m_bottom*new_min) + c_bottom, (m_top*new_max) + c_top]
+    zipped_lists = list(zip(X_list, Y_list))
+    sorted_zipped_lists = sorted(zipped_lists, key=lambda x: x[0])
+    X_list, Y_list = zip(*sorted_zipped_lists)
+    X = pd.Series(X_list, name=X.name)
+    Y = pd.Series(Y_list, name=Y.name)
+
+    return X, Y
 
   def GetYield(self, Y, ignore_rate=False):
     """
@@ -138,9 +189,11 @@ class Yields():
     if f"mu_{self.file_name}" in Y.columns and not ignore_rate:
       self.rate_scale = Y.loc[:,f"mu_{self.file_name}"].iloc[0]
 
-
     # Get shape varying Y parameters
     Y = Y.loc[:, [col for col in Y.columns if not col.startswith("mu_")]]
+
+    # Get Y in the yield datasets
+    Y = Y.loc[:, [col for col in Y.columns if col in list(self.yield_dataframe.columns)]]
 
     # If no POIs or nuisances just return the total scale
     if len(self.shape_pois) + len(self.nuisances) == 0:
@@ -153,7 +206,7 @@ class Yields():
 
     # If no POI or POI in unique values list, and nuisance is not, do nuisance interpolation
     if (len(self.shape_pois) == 0) or self._CheckIfInDataFrame(Y.loc[:,self.shape_pois], self.yield_dataframe):
-      return self.rate_scale * float(self.DoNuisanceInterpolation(Y))
+      return self.rate_scale * float(self.NuisanceInterpolation(Y))
 
     # Do POI interpolation
     if self.method == "default":
@@ -198,9 +251,14 @@ class Yields():
 
       # Make interpolation function
       df_to_interp = self.yield_dataframe.loc[matched_rows, [col,self.column_name]].sort_values(by=col)
-      f = interp1d(df_to_intep.loc[:,col], df_to_intep.loc[:,self.column_name])
+
+      # Extend nuisance ranges
+      nui_val, yield_val = self.ExtendRanges(df_to_interp.loc[:,col], df_to_interp.loc[:,self.column_name])
+
+      # Make interpolator
+      f = interp1d(nui_val,yield_val)
 
       # Interpolate and adjust total_yield
-      total_yield += (f(Y.loc[:,col].iloc[0]) - nominal)  
+      total_yield += (f(Y.loc[:,col].iloc[0]) - nominal)
 
     return total_yield

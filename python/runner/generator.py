@@ -380,7 +380,6 @@ class Generator():
         name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}", 
         data_errors=sim_hist_uncert, 
         stack_hist_errors=synth_hist_uncert, 
-        title_right="",
         use_stat_err=False,
         axis_text="",
         )
@@ -476,7 +475,6 @@ class Generator():
           name=f"{self.plots_output}/{extra_dir}generation_unrolled_2d_{plot_col}_{unrolled_col}{extra_name}", 
           data_hists_errors=np.sqrt(sim_hist_uncert_squared), 
           stack_hists_errors=np.sqrt(synth_hist_uncert_squared), 
-          title_right="",
           use_stat_err=False,
           axis_text="",
         )

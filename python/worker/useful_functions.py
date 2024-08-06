@@ -35,7 +35,7 @@ def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name):
     "model" : val_loop_info["models"][file_name],
     "architecture" : val_loop_info["architectures"][file_name],
     "data_output" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-    "inference_options" : cfg["inference"] if file_name == "combined" else {},
+    "inference_options" : cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != 'nuisance_constraints'},
     "data_type": args.data_type if args.data_type is not None else "sim",
     "yield_function": "default",
     "pois": cfg["pois"],
@@ -357,6 +357,7 @@ def GetPOILoop(cfg, parameters):
   poi_loop = []
 
   for poi in cfg["pois"]:
+    if poi not in parameters["Y_columns"]: continue
     nuisance_freeze = {k:0 for k in cfg["nuisances"]}
     other_pois = [v for v in cfg["pois"] if v != poi and v in parameters["unique_Y_values"]]
     unique_values_for_other_pois = [parameters["unique_Y_values"][other_poi] for other_poi in other_pois]

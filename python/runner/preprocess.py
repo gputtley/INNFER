@@ -87,10 +87,11 @@ class PreProcess():
     # Find unique values in Y for validation
     if self.verbose:
       print("- Finding Y values to perform validation on")
-    if "validation_y_vals" not in cfg["preprocess"].keys():
-      parameters["unique_Y_values"] = copy.deepcopy(unique_y_values)
-    else:
-      parameters["unique_Y_values"] = cfg["preprocess"]["validation_y_vals"]
+    parameters["unique_Y_values"] = copy.deepcopy(unique_y_values)
+    if "validation_y_vals" in cfg["preprocess"].keys():
+      for y_key in cfg["preprocess"]["validation_y_vals"].keys():
+        if y_key in parameters["Y_columns"]:
+          parameters["unique_Y_values"][y_key] = cfg["preprocess"]["validation_y_vals"][y_key]        
 
     # Find discrete variables in X to transform to continuous
     if self.verbose:
@@ -110,21 +111,23 @@ class PreProcess():
       parameters["spline_locations"][k] = spline_loc
       plot_spline_and_thresholds(pdf_spline, intervals, v, hist/pre_integral, x_label=k, name=f"{self.plots_output}/spline_for_{k}")
 
+    # Making useful information
+    self.dataset_loop = ["train","test","val"] if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else ["train", "val"]
+    train_test_y_vals = cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}
+    validation_y_vals = cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}
 
     # Get sum of weights for each unique y combination
     if self.verbose:
       print("- Finding the total yields of entries for specific Y values and writing to file")
-    unique_y_combinations = list(product(*unique_y_values.values()))
-    train_test_y_vals = cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}
-    validation_y_vals = cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}
     if len(parameters["Y_columns"]) != 0:
-      yield_df = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
-      for ind, uc in enumerate(unique_y_combinations):
-        if self.verbose:
-          print(f" - For Y = {list(uc)}")
-        selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
-        yield_df.loc[ind, "yield"] = dp.GetFull(method="sum", extra_sel=selection)
-        yield_df.loc[ind, "effective_events"] = dp.GetFull(method="n_eff", extra_sel=selection)
+      unique_y_combinations = list(product(*unique_y_values.values()))
+      unique_combinations = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
+      yield_df = copy.deepcopy(unique_combinations)
+      yield_df.loc[:,"yield"] = dp.GetFull(method="sum_w_unique_columns", unique_combinations=unique_combinations).loc[:,"sum_w"]
+      non_zero_yields = yield_df.loc[:,"yield"] != 0.0
+      unique_combinations = unique_combinations.loc[non_zero_yields, :]
+      yield_df = yield_df.loc[non_zero_yields, :]
+      yield_df.loc[:,"effective_events"] = dp.GetFull(method="n_eff_unique_columns", unique_combinations=unique_combinations).loc[:,"eff_events"]
     else:
       yield_df = pd.DataFrame([[dp.GetFull(method="sum"), dp.GetFull(method="n_eff")]], columns=["yield","effective_events"], dtype=np.float64)
 
@@ -147,7 +150,6 @@ class PreProcess():
     for k, v in means.items():
       parameters["standardisation"][k] = {"mean": v, "std": stds[k]}
 
-
     # Get yields in each one train test val split, this is used for normalisation later
     if self.verbose:
       if cfg["preprocess"]["train_test_val_split"].count(":") == 2:
@@ -155,43 +157,35 @@ class PreProcess():
       else:
         print("- Finding the total yields of entries for specific Y values in both train and val splittings")
 
-    split_yields_dfs = {}
-    unique_y_combinations = list(product(*unique_y_values.values()))
-    self.dataset_loop = ["train","test","val"] if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else ["train", "val"]
+    #unique_y_combinations = list(product(*unique_y_values.values()))
     for split in self.dataset_loop:
       if self.verbose:
         print(f" - For split {split}")
       if len(parameters["Y_columns"]) != 0:
-        split_yields_dfs[split] = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
-        for ind, uc in enumerate(unique_y_combinations):
-          if self.verbose:
-            print(f"  - For Y = {list(uc)}")
-          selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_y_values.keys())])
-          split_yields_dfs[split].loc[ind, "yield"] = dp.GetFull(
-            method="sum", 
-            extra_sel=selection,
-            functions_to_apply = [
-              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
-            ]
-          )
-          yield_df.loc[ind,f"yields_{split}"] = float(split_yields_dfs[split].loc[ind, "yield"])
-          yield_df.loc[ind, f"effective_events_{split}"] = dp.GetFull(
-            method="n_eff", 
-            extra_sel=selection,
-            functions_to_apply = [
-              partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
-            ]
-          )
+        #unique_combinations = pd.DataFrame(unique_y_combinations, columns=parameters["Y_columns"], dtype=np.float64)
+        yield_df.loc[:,f"yields_{split}"] = dp.GetFull(
+          method="sum_w_unique_columns", 
+          functions_to_apply = [
+            partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
+          ],
+          unique_combinations = unique_combinations,
+        ).loc[:,"sum_w"]
+        yield_df.loc[:, f"effective_events_{split}"] = dp.GetFull(
+          method="n_eff_unique_columns", 
+          functions_to_apply = [
+            partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
+          ],
+          unique_combinations = unique_combinations,
+        ).loc[:,"eff_events"]
+
       else:
-        split_yields_dfs[split] = pd.DataFrame([[dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)])]], columns=["yield"], dtype=np.float64)
-        yield_df.loc[0,f"yields_{split}"] = float(split_yields_dfs[split].iloc[0].values[0])
+        yields_df.loc[0,f"yields_{split}"] = dp.GetFull(method="sum", functions_to_apply = [partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)])
         yield_df.loc[0,f"effective_events_{split}"] = dp.GetFull(
           method="n_eff", 
           functions_to_apply = [
             partial(self._DoTrainTestValSplit, split=split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals)
           ]
         )
-
 
     # Load and write batches
     # TO DO: Find a way to shuffle the dataset without loading it all into memory
@@ -215,7 +209,7 @@ class PreProcess():
         method = None,
         functions_to_apply = [
           partial(self._DoTrainTestValSplit, split=data_split, train_test_val_split=cfg["preprocess"]["train_test_val_split"], train_test_y_vals=train_test_y_vals, validation_y_vals=validation_y_vals),
-          partial(self._DoEqualiseYWeights, yields=split_yields_dfs[data_split], Y_columns=parameters["Y_columns"], scale_to=1.0),
+          partial(self._DoEqualiseYWeights, yields=yield_df, Y_columns=parameters["Y_columns"], scale_to=1.0, yield_name=f"yields_{data_split}"),
           "transform",
           partial(self._DoWriteDatasets, X_columns=parameters["X_columns"], Y_columns=parameters["Y_columns"], data_split=data_split)
         ]
@@ -302,16 +296,16 @@ class PreProcess():
 
     return pdf_spline, thresholds, integral
   
-  def _DoEqualiseYWeights(self, df, yields, Y_columns=[], scale_to=1.0):
+  def _DoEqualiseYWeights(self, df, yields, Y_columns=[], scale_to=1.0, yield_name="yield"):
     if len(Y_columns) > 0:
       unique_rows = df.loc[:,Y_columns].drop_duplicates()
       for _, ur in unique_rows.iterrows():
         matching_row = (yields.loc[:,Y_columns] == ur).all(axis=1)
-        sum_weights = float(yields.loc[matching_row,"yield"].iloc[0])
+        sum_weights = float(yields.loc[matching_row,yield_name].iloc[0])
         matching_rows = (df.loc[:,Y_columns] == ur).all(axis=1)
         df.loc[matching_rows,"wt"] = (scale_to / sum_weights) * df.loc[matching_rows,"wt"]
     else:
-      sum_weights = float(yields.loc[:,"yield"].iloc[0])
+      sum_weights = float(yields.loc[:,yield_name].iloc[0])
       df.loc[:,"wt"] = (scale_to / sum_weights) * df.loc[:,"wt"]      
     return df
 
@@ -413,8 +407,12 @@ class PreProcess():
         functions_to_apply = []
         if not transform:
           functions_to_apply = ["untransform"]
+        else:
+          functions_to_apply = ["untransform","transform"]
 
-        unique_values = dp.GetFull(method="unique", functions_to_apply=functions_to_apply)
+        count = dp.GetFull(method="count", functions_to_apply=["untransform"])
+        if count == 0: continue
+        unique_values = dp.GetFull(method="unique", functions_to_apply=["untransform"])
         for col in parameters["X_columns"]:
           hists = []
           hist_names = []

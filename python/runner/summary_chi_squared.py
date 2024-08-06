@@ -15,7 +15,8 @@ class SummaryChiSquared():
 
     self.file_name = "scan_results"
     self.data_input = "data"
-    self.data_output = "data"    
+    self.data_output = "data"
+    self.column_loop = []
     self.verbose = True
 
   def Configure(self, options):
@@ -39,12 +40,12 @@ class SummaryChiSquared():
     results = {}
     for ind, info in enumerate(self.val_loop):
       info_name = GetYName(info["row"],purpose="file")
-      for col in list(info["initial_best_fit_guess"].columns):
+      for col in self.column_loop:
         if col in self.freeze.keys():
           continue
         with open(f"{self.data_input}/{self.file_name}_{col}_{ind}.yaml", 'r') as yaml_file:
           scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        crossings = {k:v/scan_results_info["row"][scan_results_info["columns"].index(col)] for k,v in scan_results_info["crossings"].items()}
+        #crossings = {k:v/scan_results_info["row"][scan_results_info["columns"].index(col)] for k,v in scan_results_info["crossings"].items()}
         chi_squared = ((scan_results_info["crossings"][0]-scan_results_info["row"][scan_results_info["columns"].index(col)])**2) # numerator
         if scan_results_info["crossings"][0] < 1.0:
           chi_squared /= (scan_results_info["crossings"][1]-scan_results_info["crossings"][0])**2
@@ -89,7 +90,7 @@ class SummaryChiSquared():
     inputs = []
     for ind, info in enumerate(self.val_loop):
       info_name = GetYName(info["row"],purpose="plot",prefix="y=")
-      for col in list(info["initial_best_fit_guess"].columns):
+      for col in self.column_loop:
         if col in self.freeze.keys():
           continue
         inputs.append(f"{self.data_input}/{self.file_name}_{col}_{ind}.yaml")

@@ -102,7 +102,6 @@ for output_file, input_files in input.items():
     del weight_shift_first_loop
     gc.collect()
 
-
   neg_weight_rows = (total_df.loc[:,"wt"] < 0)
   print(f"Total negative weights: {len(total_df[neg_weight_rows])}/{len(total_df)} = {round(len(total_df[neg_weight_rows])/len(total_df),4)}")
   if args.remove_negative_weights:

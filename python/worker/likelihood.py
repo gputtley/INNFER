@@ -40,6 +40,30 @@ class Likelihood():
     self.best_fit = None
     self.best_fit_nll = None
 
+  def _Gaussian(self, x):
+    """
+    Computes the Gaussian distribution.
+
+    Args:
+        x (float): The input value.
+
+    Returns:
+        float: The Gaussian distribution value.
+    """
+    return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * float(x)**2)
+
+  def _LogNormal(self, x):
+    """
+    Computes the Log-Normal distribution.
+
+    Args:
+        x (float): The input value.
+
+    Returns:
+        float: The Log-Normal distribution value.
+    """
+    return 1 / (float(x) * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(float(x)))**2)
+
   def _MakeY(self):
     """
     Internal method to create a list of Y column names.
@@ -90,6 +114,10 @@ class Likelihood():
     elif self.type == "binned_extended":
       lkld_val = self.BinnedExtended(inputs, Y, return_ln=return_ln)
 
+    # Add constraint
+    lkld_val += self._GetConstraint(Y)
+
+    # End output
     end_time = time.time()
     if self.verbose:
       print(f"Y={Y.to_numpy().flatten()}, lnL={lkld_val}, time={round(end_time-start_time,2)}")
@@ -123,8 +151,6 @@ class Likelihood():
 
       # Get rate times probability
       log_p = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True)
-      #print(log_p)
-      #log_p = np.ones(len(X)).reshape(-1,1) # uncomment this for yield only unbinned_extended likelihood
       ln_lklds_with_rate_params = np.log(rate_param) + log_p
 
       # Sum together probabilities of different files
@@ -149,21 +175,22 @@ class Likelihood():
     # Product the events
     ln_lkld = np.sum(ln_lklds, dtype=np.float128)
 
-    #print("len(X)", len(X))
-    #print("ln_lkld", ln_lkld)
-
     return ln_lkld
 
   def _GetConstraint(self, Y):
 
     # Add constraints
+    ln_constraint = 0.0
     if "nuisance_constraints" in self.parameters.keys():
       for k, v in self.parameters["nuisance_constraints"].items():
+        if k not in list(Y.columns): continue
         if v == "Gaussian":
-          constraint = self._Gaussian(Y[self.Y_columns.index(k)])
+          constraint = self._Gaussian(float(Y.loc[:,k].iloc[0]))
         elif v == "LogNormal":
-          constraint = self._LogNormal(Y[self.Y_columns.index(k)])
-        ln_lkld += np.log(constraint)
+          constraint = self._LogNormal(float(Y.loc[:,k].iloc[0]))
+        ln_constraint += np.log(constraint)
+
+    return ln_constraint
 
 
   def _CustomDPMethodForCombinedPDF(self, tmp, out, options={}):
@@ -267,7 +294,7 @@ class Likelihood():
       return np.exp(ln_lkld)
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="nominal", freeze={}, initial_step_size=0.05):
+  def GetBestFit(self, X_dps, initial_guess, method="nominal", freeze={}, initial_step_size=0.05, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -307,8 +334,9 @@ class Likelihood():
       
       result = self.Minimise(NLL, initial_guess, method="low_stat_high_stat", func_low_stat=NLL_lowstat, freeze=freeze)
       
-    self.best_fit = result[0]
-    self.best_fit_nll = result[1]
+    if save_best_fit:
+      self.best_fit = result[0]
+      self.best_fit_nll = result[1]
 
     return result
 
@@ -563,7 +591,7 @@ class Likelihood():
     if len(self.Y_columns) > 1 and not (len(list(scan_freeze.keys())) == len(self.Y_columns)):
       if self.verbose:
         print(f"Profiled fit for {col}={col_val}")
-      result = self.GetBestFit(X_dps, pd.DataFrame([Y],columns=self.Y_columns, dtype=np.float64), method=minimisation_method, freeze=scan_freeze)
+      result = self.GetBestFit(X_dps, pd.DataFrame([Y],columns=self.Y_columns, dtype=np.float64), method=minimisation_method, freeze=scan_freeze, save_best_fit=False)
       dump = {
         "columns" : self.Y_columns, 
         "varied_column" : col,
@@ -572,7 +600,6 @@ class Likelihood():
         "profiled_values" : [float(i) for i in result[0]],
         "scan_values" : [float(col_val)],
         "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
-
       }
     else:
       result = self.Run(X_dps, Y, return_ln=True, multiply_by=-2)

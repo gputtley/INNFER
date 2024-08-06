@@ -115,9 +115,9 @@ class BinnedDistributions():
         name=f"{self.plots_output}/binned_distribution_category{cat_ind}{self.extra_plot_name}", 
         data_errors=np.array(data_hist_uncert), 
         stack_hist_errors=np.zeros(len(data_hist)), 
-        title_right=f"Category {cat_ind}",
+        axis_text=f"Category {cat_ind}",
         use_stat_err=False,
-        axis_text="",
+        #axis_text="",
         )
 
 

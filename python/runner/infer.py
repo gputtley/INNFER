@@ -568,7 +568,6 @@ class Infer():
               name=f"{self.plots_output}/resampling_{col}_seed_{self.resampling_seed}", 
               data_errors=resampled_hist_hist_uncert, 
               stack_hist_errors=non_resampled_hist_hist_uncert, 
-              title_right="",
               use_stat_err=False,
               axis_text="",
               )
