@@ -13,6 +13,7 @@ from module import Module
 from useful_functions import (
     CommonInferConfigOptions,
     GetDictionaryEntryFromYaml,
+    GetFileLoop,
     GetScanArchitectures,
     GetValidateInfo,
     SetupSnakeMakeFile
@@ -49,7 +50,7 @@ def parse_args():
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap','ApproximateUncertainty'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
@@ -86,8 +87,8 @@ def parse_args():
       args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
     else:
       args.cfg = f"configs/run/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}.yaml"
-    if args.submit is not None:
-      args.disable_tqdm = True
+  if args.submit is not None:
+    args.disable_tqdm = True
 
   # Adjust other inputs
   if args.model_type == "Benchmark":
@@ -149,10 +150,28 @@ def main(args, default_args):
         force = True,
       )
 
+  # Plot preprocess data
+  if args.step == "InputPlot":
+    print("<< Plotting datasets >>")
+    for file_name in GetFileLoop(cfg):
+      module.Run(
+        module_name = "input_plot",
+        class_name = "InputPlot",
+        config = {
+          "cfg" : args.cfg,
+          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+          "data_input" : f"data/{cfg['name']}/{file_name}/PreProcess",
+          "plots_output" : f"plots/{cfg['name']}/{file_name}/InputPlot",
+          "verbose" : not args.quiet,
+        },
+        loop = {"file_name" : file_name},
+        force = True,
+      )
+
   # Train network
   if args.step == "Train":
     print("<< Training the networks >>")
-    for file_name, parquet_name in cfg["files"].items():
+    for file_name in GetFileLoop(cfg):
       module.Run(
         module_name = "train",
         class_name = "Train",
@@ -171,7 +190,7 @@ def main(args, default_args):
   # Get performance metrics
   if args.step == "PerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
-    for file_name, parquet_name in cfg["files"].items():
+    for file_name in GetFileLoop(cfg):
       val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
       module.Run(
         module_name = "performance_metrics",
@@ -193,7 +212,7 @@ def main(args, default_args):
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
     print("<< Running a hyperparameter scan >>")
-    for file_name, parquet_name in cfg["files"].items():
+    for file_name in GetFileLoop(cfg):
       for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
         val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
         module.Run(
@@ -220,7 +239,7 @@ def main(args, default_args):
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
     print("<< Collecting hyperparameter scan >>")
-    for file_name, parquet_name in cfg["files"].items():
+    for file_name in GetFileLoop(cfg):
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
@@ -238,7 +257,7 @@ def main(args, default_args):
   # Perform a hyperparameter scan
   if args.step == "BayesianHyperparameterTuning":
     print("<< Running a bayesian hyperparameter tuning >>")
-    for file_name, parquet_name in cfg["files"].items():
+    for file_name in GetFileLoop(cfg):
       val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",

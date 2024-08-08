@@ -162,6 +162,9 @@ class DataProcessor():
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
       
+    # Fix any floating-point arithmetic error
+    df = df.round(decimals=15)
+      
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
       self.batch_ind = 0
@@ -319,6 +322,10 @@ class DataProcessor():
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
+        
+      # Fix any python floating point arithmetic problems
+      if column_name != self.wt_name:
+        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
 
     return data
 
@@ -355,6 +362,10 @@ class DataProcessor():
       if "discrete_thresholds" in self.parameters.keys():
         if column_name in self.parameters["discrete_thresholds"].keys():
           data.loc[:,column_name] = self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
+
+      # Fix any python floating point arithmetic problems
+      if column_name != self.wt_name:
+        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
 
     return data
 

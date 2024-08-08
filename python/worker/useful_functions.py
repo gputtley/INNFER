@@ -300,6 +300,21 @@ def GetDictionaryEntryFromYaml(file_name, keys):
 
   return entry
 
+def GetFileLoop(cfg):
+  split_nuisances = False
+  if "split_nuisance_models" in cfg.keys():
+    split_nuisances = cfg["split_nuisance_models"]  
+
+  if not split_nuisances:
+    return list(cfg["files"].keys())
+  else:
+    split_nuisance_list = []
+    for key in cfg["files"].keys():
+      split_nuisance_list.append(key)
+      for nuisance in cfg["nuisances"]:
+        split_nuisance_list.append(f"{key}_{nuisance}")
+    return split_nuisance_list
+    
 def GetNuisanceLoop(cfg, parameters):
   """
   Generate a list of dictionaries representing parameter combinations for nuisance loops.
@@ -320,7 +335,8 @@ def GetNuisanceLoop(cfg, parameters):
   nuisance_loop = []
 
   for nuisance in cfg["nuisances"]:
-    nuisance_freeze={k:0.0 for k in cfg["nuisances"] if k != nuisance}
+    if nuisance not in parameters["Y_columns"]: continue
+    nuisance_freeze={k:0.0 for k in cfg["nuisances"] if k != nuisance and k in parameters["Y_columns"]}
     pois = [v for v in cfg["pois"] if v in parameters["unique_Y_values"]]
     unique_values_for_pois = [parameters["unique_Y_values"][poi] for poi in pois]
     for poi_values in list(product(*unique_values_for_pois)):
@@ -357,8 +373,7 @@ def GetPOILoop(cfg, parameters):
   poi_loop = []
 
   for poi in cfg["pois"]:
-    if poi not in parameters["Y_columns"]: continue
-    nuisance_freeze = {k:0 for k in cfg["nuisances"]}
+    nuisance_freeze = {k:0 for k in cfg["nuisances"] if k in parameters["Y_columns"]}
     other_pois = [v for v in cfg["pois"] if v != poi and v in parameters["unique_Y_values"]]
     unique_values_for_other_pois = [parameters["unique_Y_values"][other_poi] for other_poi in other_pois]
     for other_poi_values in list(product(*unique_values_for_other_pois)):
