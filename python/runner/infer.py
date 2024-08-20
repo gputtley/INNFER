@@ -9,6 +9,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from functools import partial
+from pprint import pprint
+
 from plotting import plot_stacked_histogram_with_ratio
 from useful_functions import MakeDirectories
 
@@ -60,6 +62,7 @@ class Infer():
     self.test_name = "test"
     self.lkld = None
     self.lkld_input = None
+    self.scan_over_nuisances = False
 
   def Configure(self, options):
     """
@@ -206,7 +209,7 @@ class Infer():
         filename=f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"
       )
 
-    elif self.method == "Hessian":
+    elif self.method == "HessianAndCovariance":
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -228,7 +231,131 @@ class Infer():
         row=self.true_Y, 
         filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
         freeze=self.freeze,
+        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
       )      
+
+      if self.verbose:
+        print(f"- Calculating the covariance matrix")
+      
+      with open(f"{self.data_output}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Get covariance
+      self.lkld.GetAndWriteCovarianceToYaml(
+        hessian["hessian"], 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/covariance{self.extra_file_name}.yaml", 
+        scan_over=hessian["matrix_columns"],
+      )    
+
+      with open(f"{self.data_output}/covariance{self.extra_file_name}.yaml", 'r') as yaml_file:
+        covariance = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Get uncertainties from covariance
+      for col in covariance["matrix_columns"]:
+        col_index = covariance["matrix_columns"].index(col)
+        best_fit_col = best_fit_info["best_fit"][best_fit_info["columns"].index(col)]
+        dump = {
+          "columns" : covariance["columns"],
+          "row" : covariance["row"],
+          "varied_column" : col,
+          "crossings" : {
+            -2 : best_fit_col - 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            -1 : best_fit_col - float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            0 : best_fit_col,
+            1 : best_fit_col + float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            2 : best_fit_col + 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
+          }
+        }
+        filename = f"{self.data_output}/hessianandcovariance_results_{col}{self.extra_file_name}.yaml"
+        if self.verbose:
+          pprint(dump)
+        print(f"Created {filename}")
+        MakeDirectories(filename)
+        with open(filename, 'w') as yaml_file:
+          yaml.dump(dump, yaml_file, default_flow_style=False)
+
+    elif self.method == "HessianDMatrixAndCovariance":
+
+      if self.verbose:
+        print(f"- Loading best fit into likelihood")
+
+      # Open best fit yaml
+      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      self.lkld.best_fit = np.array(best_fit_info["best_fit"])
+      self.lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+
+      if self.verbose:
+        print(f"- Calculating the Hessian matrix")
+
+      # Get Hessian
+      self.lkld.GetAndWriteHessianToYaml(
+        self.lkld_input, 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
+        freeze=self.freeze,
+        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
+      )  
+
+      if self.verbose:
+        print(f"- Calculating the D matrix")
+
+      # Calculate the D matrix
+      self.lkld.GetAndWriteDMatrixToYaml(
+        self.lkld_input, 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 
+        freeze=self.freeze,
+        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
+      )  
+
+      # Open hessian yaml
+      with open(f"{self.data_output}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Open D matrix yaml
+      with open(f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
+        Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Get covariance
+      self.lkld.GetAndWriteCovarianceToYaml(
+        hessian["hessian"], 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/covariance{self.extra_file_name}.yaml", 
+        scan_over=hessian["matrix_columns"],
+        D_matrix=Dmatrix["D_matrix"],
+      )    
+
+      with open(f"{self.data_output}/covariance{self.extra_file_name}.yaml", 'r') as yaml_file:
+        covariance = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Get uncertainties from covariance
+      for col in covariance["matrix_columns"]:
+        col_index = covariance["matrix_columns"].index(col)
+        best_fit_col = best_fit_info["best_fit"][best_fit_info["columns"].index(col)]
+        dump = {
+          "columns" : covariance["columns"],
+          "row" : covariance["row"],
+          "varied_column" : col,
+          "crossings" : {
+            -2 : best_fit_col - 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            -1 : best_fit_col - float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            0 : best_fit_col,
+            1 : best_fit_col + float(np.sqrt(covariance["covariance"][col_index][col_index])),
+            2 : best_fit_col + 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
+          }
+        }
+        filename = f"{self.data_output}/hessiandmatrixandcovariance_results_{col}{self.extra_file_name}.yaml"
+        if self.verbose:
+          pprint(dump)
+        print(f"Created {filename}")
+        MakeDirectories(filename)
+        with open(filename, 'w') as yaml_file:
+          yaml.dump(dump, yaml_file, default_flow_style=False)
+
+      # Get uncertainties from covariance
 
     elif self.method == "ScanPoints":
 
@@ -327,6 +454,7 @@ class Infer():
     inputs = []
 
     # Add parameters and model inputs
+    print(self.parameters)
     for k in self.parameters.keys():
       inputs += [
         self.model[k], # remove this if not needed
@@ -476,6 +604,11 @@ class Infer():
 
     from data_processor import DataProcessor
 
+    # Patch for memory use of gradients
+    batch_size = None
+    if self.method in ["HessianAndCovariance","HessianDMatrixAndCovariance"] or (self.method in ["InitialFit","Scan"] and self.minimisation_method == "scipy_with_gradients"):
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
+
     dps = {}
     for file_name, v in self.parameters.items():
 
@@ -517,13 +650,14 @@ class Infer():
           sim_inputs,
           "parquet",
           wt_name = "wt",
+          batch_size = batch_size,
           options = {
             "parameters" : parameters,
             "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
             "scale" : scale,
             "resample" : self.resample,
             "resampling_seed" : self.resampling_seed,
-            "functions" : ["untransform"]
+            "functions" : ["untransform"], 
           }
         )
 
@@ -591,6 +725,7 @@ class Infer():
             "generator",
             n_events = int(self.n_asimov_events*frac_yields), # multiply by yield fractions
             wt_name = "wt",
+            batch_size = batch_size,
             options = {
               "parameters" : parameters,
               "scale" : scale,
@@ -604,7 +739,8 @@ class Infer():
           dps[file_name] = DataProcessor(
             [[asimov_file_name]],
             "parquet",
-            wt_name = "wt"
+            wt_name = "wt",
+            batch_size = batch_size,
           )
 
     if self.data_type == "data":
@@ -612,6 +748,7 @@ class Infer():
       dps["Data"] = DataProcessor(
         [[self.data_file]],
         "parquet",
+        batch_size = batch_size,
       )
 
     return dps
@@ -692,9 +829,9 @@ class Infer():
         if self.verbose:
           print(f"- Building the model for {file_name}")
         networks[file_name] = Network(
-          f"{parameters[file_name]['file_loc']}/X_train.parquet",
-          f"{parameters[file_name]['file_loc']}/Y_train.parquet", 
-          f"{parameters[file_name]['file_loc']}/wt_train.parquet", 
+          f"{parameters[file_name]['file_loc']}/X_val.parquet",
+          f"{parameters[file_name]['file_loc']}/Y_val.parquet", 
+          f"{parameters[file_name]['file_loc']}/wt_val.parquet", 
           options = {
             **architecture,
             **{

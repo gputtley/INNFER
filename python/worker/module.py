@@ -238,10 +238,23 @@ class Module():
       else:
         class_instance = self.saved_class
 
-      # Configure and run
+      # Configure class
       class_instance.Configure(config)
+
+      # Check inputs exist
+      for i in class_instance.Inputs():
+        if not os.path.isfile(i):
+          raise FileNotFoundError(f"The input file '{i}' was not found.")
+
+      # Run
       class_instance.Run()
 
+      # Check outputs exist
+      for o in class_instance.Outputs():
+        if not os.path.isfile(o):
+          raise FileNotFoundError(f"The output file '{o}' was not found.")
+
+      # Save class if required
       if save_class:
         self.saved_class = class_instance
       else:

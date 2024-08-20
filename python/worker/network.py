@@ -25,6 +25,7 @@ from useful_functions import GetYName, MakeDirectories
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
+  print("INFO: Using GPUs")
   for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
@@ -87,6 +88,7 @@ class Network():
     self.active_learning = False
     self.active_learning_options = {}
     self.resample = False
+    self.gradient_clipping_norm = None
 
     # Other
     self.disable_tqdm = False
@@ -412,15 +414,15 @@ class Network():
       print("ERROR: lr_schedule not valid.")
 
     if self.optimizer_name == "Adam":
-      self.optimizer = tf.keras.optimizers.Adam(self.lr_scheduler)
+      self.optimizer = tf.keras.optimizers.Adam(self.lr_scheduler, clipnorm=self.gradient_clipping_norm)
     elif self.optimizer_name == "AdamW":
-      self.optimizer = tf.keras.optimizers.AdamW(self.lr_scheduler)
+      self.optimizer = tf.keras.optimizers.AdamW(self.lr_scheduler, clipnorm=self.gradient_clipping_norm)
     elif self.optimizer_name == "SGD":
-        self.optimizer = tf.keras.optimizers.SGD(self.lr_scheduler)
+        self.optimizer = tf.keras.optimizers.SGD(self.lr_scheduler, clipnorm=self.gradient_clipping_norm)
     elif self.optimizer_name == "RMSprop":
-        self.optimizer = tf.keras.optimizers.RMSprop(self.lr_scheduler)
+        self.optimizer = tf.keras.optimizers.RMSprop(self.lr_scheduler, clipnorm=self.gradient_clipping_norm)
     elif self.optimizer_name == "Adadelta":
-        self.optimizer = tf.keras.optimizers.Adadelta(self.lr_scheduler)
+        self.optimizer = tf.keras.optimizers.Adadelta(self.lr_scheduler, clipnorm=self.gradient_clipping_norm)
     else:
       print("ERROR: optimizer not valid.")
 
@@ -679,7 +681,7 @@ class Network():
     _ = self.inference_net(X_train_batch, Y_train_batch)
     self.inference_net.load_weights(name)
 
-  def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False):
+  def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False, order=0, column_1=None, column_2=None):
     """
     Calculate the logarithmic or exponential probability density function.
 
@@ -709,38 +711,9 @@ class Network():
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
     Y_initial = copy.deepcopy(Y)
 
-    # Set up Y correctly
-    if len(Y) == 1:
-      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (len(X), 1)), columns=Y.columns, dtype=np.float64)
-    elif len(Y) == 0:
-      Y = pd.DataFrame(np.tile(np.array([]), (len(X), 1)), columns=Y.columns, dtype=np.float64)
-
-    # Transform Y input
-    Y_dp = DataProcessor(
-      [[Y]],
-      "dataset",
-      options = {
-        "parameters" : self.data_parameters,
-      }
-    )
-    if len(Y.columns) != 0:
-      Y = Y_dp.GetFull(
-        method="dataset",
-        functions_to_apply = ["transform"] if transform_Y else []
-      )
-
-    # Transform X
-    X_dp = DataProcessor(
-      [[X]],
-      "dataset",
-      options = {
-        "parameters" : self.data_parameters,
-      }
-    )
-    X = X_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["transform"] if transform_X else []
-    )
+    # Prepare datasets
+    Y = self.PrepareY(X, Y, transform_Y=transform_Y)
+    X = self.PrepareX(X, transform_X=transform_X)
 
     # Set up inputs for probability
     data = {
@@ -752,31 +725,168 @@ class Network():
     if self.fix_1d:
       data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
-    # Get probability
-    log_prob = pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"], dtype=np.float64)
+    if order == 0 or order == [0]: # Get the log probability
 
-    # Untransform probability
-    prob_dp = DataProcessor(
-      [[log_prob]],
-      "dataset",
-      options = {
-        "parameters" : self.data_parameters,
-      }
-    )
-    log_prob = prob_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["untransform"] if transform_X else []
-    ) 
+      log_probs = [pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"], dtype=np.float64)]
 
-    # Fix 1d probability by ensuring integral is 1
-    if self.fix_1d and not no_fix:
-      log_prob -= np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
+    elif order == 1 or order == [1] or order == [0,1]: # Get the first derivative of the log probability
+      
+      # Find column to get derivative for
+      if column_1 is not None:
+        if column_1 in self.data_parameters["Y_columns"]:
+          index = self.data_parameters["Y_columns"].index(column_1)
+          grad_of = "direct_conditions"
+        elif column_1 in self.data_parameters["X_columns"]:
+          index = self.data_parameters["X_columns"].index(column_1)
+          grad_of = "parameters"
+      else:
+        grad_of = "direct_conditions"
 
-    # return probability
-    if return_log_prob:
-      return log_prob.to_numpy()
+      # Prepare tensorflow dataset
+      data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+      data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+
+      # Start gradient tape
+      with tf.GradientTape(persistent=True) as tape:
+
+        # Set up tracking
+        tape.watch(data[grad_of])
+
+        # Get log prob
+        z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+        predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+
+      # Get first derivative
+      if column_1 is not None:
+        first_derivative = tape.gradient(predictions, data[grad_of])[:,index]
+      else:
+        first_derivative = tape.gradient(predictions, data[grad_of])
+
+      # Make log_probs array
+      if column_1 is None:
+        column_1 = self.data_parameters["Y_columns"]
+      elif isinstance(column_1, str):
+        column_1 = [column_1]
+      if order == 1 or order == [1]:
+        log_probs = [pd.DataFrame(first_derivative.numpy(), columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
+        del first_derivative
+        gc.collect()
+      elif order == [0,1]:
+        log_probs = [
+          pd.DataFrame(predictions.numpy(), columns=["log_prob"], dtype=np.float64),
+          pd.DataFrame(first_derivative.numpy(), columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64),
+        ]
+        del first_derivative, predictions
+        gc.collect()
+
+    elif order == 2 or order == [2] or order == [1,2] or order == [0,1,2] or order == [0,2]: # Get the second derivative of the log probability
+
+      # Find column 1 to get derivative for
+      if column_1 is not None:
+        if column_1 in self.data_parameters["Y_columns"]:
+          index_1 = self.data_parameters["Y_columns"].index(column_1)
+          grad_of_1 = "direct_conditions"
+        elif column_1 in self.data_parameters["X_columns"]:
+          index_1 = self.data_parameters["X_columns"].index(column_1)
+          grad_of_1 = "parameters"
+      else:
+        grad_of_1 = "direct_conditions"
+
+      # Find column 2 to get derivative for
+      if column_2 is not None:
+        if column_2 in self.data_parameters["Y_columns"]:
+          index_2 = self.data_parameters["Y_columns"].index(column_2)
+          grad_of_2 = "direct_conditions"
+        elif column_2 in self.data_parameters["X_columns"]:
+          index_2 = self.data_parameters["X_columns"].index(column_2)
+          grad_of_2 = "parameters"
+      else:
+        grad_of_2 = "direct_conditions"
+
+      # Prepare tensorflow dataset
+      data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+      data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+
+      # Start gradient tape for second derivative
+      with tf.GradientTape(persistent=True) as tape_2:
+
+        # Set up tracking for second derivative
+        tape_2.watch(data[grad_of_2])
+
+        # Start gradient tape for first derivative
+        with tf.GradientTape(persistent=True) as tape_1:
+
+          # Set up tracking for second derivative
+          tape_1.watch(data[grad_of_1])
+
+          # Get log prob
+          z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+          predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+
+        # Get first derivative
+        if column_1 is not None:
+          first_derivative = tape_1.gradient(predictions, data[grad_of_1])[:,index_1]
+        else:
+          first_derivative = tape_1.gradient(predictions, data[grad_of_1])
+
+      # Get second derivative
+      if column_2 is not None:
+        second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])[:,index_2]
+      else:
+        second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])
+
+      # Make log_probs array
+      log_probs = []
+      if column_1 is None:
+        column_1 = self.data_parameters["Y_columns"]
+      elif isinstance(column_1, str):
+        column_1 = [column_1]
+      if column_2 is None:
+        column_2 = self.data_parameters["Y_columns"]
+      elif isinstance(column_2, str):
+        column_2 = [column_2]
+      if order == [0,1,2] or order == [0,2]:
+        log_probs += [pd.DataFrame(predictions.numpy(), columns=[f"log_prob"], dtype=np.float64)]
+        del predictions
+        gc.collect()
+      if order == [0,1,2] or order == [1,2]:
+        log_probs += [pd.DataFrame(first_derivative.numpy(), columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
+        del first_derivative
+        gc.collect()
+      if order == 2 or order == [2] or order == [0,1,2] or order == [0,2] or order == [1,2]:
+        log_probs += [pd.DataFrame(second_derivative.numpy(), columns=[f"d2_log_prob_by_d_{col1}_and_{col2}" for col1 in column_1 for col2 in column_2], dtype=np.float64)]
+        del second_derivative
+        gc.collect()
+
+    for ind in range(len(log_probs)):
+
+      # Untransform probability
+      prob_dp = DataProcessor(
+        [[log_probs[ind]]],
+        "dataset",
+        options = {
+          "parameters" : self.data_parameters,
+        }
+      )
+      log_probs[ind] = prob_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["untransform"] if transform_X else []
+      )
+
+      # Fix 1d probability by ensuring integral is 1
+      if self.fix_1d and not no_fix and order[ind] == 0:
+        log_probs[ind] = log_probs[ind] - np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
+
+      # return probability - change this for derivatives
+      if return_log_prob:
+        log_probs[ind] = log_probs[ind].to_numpy()
+      else:
+        log_probs[ind] = np.exp(log_probs[ind].to_numpy())
+
+    if isinstance(order, list):
+      return log_probs
     else:
-      return np.exp(log_prob.to_numpy())
+      return log_probs[0]
 
   def ProbabilityIntegral(self, Y, n_integral_bins=10**6, n_samples=10**4, ignore_quantile=0.0, extra_fraction=0.5, seed=42, verbose=False):
     """
@@ -851,6 +961,47 @@ class Network():
       print(f"Integral for Y is {integral}")  
 
     return integral
+
+
+  def PrepareX(self, X, transform_X=True):
+    # Transform X
+    X_dp = DataProcessor(
+      [[X]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    X = X_dp.GetFull(
+      method="dataset",
+      functions_to_apply = ["transform"] if transform_X else []
+    )
+    return X
+
+  def PrepareY(self, X, Y, transform_Y=True):
+    Y = Y.loc[:,self.data_parameters["Y_columns"]]
+    Y_initial = copy.deepcopy(Y)
+
+    # Set up Y correctly
+    if len(Y) == 1:
+      Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (len(X), 1)), columns=Y.columns, dtype=np.float64)
+    elif len(Y) == 0:
+      Y = pd.DataFrame(np.tile(np.array([]), (len(X), 1)), columns=Y.columns, dtype=np.float64)
+
+    # Transform Y input
+    Y_dp = DataProcessor(
+      [[Y]],
+      "dataset",
+      options = {
+        "parameters" : self.data_parameters,
+      }
+    )
+    if len(Y.columns) != 0:
+      Y = Y_dp.GetFull(
+        method="dataset",
+        functions_to_apply = ["transform"] if transform_Y else []
+      )
+    return Y
 
   def Sample(self, Y, n_events):
     """
@@ -931,7 +1082,7 @@ class Network():
     MakeDirectories(name)
     self.inference_net.save_weights(name)
 
-  def Train(self):
+  def Train(self, name="model.h5"):
     """
     Train the conditional invertible neural network.
     """
@@ -953,6 +1104,7 @@ class Network():
       active_learning=self.active_learning,
       active_learning_options=self.active_learning_options,
       resample=self.resample,
+      model_name=name,
     )
 
     if self.plot_loss:

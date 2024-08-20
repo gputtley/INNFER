@@ -77,12 +77,12 @@ class Train():
     if self.verbose:
       print("- Training the model")
     network.BuildTrainer()
-    network.Train()
+    network.Train(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
 
-    # Saving model
+    # Saving model architecture
     if self.verbose:
       print("- Saving the model and its architecture")
-    network.Save(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
+    #network.Save(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
     with open(f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml", 'w') as file:
       yaml.dump(architecture, file)
 

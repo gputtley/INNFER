@@ -10,9 +10,11 @@ if ! command -v nvidia-smi &> /dev/null ; then
   export TF_NUM_INTEROP_THREADS=$(nproc)
   export TF_NUM_INTRAOP_THREADS=$(nproc)
   export OMP_NUM_THREADS=$(nproc)
-  export EVENTS_PER_BATCH=20000
+  export EVENTS_PER_BATCH=10000
+  export EVENTS_PER_BATCH_FOR_GRADIENTS=4000
 else
   export EVENTS_PER_BATCH=100000
+  export EVENTS_PER_BATCH_FOR_GRADIENTS=40000
 fi
 export PLOTTING_CMS_LABEL="Work In Progress"
 export PLOTTING_LUMINOSITY="\$138\ fb^{-1}\$"

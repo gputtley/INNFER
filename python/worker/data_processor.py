@@ -15,7 +15,8 @@ class DataProcessor():
       datasets, 
       dataset_type, 
       wt_name = None, 
-      n_events = None, 
+      n_events = None,
+      batch_size = None,
       options = {}
     ):
 
@@ -40,7 +41,7 @@ class DataProcessor():
 
     # Options to run
     self.wt_name = wt_name
-    self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH")) if batch_size is None else batch_size
     self.selection = None
     self.columns = None
     self.scale = None
@@ -354,6 +355,14 @@ class DataProcessor():
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
         
+      # Unstandardise the first derivative of the log probabilities
+      if column_name.startswith("d_log_prob_by_d_"):
+        data.loc[:,column_name] /= self.parameters["standardisation"][column_name.split("d_log_prob_by_d_")[1]]["std"]
+
+      # Unstandardise the second derivative of the log probabilities
+      if column_name.startswith("d2_log_prob_by_d_"):
+        data.loc[:,column_name] /= (self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[0]]["std"] * self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]]["std"])
+
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)

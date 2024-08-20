@@ -84,7 +84,7 @@ class Likelihood():
     tf.keras.utils.set_random_seed(self.seed)
     np.random.seed(self.seed)
 
-  def Run(self, inputs, Y, return_ln=True, multiply_by=1, Y_columns=[]):
+  def Run(self, inputs, Y, return_ln=True, multiply_by=1):
     """
     Evaluates the likelihood for given data.
 
@@ -136,7 +136,10 @@ class Likelihood():
       yd = 1.0
     return yd
 
-  def _GetCombinedPDF(self, X, Y, wt_name=None, before_sum=False, normalise=True):
+  def _GetCombinedPDF(self, X, Y, wt_name=None, before_sum=False, normalise=True, gradient=[0], column_1=None, column_2=None):
+
+    if isinstance(gradient, int):
+      gradient = [gradient]
 
     first_loop = True
     sum_rate_params = 0.0
@@ -149,33 +152,40 @@ class Likelihood():
       if rate_param == 0: continue
       sum_rate_params += rate_param
 
-      # Get rate times probability
-      log_p = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True)
-      ln_lklds_with_rate_params = np.log(rate_param) + log_p
+      # Get rate times probability, get gradients simultaneously if required
+      log_p_outputs = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True, order=gradient, column_1=column_1, column_2=column_2)
+      ln_lklds_with_rate_params_outputs = [np.log(rate_param) + log_p for log_p in log_p_outputs]
 
       # Sum together probabilities of different files
       if first_loop:
-        ln_lklds = copy.deepcopy(ln_lklds_with_rate_params)
+        ln_lklds = [copy.deepcopy(ln_lklds_with_rate_params) for ln_lklds_with_rate_params in ln_lklds_with_rate_params_outputs]
         first_loop = False
       else:
-        ln_lklds = self._LogSumExpTrick(ln_lklds,ln_lklds_with_rate_params)
+        ln_lklds = [self._LogSumExpTrick(ln_lklds[ind],ln_lklds_with_rate_params) for ind, ln_lklds_with_rate_params in enumerate(ln_lklds_with_rate_params_outputs)]
 
     if normalise:
       # Rescale so total pdf integrate to 1
-      ln_lklds -= np.log(sum_rate_params)
+      ln_lklds = [ln_lklds_loop - np.log(sum_rate_params) for ln_lklds_loop in ln_lklds]
 
     # Return probability before sum
     if before_sum:
-      return ln_lklds
+      if len(ln_lklds) == 1:
+        return ln_lklds[0]
+      else:
+        return ln_lklds
 
     # Weight the events
     if wt_name is not None:
-      ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
+      ln_lklds = [X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds_loop for ln_lklds_loop in ln_lklds]
 
     # Product the events
-    ln_lkld = np.sum(ln_lklds, dtype=np.float128)
+    ln_lkld = [np.sum(ln_lklds_loop, dtype=np.float128, axis=0) for ln_lklds_loop in ln_lklds]
 
-    return ln_lkld
+    if len(ln_lkld) == 1:
+      return ln_lkld[0]
+    else:
+      return ln_lkld
+
 
   def _GetConstraint(self, Y):
 
@@ -195,25 +205,42 @@ class Likelihood():
 
   def _CustomDPMethodForCombinedPDF(self, tmp, out, options={}):
 
-    tmp_total = self._GetCombinedPDF(tmp, options["Y"], wt_name=options["wt_name"], normalise=options["normalise"])
+    tmp_total = self._GetCombinedPDF(
+      tmp, 
+      options["Y"], 
+      wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+      normalise = options["normalise"] if "normalise" in options.keys() else False, 
+      gradient = options["gradient"] if "gradient" in options.keys() else [0], 
+      column_1 = options["column_1"] if "column_1" in options.keys() else None,
+      column_2 = options["column_2"] if "column_2" in options.keys() else None,
+    )
 
     if out is None:
       out = copy.deepcopy(tmp_total)
     else:
-      out += tmp_total
-
+      if isinstance(out, list):
+        out = [out[i]+tmp_total[i] for i in range(len(out))]
+      else:
+        out += tmp_total
     return out
 
-  def _CustomDPMethodForDmatrix(self, tmp, out, options={"epsilon":1e-4,"n_extra":2}):
+  def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
-    # Get pdf for different values of epsilon
-    tmp_total = self._GetCombinedPDF(tmp, options["Y"], wt_name=options["wt_name"], normalise=options["normalise"], before_sum=True)
+    tmp_probs = self._GetCombinedPDF(
+      tmp, 
+      options["Y"], 
+      wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+      normalise = options["normalise"] if "normalise" in options.keys() else False, 
+      gradient = 1, 
+      before_sum = True,
+    )
 
-    # Calculate gradients
-    # get first and second derivative
+    if out is None:
+      out = np.zeros((len(options["scan_over"]), len(options["scan_over"])))
 
-    # Sum with weights
-    exit()
+    for ind_1 in range(len(options["scan_over"])):
+      for ind_2 in range(len(options["scan_over"])):
+        out[ind_1, ind_2] += np.sum((tmp.loc[:,options["wt_name"]].to_numpy()**2) * tmp_probs[:, ind_1] * tmp_probs[:, ind_2], dtype=np.float64)
 
     return out
 
@@ -270,7 +297,7 @@ class Likelihood():
         custom = self._CustomDPMethodForCombinedPDF,
         custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name, "normalise" : normalise}
       )
-      ln_lkld += dps_ln_lkld
+      ln_lkld += dps_ln_lkld[0]
 
     if return_ln:
       return ln_lkld
@@ -304,10 +331,34 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
-    if method == "nominal":
+    if method in ["nominal","scipy"]:
 
-      func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, Y_columns=list(initial_guess.columns))
+      func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2)
       result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size)
+
+
+    elif method == "scipy_with_gradients":
+
+      func_val_and_jac = lambda Y: self.GetNLLWithGradient(X_dps, Y, multiply_by=-2)
+      class NLLAndGradient():
+        def __init__(self):
+          self.jac = 0.0
+          self.prev_nll_calc = False
+        def GetNLL(self, Y):
+          val, jac = func_val_and_jac(Y)
+          self.jac = jac
+          self.prev_nll_calc = True
+          return val
+        def GetJac(self,Y):
+          if self.prev_nll_calc:
+            self.prev_nll_calc = False
+            return self.jac
+          else:
+            self.prev_nll_calc = False
+            val, jac = func_val_and_jac(Y)
+            return jac
+      nllgrad = NLLAndGradient()
+      result = self.Minimise(nllgrad.GetNLL, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method="scipy_with_gradients", jac=nllgrad.GetJac) # Add jacobian
 
     elif method == "low_stat_high_stat":
 
@@ -340,11 +391,93 @@ class Likelihood():
 
     return result
 
+  def GetDMatrix(self, X_dps, scan_over):
+
+    if self.type in ["unbinned","unbinned_extended"]:
+      d_matrix = 0
+      self._SetSeed()
+      for dps_ind, X_dp in enumerate(X_dps):
+        # Get D matrix
+        dps_d_matrix = X_dp.GetFull(
+          method = "custom",
+          custom = self._CustomDPMethodForDMatrix,
+          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "normalise" : True, "scan_over" : scan_over}
+        )
+        d_matrix += dps_d_matrix
+    else:
+      raise ValueError("D matrix only valid for unbinned fits.")
+
+    # Extended fit information
+    if self.type in ["unbinned_extended","binned_extended"]:
+      # TO BE IMPLEMENTED: Add extended terms
+      print() 
+
+    # TO BE IMPLEMENTED: Add constraint terms  
+
+    return d_matrix.tolist()
+
+  def GetNLLWithGradient(self, X_dps, Y, multiply_by=1):
+
+    start_time = time.time()
+
+    # Check type of Y
+    if not isinstance(Y, pd.DataFrame):
+      Y = pd.DataFrame([Y], columns=self.Y_columns, dtype=np.float64)
+
+    if self.type in ["unbinned","unbinned_extended"]:
+      nll_gradient = [0,0]
+      self._SetSeed()
+      for dps_ind, X_dp in enumerate(X_dps):
+        dps_nll_gradient = X_dp.GetFull(
+          method = "custom",
+          custom = self._CustomDPMethodForCombinedPDF,
+          custom_options = {"Y" : Y, "wt_name" : X_dp.wt_name, "normalise" : True, "gradient" : [0,1]}
+        )
+        nll_gradient = [nll_gradient[0] + dps_nll_gradient[0], nll_gradient[1] + dps_nll_gradient[1]]
+    else:
+      # TO BE IMPLEMENTED: First derivative for binned fits
+      print()
+
+    # Extended fit information
+    if self.type in ["unbinned_extended","binned_extended"]:
+      # TO BE IMPLEMENTED: Add extended terms
+      print() 
+
+    # TO BE IMPLEMENTED: Add constraint terms  
+
+    # End output
+    end_time = time.time()
+    if self.verbose:
+      print(f"Y={Y.to_numpy().flatten()}, lnL={nll_gradient[0][0]}")
+      print(f"Y={Y.to_numpy().flatten()}, dlnL/dY={nll_gradient[1]}, time={round(end_time-start_time,2)}")
+
+    return multiply_by*nll_gradient[0], multiply_by*nll_gradient[1]
+
   def GetHessian(self, X_dps, column_1, column_2):
 
-    nll = -2*self.Run(X_dps, self.best_fit, return_ln=True)
+    if self.type in ["unbinned","unbinned_extended"]:
+      second_derivative = 0
+      self._SetSeed()
+      for dps_ind, X_dp in enumerate(X_dps):
+        # Get second derivative
+        dps_second_derivative = X_dp.GetFull(
+          method = "custom",
+          custom = self._CustomDPMethodForCombinedPDF,
+          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "normalise" : True, "gradient" : [2], "column_1" : column_1, "column_2" : column_2}
+        )
+        second_derivative += dps_second_derivative
+    else:
+      # TO BE IMPLEMENTED: Second derivative for binned fits
+      print()
 
-    return hessian
+    # Extended fit information
+    if self.type in ["unbinned_extended","binned_extended"]:
+      # TO BE IMPLEMENTED: Add extended terms
+      print() 
+
+    # TO BE IMPLEMENTED: Add constraint terms  
+
+    return -float(second_derivative)
 
 
   def GetApproximateUncertainty(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1):
@@ -417,7 +550,7 @@ class Likelihood():
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
-  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}, initial_step_size=0.02):
+  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}, initial_step_size=0.02, jac=None):
     """
     Minimizes the given function using numerical optimization.
 
@@ -460,6 +593,10 @@ class Likelihood():
       minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
       return minimisation.x, minimisation.fun
     
+    elif method == "scipy_with_gradients":
+      minimisation = minimize(func, initial_guess, jac=jac ,method='BFGS', tol=0.001, options={'gtol': 0.01, 'xrtol': 0.001})
+      return minimisation.x, minimisation.fun
+
     elif method == "low_stat_high_stat":
 
       if self.verbose:
@@ -541,7 +678,32 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteHessianToYaml(self, X_dps, row=None, filename="hessian.yaml"):
+  def GetAndWriteCovarianceToYaml(self, hessian, row=None, scan_over=None, D_matrix=None, filename="covariance.yaml"):
+
+    hessian = np.array(hessian)
+    inverse_hessian = np.linalg.inv(hessian)
+
+    if D_matrix is None:
+      covariance = inverse_hessian.tolist()
+    else:
+      print(inverse_hessian)
+      print(D_matrix)
+      covariance = (inverse_hessian @ D_matrix @ inverse_hessian).tolist()
+
+    dump = {
+      "columns": self.Y_columns, 
+      "matrix_columns" : scan_over, 
+      "covariance" : covariance,
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)
+
+  def GetAndWriteDMatrixToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="dmatrix.yaml"):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -552,8 +714,63 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetHessian(X_dps, column_1, column_2)
-    #dump
+    if scan_over is None:
+      scan_over = self.Y_columns
+    scan_over = [col for col in scan_over if col not in freeze.keys()]
+
+    D_matrix = self.GetDMatrix(X_dps, scan_over)
+
+    dump = {
+      "columns": self.Y_columns, 
+      "matrix_columns" : scan_over, 
+      "D_matrix" : D_matrix,
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)
+
+
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml"):
+    """
+    Finds the best-fit parameters and writes them to a YAML file.
+
+    Args:
+        X (array): The independent variables.
+        row (array): The row values.
+        initial_guess (array): Initial values for the model parameters.
+        wt (array): The weights for the data points (optional).
+        filename (str): The name of the YAML file (default is "best_fit.yaml").
+    """
+    if scan_over is None:
+      scan_over = self.Y_columns
+    scan_over = [col for col in scan_over if col not in freeze.keys()]
+
+    # Get hessian entries
+    hessian = np.zeros((len(scan_over),len(scan_over)))
+    for index_1, column_1 in enumerate(scan_over):
+      for index_2, column_2 in enumerate(scan_over):
+        if index_1 <= index_2:
+          hessian[index_1, index_2] = copy.deepcopy(self.GetHessian(X_dps, column_1, column_2))
+          if index_1 != index_2:
+            hessian[index_2, index_1] = copy.deepcopy(self.GetHessian(X_dps, column_1, column_2))
+    hessian = hessian.tolist()
+
+    dump = {
+      "columns": self.Y_columns, 
+      "matrix_columns" : scan_over, 
+      "hessian" : hessian,
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)
 
   def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4):
     """

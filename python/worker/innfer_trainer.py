@@ -12,7 +12,7 @@ import tensorflow as tf
 from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
-from useful_functions import Resample
+from useful_functions import Resample, MakeDirectories
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
@@ -49,6 +49,7 @@ class InnferTrainer(bf.trainers.Trainer):
       active_learning = False,
       active_learning_options = {},
       resample = False,
+      model_name = "model.h5",
       **kwargs,
    ):
       """
@@ -80,6 +81,7 @@ class InnferTrainer(bf.trainers.Trainer):
       self.active_learning = active_learning
       self.active_learning_options = active_learning_options
       self.resample = resample
+      best_val_loss = None
 
       # Compile update function, if specified
       if use_autograph:
@@ -111,8 +113,10 @@ class InnferTrainer(bf.trainers.Trainer):
       # Loop through epochs
       for ep in range(1, epochs + 1):
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
+
             #Loop through dataset
             for bi in range(1,X_train.num_batches+1):
+
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
@@ -130,10 +134,21 @@ class InnferTrainer(bf.trainers.Trainer):
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
          loss = self._get_epoch_loss(X_train, Y_train, wt_train, ep, **kwargs)
+         if np.isnan(loss):
+            print("ERROR: Loss in NaN")
+            break
          print(f"INFO:root:Train, Epoch: {ep}, Loss: {round(float(loss),3)}")
          self.loss_history._total_train_loss.append(float(loss))
          val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
          self.lr_history.append(lr)
+         
+         # Save best model
+         if (best_val_loss is None) or (val_loss < best_val_loss):
+            best_val_loss = 1.0*val_loss
+            MakeDirectories(model_name)
+            self.amortizer.inference_net.save_weights(model_name)
+
+         # Write metrics to wandb
          if use_wandb:
             metrics = {
                "train_loss": loss,
@@ -143,18 +158,17 @@ class InnferTrainer(bf.trainers.Trainer):
             }
             wandb.log(metrics)
 
-
          # Check early stopping, if specified
          if self._check_early_stopping(early_stopper):
-               break
+            break
 
       # Remove optimizer reference, if not set as persistent
       if not reuse_optimizer:
          self.optimizer = None
-
+      
       return self.loss_history.get_plottable()
    
-   def _get_epoch_loss(self, X, Y, wt, ep, batch_size=1000000, **kwargs):        
+   def _get_epoch_loss(self, X, Y, wt, ep, **kwargs):        
       """
       Helper method to compute the average epoch loss(es).
 
@@ -168,6 +182,7 @@ class InnferTrainer(bf.trainers.Trainer):
       Returns:
          tf.Tensor: Average epoch loss.
       """
+      batch_size = int(os.getenv("EVENTS_PER_BATCH"))
       X_old_batch_size = copy.deepcopy(X.batch_size)
       Y_old_batch_size = copy.deepcopy(Y.batch_size)
       wt_old_batch_size = copy.deepcopy(wt.batch_size)
@@ -175,10 +190,13 @@ class InnferTrainer(bf.trainers.Trainer):
       Y.ChangeBatchSize(batch_size)
       wt.ChangeBatchSize(batch_size)
       sum_loss = 0
+      sum_wts = 0
       for _ in range(X.num_batches):
          conf = self._load_batch(X, Y, wt, ep)
-         sum_loss += float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))
-      loss = tf.constant(sum_loss/X.num_batches)
+         sum_loss += (float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))*np.sum(conf["loss_weights"]))
+         sum_wts += np.sum(conf["loss_weights"])
+      loss = tf.constant(sum_loss/sum_wts)
+      #print(float(sum_loss), float(sum_wts), float(loss))
       X.ChangeBatchSize(X_old_batch_size)
       Y.ChangeBatchSize(Y_old_batch_size)
       wt.ChangeBatchSize(wt_old_batch_size)

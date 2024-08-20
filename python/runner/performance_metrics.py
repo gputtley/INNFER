@@ -24,7 +24,7 @@ class PerformanceMetrics():
     self.do_loss = True
     self.do_chi_squared = False
     self.do_bdt_separation = False
-    self.do_inference = True
+    self.do_inference = False
     self.test_name = "test"
     self.save_extra_name = ""
 

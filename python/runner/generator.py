@@ -24,6 +24,7 @@ class Generator():
     self.pois = None
     self.nuisances = None
 
+    self.split_nuisance_models = False
     self.yield_function = "default"
     self.plots_output = "plots/"
     self.verbose = True
@@ -31,6 +32,7 @@ class Generator():
     self.scale_to_yield = False
     self.do_1d = True
     self.do_2d_unrolled = False
+    self.do_transformed = False
     self.seed = 42
     self.data_type = "sim"
     self.extra_plot_name = ""
@@ -72,6 +74,25 @@ class Generator():
     sim_dps = {}
     synth_dps = {}
     for file_name in self.model.keys():
+
+      # Check to see if model in use
+      if self.split_nuisance_models:
+        drop = False
+
+        # If key in nuisances, and nuisance value is 0, and this is a model for that nuisance
+        for key in self.Y_synth.columns:
+          if key in self.nuisances and float(self.Y_synth.loc[0,key]) == 0 and file_name.endswith(key):
+            drop = True
+
+        # If all the nuisances are not equal to 0, and this is a nominal model, and a model for that nuisance exists.
+        nuisances_not_equal_to_0 = not (self.Y_synth.loc[0,[i for i in self.nuisances if i in self.Y_synth.columns]] == 0).all()
+        nominal_model = not any(file_name.endswith(nui) for nui in self.nuisances)
+        nuisance_exists = f"{file_name}_{self.Y_synth.loc[0,[i for i in self.nuisances if i in self.Y_synth.columns]].idxmax()}" in self.model.keys()
+        if nuisances_not_equal_to_0 and nominal_model and nuisance_exists:
+          drop = True
+
+        if drop:
+          continue
 
       # Open parameters
       if self.verbose:
@@ -186,17 +207,18 @@ class Generator():
         extra_dir="GenerationTrue1D",
         extra_name=self.extra_plot_name,
       )
-      if self.data_type != "data":
-        self._PlotGeneration(
-          synth_dps, 
-          sim_dps, 
-          parameters["X_columns"],
-          sim_plot_name,
-          sample_plot_name,
-          transform=True,
-          extra_dir="GenerationTrue1DTransformed",
-          extra_name=self.extra_plot_name,
-        )
+      if self.do_transformed:
+        if self.data_type != "data":
+          self._PlotGeneration(
+            synth_dps, 
+            sim_dps, 
+            parameters["X_columns"],
+            sim_plot_name,
+            sample_plot_name,
+            transform=True,
+            extra_dir="GenerationTrue1DTransformed",
+            extra_name=self.extra_plot_name,
+          )
 
     if self.do_2d_unrolled:
       if self.verbose:
@@ -213,16 +235,18 @@ class Generator():
         extra_name=self.extra_plot_name,
       )
 
-      self._Plot2DUnrolledGeneration(
-        synth_dps, 
-        sim_dps, 
-        parameters["X_columns"],
-        sim_plot_name,
-        sample_plot_name,
-        transform=True,
-        extra_dir="GenerationTrue2DUnrolledTransformed",
-        extra_name=self.extra_plot_name,
-      )
+      if self.do_transformed:
+        if self.data_type != "data":
+          self._Plot2DUnrolledGeneration(
+            synth_dps, 
+            sim_dps, 
+            parameters["X_columns"],
+            sim_plot_name,
+            sample_plot_name,
+            transform=True,
+            extra_dir="GenerationTrue2DUnrolledTransformed",
+            extra_name=self.extra_plot_name,
+          )
 
   def Outputs(self):
     """
@@ -239,9 +263,10 @@ class Generator():
           f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}.pdf",
         ]
         if self.data_type != "data":
-          outputs += [
-            f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
-          ]
+          if self.do_transformed:
+            outputs += [
+              f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
+            ]
 
     if self.do_2d_unrolled:
       for plot_col in parameters["X_columns"]:
@@ -251,9 +276,10 @@ class Generator():
             f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
           ]
           if self.data_type != "data":
-            outputs += [
-              f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
-            ]
+            if self.do_transformed:
+              outputs += [
+                f"{self.plots_output}/GenerationTrue2DUnrolledTransformed/generation_unrolled_2d_{plot_col}_{unrolled_col}{self.extra_plot_name}.pdf", 
+              ]
 
     # Add other outputs
     outputs += self.other_output_files

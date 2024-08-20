@@ -4,6 +4,7 @@ import os
 import pickle
 import yaml
 
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -35,6 +36,8 @@ class PreProcess():
     self.parquet_file_name = None
 
     # Other
+    self.number_of_shuffles = 100
+    self.split_validation_files = False
     self.verbose = True
     self.data_output = "data/"
     self.plots_output = "plots/"
@@ -233,7 +236,6 @@ class PreProcess():
           )
 
       # Load and write batches
-      # TO DO: Find a way to shuffle the dataset without loading it all into memory
       if self.verbose:
         if cfg["preprocess"]["train_test_val_split"].count(":") == 2:
           print("- Making X/Y/wt and train/test/val split datasets and writing them to file")
@@ -262,6 +264,26 @@ class PreProcess():
 
       # Delete data processor
       del dp
+      gc.collect()
+
+      # Shuffle dataset
+      if self.verbose:
+        print("- Shuffling dataset")
+      for data_split in self.dataset_loop:
+        for i in ["X","Y","wt"]:
+          name = f"{self.data_output}/{i}_{data_split}.parquet"
+          shuffle_name = f"{self.data_output}/{i}_{data_split}_shuffled.parquet"
+          if os.path.isfile(shuffle_name):
+            os.system(f"rm {shuffle_name}")   
+          shuffle_dp = DataProcessor([[name]],"parquet")
+          for i in range(self.number_of_shuffles):
+            shuffle_dp.GetFull(
+              method = None,
+              functions_to_apply = [
+                partial(self._DoShuffleIteration, iteration=i, total_iterations=self.number_of_shuffles, seed=42, dataset_name=shuffle_name)
+              ]
+            )
+          os.system(f"mv {shuffle_name} {name}")
 
       # Write yields file
       if self.verbose:
@@ -279,6 +301,7 @@ class PreProcess():
         yaml.dump(parameters, yaml_file, default_flow_style=False)  
       print(f"Created {self.data_output}/parameters.yaml")
 
+  
  
   def Outputs(self):
     """
@@ -338,10 +361,25 @@ class PreProcess():
       df.loc[:,"wt"] = (scale_to / sum_weights) * df.loc[:,"wt"]      
     return df
 
-  def _DoWriteDatasets(self, df, X_columns=[], Y_columns=[], data_split="train"):
+  def _DoShuffleIteration(self, df, iteration=0, total_iterations=10, seed=42, dataset_name="dataset.parquet"):
+
+    # Select indices
+    iteration_indices = (np.random.default_rng(seed).integers(0, total_iterations, size=len(df)) == iteration)
+
+    # Write to file
+    table = pa.Table.from_pandas(df.loc[iteration_indices, :], preserve_index=False)
+    if os.path.isfile(dataset_name):
+      combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
+      pq.write_table(combined_table, dataset_name, compression='snappy')
+    else:
+      pq.write_table(table, dataset_name, compression='snappy')
+
+    return df
+
+  def _DoWriteDatasets(self, df, X_columns=[], Y_columns=[], data_split="train", extra_name=""):
 
     for data_type, columns in {"X":X_columns, "Y":Y_columns, "wt":["wt"]}.items():
-      file_path = f"{self.data_output}/{data_type}_{data_split}.parquet"
+      file_path = f"{self.data_output}{extra_name}/{data_type}_{data_split}.parquet"
       table = pa.Table.from_pandas(df.loc[:, sorted(columns)], preserve_index=False)
       if os.path.isfile(file_path):
         combined_table = pa.concat_tables([pq.read_table(file_path), table])

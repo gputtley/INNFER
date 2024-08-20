@@ -4,13 +4,14 @@ permutation: "fixed"
 num_coupling_layers: 10
 # training
 epochs: 10
-batch_size: 512
+batch_size: 2048
 early_stopping: False
 learning_rate: 0.001
 optimizer_name: "AdamW"
 lr_scheduler_name: "CosineDecay"
 active_learning: False
 resample: False
+gradient_clipping_norm: null
 # affine or interleaved only
 affine_units_per_dense_layer: 128
 affine_num_dense_layers: 2

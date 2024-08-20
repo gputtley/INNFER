@@ -26,12 +26,19 @@ def CamelToSnake(name):
   s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
   return s2.lower()
 
-def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name):
+def MakeSplitValidationParameterDict(file_name, cfg, val_ind):
+  if file_name == "combined":
+    return {fn : f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml" for fn in GetFileLoop(cfg)}
+  else:
+    return f"data/{cfg['name']}/{file_name}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml"
+
+
+def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind):
   common_config = {
     "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
     "true_Y" : val_info["row"],
     "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-    "parameters" : val_loop_info["parameters"][file_name],
+    "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else MakeSplitValidationParameterDict(file_name, cfg, val_ind),
     "model" : val_loop_info["models"][file_name],
     "architecture" : val_loop_info["architectures"][file_name],
     "data_output" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
@@ -48,6 +55,7 @@ def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name):
     "data_file": cfg["data_file"],
     "binned_fit_input" : args.binned_fit_input,
     "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
+    "minimisation_method" : args.minimisation_method,
   }
   return common_config
 
@@ -236,7 +244,7 @@ def GetCombinedValidateLoop(cfg, parameters):
   for poi in cfg["pois"]:
     pois.append(poi)
     unique_values_for_pois.append([])
-    for file in cfg["files"]:
+    for file in GetFileLoop(cfg):
       if poi not in parameters[file]["unique_Y_values"]: continue
       for val in parameters[file]["unique_Y_values"][poi]:
         if val not in unique_values_for_pois[-1]:
@@ -247,7 +255,14 @@ def GetCombinedValidateLoop(cfg, parameters):
 
   for nuisance in cfg["nuisances"]:
     nuisances.append(nuisance)
-    unique_values_for_nuisances.append([0.0])
+    #unique_values_for_nuisances.append([0.0])
+    unique_values_for_nuisances.append([])
+    for file in GetFileLoop(cfg):
+      if nuisance not in parameters[file]["unique_Y_values"]: continue
+      for nuisance in parameters[file]["unique_Y_values"][nuisance]:
+        if val not in unique_values_for_nuisances[-1]:
+          unique_values_for_nuisances[-1].append(nuisance)
+
 
   initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))
 
@@ -472,12 +487,12 @@ def GetValidateInfo(
       Dictionary containing validation information structured based on data_type.
   """
 
-  parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in cfg["files"].keys()}
+  parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in GetFileLoop(cfg)}
   loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
-  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in cfg["files"].keys()}
-  models = {file_name: f"{models_loc}/{file_name}/{file_name}.h5" for file_name in cfg["files"].keys()}
-  architectures = {file_name: f"{models_loc}/{file_name}/{file_name}_architecture.yaml" for file_name in cfg["files"].keys()}
-  if len(cfg["files"].keys()) > 1:
+  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in GetFileLoop(cfg)}
+  models = {file_name: f"{models_loc}/{file_name}/{file_name}.h5" for file_name in GetFileLoop(cfg)}
+  architectures = {file_name: f"{models_loc}/{file_name}/{file_name}_architecture.yaml" for file_name in GetFileLoop(cfg)}
+  if len(GetFileLoop(cfg)) > 1:
     val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
     parameters["combined"] = copy.deepcopy(parameters)
     models["combined"] = copy.deepcopy(models)
@@ -536,7 +551,7 @@ def GetValidateLoop(cfg, parameters_file):
     for ind, nuisance in enumerate(nuisances_loop):
       nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
       for nuisance_value in nuisance_value_loop:
-        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
+        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance and v in parameters_file["Y_columns"]]
         nuisance_in_row = [] if nuisance is None else [nuisance]
         nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
         row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
