@@ -40,7 +40,7 @@ class Likelihood():
     self.best_fit = None
     self.best_fit_nll = None
 
-  def _Gaussian(self, x):
+  def _Gaussian(self, x, derivative=0):
     """
     Computes the Gaussian distribution.
 
@@ -50,9 +50,16 @@ class Likelihood():
     Returns:
         float: The Gaussian distribution value.
     """
-    return 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * float(x)**2)
+    x = float(x)
+    gauss =  1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2)
+    if derivative == 0:
+      return gauss
+    elif derivative == 1:
+      return -x * gauss
+    elif derivative == 2:
+      return (x**2 - 1) * gauss
 
-  def _LogNormal(self, x):
+  def _LogNormal(self, x, derivative=0):
     """
     Computes the Log-Normal distribution.
 
@@ -62,7 +69,14 @@ class Likelihood():
     Returns:
         float: The Log-Normal distribution value.
     """
-    return 1 / (float(x) * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(float(x)))**2)
+    x = float(x)
+    log_normal = 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
+    if derivative == 0:
+      return log_normal
+    elif derivative == 1:
+      return log_normal * (-1 / x - np.log(x) / x)
+    elif derivative == 2:
+      return log_normal * (1 / x**2 + (3 * np.log(x) + np.log(x)**3) / x**2)
 
   def _MakeY(self):
     """
@@ -321,7 +335,7 @@ class Likelihood():
       return np.exp(ln_lkld)
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="nominal", freeze={}, initial_step_size=0.05, save_best_fit=True):
+  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.05, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -331,12 +345,11 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
-    if method in ["nominal","scipy"]:
+    if method == "scipy":
 
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2)
       result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size)
-
-
+      
     elif method == "scipy_with_gradients":
 
       func_val_and_jac = lambda Y: self.GetNLLWithGradient(X_dps, Y, multiply_by=-2)
@@ -407,11 +420,6 @@ class Likelihood():
     else:
       raise ValueError("D matrix only valid for unbinned fits.")
 
-    # Extended fit information
-    if self.type in ["unbinned_extended","binned_extended"]:
-      # TO BE IMPLEMENTED: Add extended terms
-      print() 
-
     # TO BE IMPLEMENTED: Add constraint terms  
 
     return d_matrix.tolist()
@@ -463,17 +471,12 @@ class Likelihood():
         dps_second_derivative = X_dp.GetFull(
           method = "custom",
           custom = self._CustomDPMethodForCombinedPDF,
-          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "normalise" : True, "gradient" : [2], "column_1" : column_1, "column_2" : column_2}
+          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "normalise" : (self.type == "unbinned"), "gradient" : [2], "column_1" : column_1, "column_2" : column_2}
         )
         second_derivative += dps_second_derivative
     else:
       # TO BE IMPLEMENTED: Second derivative for binned fits
       print()
-
-    # Extended fit information
-    if self.type in ["unbinned_extended","binned_extended"]:
-      # TO BE IMPLEMENTED: Add extended terms
-      print() 
 
     # TO BE IMPLEMENTED: Add constraint terms  
 

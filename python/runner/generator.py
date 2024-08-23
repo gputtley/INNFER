@@ -90,7 +90,6 @@ class Generator():
         nuisance_exists = f"{file_name}_{self.Y_synth.loc[0,[i for i in self.nuisances if i in self.Y_synth.columns]].idxmax()}" in self.model.keys()
         if nuisances_not_equal_to_0 and nominal_model and nuisance_exists:
           drop = True
-
         if drop:
           continue
 
@@ -110,9 +109,9 @@ class Generator():
       if self.verbose:
         print(f"- Building the model for {file_name}")
       networks[parameters['file_name']] = Network(
-        f"{parameters['file_loc']}/X_train.parquet",
-        f"{parameters['file_loc']}/Y_train.parquet", 
-        f"{parameters['file_loc']}/wt_train.parquet", 
+        f"{parameters['file_loc']}/X_val.parquet",
+        f"{parameters['file_loc']}/Y_val.parquet", 
+        f"{parameters['file_loc']}/wt_val.parquet", 
         options = {
           **architecture,
           **{
@@ -298,20 +297,14 @@ class Generator():
         self.model[file_name],
         self.architecture[file_name],
         self.parameters[file_name],
-        f"{parameters['file_loc']}/X_train.parquet",
-        f"{parameters['file_loc']}/Y_train.parquet", 
-        f"{parameters['file_loc']}/wt_train.parquet", 
+        f"{parameters['file_loc']}/X_val.parquet",
+        f"{parameters['file_loc']}/Y_val.parquet", 
+        f"{parameters['file_loc']}/wt_val.parquet", 
       ]
 
     # Add inputs from the dataset being used
     if self.data_type == "data":
       inputs += [self.data_file]
-    elif self.data_type == "sim":
-      inputs += [
-        f"{parameters['file_loc']}/X_val.parquet",
-        f"{parameters['file_loc']}/Y_val.parquet", 
-        f"{parameters['file_loc']}/wt_val.parquet", 
-      ]
 
     # Add other outputs
     inputs += self.other_input_files

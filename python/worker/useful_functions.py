@@ -26,19 +26,13 @@ def CamelToSnake(name):
   s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
   return s2.lower()
 
-def MakeSplitValidationParameterDict(file_name, cfg, val_ind):
-  if file_name == "combined":
-    return {fn : f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml" for fn in GetFileLoop(cfg)}
-  else:
-    return f"data/{cfg['name']}/{file_name}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml"
-
 
 def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind):
   common_config = {
     "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
     "true_Y" : val_info["row"],
     "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
-    "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else MakeSplitValidationParameterDict(file_name, cfg, val_ind),
+    "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
     "model" : val_loop_info["models"][file_name],
     "architecture" : val_loop_info["architectures"][file_name],
     "data_output" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
@@ -258,17 +252,15 @@ def GetCombinedValidateLoop(cfg, parameters):
     #unique_values_for_nuisances.append([0.0])
     unique_values_for_nuisances.append([])
     for file in GetFileLoop(cfg):
-      if nuisance not in parameters[file]["unique_Y_values"]: continue
+      if nuisance not in parameters[file]["Y_columns"]: continue
       for nuisance in parameters[file]["unique_Y_values"][nuisance]:
         if val not in unique_values_for_nuisances[-1]:
           unique_values_for_nuisances[-1].append(nuisance)
 
-
   initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))
 
   for poi_values in list(product(*unique_values_for_pois)): 
-    nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
-    for ind, nuisance in enumerate(nuisances_loop):
+    if not cfg.get("validation", {}).get("off_diagonal_nuisances", False):
       nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
       for nuisance_value in nuisance_value_loop:
         other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
@@ -282,6 +274,17 @@ def GetCombinedValidateLoop(cfg, parameters):
         val_loop.append({
           "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
           "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
+        })
+    else:
+      for nuisance_values in list(product(*unique_values_for_nuisances)):
+        row = np.array(list(poi_values)+list(nuisance_values))
+        columns = pois+nuisances
+        sorted_columns = sorted(columns)
+        sorted_row = [row[columns.index(col)] for col in sorted_columns]
+        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
+        val_loop.append({
+          "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
+          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
         })
 
   return val_loop
@@ -519,7 +522,7 @@ def GetValidateInfo(
 
   return info
 
-def GetValidateLoop(cfg, parameters_file):
+def GetValidateLoop(cfg, parameters_file, off_diagonal_nuisances=True):
   """
   Generate a list of dictionaries representing parameter combinations for validation loops.
 
@@ -546,16 +549,28 @@ def GetValidateLoop(cfg, parameters_file):
   initial_poi_guess = [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(pois))]
   initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
 
-  for poi_values in list(product(*unique_values_for_pois)): 
-    nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
-    for ind, nuisance in enumerate(nuisances_loop):
-      nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
-      for nuisance_value in nuisance_value_loop:
-        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance and v in parameters_file["Y_columns"]]
-        nuisance_in_row = [] if nuisance is None else [nuisance]
-        nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-        columns = pois+nuisance_in_row+other_nuisances
+  for poi_values in list(product(*unique_values_for_pois)):
+    if not cfg.get("validation", {}).get("off_diagonal_nuisances", False):
+      nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
+      for ind, nuisance in enumerate(nuisances_loop):
+        nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
+        for nuisance_value in nuisance_value_loop:
+          other_nuisances = [v for v in cfg["nuisances"] if v != nuisance and v in parameters_file["Y_columns"]]
+          nuisance_in_row = [] if nuisance is None else [nuisance]
+          nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
+          row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
+          columns = pois+nuisance_in_row+other_nuisances
+          sorted_columns = sorted(columns)
+          sorted_row = [row[columns.index(col)] for col in sorted_columns]
+          sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
+          val_loop.append({
+            "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
+            "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
+          })
+    else:
+      for nuisance_values in list(product(*unique_values_for_nuisances)):
+        row = np.array(list(poi_values)+list(nuisance_values))
+        columns = pois+nuisances
         sorted_columns = sorted(columns)
         sorted_row = [row[columns.index(col)] for col in sorted_columns]
         sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
@@ -563,7 +578,7 @@ def GetValidateLoop(cfg, parameters_file):
           "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
           "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
         })
-        
+
   return val_loop
 
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
@@ -863,6 +878,27 @@ def SetupSnakeMakeFile(args, default_args, main):
   b_rules._CreateJob(rules, snakemake_file)   
 
   return snakemake_file
+
+def SplitValidationParameters(val_loops, file_name, val_ind, cfg):
+
+  if file_name == "combined":
+    output = {}
+    combined_row = val_loops["combined"][val_ind]["row"]
+    for fn, val_loop in val_loops.items():
+      if fn == "combined": continue
+      for indiv_val_ind, val_info in enumerate(val_loop):
+        indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
+        indiv_row = val_info["row"].loc[:, indiv_columns]
+        combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
+        if indiv_row.equals(combined_row_with_indiv_columns):
+          if len(indiv_row.columns) > 0:
+            output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
+          else:
+            output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
+          break
+    return output
+  else:
+    return f"data/{cfg['name']}/{file_name}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml"
 
 def StringToFile(string):
   """

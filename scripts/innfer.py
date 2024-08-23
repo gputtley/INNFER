@@ -16,7 +16,8 @@ from useful_functions import (
     GetFileLoop,
     GetScanArchitectures,
     GetValidateInfo,
-    SetupSnakeMakeFile
+    SetupSnakeMakeFile,
+    SplitValidationParameters
 )
 
 def parse_args():
@@ -34,7 +35,7 @@ def parse_args():
   parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
-  parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='Nominal')
+  parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
   parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
@@ -290,14 +291,16 @@ def main(args, default_args):
   # Plot preprocess data
   if args.step == "SplitValidationFiles":
     print("<< Splitting the validation files >>")
+    validate_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)["val_loops"]
     for file_name in GetFileLoop(cfg):
+      if file_name not in validate_info.keys(): continue
       module.Run(
         module_name = "split_validation_files",
         class_name = "SplitValidationFiles",
         config = {
           "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
           "data_output" : f"data/{cfg['name']}/{file_name}/SplitValidationFiles",
-          "val_loop" : GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)["val_loops"][file_name],
+          "val_loop" : validate_info[file_name],
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
@@ -316,7 +319,7 @@ def main(args, default_args):
           config = {
             "Y_sim" : val_info["row"],
             "Y_synth" : val_info["row"],
-            "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else f"data/{cfg['name']}/{file_name}/SplitValidationFiles/parameters_{val_ind}.yaml",
+            "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
             "model" : val_loop_info["models"][file_name],
             "architecture" : val_loop_info["architectures"][file_name],
             "yield_function" : "default",
@@ -345,7 +348,7 @@ def main(args, default_args):
         class_name = "GeneratorSummary",
         config = {
           "val_loop" : val_loop,
-          "parameters" : val_loop_info["parameters"][file_name],
+          "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
           "model" : val_loop_info["models"][file_name],
           "architecture" : val_loop_info["architectures"][file_name],
           "yield_function" : "default",
