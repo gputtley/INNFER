@@ -732,6 +732,7 @@ class Network():
     elif order == 1 or order == [1] or order == [0,1]: # Get the first derivative of the log probability
       
       # Find column to get derivative for
+      skip = False
       if column_1 is not None:
         if column_1 in self.data_parameters["Y_columns"]:
           index = self.data_parameters["Y_columns"].index(column_1)
@@ -739,28 +740,34 @@ class Network():
         elif column_1 in self.data_parameters["X_columns"]:
           index = self.data_parameters["X_columns"].index(column_1)
           grad_of = "parameters"
+        else:
+          predictions = tf.convert_to_tensor(self.amortizer.log_posterior(data))
+          first_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
+          skip = True
       else:
         grad_of = "direct_conditions"
 
-      # Prepare tensorflow dataset
-      data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-      data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+      if not skip:
 
-      # Start gradient tape
-      with tf.GradientTape(persistent=True) as tape:
+        # Prepare tensorflow dataset
+        data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+        data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
 
-        # Set up tracking
-        tape.watch(data[grad_of])
+        # Start gradient tape
+        with tf.GradientTape(persistent=True) as tape:
 
-        # Get log prob
-        z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-        predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+          # Set up tracking
+          tape.watch(data[grad_of])
 
-      # Get first derivative
-      if column_1 is not None:
-        first_derivative = tape.gradient(predictions, data[grad_of])[:,index]
-      else:
-        first_derivative = tape.gradient(predictions, data[grad_of])
+          # Get log prob
+          z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+          predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+
+        # Get first derivative
+        if column_1 is not None:
+          first_derivative = tape.gradient(predictions, data[grad_of])[:,index]
+        else:
+          first_derivative = tape.gradient(predictions, data[grad_of])
 
       # Make log_probs array
       if column_1 is None:
@@ -781,7 +788,11 @@ class Network():
 
     elif order == 2 or order == [2] or order == [1,2] or order == [0,1,2] or order == [0,2]: # Get the second derivative of the log probability
 
+      if column_1 is None and column_1 is None:
+        raise ValueError("You must specifiy the columns required for the second derivative")
+
       # Find column 1 to get derivative for
+      skip = False
       if column_1 is not None:
         if column_1 in self.data_parameters["Y_columns"]:
           index_1 = self.data_parameters["Y_columns"].index(column_1)
@@ -789,6 +800,11 @@ class Network():
         elif column_1 in self.data_parameters["X_columns"]:
           index_1 = self.data_parameters["X_columns"].index(column_1)
           grad_of_1 = "parameters"
+        else:
+          predictions = tf.convert_to_tensor(self.amortizer.log_posterior(data))
+          first_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
+          second_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
+          skip = True
       else:
         grad_of_1 = "direct_conditions"
 
@@ -800,40 +816,46 @@ class Network():
         elif column_2 in self.data_parameters["X_columns"]:
           index_2 = self.data_parameters["X_columns"].index(column_2)
           grad_of_2 = "parameters"
+        else:
+          first_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
+          second_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
+          skip = True
       else:
         grad_of_2 = "direct_conditions"
 
-      # Prepare tensorflow dataset
-      data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-      data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+      if not skip:
 
-      # Start gradient tape for second derivative
-      with tf.GradientTape(persistent=True) as tape_2:
+        # Prepare tensorflow dataset
+        data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+        data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
 
-        # Set up tracking for second derivative
-        tape_2.watch(data[grad_of_2])
-
-        # Start gradient tape for first derivative
-        with tf.GradientTape(persistent=True) as tape_1:
+        # Start gradient tape for second derivative
+        with tf.GradientTape(persistent=True) as tape_2:
 
           # Set up tracking for second derivative
-          tape_1.watch(data[grad_of_1])
+          tape_2.watch(data[grad_of_2])
 
-          # Get log prob
-          z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-          predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+          # Start gradient tape for first derivative
+          with tf.GradientTape(persistent=True) as tape_1:
 
-        # Get first derivative
-        if column_1 is not None:
-          first_derivative = tape_1.gradient(predictions, data[grad_of_1])[:,index_1]
+            # Set up tracking for second derivative
+            tape_1.watch(data[grad_of_1])
+
+            # Get log prob
+            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+            predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
+
+          # Get first derivative
+          if column_1 is not None:
+            first_derivative = tape_1.gradient(predictions, data[grad_of_1])[:,index_1]
+          else:
+            first_derivative = tape_1.gradient(predictions, data[grad_of_1])
+
+        # Get second derivative
+        if column_2 is not None:
+          second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])[:,index_2]
         else:
-          first_derivative = tape_1.gradient(predictions, data[grad_of_1])
-
-      # Get second derivative
-      if column_2 is not None:
-        second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])[:,index_2]
-      else:
-        second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])
+          second_derivative = tape_2.gradient(first_derivative, data[grad_of_2])
 
       # Make log_probs array
       log_probs = []

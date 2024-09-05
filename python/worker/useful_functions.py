@@ -261,20 +261,22 @@ def GetCombinedValidateLoop(cfg, parameters):
 
   for poi_values in list(product(*unique_values_for_pois)): 
     if not cfg.get("validation", {}).get("off_diagonal_nuisances", False):
-      nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
-      for nuisance_value in nuisance_value_loop:
-        other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
-        nuisance_in_row = [] if nuisance is None else [nuisance]
-        nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-        row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-        columns = pois+nuisance_in_row+other_nuisances
-        sorted_columns = sorted(columns)
-        sorted_row = [row[columns.index(col)] for col in sorted_columns]
-        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
-        val_loop.append({
-          "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
-          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
-        })
+      nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
+      for ind, nuisance in enumerate(nuisances_loop):
+        nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
+        for nuisance_value in nuisance_value_loop:
+          other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
+          nuisance_in_row = [] if nuisance is None else [nuisance]
+          nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
+          row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
+          columns = pois+nuisance_in_row+other_nuisances
+          sorted_columns = sorted(columns)
+          sorted_row = [row[columns.index(col)] for col in sorted_columns]
+          sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
+          val_loop.append({
+            "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
+            "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
+          })
     else:
       for nuisance_values in list(product(*unique_values_for_nuisances)):
         row = np.array(list(poi_values)+list(nuisance_values))
@@ -522,7 +524,7 @@ def GetValidateInfo(
 
   return info
 
-def GetValidateLoop(cfg, parameters_file, off_diagonal_nuisances=True):
+def GetValidateLoop(cfg, parameters_file):
   """
   Generate a list of dictionaries representing parameter combinations for validation loops.
 

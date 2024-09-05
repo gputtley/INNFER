@@ -126,23 +126,6 @@ class BinnedDistributions():
     Return a list of outputs given by class
     """
     outputs = []
-    file_name = list(self.model.keys())[0]
-    with open(self.parameters[file_name], 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-    if self.do_1d:
-      for col in parameters["X_columns"]:
-        outputs += [
-          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}.pdf",
-        ]
-        if self.data_type != "data":
-          outputs += [
-            f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
-          ]
-
-    # Add other outputs
-    outputs += self.other_output_files
-
     return outputs
 
   def Inputs(self):
@@ -150,12 +133,10 @@ class BinnedDistributions():
     Return a list of inputs required by class
     """
     inputs = []
-    for file_name in self.model.keys():
+    for file_name in self.parameters.keys():
       with open(self.parameters[file_name], 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
       inputs += [
-        self.model[file_name],
-        self.architecture[file_name],
         self.parameters[file_name],
         f"{parameters['file_loc']}/X_train.parquet",
         f"{parameters['file_loc']}/Y_train.parquet", 

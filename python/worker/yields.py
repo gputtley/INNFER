@@ -256,7 +256,7 @@ class Yields():
       nui_val, yield_val = self.ExtendRanges(df_to_interp.loc[:,col], df_to_interp.loc[:,self.column_name])
 
       # Make interpolator
-      f = interp1d(nui_val,yield_val)
+      f = interp1d(nui_val, yield_val, bounds_error=False, fill_value=np.nan)
 
       # Interpolate and adjust total_yield
       total_yield += (f(Y.loc[:,col].iloc[0]) - nominal)

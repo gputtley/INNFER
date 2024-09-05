@@ -39,7 +39,7 @@ def parse_args():
   parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
-  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=100)
+  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=10)
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
@@ -54,7 +54,7 @@ def parse_args():
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--split-validation-files', help='Split the validation files.', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'SplitValidationFiles', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'HessianAndCovariance', 'HessianDMatrixAndCovariance', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'SplitValidationFiles', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'DMatrix', 'Covariance', 'CovarianceWithDMatrix', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap','ApproximateUncertainty','HessianAndCovariance','HessianDMatrixAndCovariance'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
@@ -441,9 +441,9 @@ def main(args, default_args):
             loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column},
           )
 
-  # Get the Hessian and the Covariance matrix
-  if args.step == "HessianAndCovariance":
-    print(f"<< Calculating the Hessian and Covariances matrices >>")
+  # Get the Hessian matrix
+  if args.step == "Hessian":
+    print(f"<< Calculating the Hessian matrix >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
@@ -452,9 +452,56 @@ def main(args, default_args):
           class_name = "Infer",
           config = {
             **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-            "method" : "HessianAndCovariance",
+            "method" : "Hessian",
             "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
-            "data_output" : f"data/{cfg['name']}/{file_name}/HessianAndCovariance{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}",
+            "model_type" : args.model_type,
+            "extra_file_name" : str(val_ind),
+            "data_file" : cfg["data_file"],
+            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+            "scan_over_nuisances" : args.scan_over_nuisances,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
+  # Get the Covariance matrix
+  if args.step == "Covariance":
+    print(f"<< Calculating the Covariance matrix >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "infer",
+          class_name = "Infer",
+          config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+            "method" : "Covariance",
+            "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+            "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/Covariance{args.extra_infer_dir_name}",
+            "model_type" : args.model_type,
+            "extra_file_name" : str(val_ind),
+            "data_file" : cfg["data_file"],
+            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+            "scan_over_nuisances" : args.scan_over_nuisances,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
+  # Get the D matrix
+  if args.step == "DMatrix":
+    print(f"<< Calculating the D matrix >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "infer",
+          class_name = "Infer",
+          config = {
+            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+            "method" : "DMatrix",
+            "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/DMatrix{args.extra_infer_dir_name}",
             "model_type" : args.model_type,
             "extra_file_name" : str(val_ind),
             "data_file" : cfg["data_file"],
@@ -465,8 +512,8 @@ def main(args, default_args):
         )
 
   # Get the Hessian, D matrix and the Covariance matrix
-  if args.step == "HessianDMatrixAndCovariance":
-    print(f"<< Calculating the Hessian, D and Covariances matrices >>")
+  if args.step == "CovarianceWithDMatrix":
+    print(f"<< Calculating the Covariance matrix with the D matrix correction >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
@@ -475,9 +522,10 @@ def main(args, default_args):
           class_name = "Infer",
           config = {
             **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-            "method" : "HessianDMatrixAndCovariance",
-            "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
-            "data_output" : f"data/{cfg['name']}/{file_name}/HessianDMatrixAndCovariance{args.extra_infer_dir_name}",
+            "method" : "CovarianceWithDMatrix",
+            "data_input" : f"data/{cfg['name']}/{file_name}/DMatrix{args.extra_infer_dir_name}",
+            "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{file_name}/CovarianceWithDMatrix{args.extra_infer_dir_name}",
             "model_type" : args.model_type,
             "extra_file_name" : str(val_ind),
             "data_file" : cfg["data_file"],

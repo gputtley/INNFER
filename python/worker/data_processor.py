@@ -102,7 +102,6 @@ class DataProcessor():
     functions_to_apply = self.functions + functions_to_apply
 
     self.finished = False
-
     for column_ind in range(len(self.datasets[self.file_ind])):
 
       # Get dataset
@@ -357,11 +356,16 @@ class DataProcessor():
         
       # Unstandardise the first derivative of the log probabilities
       if column_name.startswith("d_log_prob_by_d_"):
-        data.loc[:,column_name] /= self.parameters["standardisation"][column_name.split("d_log_prob_by_d_")[1]]["std"]
+        col_1 = column_name.split("d_log_prob_by_d_")[1]
+        if col_1 in self.parameters["standardisation"].keys():
+          data.loc[:,column_name] /= self.parameters["standardisation"][col_1]["std"]
 
       # Unstandardise the second derivative of the log probabilities
       if column_name.startswith("d2_log_prob_by_d_"):
-        data.loc[:,column_name] /= (self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[0]]["std"] * self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]]["std"])
+        col_1 = column_name.split("d2_log_prob_by_d_")[1].split("_and_")[0]
+        col_2 = column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]
+        if col_1 in self.parameters["standardisation"].keys() and col_2 in self.parameters["standardisation"].keys():
+          data.loc[:,column_name] /= (self.parameters["standardisation"][col_1]["std"] * self.parameters["standardisation"][col_2]["std"])
 
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
