@@ -832,10 +832,6 @@ def main(args, default_args):
         loop = {"file_name" : file_name},
       )
 
-  # Make PDFs of all plots
-  if args.step == "MakePDFs":
-    print(f"<< Making PDFs of all plots produced >>")
-
   module.Sweep()
 
 if __name__ == "__main__":
