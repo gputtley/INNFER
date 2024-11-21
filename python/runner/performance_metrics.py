@@ -24,10 +24,10 @@ class PerformanceMetrics():
     self.data_output = "data/"
     self.verbose = True
     self.do_loss = True
-    self.do_chi_squared = True
+    self.do_chi_squared = False
     self.do_bdt_separation = False
     self.do_inference = True
-    self.inference_datasets = ["train","test_inf","val"]
+    self.inference_datasets = ["test_inf","val"]
     self.test_name = "test"
     self.save_extra_name = ""
 
