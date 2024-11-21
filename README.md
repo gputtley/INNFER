@@ -51,8 +51,14 @@ You should call the profile `htcondor` and if you wish to looks at the condor su
 
 To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step=SnakeMake --snakemake-cfg=condor_core.yaml`. Other snakemake submission options are not set up. Please contact us if you wish for this to be setup.
 
-Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. Examples of this are in the `configs/snakemake` directory. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. INNFER can then be run with the following command:
+Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. Examples of this are in the `configs/snakemake` directory. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. 
 
+As the PreProcess (and MakeBenchmark) step needs to be run before creating the jobs, this is typically run first (although can be added to the snakemake config without submission options):
+```
+python3 scripts/innfer.py --cfg="config.yaml" --step="PreProcess"
+```
+
+The snakemake chain can then be run with the following command:
 ```
 python3 scripts/innfer.py --cfg="config.yaml" --step="SnakeMake" --snakemake-cfg="condor_core_quick.yaml"
 ```

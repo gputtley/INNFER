@@ -82,6 +82,15 @@ class InputPlot():
     Return a list of outputs given by class
     """
     outputs = []
+
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)    
+
+    for data_split in ["train","test","test_inf","val"]:
+      for col in parameters["X_columns"] + parameters["Y_columns"]:
+        outputs += [f"{self.plots_outputs}/distributions_{col}_{data_split}_transformed.pdf"]
+        outputs += [f"{self.plots_outputs}/distributions_{col}_{data_split}.pdf"]
+
     return outputs
 
   def Inputs(self):
@@ -92,6 +101,11 @@ class InputPlot():
       self.cfg,
       self.parameters,
     ]
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)    
+    for data_split in ["train","test","test_inf","val"]:
+      inputs += [f"{self.data_input}/X_{data_split}.parquet", f"{self.data_input}/Y_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]
+
     return inputs
         
   def _PlotX(self, vary, freeze, extra_name, parameters, n_bins=40, data_splits=["val"]):

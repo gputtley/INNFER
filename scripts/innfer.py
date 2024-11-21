@@ -53,11 +53,11 @@ def parse_args():
   parser.add_argument('--scan-over-nuisances', help='Perform likelihood scans over nuisance parameters as well as POIs', action='store_true')
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
+  parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--split-validation-files', help='Split the validation files.', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
-  #parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'SplitValidationFiles', 'Flow', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'DMatrix', 'Covariance', 'CovarianceWithDMatrix', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
@@ -466,7 +466,7 @@ def main(args, default_args):
               **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
               "method" : "ApproximateUncertainty",
               "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/ApproximateUncertaintyCollect{args.extra_infer_dir_name}",
+              "data_output" : f"data/{cfg['name']}/{file_name}/ApproximateUncertainty{args.extra_infer_dir_name}",
               "column" : column,
               "extra_file_name" : str(val_ind),
               "model_type" : args.model_type,
@@ -788,7 +788,7 @@ def main(args, default_args):
   if args.step == "SummaryChiSquared":
     print(f"<< Getting the chi squared of the summary >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    if args.summary_from in ["Scan","Bootstrap","ApproximateUncertainty"]: args.summary_from += "Collect"
+    if args.summary_from in ["Scan","Bootstrap"]: args.summary_from += "Collect"
     for file_name, val_loop in val_loop_info["val_loops"].items():
       module.Run(
         module_name = "summary_chi_squared",
@@ -809,7 +809,7 @@ def main(args, default_args):
   if args.step == "Summary":
     print(f"<< Plot the summary of results >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap","ApproximateUncertainty"] else args.summary_from+"Collect"
+    summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name, val_loop in val_loop_info["val_loops"].items():
       module.Run(
         module_name = "summary",
@@ -854,9 +854,10 @@ if __name__ == "__main__":
   else:
 
     snakemake_file = SetupSnakeMakeFile(args, default_args, main)
-    os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
-    snakemake_extra = " --forceall" if args.snakemake_force else ""
-    os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
+    if not args.snakemake_dry_run:
+      os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
+      snakemake_extra = " --forceall" if args.snakemake_force else ""
+      os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
   print("<< Finished running without error >>")
   end_time = time.time()

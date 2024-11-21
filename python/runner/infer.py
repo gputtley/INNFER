@@ -433,6 +433,30 @@ class Infer():
     if self.method == "InitialFit":
       outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
 
+    # Add hessian
+    if self.method == "Hessian":
+      outputs += [f"{self.data_output}/hessian{self.extra_file_name}.yaml"]
+
+    # Add dmatrix
+    if self.method == "DMatrix":
+      outputs += [f"{self.data_output}/dmatrix{self.extra_file_name}.yaml"]
+
+    # Add covariance
+    if self.method == "Covariance":
+      outputs += [f"{self.data_output}/covariance{self.extra_file_name}.yaml"]
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      for col in hessian["matrix_columns"]:      
+        outputs += f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"
+
+    # Add covariancewithdmatrix
+    if self.method == "CovarianceWithDMatrix":
+      outputs += [f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml"]
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      for col in hessian["matrix_columns"]:      
+        outputs += f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"
+
     # Add scan ranges
     if self.method == "ScanPoints":
       outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",]
@@ -440,6 +464,11 @@ class Infer():
     # Add scan values
     if self.method == "Scan":
       outputs += [f"{self.data_output}/scan_values_{self.column}{self.extra_file_name}_{self.scan_ind}.yaml",]
+
+    # Add approximate uncertainty
+    if self.method == "ApproximateUncertainty":
+      print(f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml")
+      outputs += [f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"]
 
     # Add other outputs
     outputs += self.other_output_files
@@ -479,9 +508,18 @@ class Infer():
       for file_name in self.parameters.keys():
         inputs += [f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"]
 
+
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPoints","Scan"]:
+    if self.method in ["ScanPoints","Scan","Hessian","DMatrix","ApproximateUncertainty"]:
       inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
+
+    # Add hessian 
+    if self.method in ["Covariance","CovarianceWithDMatrix"]:
+      inputs += [f"{self.data_input}/hessian{self.extra_file_name}.yaml"]
+
+    # Add d matrix
+    if self.method in ["CovarianceWithDMatrix"]:
+      inputs += [f"{self.data_input}/dmatrix{self.extra_file_name}.yaml"]
 
     # Add other inputs
     inputs += self.other_input_files
