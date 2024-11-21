@@ -7,12 +7,14 @@ To import the github repository, clone with the following command.
 git clone https://github.com/gputtley/INNFER.git
 ```
 
-Then to set up the conda environment for running this repository run this command. You will need to click `enter` and `yes` through all prompts. For the conda installation license hit `q` to go the end of the file and then you can fit `enter`. 
+Then to install conda run this command. You will need to click `enter` and `yes` through all prompts. If you already have a conda installed, this is not needed. 
 ```
 source setup.sh conda
+
+To set up the environment, you will need to run this command.
 ```
 ```
-source setup.sh packages
+source setup.sh env
 ```
 
 ## Setup Environment
@@ -123,28 +125,4 @@ You can the continue to run the remaining steps with the `--benchmark="GaussianW
 `Generator`: This will make plots using the network as a generator and comparing it to the input simulation. By default this will only make 1D plots for every Y value. However, you can make 2d plots with the `--plot-2d-unrolled` option.
 
 `GeneratorSummary`: This will make a summary plot of the comparison between the simulation and using the network as a generator, showing all unique Y values.
-
-## Structure of Code
-
-The code is built on several classes and sets of functions in the `python` directory. These are split into two types `runner` and `worker`. The `runner` files are typically called by the `scripts/innfer.py` and each represent a specific running step. The `worker` files are called by the `runner` files in order to help perform the required steps. Here I will give an explanation to the `worker` classes as the `runner` files are fairly self explanatory and the motivation for them is described in the description of steps.
-
-`batch.py`: Add stuff
-
-`benchmarks.py`: Add stuff
-
-`combined_network.py`: Add stuff
-
-`data_loader.py`: Add stuff
-
-`data_processor.py`: Add stuff
-
-`innfer_trainer.py`: Add stuff
-
-`likelihood.py`: Add stuff
-
-`network.py`: Add stuff
-
-`plotting.py`: Add stuff
-
-`useful_functions.py`: Add stuff
 
