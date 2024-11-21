@@ -48,7 +48,7 @@ class Dim5():
     self.beta = 0.5
 
     self.signal_yield = 1000.0
-    self.train_test_val_split = "0.4:0.3:0.3"
+    self.train_test_val_split = "0.8:0.1:0.1"
     self.array_size = int(3e6)
     self.dir_name = f"data/Benchmark_{self.name}/Inputs"
     
@@ -70,7 +70,12 @@ class Dim5():
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
-      "files" : {"Signal" : f"{self.dir_name}/Signal.parquet"},
+      "files" : {
+        "Signal" : {
+          "inputs" : [f"{self.dir_name}/Signal.parquet"],
+          "weight" : "wt"
+        }
+      },
       "variables" : [
         "X1",
         "X2",
@@ -133,7 +138,7 @@ class Dim5():
     data_parquet_file_path = f"{self.dir_name}/{self.name}_data.parquet"
     pq.write_table(data_table, data_parquet_file_path)
 
-  def Probability(self, X, Y, return_log_prob=True):
+  def Probability(self, X, Y, return_log_prob=True, order=0, column_1=None, column_2=None):
     """
     Computes the probability density function for a Gaussian distribution.
 
@@ -151,6 +156,9 @@ class Dim5():
     numpy.ndarray
         The (log) probability values.
     """
+
+    if order != 0 and order != [0]:
+      raise ValueError("Derivatives are not setup for the benchmark")
 
     if self.file_name == "Signal":
 
@@ -180,9 +188,9 @@ class Dim5():
 
     # Return correct value
     if return_log_prob:
-      return np.log(pdf.to_numpy()).reshape(-1,1)
+      return [np.log(pdf.to_numpy()).reshape(-1,1)]
     else:
-      return pdf.to_numpy().reshape(-1,1)
+      return [pdf.to_numpy().reshape(-1,1)]
 
   def Sample(self, Y, n_events):
     """

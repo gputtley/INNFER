@@ -98,8 +98,6 @@ class SplitValidationFiles():
       print(f"Created {self.data_output}/val_ind_{val_ind}/Y_val.yaml")
       print(f"Created {self.data_output}/val_ind_{val_ind}/wt_val.yaml")
 
-
-
   def Outputs(self):
     """
     Return a list of outputs given by class

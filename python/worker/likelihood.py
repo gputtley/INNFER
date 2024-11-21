@@ -133,6 +133,7 @@ class Likelihood():
 
   def _GetConstraint(self, Y, derivative=0, column_1=None, column_2=None):
 
+    ln_constraint = 0.0
     if "nuisance_constraints" in self.parameters.keys():
 
       first_loop = True
@@ -266,7 +267,7 @@ class Likelihood():
     for name, pdf in self.models["pdfs"].items():
 
       # Get rate times probability
-      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) * log_probs_first_derivative_1[name]) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_2) * log_probs_first_derivative_2[name]) + (self._GetYield(name, Y) * (log_probs_second_derivative[name] + (log_probs_first_derivative_1[name]*log_probs_first_derivative_2[name]))))
+      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) * log_probs_first_derivative_2[name]) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_2) * log_probs_first_derivative_1[name]) + (self._GetYield(name, Y) * (log_probs_second_derivative[name] + (log_probs_first_derivative_1[name]*log_probs_first_derivative_2[name]))))
 
       # Sum together probabilities of different files
       if first_loop:
@@ -319,6 +320,10 @@ class Likelihood():
 
   def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
 
+    #if len(X) > 0:
+    #  print(np.min(X,axis=0))
+    #  print(np.max(X,axis=0))
+
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
       get_log_prob_gradients = [0,1,2]
@@ -327,8 +332,12 @@ class Likelihood():
     else:
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2)
+
     if 1 in gradient or 2 in gradient:
-      first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
+      if column_1 != column_2:
+        first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
+      else:
+        first_derivative_other = {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}
 
     # Reshape the first derivatives so they are in the correct order
     if 1 in gradient:
@@ -348,7 +357,7 @@ class Likelihood():
     if 2 in get_log_prob_gradients:
       H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2)
       H2_grad_2 = self._GetH2SecondDerivative(Y, column_1=column_1, column_2=column_2)
-      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_2)
+      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2)
       H2_grad_1_col_2 = self._GetH2FirstDerivative(Y, column_1=column_2)
     
     # Calculate and weight sum loop terms
@@ -359,9 +368,13 @@ class Likelihood():
       if grad == 0:
         ln_lklds = log_H1 - log_H2
       elif grad == 1:
-        ln_lklds = ((1/np.exp(log_H1))*H1_grad_1_col_1) - ((1/np.exp(log_H2))*H2_grad_1_col_1)
+        ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_1_col_1) - ((1/np.exp(log_H2))*H2_grad_1_col_1)
       elif grad == 2:
-        ln_lklds = (np.exp(-log_H1)*H1_grad_2) - (np.exp(-2*log_H1)*H1_grad_1_col_1*H1_grad_1_col_2) - (np.exp(-log_H2)*H2_grad_2) + (np.exp(-2*log_H2)*H2_grad_1_col_1*H2_grad_1_col_2)
+        term_1 = self._HelperLogMultiplyTrick(-log_H1, H1_grad_2)
+        term_2 = -self._HelperLogMultiplyTrick(-2*log_H1, H1_grad_1_col_1*H1_grad_1_col_2)
+        term_3 = -np.exp(-log_H2)*H2_grad_2
+        term_4 = np.exp(-2*log_H2)*H2_grad_1_col_1*H2_grad_1_col_2
+        ln_lklds = term_1 + term_2 + term_3 + term_4
 
       if before_sum:
 
@@ -370,9 +383,24 @@ class Likelihood():
 
       else:
 
-        # Weight the events
+        #print("------------------------")
+        #print(np.isnan(ln_lklds).sum())
+        #nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
+        #print(X[nan_rows_mask])
+
+        #print(np.max(ln_lklds))
+        #print(ln_lklds[3550,:])
+        #print(ln_lklds[5831,:])
+        #print(np.min(ln_lklds),np.mean(ln_lklds),np.max(ln_lklds))
+        #print(X[ln_lklds==np.max(ln_lklds)])
+        #print(np.sum(ln_lklds, dtype=np.float128, axis=0))
+        #print("---------------")
+
+        ## Weight the events
         if wt_name is not None:
           ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
+
+        #print(np.sum(ln_lklds, dtype=np.float128, axis=0))
 
         # Product the events
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
@@ -418,9 +446,11 @@ class Likelihood():
       if grad == 0:
         ln_lklds = log_H1
       elif grad == 1:
-        ln_lklds = ((1/np.exp(log_H1))*H1_grad_1_col_1)
+        #ln_lklds = ((1/np.exp(log_H1))*H1_grad_1_col_1)
+        ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_1_col_1)
       elif grad == 2:
         ln_lklds = (np.exp(-log_H1)*H1_grad_2) - (np.exp(-2*log_H1)*H1_grad_1_col_1*H1_grad_1_col_2)
+        #ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_2) - self._HelperLogMultiplyTrick(-2*log_H1, H1_grad_1_col_1*H1_grad_1_col_2)
 
       if before_sum:
 
@@ -530,6 +560,19 @@ class Likelihood():
     mask = ln_b > ln_a
     ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
+
+  def _HelperLogMultiplyTrick(self, ln_a, b):
+
+    if ln_a.shape[1] == 1 and b.shape[1] > 1:
+      ln_a = np.repeat(ln_a, b.shape[1], axis=1)
+    elif b.shape[1] == 1 and ln_a.shape[1] > 1:
+      b = np.repeat(b, ln_a.shape[1], axis=1)
+
+    indices = (b!=0)
+    b_sign = np.sign(b)
+    out = np.zeros(b.shape)
+    out[indices] = b_sign[indices]*np.exp(ln_a[indices] + np.log(np.abs(b[indices])))
+    return out
 
   def _HelperNumericalGradientFromLinear(self, func, val, column, file_name, gradient=1, shift=1e-5):
 
@@ -895,6 +938,9 @@ class Likelihood():
       if fin: 
         nll_could_be_neg = False
 
+    if self.verbose:
+      print(f"Estimated result: {self.best_fit[col_index]} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
+
     return m1p1_vals
 
 
@@ -974,9 +1020,17 @@ class Likelihood():
 
     return res
 
-  def GetAndWriteApproximateUncertaintyToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml"):  
+  def GetAndWriteApproximateUncertaintyToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True):  
 
     uncerts = self.GetApproximateUncertainty(X_dps, col)
+
+    if symmetrise:
+      dev = (uncerts[1] + uncerts[-1])/2
+      uncerts = {
+        -1 : dev,
+        1 : dev
+      }
+
     col_index = self.Y_columns.index(col)
     dump = {
       "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,

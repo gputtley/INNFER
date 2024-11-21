@@ -1,9 +1,10 @@
 current_directory=$(pwd)
 worker_pp="$current_directory/python/worker"
 benchmarks_pp="$current_directory/python/worker/benchmarks"
+custom_pp="$current_directory/python/runner/custom_module"
 runner_pp="$current_directory/python/runner"
 bfp="$current_directory/python/BayesFlow"
-export PYTHONPATH=${worker_pp}:${benchmarks_pp}:${runner_pp}:${bfp}:${PYTHONPATH}
+export PYTHONPATH=${worker_pp}:${benchmarks_pp}:${runner_pp}:${bfp}:${custom_pp}:${PYTHONPATH}
 if ! command -v nvidia-smi &> /dev/null ; then
   ulimit -s unlimited
   echo "Number of threads available $(nproc)"
@@ -15,8 +16,8 @@ if ! command -v nvidia-smi &> /dev/null ; then
   export EVENTS_PER_BATCH_FOR_HESSIAN=2000
 else
   export EVENTS_PER_BATCH=100000
-  export EVENTS_PER_BATCH_FOR_GRADIENTS=40000
-  export EVENTS_PER_BATCH_FOR_HESSIAN=20000
+  export EVENTS_PER_BATCH_FOR_GRADIENTS=20000
+  export EVENTS_PER_BATCH_FOR_HESSIAN=10000
 fi
 export PLOTTING_CMS_LABEL="Work In Progress"
 export PLOTTING_LUMINOSITY="\$138\ fb^{-1}\$"

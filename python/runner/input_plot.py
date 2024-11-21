@@ -16,7 +16,7 @@ from scipy.optimize import root_scalar
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_spline_and_thresholds
-from useful_functions import GetYName, MakeDirectories, GetPOILoop, GetNuisanceLoop
+from useful_functions import GetYName, MakeDirectories, GetPOILoop, GetNuisanceLoop, DiscreteTransform
 
 class InputPlot():
 
@@ -57,24 +57,25 @@ class InputPlot():
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)    
 
-    self.dataset_loop = ["train","test","val"] if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else ["train", "val"]
+    # Run 1D plot of all variables
+    if self.verbose:
+      print("- Making 1D distributions")
+    self._Plot1D(parameters, parameters["Y_columns"]+cfg["variables"], data_splits=["train","test","test_inf","val"])
+
+    # Run 2D plot of all variables
 
     # Run plotting of POIs
     if self.verbose:
       print("- Making plots of POIs")
     for info in GetPOILoop(cfg, parameters):
-      self._PlotX(info["poi"], info["freeze"], info["extra_name"], parameters)
+      self._PlotX(info["poi"], info["freeze"], info["extra_name"], parameters, data_splits=["train","val"])
 
     # Run plotting of nuisances
     if self.verbose:
       print("- Making plots of nuisances")
     for info in GetNuisanceLoop(cfg, parameters):
-      self._PlotX(info["nuisance"], info["freeze"], info["extra_name"], parameters)
+      self._PlotX(info["nuisance"], info["freeze"], info["extra_name"], parameters, data_splits=["train","val"])
 
-    # Run plotting of Y distributions
-    if self.verbose:
-      print("- Making plots of Y distributions")
-    self._PlotY(parameters)
 
   def Outputs(self):
     """
@@ -93,10 +94,10 @@ class InputPlot():
     ]
     return inputs
         
-  def _PlotX(self, vary, freeze, extra_name, parameters, n_bins=40):
+  def _PlotX(self, vary, freeze, extra_name, parameters, n_bins=40, data_splits=["val"]):
 
     baseline_selection = " & ".join([f"({k}=={v})" for k,v in freeze.items()])
-    for data_split in self.dataset_loop:
+    for data_split in data_splits:
       dp = DataProcessor(
         [[f"{self.data_input}/X_{data_split}.parquet", f"{self.data_input}/Y_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]], 
         "parquet",
@@ -111,12 +112,16 @@ class InputPlot():
         if not transform:
           functions_to_apply = ["untransform"]
         else:
-          functions_to_apply = ["untransform","transform"]
+          functions_to_apply += ["untransform"]
+          functions_to_apply += ["transform"]
 
         count = dp.GetFull(method="count", functions_to_apply=["untransform"])
         sumw = dp.GetFull(method="sum", functions_to_apply=["untransform"])
         if count == 0: continue
         unique_values = dp.GetFull(method="unique", functions_to_apply=["untransform"])
+        if vary in unique_values.keys():
+          if unique_values[vary] is None: continue
+        
         for col in parameters["X_columns"]:
           hists = []
           hist_names = []
@@ -124,7 +129,13 @@ class InputPlot():
           if vary in unique_values.keys():
             for uc in sorted(unique_values[vary]):
               selection = f"({vary}=={uc})"
-              hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, extra_sel=selection, column=col)
+              if unique_values[col] is None:
+                hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, extra_sel=selection, column=col)
+              else:
+                hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, extra_sel=selection, column=col)
+                bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=False)
+                hist, _ = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, extra_sel=selection, column=col)
+
               hists.append(hist)
               hist_names.append(GetYName([uc], purpose="plot", prefix="y="))
           else:
@@ -145,14 +156,30 @@ class InputPlot():
             name = plot_name,
             x_label = col,
             y_label = "Events",
-            anchor_y_at_0 = True
+            anchor_y_at_0 = True,
+            discrete = (unique_values[col] is not None),
+            drawstyle = "steps-mid",
           )
 
-  def _PlotY(self, parameters, n_bins=40):
+          plot_name = self.plots_output+f"/X_distributions_varying_{vary}_against_{col}_density{extra_name_for_plot}"
+          plot_histograms(
+            bins[:-1],
+            [hist/np.sum(hist) for hist in hists],
+            hist_names,
+            title_right = "",
+            name = plot_name,
+            x_label = col,
+            y_label = "Density",
+            anchor_y_at_0 = True,
+            discrete = (unique_values[col] is not None),
+            drawstyle = "steps-mid",
+          )
 
-    for data_split in self.dataset_loop:
+  def _Plot1D(self, parameters, columns, n_bins=40, data_splits=["val"]):
+
+    for data_split in data_splits:
       dp = DataProcessor(
-        [[f"{self.data_input}/Y_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]], 
+        [[f"{self.data_input}/X_{data_split}.parquet", f"{self.data_input}/Y_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]], 
         "parquet",
         options = {
           "wt_name" : "wt",
@@ -165,15 +192,17 @@ class InputPlot():
         if not transform:
           functions_to_apply = ["untransform"]
 
-        for col in parameters["Y_columns"]:
+        for col in columns:
 
-          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False, ignore_discrete=True)
-          hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, discrete_binning=False)
+          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
+          bins = [(2*bins[0])-bins[1]] + bins + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
+          
+          hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
 
           extra_name_for_plot = f"{data_split}"
           if transform:
             extra_name_for_plot += "_transformed"
-          plot_name = self.plots_output+f"/Y_distributions_for_{col}_{extra_name_for_plot}"
+          plot_name = self.plots_output+f"/distributions_{col}_{extra_name_for_plot}"
           plot_histograms(
             bins[:-1],
             [hist],

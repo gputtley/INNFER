@@ -26,17 +26,19 @@ def parse_args():
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--cfg', help='Config for running', default=None)
+  parser.add_argument('--custom-module', help='Name of custom module', default=None)
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
   parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
-  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
+  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='inference_chi_squared:all,min')
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
   parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
+  parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=10)
@@ -54,9 +56,10 @@ def parse_args():
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--split-validation-files', help='Split the validation files.', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'SplitValidationFiles', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'DMatrix', 'Covariance', 'CovarianceWithDMatrix', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
+  parser.add_argument('--step', help='Step to run.', type=str, default=None)
+  #parser.add_argument('--step', help='Step to run.', type=str, default=None, choices=['SnakeMake', 'MakeBenchmark', 'PreProcess', 'InputPlot', 'Train', 'PerformanceMetrics', 'HyperparameterScan', 'HyperparameterScanCollect', 'BayesianHyperparameterTuning', 'SplitValidationFiles', 'Flow', 'Generator', 'GeneratorSummary', 'BootstrapInitialFits', 'BootstrapCollect', 'BootstrapPlot', 'BootstrapSummary', 'MakeAsimov', 'InitialFit', 'ApproximateUncertainty', 'Hessian', 'DMatrix', 'Covariance', 'CovarianceWithDMatrix', 'ScanPoints', 'Scan', 'ScanCollect', 'ScanPlot', 'BestFitDistributions', 'SummaryChiSquared', 'Summary', 'LikelihoodDebug'])
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
-  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Scan', choices=['Scan', 'Bootstrap','ApproximateUncertainty','HessianAndCovariance','HessianDMatrixAndCovariance'])
+  parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
@@ -139,22 +142,34 @@ def main(args, default_args):
   if args.step == "PreProcess":
     print("<< Preprocessing datasets >>")
     for file_name, parquet_name in cfg["files"].items():
-      module.Run(
-        module_name = "preprocess",
-        class_name = "PreProcess",
-        config = {
-          "cfg" : args.cfg,
-          "file_name" : file_name,
-          "parquet_file_name" : parquet_name,
-          "data_output" : f"data/{cfg['name']}/{file_name}/PreProcess",
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/PreProcess",
-          "number_of_shuffles" : args.number_of_shuffles,
-          "split_validation_files" : args.split_validation_files,
-          "verbose" : not args.quiet,
-        },
-        loop = {"file_name" : file_name},
-        force = True,
-      )
+      split_nuisances = cfg["split_nuisance_models"] if "split_nuisance_models" in cfg.keys() else False
+      for nuisance in cfg["nuisances"] if split_nuisances else [None]:
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_output" : f"data/{cfg['name']}/{file_name}/PreProcess",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "nuisance" : nuisance,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "nuisance" : nuisance},
+          force = True,
+        )
+
+  # Custom
+  if args.step == "Custom":
+    print("<< Custom module >>")
+    module.Run(
+      module_name = args.custom_module,
+      class_name = args.custom_module,
+      config = {
+        "cfg" : args.cfg,
+      },
+      loop = {}
+    )
 
   # Plot preprocess data
   if args.step == "InputPlot":
@@ -187,7 +202,6 @@ def main(args, default_args):
           "data_output" : f"models/{cfg['name']}/{file_name}",
           "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",
           "disable_tqdm" : args.disable_tqdm,
-          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
           "verbose" : not args.quiet,        
         },
         loop = {"file_name" : file_name}
@@ -206,7 +220,6 @@ def main(args, default_args):
           "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
           "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
           "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
-          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
           "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
           "pois": cfg["pois"],
           "nuisances": cfg["nuisances"],
@@ -233,7 +246,6 @@ def main(args, default_args):
             "wandb_submit_name" : f"{cfg['name']}_{file_name}",
             "disable_tqdm" : args.disable_tqdm,
             "save_extra_name" : f"_{architecture_ind}",
-            "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
             "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
             "pois": cfg["pois"],
             "nuisances": cfg["nuisances"],
@@ -280,7 +292,6 @@ def main(args, default_args):
           "verbose" : not args.quiet,
           "metric" : args.hyperparameter_metric,
           "n_trials" : args.number_of_trials,
-          "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
           "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
           "pois": cfg["pois"],
           "nuisances": cfg["nuisances"],
@@ -306,6 +317,27 @@ def main(args, default_args):
         loop = {"file_name" : file_name},
         force = True,
       )
+
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "Flow":
+    print("<< Making plots looking at the flow of the network >>")
+    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg)
+    for file_name, val_loop in val_loop_info["val_loops"].items():
+      if file_name == "combined": continue
+      for val_ind, val_info in enumerate(val_loop):
+        module.Run(
+          module_name = "flow",
+          class_name = "Flow",
+          config = {
+            "Y_sim" : val_info["row"],
+            "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
+            "model" : val_loop_info["models"][file_name],
+            "architecture" : val_loop_info["architectures"][file_name],
+            "plots_output" : f"plots/{cfg['name']}/{file_name}/Flow{args.extra_infer_dir_name}",
+            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind}
+        )
 
   # Making plots using the network as a generator for individual Y values
   if args.step == "Generator":
@@ -348,7 +380,7 @@ def main(args, default_args):
         class_name = "GeneratorSummary",
         config = {
           "val_loop" : val_loop,
-          "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
+          "parameters" : val_loop_info["parameters"][file_name],
           "model" : val_loop_info["models"][file_name],
           "architecture" : val_loop_info["architectures"][file_name],
           "yield_function" : "default",
@@ -375,6 +407,7 @@ def main(args, default_args):
             **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
             "method" : "MakeAsimov",
             "extra_file_name" : str(val_ind),
+            "n_asimov_events" : args.number_of_asimov_events,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -391,6 +424,7 @@ def main(args, default_args):
           config = {
             **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
             "method" : "Debug",
+            "extra_file_name" : str(val_ind),
             "other_input" : args.other_input,
             "model_type" : args.model_type,
             "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
@@ -746,7 +780,6 @@ def main(args, default_args):
               "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
               "verbose" : not args.quiet,
               "data_file" : cfg["data_file"],
-              "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind}
           )
@@ -776,14 +809,14 @@ def main(args, default_args):
   if args.step == "Summary":
     print(f"<< Plot the summary of results >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    if args.summary_from in ["Scan","Bootstrap","ApproximateUncertainty"]: args.summary_from += "Collect"
+    summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap","ApproximateUncertainty"] else args.summary_from+"Collect"
     for file_name, val_loop in val_loop_info["val_loops"].items():
       module.Run(
         module_name = "summary",
         class_name = "Summary",
         config = {
           "val_loop" : val_loop,
-          "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}{args.extra_infer_dir_name}",
+          "data_input" : f"data/{cfg['name']}/{file_name}/{summary_from}{args.extra_infer_dir_name}",
           "plots_output" : f"plots/{cfg['name']}/{file_name}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
           "other_input" : {other_input.split(':')[0] : [f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
@@ -816,7 +849,11 @@ if __name__ == "__main__":
 
   if args.step != "SnakeMake": # Run a non snakemake step
 
-    main(args, default_args)
+    # Loop through steps
+    steps = args.step.split(",")
+    for step in steps:
+      args.step = step
+      main(args, default_args)
 
   else:
 

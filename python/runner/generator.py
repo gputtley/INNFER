@@ -8,7 +8,7 @@ import pandas as pd
 
 from functools import partial
 
-from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
+from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_many_comparisons, plot_histograms_with_ratio
 from useful_functions import GetYName
 
 class Generator():
@@ -144,6 +144,7 @@ class Generator():
 
         sim_dps[file_name] = DataProcessor(
           [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
+#          [[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"]],
           "parquet",
           wt_name = "wt",
           options = {
@@ -344,6 +345,9 @@ class Generator():
 
       # Make synth hists
       synth_hists = {}
+      sim_hists = {}
+      synth_hist_uncerts = {}
+      sim_hist_uncerts = {}
       for ind, file_name in enumerate(synth_dps.keys()):
         tf.random.set_seed(self.seed)
         tf.keras.utils.set_random_seed(self.seed)
@@ -354,13 +358,14 @@ class Generator():
           column = col,
         )
         synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
+        synth_hist_uncerts[f"{file_name} {synth_plot_name}"] = synth_hist_uncert
+
         if ind == 0:
           synth_hist_uncert_squared = synth_hist_uncert**2
           synth_hist_total = copy.deepcopy(synth_hist)
         else:
           synth_hist_uncert_squared += (synth_hist_uncert**2)
           synth_hist_total += synth_hist
-
 
       # Make sim hists
       for ind, file_name in enumerate(sim_dps.keys()):
@@ -370,6 +375,9 @@ class Generator():
           bins = bins,
           column = col,
         )
+        sim_hists[f"{file_name} {sim_plot_name}"] = sim_hist
+        sim_hist_uncerts[f"{file_name} {sim_plot_name}"] = sim_hist_uncert
+
         if ind == 0:
           sim_hist_uncert_squared = sim_hist_uncert**2
           sim_hist_total = copy.deepcopy(sim_hist)
@@ -402,6 +410,46 @@ class Generator():
         use_stat_err=False,
         axis_text="",
         )
+
+      plot_histograms_with_ratio(
+        [[sim_hists[list(sim_hists.keys())[ind]], synth_hists[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+        [[sim_hist_uncerts[list(sim_hists.keys())[ind]], synth_hist_uncerts[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+        [[list(sim_hists.keys())[ind], list(synth_hists.keys())[ind]] for ind in range(len(sim_hists.keys()))],
+        bins,
+        xlabel = col,
+        ylabel="Events" if self.scale_to_yield else "Density",
+        name=f"{self.plots_output}/{extra_dir}generation_non_stack_same_pad_{col}{extra_name}",    
+      )
+
+      plot_many_comparisons(
+        sim_hists,
+        synth_hists,
+        sim_hist_uncerts,
+        synth_hist_uncerts,
+        bins,
+        xlabel = col,
+        ylabel="Events" if self.scale_to_yield else "Density",
+        name=f"{self.plots_output}/{extra_dir}generation_non_stack_{col}{extra_name}",       
+        )
+
+
+      if len(sim_hists.keys()) > 1:
+
+        sim_hists[f"Total {sim_plot_name}"] = sim_hist_total
+        sim_hist_uncerts[f"Total {sim_plot_name}"] = sim_hist_uncert
+        synth_hists[f"Total {synth_plot_name}"] = synth_hist_total
+        synth_hist_uncerts[f"Total {synth_plot_name}"] = synth_hist_uncert
+
+        plot_many_comparisons(
+          sim_hists,
+          synth_hists,
+          sim_hist_uncerts,
+          synth_hist_uncerts,
+          bins,
+          xlabel = col,
+          ylabel="Events" if self.scale_to_yield else "Density",
+          name=f"{self.plots_output}/{extra_dir}generation_non_stack_inc_total_{col}{extra_name}",       
+          )
 
   def _Plot2DUnrolledGeneration(
     self, 

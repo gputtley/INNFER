@@ -1,11 +1,13 @@
 import copy
 import os
+import pickle
 import re
 import yaml
 
 import numpy as np
 import pandas as pd
 
+import scipy.ndimage as ndimage
 from itertools import product
 
 def CamelToSnake(name):
@@ -128,6 +130,75 @@ def CustomHistogram(
       hist_uncert /= np.sum(hist)
       hist /= np.sum(hist)
     return hist, hist_uncert, bins   
+
+def DiscreteTransform(df, splines={}, thresholds={}, n_integral_bins=100000, X_columns=[], Y_columns=[], wt_name="wt", unique_y_vals={}):
+
+  unique_combinations = list(product(*unique_y_vals.values()))
+
+  for uv in unique_combinations:
+
+    for col in df.columns:
+
+      if col not in thresholds.keys(): 
+        continue
+
+      for k, v in thresholds[col].items():
+
+        # Find unique values
+        unique_selections = {key: uv[ind] for ind, key in enumerate(unique_y_vals.keys())}
+        indices = pd.Series([True] * len(df))
+        for uv_col, uv_val in unique_selections.items():
+          indices = indices & (df.loc[:,uv_col] == uv_val)
+
+        # Find matching indices
+        indices = indices & (df.loc[:,col] == k)
+        n_samples = len(df.loc[indices,col]) 
+
+        # Load spline
+        with open(splines[col], 'rb') as file:
+          spline = pickle.load(file)
+
+        # Build flat sampling distribution
+        wts = df.loc[indices,wt_name].to_numpy()
+        sorted_indices = np.argsort(wts)
+        uniform = np.linspace(v[0], v[1], num=n_samples)
+
+        sorted_indices = np.argsort(uniform)
+        unsorted_indices = np.arange(0,n_samples)[sorted_indices]
+        uniform = uniform[sorted_indices]
+        wts = wts[sorted_indices]
+
+        cdf = np.cumsum(wts)
+        cdf = cdf / cdf[-1]
+        sampled = np.interp(uniform, uniform, cdf)
+
+        sampled = sampled[unsorted_indices]
+
+        # Compute the CDF
+        param_values = np.linspace(v[0], v[1], n_integral_bins, )
+        cdf_vals = np.cumsum(np.abs(spline(param_values))) / np.sum(np.abs(spline(param_values)))
+
+        # Normalise the CDF
+        cdf_vals /= cdf_vals[-1]
+
+        # Generate random numbers
+        #sampled = np.random.RandomState().rand(n_samples)
+        #sampled = np.linspace(0,1,num=n_samples) + ((np.random.RandomState().rand(n_samples)-0.5)/(n_samples))
+        #np.random.shuffle(sampled)
+        #print(sampled)
+        #print(np.interp(sampled, cdf_vals, param_values))
+
+        # Inverse transform sampling
+        df.loc[indices,col] = np.interp(sampled, cdf_vals, param_values)
+
+        #print("----------------")
+        #print(np.histogram(sampled, bins=20))
+        #print(np.histogram(sampled, weights=df.loc[indices,wt_name], bins=20))
+        #print(np.histogram(df.loc[indices,col], bins=20))
+        #print(np.histogram(df.loc[indices,col], weights=df.loc[indices,wt_name], bins=20))
+        #print(np.histogram(df.loc[:,col], weights=df.loc[:,wt_name], bins=20))
+
+  return df.loc[:,X_columns]
 
 def FindEqualStatBins(data, bins=5, sf_diff=2):
   """

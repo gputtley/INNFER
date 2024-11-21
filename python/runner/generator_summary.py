@@ -28,9 +28,8 @@ class GeneratorSummary():
     self.plots_output = "plots/"
     self.verbose = True
     self.n_synth = 10**6
-    self.n_bins = 40
+    self.n_bins = 20
     self.scale_to_yield = False
-    self.ratio_to = "synth"
     self.extra_plot_name = ""
     self.seed = 42
 
@@ -65,102 +64,105 @@ class GeneratorSummary():
 
     import tensorflow as tf
 
-    # Loop through, make networks and make histograms
-    networks = {}
-    sim_dps = {}
-    synth_dps = {}
-    ratio_dps = {}
 
-    sim_hists = {}
-    synth_hists = {}
-    ratio_hists = {}
-    bins = {}
-    central_value = {}
+    for dataset_type in ["train","test_inf","val"]:
 
-    functions_to_apply = []
+      # Loop through, make networks and make histograms
+      networks = {}
+      sim_dps = {}
+      synth_dps = {}
+      ratio_dps = {}
 
-    # Loop though files
-    for file_name in self.model.keys():
+      sim_hists = {}
+      sim_hist_uncerts = {}
+      synth_hists = {}
+      ratio_hists = {}
+      bins = {}
+      central_value = {}
 
-      # Open parameters
-      if self.verbose:
-        print(f"- Loading in the parameters for model {file_name}")
-      with open(self.parameters[file_name], 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      functions_to_apply = []
 
-      # Load the architecture in
-      if self.verbose:
-        print(f"- Loading in the architecture for model {file_name}")
-      with open(self.architecture[file_name], 'r') as yaml_file:
-        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Loop though files
+      for file_name in self.model.keys():
 
-      # Build model
-      if self.verbose:
-        print(f"- Building the model for {file_name}")
-      networks[parameters['file_name']] = Network(
-        f"{parameters['file_loc']}/X_train.parquet",
-        f"{parameters['file_loc']}/Y_train.parquet", 
-        f"{parameters['file_loc']}/wt_train.parquet", 
-        options = {
-          **architecture,
-          **{
-            "data_parameters" : parameters
-          }
-        }
-      )  
-      
-      # Loading model
-      if self.verbose:
-        print(f"- Loading the model for {file_name}")
-      networks[file_name].Load(name=self.model[file_name])
-
-      # Make yields function
-      if self.scale_to_yield:
-        yields = Yields(
-          pd.read_parquet(parameters['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          file_name,
-          method=self.yield_function, 
-          column_name="yield"
-        )
-
-      # Loop through validation Y values
-      for val_ind, val_info in enumerate(self.val_loop):
-
-        val_name = GetYName(val_info["row"], purpose="plot", prefix="y=")
-        ratio_name = GetYName(val_info["initial_best_fit_guess"], purpose="plot", prefix="y=")
-
-        # Make data processors
-        shape_Y_cols = [col for col in val_info["row"].columns if "mu_" not in col and col in parameters["Y_columns"]]
-
+        # Open parameters
         if self.verbose:
-          print(f"- Making data processor for {file_name} and {val_name}")
+          print(f"- Loading in the parameters for model {file_name}")
+        with open(self.parameters[file_name], 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        sim_dps[file_name] = DataProcessor(
-          [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
-          "parquet",
-          wt_name = "wt",
+        # Load the architecture in
+        if self.verbose:
+          print(f"- Loading in the architecture for model {file_name}")
+        with open(self.architecture[file_name], 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Build model
+        if self.verbose:
+          print(f"- Building the model for {file_name}")
+        networks[parameters['file_name']] = Network(
+          f"{parameters['file_loc']}/X_train.parquet",
+          f"{parameters['file_loc']}/Y_train.parquet", 
+          f"{parameters['file_loc']}/wt_train.parquet", 
           options = {
-            "parameters" : parameters,
-            "selection" : " & ".join([f"({col}=={val_info['row'].loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-            "scale" : yields.GetYield(val_info["row"]) if self.scale_to_yield else 1.0,
-            "functions" : ["untransform"]
+            **architecture,
+            **{
+              "data_parameters" : parameters
+            }
           }
-        )
+        )  
+        
+        # Loading model
+        if self.verbose:
+          print(f"- Loading the model for {file_name}")
+        networks[file_name].Load(name=self.model[file_name])
 
-        synth_dps[file_name] = DataProcessor(
-          [[partial(networks[file_name].Sample, val_info["row"])]],
-          "generator",
-          n_events = self.n_synth,
-          options = {
-            "parameters" : parameters,
-            "scale" : yields.GetYield(val_info["row"]) if self.scale_to_yield else 1.0,
-          }
-        )
+        # Make yields function
+        if self.scale_to_yield:
+          yields = Yields(
+            pd.read_parquet(parameters['yield_loc']), 
+            self.pois, 
+            self.nuisances, 
+            file_name,
+            method=self.yield_function, 
+            column_name="yield"
+          )
 
-        if val_ind == 0:
-          if self.ratio_to == "synth":
+        # Loop through validation Y values
+        for val_ind, val_info in enumerate(self.val_loop):
+
+          val_name = GetYName(val_info["row"], purpose="plot", prefix="y=")
+          ratio_name = GetYName(val_info["initial_best_fit_guess"], purpose="plot", prefix="y=")
+
+          # Make data processors
+          shape_Y_cols = [col for col in val_info["row"].columns if "mu_" not in col and col in parameters["Y_columns"]]
+
+          if self.verbose:
+            print(f"- Making data processor for {file_name} and {val_name}")
+
+          sim_dps[file_name] = DataProcessor(
+            [[f"{parameters['file_loc']}/X_{dataset_type}.parquet", f"{parameters['file_loc']}/Y_{dataset_type}.parquet", f"{parameters['file_loc']}/wt_{dataset_type}.parquet"]],
+            "parquet",
+            wt_name = "wt",
+            options = {
+              "parameters" : parameters,
+              "selection" : " & ".join([f"({col}=={val_info['row'].loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
+              "scale" : yields.GetYield(val_info["row"]) if self.scale_to_yield else 1.0,
+              "functions" : ["untransform"]
+            }
+          )
+
+          synth_dps[file_name] = DataProcessor(
+            [[partial(networks[file_name].Sample, val_info["row"])]],
+            "generator",
+            n_events = self.n_synth,
+            options = {
+              "parameters" : parameters,
+              "scale" : yields.GetYield(val_info["row"]) if self.scale_to_yield else 1.0,
+            }
+          )
+
+          if val_ind == 0:
             ratio_dps[file_name] = DataProcessor(
               [[partial(networks[file_name].Sample, val_info["initial_best_fit_guess"])]],
               "generator",
@@ -170,93 +172,119 @@ class GeneratorSummary():
                 "scale" : yields.GetYield(val_info["initial_best_fit_guess"]) if self.scale_to_yield else 1.0,
               }
             )
-          elif self.ratio_to == "sim":
-            ratio_dps[file_name] = DataProcessor(
-              [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
-              "parquet",
-              wt_name = "wt",
-              options = {
-                "parameters" : parameters,
-                "selection" : " & ".join([f"({col}=={val_info['initial_best_fit_guess'].loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-                "scale" : yields.GetYield(val_info["initial_best_fit_guess"]) if self.scale_to_yield else 1.0,
-                "functions" : ["untransform"]
-              }
-            )
 
-        # Loop through columns
-        for col in parameters["X_columns"]:
+          # Loop through columns
+          for col in parameters["X_columns"]:
 
-          if self.verbose:
-            print(f"- Drawing histograms for {file_name}, {val_name} and {col}")
+            if self.verbose:
+              print(f"- Drawing histograms for {file_name}, {val_name} and {col}")
 
-          # Make bins and find central value
-          if col not in bins.keys():
+            # Make bins and find central value
+            if col not in bins.keys():
 
+              tf.random.set_seed(self.seed)
+              tf.keras.utils.set_random_seed(self.seed)
+              bins[col] = ratio_dps[file_name].GetFull(
+                #method = "bins_with_equal_spacing", 
+                method = "bins_with_equal_stats",
+                functions_to_apply = functions_to_apply,
+                bins = self.n_bins,
+                column = col,
+              )
+
+            # Draw ratio histogram
             tf.random.set_seed(self.seed)
             tf.keras.utils.set_random_seed(self.seed)
-            bins[col] = ratio_dps[file_name].GetFull(
-              method = "bins_with_equal_spacing", 
-              functions_to_apply = functions_to_apply,
-              bins = self.n_bins,
-              column = col,
-            )
+            if val_ind == 0:
+              ratio_hist, _ = ratio_dps[file_name].GetFull(
+                method = "histogram",
+                functions_to_apply = functions_to_apply,
+                bins = bins[col],
+                column = col,
+                )
+              if col not in ratio_hists.keys():
+                ratio_hists[col] = copy.deepcopy(ratio_hist)
+              else:
+                ratio_hists[col] += ratio_hist
 
-          # Draw ratio histogram
-          tf.random.set_seed(self.seed)
-          tf.keras.utils.set_random_seed(self.seed)
-          if val_ind == 0:
-            ratio_hist, _ = ratio_dps[file_name].GetFull(
+            # Draw synth histogram
+            tf.random.set_seed(self.seed)
+            tf.keras.utils.set_random_seed(self.seed)
+            synth_hist, _ = synth_dps[file_name].GetFull(
               method = "histogram",
               functions_to_apply = functions_to_apply,
               bins = bins[col],
               column = col,
               )
-            if col not in ratio_hists.keys():
-              ratio_hists[col] = copy.deepcopy(ratio_hist)
+            if col not in synth_hists.keys():
+              synth_hists[col] = {val_name : copy.deepcopy(synth_hist)}
             else:
-              ratio_hists[col] += ratio_hist
+              if val_name in synth_hists[col].keys():
+                synth_hists[col][val_name] += synth_hist
+              else:
+                synth_hists[col][val_name] = synth_hist
 
-          # Draw synth histogram
-          tf.random.set_seed(self.seed)
-          tf.keras.utils.set_random_seed(self.seed)
-          synth_hist, _ = synth_dps[file_name].GetFull(
-            method = "histogram",
-            functions_to_apply = functions_to_apply,
-            bins = bins[col],
-            column = col,
-            )
-          if col not in synth_hists.keys():
-            synth_hists[col] = {val_name : copy.deepcopy(synth_hist)}
-          else:
-            if val_name in synth_hists[col].keys():
-              synth_hists[col][val_name] += synth_hist
+            # Draw sim_histogram
+            sim_hist, sim_hist_uncert, _ = sim_dps[file_name].GetFull(
+              method = "histogram_and_uncert",
+              functions_to_apply = functions_to_apply,
+              bins = bins[col],
+              column = col,
+              )
+            if col not in sim_hists.keys():
+              sim_hists[col] = {val_name : copy.deepcopy(sim_hist)}
+              sim_hist_uncerts[col] = {val_name : copy.deepcopy(sim_hist_uncert)}
             else:
-              synth_hists[col][val_name] = synth_hist
+              if val_name in sim_hists[col].keys():
+                sim_hists[col][val_name] += sim_hist
+                sim_hist_uncerts[col][val_name] = (sim_hist_uncerts[col][val_name]**2 + sim_hist_uncert**2)**0.5
+              else:
+                sim_hists[col][val_name] = sim_hist
+                sim_hist_uncerts[col][val_name] = sim_hist_uncert
 
-          # Draw sim_histogram
-          sim_hist, _ = sim_dps[file_name].GetFull(
-            method = "histogram",
-            functions_to_apply = functions_to_apply,
-            bins = bins[col],
-            column = col,
-            )
-          if col not in sim_hists.keys():
-            sim_hists[col] = {val_name : copy.deepcopy(sim_hist)}
-          else:
-            if val_name in sim_hists[col].keys():
-              sim_hists[col][val_name] += sim_hist
-            else:
-              sim_hists[col][val_name] = sim_hist
 
-    # Loop through columns
-    for col in parameters["X_columns"]:
+      # Loop through columns
+      for col in parameters["X_columns"]:
 
-      # Make ratios
-      for key, val in sim_hists[col].items():
-        sim_hists[col][key] /= ratio_hists[col]
-      for key, val in synth_hists[col].items():
-        synth_hists[col][key] /= ratio_hists[col]   
-      
+        # Make ratios
+        for key, val in sim_hists[col].items():
+          sim_hists[col][key] /= ratio_hists[col]
+          sim_hist_uncerts[col][key] /= ratio_hists[col]
+        for key, val in synth_hists[col].items():
+          synth_hists[col][key] /= ratio_hists[col]   
+        
+
+        colours = ["black"] + list(sns.color_palette("Set2", len(list(sim_hists[col].keys()))-1))
+        ratio_ind = list(synth_hists[col].keys()).index(ratio_name)
+        hists = list(synth_hists[col].values())
+        names = list(synth_hists[col].keys())
+
+        hists = [hists[ratio_ind]] + hists[:ratio_ind] + hists[ratio_ind+1:]
+        names = [f"Synthetic ({names[ratio_ind]})"] + names[:ratio_ind] + names[ratio_ind+1:]
+
+        error_bar_hists = list(sim_hists[col].values())
+        error_bar_hist_uncerts = list(sim_hist_uncerts[col].values())
+        error_bar_hists = [error_bar_hists[ratio_ind]] + error_bar_hists[:ratio_ind] + error_bar_hists[ratio_ind+1:]
+        error_bar_hist_uncerts = [error_bar_hist_uncerts[ratio_ind]] + error_bar_hist_uncerts[:ratio_ind] + error_bar_hist_uncerts[ratio_ind+1:]
+        error_bar_names = [f"Simulated ({names[ratio_ind]})"] + [None]*(len(error_bar_hists)-1)
+
+        y_label = f"Ratio to {GetYName(val_info['initial_best_fit_guess'], purpose='plot', prefix='Synthetic y=')}"
+
+        plot_histograms(
+          np.array(bins[col][:-1]),
+          hists,
+          names,
+          colors=colours,
+          x_label=col,
+          name=f"{self.plots_output}/generation_summary_{dataset_type}_{col}{self.extra_plot_name}", 
+          y_label = y_label,
+          error_bar_hists = error_bar_hists,
+          error_bar_names = error_bar_names,
+          error_bar_hist_errs = error_bar_hist_uncerts,
+        )
+
+      """
+
       # Get colours, linestyles and histograms ordered
       rgb_palette = sns.color_palette("Set2", len(list(sim_hists[col].keys())))
       colours = ["black","black"]
@@ -291,10 +319,7 @@ class GeneratorSummary():
 
         
       # Set up y axis name
-      if self.ratio_to == "synth":
-        y_label = f"Ratio to {GetYName(val_info['initial_best_fit_guess'], purpose='plot', prefix='Synthetic y=')}"
-      elif self.ratio_to == "sim":
-        y_label = f"Ratio to {GetYName(val_info['initial_best_fit_guess'], purpose='plot', prefix='Simulated y=')}"
+      y_label = f"Ratio to {GetYName(val_info['initial_best_fit_guess'], purpose='plot', prefix='Synthetic y=')}"
 
       # Make plot
       plot_histograms(
@@ -307,6 +332,13 @@ class GeneratorSummary():
         name=f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}", 
         y_label = y_label
       )
+
+      print("bins = ",bins)
+      print("sim_hists = ", sim_hists)
+      print("synth_hists = ", synth_hists)
+
+      """
+
 
   def Outputs(self):
     """

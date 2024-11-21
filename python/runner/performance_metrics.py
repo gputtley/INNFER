@@ -3,6 +3,8 @@ import yaml
 import numpy as np
 import pandas as pd
 
+from functools import partial
+
 from useful_functions import MakeDirectories, GetYName
 
 class PerformanceMetrics():
@@ -22,9 +24,10 @@ class PerformanceMetrics():
     self.data_output = "data/"
     self.verbose = True
     self.do_loss = True
-    self.do_chi_squared = False
+    self.do_chi_squared = True
     self.do_bdt_separation = False
-    self.do_inference = False
+    self.do_inference = True
+    self.inference_datasets = ["train","test_inf","val"]
     self.test_name = "test"
     self.save_extra_name = ""
 
@@ -127,40 +130,14 @@ class PerformanceMetrics():
 
       metrics = {**metrics, **hist_metrics}
 
-    if self.do_inference:
+    if self.do_inference and len(parameters["Y_columns"]) > 0:
 
       if self.verbose:
         print("- Getting chi squared from quick inference")
 
-      # Build yields
-      from yields import Yields
-      eff_events_class = Yields(
-        pd.read_parquet(parameters['yield_loc']), 
-        self.pois, 
-        self.nuisances, 
-        parameters["file_name"],
-        method="default", 
-        column_name=f"effective_events_{self.test_name}"
-      )
 
-      # Build likelihood
-      from likelihood import Likelihood
-      lkld = Likelihood(
-        {
-          "pdfs" : {parameters["file_name"] : network},
-        },
-        likelihood_type = "unbinned", 
-        data_parameters = {parameters["file_name"] : parameters},
-      )
-
-      # Loop through validation values
-      inf_chi_squared = {}
-      for loop_ind, loop in enumerate(self.val_loop):
-
-        if self.verbose:
-          print("- Running fit for Y:")
-          print(loop["row"])
-
+      for inf_test_name in self.inference_datasets:
+      
         # Build yields
         from yields import Yields
         eff_events_class = Yields(
@@ -169,49 +146,83 @@ class PerformanceMetrics():
           self.nuisances, 
           parameters["file_name"],
           method="default", 
-          column_name=f"effective_events_{self.test_name}"
+          column_name=f"effective_events_{inf_test_name}"
         )
 
-        # Build test data loader
-        from data_processor import DataProcessor
-        dps = DataProcessor(
-          [[f"{parameters['file_loc']}/X_{self.test_name}.parquet", f"{parameters['file_loc']}/Y_{self.test_name}.parquet", f"{parameters['file_loc']}/wt_{self.test_name}.parquet"]],
-          "parquet",
-          wt_name = "wt",
-          options = {
-            "parameters" : parameters,
-            "selection" : " & ".join([f"({col}=={loop['row'].loc[:,col].iloc[0]})" for col in loop['row'].columns]),
-            "scale" : eff_events_class.GetYield(loop["row"]),
-            "functions" : ["untransform"]
-          }
+        # Build likelihood
+        from likelihood import Likelihood
+        lkld = Likelihood(
+          {
+            "pdfs" : {parameters["file_name"] : network},
+          },
+          likelihood_type = "unbinned", 
+          data_parameters = {parameters["file_name"] : parameters},
         )
 
-        # Do initial fit
-        lkld.GetBestFit([dps], loop["initial_best_fit_guess"])
+        # Loop through validation values
+        inf_chi_squared = {}
+        inf_dist = {}
+        for loop_ind, loop in enumerate(self.val_loop):
 
-        # Get uncertainty
-        y_name = GetYName(loop['row'], purpose="file")
-        inf_chi_squared[y_name] = {}
-        for col in loop['row'].columns:
           if self.verbose:
-            print(f"- Finding uncertainty estimates for {col}")
-          uncert = lkld.GetApproximateUncertainty([dps], col)
-          col_index = list(loop['row'].columns).index(col)
-          true_value = float(loop['row'].loc[0,col])
-          if true_value > lkld.best_fit[col_index]:
-            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
-          else:
-            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
+            print(f"- Running unbinned likelihood fit for the {inf_test_name} dataset and Y:")
+            print(loop["row"])
 
-      # Get chi squared values
-      total_sum = 0.0
-      total_count = 0.0
-      for val_name, val_dict in inf_chi_squared.items():
-        total_sum += np.sum(list(val_dict.values()))
-        total_count += len(list(val_dict.values()))
-        inf_chi_squared[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
-      inf_chi_squared["all"] = float(total_sum/total_count)
-      metrics["inference_chi_squared"] = inf_chi_squared
+          # Build test data loader
+          from data_processor import DataProcessor
+          dps = DataProcessor(
+            [[f"{parameters['file_loc']}/X_{inf_test_name}.parquet", f"{parameters['file_loc']}/Y_{inf_test_name}.parquet", f"{parameters['file_loc']}/wt_{inf_test_name}.parquet"]],
+            "parquet",
+            wt_name = "wt",
+            options = {
+              "parameters" : parameters,
+              "selection" : " & ".join([f"({col}=={loop['row'].loc[:,col].iloc[0]})" for col in loop['row'].columns]),
+              "scale" : eff_events_class.GetYield(loop["row"]),
+              "functions" : ["untransform"]
+            }
+          )
+
+          # Skip if empty
+          if dps.GetFull(method="count") == 0: continue
+
+          # Do initial fit
+          lkld.GetBestFit([dps], loop["initial_best_fit_guess"])
+
+          # Get uncertainty
+          y_name = GetYName(loop['row'], purpose="file")
+          inf_chi_squared[y_name] = {}
+          inf_dist[y_name] = {}
+          for col in loop['row'].columns:
+            if self.verbose:
+              print(f"- Finding uncertainty estimates for {col}")
+            uncert = lkld.GetApproximateUncertainty([dps], col)
+            col_index = list(loop['row'].columns).index(col)
+            true_value = float(loop['row'].loc[0,col])
+            if true_value > lkld.best_fit[col_index]:
+              inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
+            else:
+              inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
+            inf_dist[y_name][col] = abs(float(true_value - lkld.best_fit[col_index]))
+
+        # Get chi squared values
+        total_sum = 0.0
+        total_count = 0.0
+        for val_name, val_dict in inf_chi_squared.items():
+          total_sum += np.sum(list(val_dict.values()))
+          total_count += len(list(val_dict.values()))
+          inf_chi_squared[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
+        inf_chi_squared["all"] = float(total_sum/total_count)
+        metrics[f"inference_chi_squared_{inf_test_name}"] = inf_chi_squared
+
+        # Get distance values
+        total_sum = 0.0
+        total_count = 0.0
+        for val_name, val_dict in inf_dist.items():
+          total_sum += np.sum(list(val_dict.values()))
+          total_count += len(list(val_dict.values()))
+          inf_dist[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
+        inf_dist["all"] = float(total_sum/total_count)
+        metrics[f"inference_distance_{inf_test_name}"] = inf_dist
 
     # Write to yaml
     if self.verbose:

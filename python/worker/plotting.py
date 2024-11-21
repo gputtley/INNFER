@@ -43,6 +43,8 @@ def plot_histograms(
     vertical_lines = [],
     vertical_line_names = [],
     vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+    discrete=False,
+    hist_errs = None
   ):
   """
   Plot histograms with optional error bars.
@@ -82,13 +84,36 @@ def plot_histograms(
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
 
-  for ind, hist in enumerate(hists):
-    plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle)
+  if isinstance(drawstyle,str):
+    drawstyle = [drawstyle]*100
+
+  if isinstance(bins, list):
+    bins = np.array(bins)
 
   for ind, hist in enumerate(error_bar_hists):
-    non_empty_bins = hist != 0
-    plt.errorbar(bins[non_empty_bins], hist[non_empty_bins], yerr=error_bar_hist_errs[ind][non_empty_bins], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='k+')
+    non_empty_bins =(hist != 0)
+    plt.errorbar(bins[non_empty_bins],hist[non_empty_bins], yerr=error_bar_hist_errs[ind][non_empty_bins], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='+', color=colors[ind])
 
+  if discrete:
+    for i in range(len(bins)):
+      hist_val = sorted([hist[i] for hist in hists])[::-1]
+      for ind, hist in enumerate(hist_val):
+        plt.vlines(bins[i], ymin=0, ymax=hist, color=colors[ind], lw=2, label=hist_names[ind] if i ==0 else None)
+  else:
+    for ind, hist in enumerate(hists):
+      plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle[ind])
+  
+  if hist_errs is not None:
+    for ind, uncerts in enumerate(hist_errs):
+      plt.fill_between(
+        bins,
+        hists[ind]-uncerts,
+        hists[ind]+uncerts,
+        color=colors[ind],
+        alpha=0.5,
+        step='mid'
+      )
+      
   ax.text(1.0, 1.0, title_right,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax.transAxes)
@@ -108,12 +133,95 @@ def plot_histograms(
 
   plt.xlabel(x_label)
   plt.ylabel(y_label)
-  if not all(item is None for item in hist_names+error_bar_names):
+  if not all(item is None for item in error_bar_names+hist_names):
     plt.legend()
   plt.tight_layout()
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
   print("Created {}.pdf".format(name))
+  plt.close()
+
+def plot_histograms_with_ratio(
+  hists,
+  hist_uncerts,
+  hist_names,
+  bins,
+  xlabel = "",
+  ylabel="Events",
+  name="histogram_with_ratio",       
+):
+
+  fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
+
+  hep.cms.text(cms_label,ax=ax[0])
+
+  rgb_palette = sns.color_palette("Set2", 8)
+
+  # draw histograms
+  legend = {}
+  for ind, hist_pairs in enumerate(hists):
+
+    colour = tuple(x for x in rgb_palette[ind])
+
+    ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
+    ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
+
+    # add uncertainty
+    ax[0].fill_between(
+      bins,
+      np.append(hist_pairs[0],hist_pairs[0][-1])-np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+      np.append(hist_pairs[0],hist_pairs[0][-1])+np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+      color=colour,
+      alpha=0.2,
+      step='mid'
+      )
+    ax[0].fill_between(
+      bins,
+      np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+      np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+      color=colour,
+      alpha=0.5,
+      step='mid'
+      )
+
+    # y label
+    ax[0].set_ylabel(ylabel)
+
+    # legend
+    handles, labels = ax[0].get_legend_handles_labels()
+    handles = handles[::-1]
+    labels = labels[::-1]
+    legend = ax[0].legend(handles, labels, loc='upper right', fontsize=18, bbox_to_anchor=(0.9, 0.88), bbox_transform=plt.gcf().transFigure, frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+    legend.get_frame().set_linewidth(0)  # Remove legend box border
+    legend.get_frame().set_facecolor('none')  # Make legend background transparent
+    legend.get_frame().set_edgecolor('none')  # Make legend edge transparent
+    max_label_length = 15  # Adjust the maximum length of each legend label
+    for text in legend.get_texts():
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+    # draw ratios
+    denom = np.array([v if v !=0 else 1.0 for v in hist_pairs[1]])
+    ratio = hist_pairs[0]/denom
+    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="-", drawstyle="steps-mid")
+
+    # add uncertainty ro ratio
+    ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
+    ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
+
+  # ratio labels
+  ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax[-1].set_xlabel(xlabel)
+  ax[-1].set_ylabel('Ratio')
+  ax[-1].set_ylim([0.5,1.5])
+  ax[-1].xaxis.get_major_formatter().set_useOffset(False)
+
+  # Adjust spacing between subplots
+  plt.subplots_adjust(hspace=0.1, left=0.15)
+
+  # Show the plot
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
   plt.close()
 
 def plot_likelihood(
@@ -224,6 +332,79 @@ def plot_likelihood(
   plt.savefig("{}.pdf".format(name))
   plt.close()
 
+
+def  plot_many_comparisons(
+  sim_hists,
+  synth_hists,
+  sim_hist_uncerts,
+  synth_hist_uncerts,
+  bins,
+  xlabel = "",
+  ylabel="Events",
+  name="generation_non_stack",       
+):
+
+  n_models = len(sim_hists.keys())
+  fig, ax= plt.subplots(n_models+1, 1, sharex=True, gridspec_kw={'height_ratios': [3]*n_models+[2]})
+
+  hep.cms.text(cms_label,ax=ax[0])
+
+  rgb_palette = sns.color_palette("Set2", 8)
+
+  # draw histograms
+  legend = {}
+  for ind, (key, val) in enumerate(sim_hists.items()):
+    # plot histograms
+    colour = tuple(x for x in rgb_palette[ind])
+    ax[ind].plot(bins[:-1], val, label=key, color=colour, linestyle="--", drawstyle="steps-mid")
+    other_key = list(synth_hists.keys())[ind]
+    ax[ind].plot(bins[:-1], synth_hists[other_key], label=other_key, color=colour, linestyle="-", drawstyle="steps-mid")
+
+    # add uncertainty
+    ax[ind].fill_between(bins,np.append(val,val[-1])-np.append(sim_hist_uncerts[key],sim_hist_uncerts[key][-1]),np.append(val,val[-1])+np.append(sim_hist_uncerts[key],sim_hist_uncerts[key][-1]),color=colour,alpha=0.5,step='mid')
+    ax[ind].fill_between(bins,np.append(synth_hists[other_key],synth_hists[other_key][-1])-np.append(synth_hist_uncerts[other_key],synth_hist_uncerts[other_key][-1]),np.append(synth_hists[other_key],synth_hists[other_key][-1])+np.append(synth_hist_uncerts[other_key],synth_hist_uncerts[other_key][-1]),color=colour,alpha=0.2,step='mid')
+
+    # y label
+    ax[ind].set_ylabel(ylabel)
+
+    # legend
+    handles, labels = ax[ind].get_legend_handles_labels()
+    handles = handles[::-1]
+    labels = labels[::-1]
+    legend[ind] = ax[ind].legend(handles, labels, loc='upper right', fontsize=18, bbox_to_anchor=(0.95, 0.95), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+    legend[ind].get_frame().set_linewidth(0)  # Remove legend box border
+    legend[ind].get_frame().set_facecolor('none')  # Make legend background transparent
+    legend[ind].get_frame().set_edgecolor('none')  # Make legend edge transparent
+    max_label_length = 15  # Adjust the maximum length of each legend label
+    for text in legend[ind].get_texts():
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+    # draw ratios
+    denom = np.array([v if v !=0 else 1.0 for v in val])
+    ratio = synth_hists[other_key]/denom
+    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="-", drawstyle="steps-mid")
+
+    # add uncertainty ro ratio
+    ratio_uncert = ((sim_hist_uncerts[key]**2 + synth_hist_uncerts[other_key]**2)**0.5)/denom
+    ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.5,step='mid')
+
+  # ratio labels
+  ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax[-1].set_xlabel(xlabel)
+  ax[-1].set_ylabel('Ratio')
+  ax[-1].set_ylim([0.5,1.5])
+  ax[-1].xaxis.get_major_formatter().set_useOffset(False)
+
+  # Adjust spacing between subplots
+  plt.subplots_adjust(hspace=0.1, left=0.15)
+
+  # Show the plot
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf")
+  plt.close()
+
+
 def plot_spline_and_thresholds(
     spline, 
     thresholds, 
@@ -291,6 +472,7 @@ def plot_stacked_histogram_with_ratio(
     use_stat_err=False,
     axis_text="",
     top_space=1.2,
+    draw_ratio=True,
   ):
   """
   Plot a stacked histogram with a ratio plot.
@@ -321,22 +503,29 @@ def plot_stacked_histogram_with_ratio(
       Text to be displayed on the top left corner of the plot (default is '').
   """
 
-  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+  if draw_ratio:
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+  else:
+    fig, ax1 = plt.subplots()
+
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
 
-  data_hist = data_hist.astype(np.float64)
+  if data_hist is not None:
+    data_hist = data_hist.astype(np.float64)
   for k, v in stack_hist_dict.items():
     stack_hist_dict[k] = v.astype(np.float64)
 
   total_stack_hist = np.sum(list(stack_hist_dict.values()), axis=0)
 
-  if data_errors is None:
-    data_errors = 0*data_hist
+  if data_hist is not None:
+    if data_errors is None:
+      data_errors = 0*data_hist
   if stack_hist_errors is None:
     stack_hist_errors = 0*total_stack_hist   
 
   if use_stat_err:
-    data_errors = np.sqrt(data_hist)
+    if data_hist is not None:
+      data_errors = np.sqrt(data_hist)
     stack_hist_errors = np.sqrt(total_stack_hist)
 
   # Plot the histograms on the top pad
@@ -367,12 +556,17 @@ def plot_stacked_histogram_with_ratio(
     ax1.step(step_edges, step_histvals, color='black')
 
   ax1.set_xlim([bin_edges[0],bin_edges[-1]])
-  ax1.set_ylim([0.0,top_space*max(np.maximum(data_hist,total_stack_hist))])
+  if data_hist is not None:
+    ax1.set_ylim([0.0,top_space*max(np.maximum(data_hist,total_stack_hist))])
+  else:
+    ax1.set_ylim([0.0,top_space*max(total_stack_hist)])
+
 
   ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
 
-  # Plot the other histogram as markers with error bars
-  ax1.errorbar(bin_centers, data_hist, yerr=data_errors, fmt='o', label=data_name, color="black")
+  if data_hist is not None:
+    # Plot the other histogram as markers with error bars
+    ax1.errorbar(bin_centers, data_hist, yerr=data_errors, fmt='o', label=data_name, color="black")
 
   # Get the current handles and labels of the legend
   handles, labels = ax1.get_legend_handles_labels()
@@ -401,28 +595,37 @@ def plot_stacked_histogram_with_ratio(
 
   ax1.text(0.03, 0.96, axis_text, transform=ax1.transAxes, va='top', ha='left')
 
-  # Compute the ratio of the histograms
-  zero_indices = np.where(total_stack_hist == 0)
-  for i in zero_indices: total_stack_hist[i] = 1.0
+  if not draw_ratio:
+    ax1.set_xlabel(xlabel)
 
-  ratio = np.divide(data_hist,total_stack_hist)
-  ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
-  ratio_errors_2 = np.divide(data_errors,total_stack_hist)
+  if draw_ratio:
 
-  for i in zero_indices:
-      ratio[i] = 0.0
+    # Compute the ratio of the histograms
+    zero_indices = np.where(total_stack_hist == 0)
+    for i in zero_indices: total_stack_hist[i] = 1.0
+
+    if data_hist is not None:
+      ratio = np.divide(data_hist,total_stack_hist)
+      ratio_errors_2 = np.divide(data_errors,total_stack_hist)
+
+    ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
+
+    for i in zero_indices:
+      if data_hist is not None:
+        ratio[i] = 0.0
+        ratio_errors_2[i] = 0.0
       ratio_errors_1[i] = 0.0
-      ratio_errors_2[i] = 0.0
 
-  # Plot the ratio on the bottom pad
-  ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
+    if data_hist is not None:
+      # Plot the ratio on the bottom pad
+      ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
 
-  ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
-  ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
-  ax2.set_xlabel(xlabel)
-  ax2.set_ylabel('Ratio')
-  ax2.set_ylim([0.5,1.5])
-  ax2.xaxis.get_major_formatter().set_useOffset(False)
+    ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+    ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+    ax2.set_xlabel(xlabel)
+    ax2.set_ylabel('Ratio')
+    ax2.set_ylim([0.5,1.5])
+    ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1, left=0.15)
@@ -569,6 +772,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   ax1.set_xlim([bin_edges[0],bin_edges[-1]])
   ax1.set_ylim(0, 1.2*max(np.concatenate((total_stack_hist,data_hist))))
 
+  bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
   ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
 
   # Plot the other histogram as markers with error bars
@@ -725,6 +929,9 @@ def plot_summary(
   hep.cms.text(cms_label,ax=ax[0])
 
   other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)
+
+  #other_colors = [sns.color_palette("bright", 10)[3], sns.color_palette("bright", 10)[2], sns.color_palette("bright", 2)[1]]
+
 
   for ind, (col, vals) in enumerate(crossings.items()):
 

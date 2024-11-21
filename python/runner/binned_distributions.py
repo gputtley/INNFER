@@ -97,8 +97,14 @@ class BinnedDistributions():
       # Get names for plot
       if self.data_type in ["sim","asimov"]:
         data_plot_name = GetYName(self.Y_data, purpose="plot", prefix="Asimov y=")
+        data_hist = None
+        data_hist_uncert = None
+        draw_ratio = False
       else:
         data_plot_name = "Data"
+        data_hist = np.array(data_hist)
+        data_hist_uncert = np.array(data_hist_uncert)
+        draw_ratio = True
       sample_plot_name = GetYName(self.Y_stack, purpose="plot", prefix="Asimov y=")
 
       # Running plotting functions
@@ -106,18 +112,18 @@ class BinnedDistributions():
         print(f"- Making binned distribution plots")
 
       plot_stacked_histogram_with_ratio(
-        np.array(data_hist), 
+        data_hist, 
         sim_hists, 
         cat_info[2], 
         data_name=data_plot_name, 
         xlabel=cat_info[1],
         ylabel="Events",
         name=f"{self.plots_output}/binned_distribution_category{cat_ind}{self.extra_plot_name}", 
-        data_errors=np.array(data_hist_uncert), 
-        stack_hist_errors=np.zeros(len(data_hist)), 
+        data_errors=data_hist_uncert, 
+        stack_hist_errors=np.zeros(len(sim_hists[list(sim_hists.keys())[0]])), 
         axis_text=f"Category {cat_ind}",
         use_stat_err=False,
-        #axis_text="",
+        draw_ratio=draw_ratio,
         )
 
 
@@ -138,20 +144,14 @@ class BinnedDistributions():
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
       inputs += [
         self.parameters[file_name],
-        f"{parameters['file_loc']}/X_train.parquet",
-        f"{parameters['file_loc']}/Y_train.parquet", 
-        f"{parameters['file_loc']}/wt_train.parquet", 
+        f"{parameters['file_loc']}/X_full.parquet",
+        f"{parameters['file_loc']}/Y_full.parquet", 
+        f"{parameters['file_loc']}/wt_full.parquet", 
       ]
 
     # Add inputs from the dataset being used
     if self.data_type == "data":
       inputs += [self.data_file]
-    elif self.data_type == "sim":
-      inputs += [
-        f"{parameters['file_loc']}/X_val.parquet",
-        f"{parameters['file_loc']}/Y_val.parquet", 
-        f"{parameters['file_loc']}/wt_val.parquet", 
-      ]
 
     # Add other outputs
     inputs += self.other_input_files

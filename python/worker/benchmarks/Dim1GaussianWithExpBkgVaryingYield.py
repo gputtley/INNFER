@@ -48,7 +48,7 @@ class Dim1GaussianWithExpBkgVaryingYield():
     self.background_constant = 160.0
     self.signal_yield = 1000.0
     self.background_yield = 1000.0
-    self.train_test_val_split = "0.4:0.3:0.3"
+    self.train_test_val_split = "0.8:0.1:0.1"
     self.array_size = int(3e6)
     self.saved_parameters = {}
     self.dir_name = f"data/Benchmark_{self.name}/Inputs"    
@@ -71,8 +71,14 @@ class Dim1GaussianWithExpBkgVaryingYield():
     cfg = {
       "name" : f"Benchmark_{self.name}",
       "files" : {
-        "Gaussian" : f"{self.dir_name}/Gaussian.parquet",
-        "ExpBkg" : f"{self.dir_name}/ExpBkg.parquet",
+        "Gaussian" : {
+          "inputs" : [f"{self.dir_name}/Gaussian.parquet"],
+          "weight" : "wt"
+        },
+        "ExpBkg" : {
+          "inputs" : [f"{self.dir_name}/ExpBkg.parquet"],
+          "weight" : "wt"
+        }
       },
       "variables" : ["X1"],
       "pois" : ["Y1"],
@@ -152,7 +158,7 @@ class Dim1GaussianWithExpBkgVaryingYield():
     data_parquet_file_path = f"{self.dir_name}/{self.name}_data.parquet"
     pq.write_table(data_table, data_parquet_file_path)
 
-  def Probability(self, X, Y, return_log_prob=True):
+  def Probability(self, X, Y, return_log_prob=True, order=0, column_1=None, column_2=None):
     """
     Computes the probability density function for a Gaussian distribution.
 
@@ -170,6 +176,9 @@ class Dim1GaussianWithExpBkgVaryingYield():
     numpy.ndarray
         The (log) probability values.
     """
+
+    if order != 0 and order != [0]:
+      raise ValueError("Derivatives are not setup for the benchmark scenarios.")
 
     if self.file_name == "Gaussian":
 
@@ -191,9 +200,9 @@ class Dim1GaussianWithExpBkgVaryingYield():
 
     # Return correct value
     if return_log_prob:
-      return np.log(pdf.to_numpy()).reshape(-1,1)
+      return [np.log(pdf.to_numpy()).reshape(-1,1)]
     else:
-      return pdf.to_numpy().reshape(-1,1)
+      return [pdf.to_numpy().reshape(-1,1)]
 
   def Sample(self, Y, n_events):
     """

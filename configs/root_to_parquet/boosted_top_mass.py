@@ -1,9 +1,9 @@
 import copy
 import numpy as np
 
-version = "v2_correlated"
+version = "v3_uncorrelated"
 
-nui_scale = 10
+nui_scale = 1
 
 defaults = {
   "Tree_Name" : "AnalysisTree",
@@ -32,18 +32,18 @@ defaults = {
     "same_leading_order",
   ],
   "Scale" : 1.0,
-  #"Uncorrelated_Weight_Shifts" : {
-  #  "jec" : {i : f"(((sub1_factor_jec+({i}*sub1_sigma_jec))*(sub2_factor_jec+({i}*sub2_sigma_jec))*(sub3_factor_jec+({i}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-1.0,1.0]},
-  #  "cor" : {i : f"(((sub1_factor_cor+({i}*sub1_sigma_cor))*(sub2_factor_cor+({i}*sub2_sigma_cor))*(sub3_factor_cor+({i}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-1.0,1.0]}
+  "Uncorrelated_Weight_Shifts" : {
+    "jec" : {i : f"(((sub1_factor_jec+({i}*sub1_sigma_jec))*(sub2_factor_jec+({i}*sub2_sigma_jec))*(sub3_factor_jec+({i}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-3.0,-2.0,-1.0,0.0,1.0,2.0,3.0]},
+    "cor" : {i : f"(((sub1_factor_cor+({i}*sub1_sigma_cor))*(sub2_factor_cor+({i}*sub2_sigma_cor))*(sub3_factor_cor+({i}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-3.0,-2.0,-1.0,1.0,2.0,3.0]}
+  },
+  #"Correlated_Weight_Shifts" : {
+  #  "jec" : {i : f"(((sub1_factor_jec+({i}*sub1_sigma_jec))*(sub2_factor_jec+({i}*sub2_sigma_jec))*(sub3_factor_jec+({i}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-3.0,-2.0,-1.0,0.0,1.0,2.0,3.0]},
+  #  "cor" : {i : f"(((sub1_factor_cor+({i}*sub1_sigma_cor))*(sub2_factor_cor+({i}*sub2_sigma_cor))*(sub3_factor_cor+({i}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-3.0,-2.0,-1.0,0.0,1.0,2.0,3.0]}
   #},
   #"Correlated_Weight_Shifts" : {
-  #  "jec" : {i : f"(((sub1_factor_jec+({i}*sub1_sigma_jec))*(sub2_factor_jec+({i}*sub2_sigma_jec))*(sub3_factor_jec+({i}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-1.0,0.0,1.0]},
-  #  "cor" : {i : f"(((sub1_factor_cor+({i}*sub1_sigma_cor))*(sub2_factor_cor+({i}*sub2_sigma_cor))*(sub3_factor_cor+({i}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-1.0,0.0,1.0]}
+  #  f"jec_scaled_by_{nui_scale}" : {i : f"(((sub1_factor_jec+({i}*{nui_scale}*sub1_sigma_jec))*(sub2_factor_jec+({i}*{nui_scale}*sub2_sigma_jec))*(sub3_factor_jec+({i}*{nui_scale}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-1.0,0.0,1.0]},
+  #  f"cor_scaled_by_{nui_scale}" : {i : f"(((sub1_factor_cor+({i}*{nui_scale}*sub1_sigma_cor))*(sub2_factor_cor+({i}*{nui_scale}*sub2_sigma_cor))*(sub3_factor_cor+({i}*{nui_scale}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-1.0,0.0,1.0]}
   #},
-  "Correlated_Weight_Shifts" : {
-    f"jec_scaled_by_{nui_scale}" : {i : f"(((sub1_factor_jec+({i}*{nui_scale}*sub1_sigma_jec))*(sub2_factor_jec+({i}*{nui_scale}*sub2_sigma_jec))*(sub3_factor_jec+({i}*{nui_scale}*sub3_sigma_jec)))/(sub1_factor_jec*sub2_factor_jec*sub3_factor_jec))" for i in [-1.0,0.0,1.0]},
-    f"cor_scaled_by_{nui_scale}" : {i : f"(((sub1_factor_cor+({i}*{nui_scale}*sub1_sigma_cor))*(sub2_factor_cor+({i}*{nui_scale}*sub2_sigma_cor))*(sub3_factor_cor+({i}*{nui_scale}*sub3_sigma_cor)))/(sub1_factor_cor*sub2_factor_cor*sub3_factor_cor))" for i in [-1.0,0.0,1.0]}
-  },
   "Calculate_Extra_Columns" : {
     "sub12_E_rec" : "sub1_E_rec + sub2_E_rec",
     "sub12_px_rec" : "sub1_px_rec + sub2_px_rec",

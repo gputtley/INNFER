@@ -73,7 +73,7 @@ class Dim6IncludingDiscrete():
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
-      "files" : {"Signal" : f"{self.dir_name}/Signal.parquet"},
+      "files" : {"Signal" : {"inputs" : [f"{self.dir_name}/Signal.parquet"]}},
       "variables" : [
         "X1",
         "X2",
@@ -84,6 +84,7 @@ class Dim6IncludingDiscrete():
       ],
       "pois" : ["Y1"],
       "nuisances" : [],
+      "weight" : "wt",
       "preprocess" : {
         "standardise" : "all",
         "train_test_val_split" : self.train_test_val_split,

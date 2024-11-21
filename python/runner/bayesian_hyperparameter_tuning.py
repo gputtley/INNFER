@@ -181,7 +181,6 @@ class BayesianHyperparameterTuning():
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     inputs = [
       self.parameters,
-      self.architecture,
       f"{parameters['file_loc']}/X_train.parquet",
       f"{parameters['file_loc']}/Y_train.parquet", 
       f"{parameters['file_loc']}/wt_train.parquet", 

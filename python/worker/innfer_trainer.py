@@ -119,6 +119,8 @@ class InnferTrainer(bf.trainers.Trainer):
 
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
+               #print(input_dict)
+
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
                if adaptive_lr_scheduler is not None:
@@ -127,6 +129,10 @@ class InnferTrainer(bf.trainers.Trainer):
                self.loss_history.add_entry(ep, loss)
                avg_dict = self.loss_history.get_running_losses(ep)
                lr = self._convert_lr(extract_current_lr(self.optimizer))
+
+            #print(self.amortizer.compute_loss(input_dict))
+            #print(ep, bi, loss, avg_dict, lr)
+            #print("-------------------------------------------------")
                disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
@@ -259,6 +265,7 @@ class InnferTrainer(bf.trainers.Trainer):
          (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data)
       if Y_data.shape[1] == 0:
          Y_data = np.empty((X_data.shape[0],0))
+      #print(np.sum(wt_data),len(X_data))
       return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):

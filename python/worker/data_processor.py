@@ -1,6 +1,7 @@
 import copy
 import os
 import pickle
+import re
 
 import numpy as np
 import pandas as pd
@@ -19,8 +20,6 @@ class DataProcessor():
       batch_size = None,
       options = {}
     ):
-
-    # Check inputs are correct
     if dataset_type not in ["dataset","parquet","generator"]:
       raise ValueError("dataset_type given is incorrect.")
     else:
@@ -48,6 +47,7 @@ class DataProcessor():
     self.resample = False
     self.resampling_seed = 1
     self.functions = []
+    self.decimals = 16
 
     # Transform options
     self.parameters = {}
@@ -70,6 +70,10 @@ class DataProcessor():
     elif dataset_type == "parquet":
       self.data_loaders = [[DataLoader(d, batch_size=self.batch_size) for d in ds] for ds in self.datasets]
       self.num_batches = [self.data_loaders[ind][0].num_batches for ind in range(len(self.datasets))]
+
+    if np.sum(self.num_batches) == 0:
+      print("WARNING: No batches found!")
+
     if not isinstance(self.scale, list):
       self.scale = [self.scale]*len(self.datasets)
 
@@ -85,6 +89,14 @@ class DataProcessor():
 
     for key, value in options.items():
       setattr(self, key, value)
+
+  def _ReplaceEqualsWithIsClose(self, selection):
+    pattern = r'(\w+)\s*==\s*([-+]?\d*\.?\d+)'      
+    replacement = r'np.isclose(\1, \2)'   
+    shift = 1e-7
+    replacement = rf'((\1 > (\2 - {shift})) & (\1 < (\2 + {shift})))'   
+    modified_selection = re.sub(pattern, replacement, selection)
+    return modified_selection
 
   def Restart(
       self
@@ -102,6 +114,7 @@ class DataProcessor():
     functions_to_apply = self.functions + functions_to_apply
 
     self.finished = False
+    df = None
     for column_ind in range(len(self.datasets[self.file_ind])):
 
       # Get dataset
@@ -116,14 +129,21 @@ class DataProcessor():
       if len(tmp.columns) == 0: continue
 
       # Combine columns into a full batch
-      if column_ind == 0:
+      if df is None:
         df = copy.deepcopy(tmp)
       else:
         df = pd.concat([df, tmp], axis=1)
+
       del tmp
 
+
+    if df is None: 
+      self.finished = True
+      return None
+
     # Set data type
-    df = df.astype(float)
+    if len(df) > 0 and len(df.columns) > 0:
+      df = df.astype(float)
 
     # Scale weights
     if self.scale[self.file_ind] is not None:
@@ -135,6 +155,10 @@ class DataProcessor():
         df.loc[:, self.wt_name] = scale
 
     # Apply functions
+
+    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
+      df = self.ApplySelection(df, extra_sel=extra_sel)
+
     for f in functions_to_apply:
       if isinstance(f, str):
         if f == "untransform":
@@ -145,8 +169,6 @@ class DataProcessor():
           df = self.TransformData(df)
       else:
         df = f(df)
-    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
-      df = self.ApplySelection(df, extra_sel=extra_sel)
 
     # Select the columns
     if self.columns is not None:
@@ -162,8 +184,8 @@ class DataProcessor():
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
       
-    # Fix any floating-point arithmetic error
-    df = df.round(decimals=15)
+    ## Fix any floating-point arithmetic error
+    #df = df.round(decimals=self.decimals)
       
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
@@ -192,13 +214,15 @@ class DataProcessor():
       quantile = 0.01,
       ignore_quantile = 0.005,
       unique_combinations = None,
+      means = None,
       custom = None,
       custom_options = {},
     ):
 
     if method == "std": # Get the mean for standard deviation calculation
-      sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
-      means = {k : v/sum_wts for k, v in sum_cols.items()}
+      if means is None:
+        sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+        means = {k : v/sum_wts for k, v in sum_cols.items()}
     elif method == "n_eff": # Get the number of effective events
       sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
@@ -314,19 +338,10 @@ class DataProcessor():
     """
     for column_name in data.columns:
 
-      # Apply discrete to continuous transformation
-      #if "discrete_thresholds" in self.parameters.keys():
-      #  if column_name in self.parameters["discrete_thresholds"].keys():
-      #    data[column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name).astype(np.float64)
-
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
         
-      # Fix any python floating point arithmetic problems
-      if column_name != self.wt_name:
-        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
-
     return data
 
   def UnTransformData(
@@ -348,12 +363,16 @@ class DataProcessor():
       if column_name == "prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] /= self.parameters["standardisation"][col]["std"]
+        for col in self.parameters["discrete_integral_differences"]:
+          data.loc[:,column_name] /= self.parameters["discrete_integral_differences"][col]
 
       # Unstandardise the log probabilities
       if column_name == "log_prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
-        
+        for col in self.parameters["discrete_integral_differences"]:
+          data.loc[:,column_name] -= self.parameters["discrete_integral_differences"][col]
+
       # Unstandardise the first derivative of the log probabilities
       if column_name.startswith("d_log_prob_by_d_"):
         col_1 = column_name.split("d_log_prob_by_d_")[1]
@@ -370,15 +389,6 @@ class DataProcessor():
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
-
-      # Convert previously discrete columns back to discrete
-      if "discrete_thresholds" in self.parameters.keys():
-        if column_name in self.parameters["discrete_thresholds"].keys():
-          data.loc[:,column_name] = self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
-
-      # Fix any python floating point arithmetic problems
-      if column_name != self.wt_name:
-        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
 
     return data
 
@@ -484,6 +494,7 @@ class DataProcessor():
         selection = extra_sel
       else:
         selection = f"({self.selection}) & {extra_sel}"
+      selection = self._ReplaceEqualsWithIsClose(selection)
       data = data.loc[data.eval(selection),:]
     return data
 
@@ -676,30 +687,51 @@ class DataProcessor():
 
   def _method_part_quantile(self, tmp, out, column, quantile):
 
-    # Find quantile of batch
-    tmp = tmp.reset_index(drop=True)
-    sorter = np.argsort(tmp.loc[:,column].to_numpy())
-    tmp = tmp.loc[sorter,:]
-    tmp_wt_name = False
-    if self.wt_name is None:
-      tmp_wt_name = True
-      self.wt_name = "wt"
-      tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
-    total = float(np.sum(tmp.loc[:,self.wt_name]))
-    cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
-    if len(cum_sum) == 0: 
-      return out
-    closest_index = (cum_sum - quantile).abs().idxmin()
-    interval = float(tmp.loc[closest_index, column])
-    if tmp_wt_name:
-      self.wt_name = None
+    if quantile not in [0,1]:
 
-    # do some averaging
-    if out is None:
-      out = [interval, total]
-    else:
-      out = [
-        (out[0]*out[1] + interval*total)/ (out[1]+total),
-        out[1]+total
-      ]
+      # Find quantile of batch
+      tmp = tmp.reset_index(drop=True)
+      sorter = np.argsort(tmp.loc[:,column].to_numpy())
+      tmp = tmp.loc[sorter,:]
+      tmp_wt_name = False
+      if self.wt_name is None:
+        tmp_wt_name = True
+        self.wt_name = "wt"
+        tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
+      total = float(np.sum(tmp.loc[:,self.wt_name]))
+      cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
+      if len(cum_sum) == 0: 
+        return out
+      closest_index = (cum_sum - quantile).abs().idxmin()
+      interval = float(tmp.loc[closest_index, column])
+      if tmp_wt_name:
+        self.wt_name = None
+
+      # do some averaging
+      if out is None:
+        out = [interval, total]
+      else:
+        out = [
+          (out[0]*out[1] + interval*total)/ (out[1]+total),
+          out[1]+total
+        ]
+  
+    elif quantile == 0:
+
+      min_out = min(tmp.loc[:,column].to_numpy().flatten())
+
+      if out is None:
+        out = [min_out]
+      else:
+        out = [min(min_out,out[0])]
+
+    elif quantile == 1:
+
+      max_out = max(tmp.loc[:,column].to_numpy().flatten())
+
+      if out is None:
+        out = [max_out]
+      else:
+        out = [max(max_out,out[0])]
+
     return out

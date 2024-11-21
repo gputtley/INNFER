@@ -257,7 +257,7 @@ class Infer():
         row=self.true_Y, 
         filename=f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 
         freeze=self.freeze,
-        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
+        #scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
       )
 
     elif self.method == "Covariance":
@@ -415,7 +415,7 @@ class Infer():
         print(f"- Likelihood output:")
 
       for j in self.other_input.split(":"):
-        self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')], Y_columns=list(self.initial_best_fit_guess.columns))
+        self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')])
 
   def Outputs(self):
 
@@ -454,13 +454,17 @@ class Infer():
     # Add parameters and model inputs
     for k in self.parameters.keys():
       inputs += [
-        self.model[k], # remove this if not needed
-        self.architecture[k],
         self.parameters[k],
       ]
 
+      if self.likelihood_type in ["unbinned","unbinned_extended"]:
+        inputs += [
+          self.model[k],
+          self.architecture[k],
+        ]
+
     # Add input datasets
-    if self.data_type == "sim" or (args.data_type == "asimov" and args.likelihood_type in ["binned", "binned_extended"]):
+    if self.data_type == "sim" or (self.data_type == "asimov" and self.likelihood_type in ["binned", "binned_extended"]):
       for k, v in self.parameters.items():
         with open(v, 'r') as yaml_file:
           parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -471,7 +475,7 @@ class Infer():
         ]
     elif self.data_type == "data":
       inputs += [self.data_file]      
-    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
+    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov" and self.likelihood_type in ["unbinned", "unbinned_extended"]:
       for file_name in self.parameters.keys():
         inputs += [f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"]
 
@@ -541,37 +545,47 @@ class Infer():
         bin_cat_num = 0
         for cat_num, cat_info in categories.items():
 
-          datasets = [
-            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
-          ]
-          scalers = [
-            self._BuildYieldFunctions(column_name=f"yields_train")[file_name](yields_df.iloc[[index]]),
-            self._BuildYieldFunctions(column_name=f"yields_val")[file_name](yields_df.iloc[[index]]),
-          ]
-          if self.test_name == "test":
-            datasets += [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]
-            scalers += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](yields_df.iloc[[index]])]
+          #datasets = [
+            #[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
+            #[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
+          #]
+          #scalers = [
+            #self._BuildYieldFunctions(column_name=f"yields_train")[file_name](yields_df.iloc[[index]]),
+            #self._BuildYieldFunctions(column_name=f"yields_val")[file_name](yields_df.iloc[[index]]),
+            #self._BuildYieldFunctions(column_name=f"yield")[file_name](yields_df.iloc[[index]]),
+          #]
+          #if self.test_name == "test":
+          #  datasets += [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]
+          #  scalers += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](yields_df.iloc[[index]])]
 
           # Make data processor
           asimov_dps = DataProcessor(
-            datasets,
+            [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
             "parquet",
             wt_name = "wt",
             options = {
-              "parameters" : parameters,
               "selection" : y_selection,
-              "scale" : scalers,
-              "functions" : ["untransform"]
             }
           )
+
+          #asimov_dps = DataProcessor(
+          #  datasets,
+          #  "parquet",
+          #  wt_name = "wt",
+          #  options = {
+          #    "parameters" : parameters,
+          #    "selection" : y_selection,
+          #    "scale" : scalers,
+          #    "functions" : ["untransform"]
+          #  }
+          #)
 
           hist, _ = asimov_dps.GetFull(
             method = "histogram",
             extra_sel = cat_info[0],
             column = cat_info[1],
             bins = cat_info[2],
-          )
+          )          
 
           # Loop through histogram bins
           for bin_num, hist_val in enumerate(hist):
@@ -626,23 +640,31 @@ class Infer():
 
         if self.likelihood_type in ["unbinned", "unbinned_extended"]:
           sim_inputs = [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]]
+          #sim_inputs = [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
+          #sim_inputs = [[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"]]
           if self.yields is not None:
             scale = self.yields[file_name](self.true_Y)
             if scale == 0: continue
           else:
             scale = None
+          functions = ["untransform"]
         else:
           sim_inputs = [
-            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
+            #[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
+            #[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
+            [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
           ]
           scale = [
-            self._BuildYieldFunctions(column_name=f"yields_train")[file_name](self.true_Y),
-            self._BuildYieldFunctions(column_name=f"yields_val")[file_name](self.true_Y),
+            #self._BuildYieldFunctions(column_name=f"yields_train")[file_name](self.true_Y),
+            #self._BuildYieldFunctions(column_name=f"yields_val")[file_name](self.true_Y),
+            #self._BuildYieldFunctions(column_name=f"yield")[file_name](self.true_Y),
+            None
           ]
-          if self.test_name == "test":
-            sim_inputs += [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
-            scale += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](self.true_Y)]
+          #if self.test_name == "test":
+          #  sim_inputs += [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
+          #  scale += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](self.true_Y)]
+
+          functions = []
 
         shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in parameters["Y_columns"]]
         dps[file_name] = DataProcessor(
@@ -656,7 +678,7 @@ class Infer():
             "scale" : scale,
             "resample" : self.resample,
             "resampling_seed" : self.resampling_seed,
-            "functions" : ["untransform"], 
+            "functions" : functions, 
           }
         )
 
@@ -830,7 +852,7 @@ class Infer():
         networks[file_name] = Network(
           f"{parameters[file_name]['file_loc']}/X_val.parquet",
           f"{parameters[file_name]['file_loc']}/Y_val.parquet", 
-          f"{parameters[file_name]['file_loc']}/wt_val.parquet", 
+          f"{parameters[file_name]['file_loc']}/wt_val.parquet",
           options = {
             **architecture,
             **{

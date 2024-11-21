@@ -350,7 +350,7 @@ class Network():
     elif self.lr_scheduler_name == "AdaptiveGradient":
       self.lr_scheduler = self.trainer.default_lr
       class adaptive_lr_scheduler():
-        def __init__(self, num_its=60, scaling=0.001, max_lr=0.001, min_lr=0.00000001, max_shift_fraction=0.05, grad_change=1.0):
+        def __init__(self, num_its=60, scaling=0.001, max_lr=10**(-3), min_lr=10**(-9), max_shift_fraction=0.05, grad_change=1.0):
           self.num_its = num_its
           self.scaling = scaling
           self.max_lr = max_lr
@@ -378,14 +378,14 @@ class Network():
         num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 40,
         scaling=self.lr_scheduler_options["scaling"] if "scaling" in self.lr_scheduler_options.keys() else 0.0002,
         max_lr=self.trainer.default_lr,
-        min_lr=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 0.0000001,
+        min_lr=self.lr_scheduler_options["min_lr"] if "min_lr" in self.lr_scheduler_options.keys() else 10**(-9),
         max_shift_fraction=self.lr_scheduler_options["max_shift_fraction"] if "max_shift_fraction" in self.lr_scheduler_options.keys() else 0.01,
         grad_change=self.lr_scheduler_options["grad_change"] if "grad_change" in self.lr_scheduler_options.keys() else 0.99,
       )
     elif self.lr_scheduler_name == "GaussianNoise":
       self.lr_scheduler = self.trainer.default_lr
       class noise_lr_scheduler():
-        def __init__(self, initial_learning_rate, std_percentage=0.001, num_its=10):
+        def __init__(self, initial_learning_rate, std_percentage=0.0001, num_its=50):
           self.initial_learning_rate = initial_learning_rate
           self.num_its = num_its
           self.std_percentage = std_percentage
@@ -398,16 +398,27 @@ class Network():
             self.lr_stores = self.lr_stores[1:]
             if len(self.loss_stores) > self.num_its + 1:
               self.loss_stores = self.loss_stores[1:]
-            loss_grads = [self.loss_stores[ind] - self.loss_stores[ind+1] for ind in range(len(self.loss_stores)-1)]
-            min_ind = loss_grads.index(max(loss_grads)) # maybe make it some weighted average instead
-            lr = self.lr_stores[min_ind]
+            loss_grads = [self.loss_stores[ind+1] - self.loss_stores[ind] for ind in range(len(self.loss_stores)-1)]
+
+            #min_ind = loss_grads.index(max(loss_grads)) # maybe make it some weighted average instead
+            #lr = self.lr_stores[min_ind]
+
+            max_loss_grad = max(loss_grads)
+            weights = [-(loss_grad-max_loss_grad) for loss_grad in loss_grads]
+
+            #weights = [-loss_grad if loss_grad<0 else 0 for loss_grad in loss_grads]
+
+            product = np.sum([weights[ind]*self.lr_stores[ind] for ind in range(len(weights))])
+            sum_weights = np.sum(weights)
+            lr = product/sum_weights
+
           lr += np.random.normal(loc=0.0, scale=lr*self.std_percentage)
           return lr
           
       self.adaptive_lr_scheduler = noise_lr_scheduler(
         initial_learning_rate=self.trainer.default_lr,
-        std_percentage=self.lr_scheduler_options["std_percentage"] if "std_percentage" in self.lr_scheduler_options.keys() else 0.01,
-        num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 20,
+        std_percentage=self.lr_scheduler_options["std_percentage"] if "std_percentage" in self.lr_scheduler_options.keys() else 0.05,
+        num_its=self.lr_scheduler_options["num_its"] if "num_its" in self.lr_scheduler_options.keys() else 50,
       )
 
     else:
@@ -620,6 +631,7 @@ class Network():
           extra_sel = selection
           )
 
+
         if "chi_squared" in metric:
           # Calculate chi squared
           non_zero_uncert_bins_train = np.where((synth_hist_uncert!=0) | (sim_train_hist_uncert!=0))
@@ -817,6 +829,7 @@ class Network():
           index_2 = self.data_parameters["X_columns"].index(column_2)
           grad_of_2 = "parameters"
         else:
+          predictions = tf.convert_to_tensor(self.amortizer.log_posterior(data))
           first_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
           second_derivative = tf.convert_to_tensor(np.zeros((len(data["parameters"]),1)))
           skip = True
@@ -898,6 +911,7 @@ class Network():
       # Fix 1d probability by ensuring integral is 1
       if self.fix_1d and not no_fix and order[ind] == 0:
         log_probs[ind] = log_probs[ind] - np.log(self.ProbabilityIntegral(Y_initial, verbose=True))
+        log_probs[ind] = log_probs[ind] - np.log(1/(2*np.pi)**0.5)
 
       # return probability - change this for derivatives
       if return_log_prob:
@@ -1072,6 +1086,16 @@ class Network():
 
     # Get samples
     synth = self.amortizer.sample(batch_data, 1)[:,0,:]
+    
+    if not self.fix_1d:
+      synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
+    else:
+      synth_df = pd.DataFrame(synth[:,0], columns=self.data_parameters["X_columns"])
+    total_nans = synth_df.isna().sum().sum()
+    rows_with_nan = synth_df[synth_df.isna().any(axis=1)]
+    if total_nans > 0:
+      synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
+    del synth_df 
 
     # Fix 1d couplings
     if self.fix_1d:
