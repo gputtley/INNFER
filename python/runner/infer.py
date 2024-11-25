@@ -447,7 +447,7 @@ class Infer():
       with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
       for col in hessian["matrix_columns"]:      
-        outputs += f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"
+        outputs += [f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"]
 
     # Add covariancewithdmatrix
     if self.method == "CovarianceWithDMatrix":
@@ -455,7 +455,7 @@ class Infer():
       with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
       for col in hessian["matrix_columns"]:      
-        outputs += f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"
+        outputs += [f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"]
 
     # Add scan ranges
     if self.method == "ScanPoints":
@@ -515,7 +515,7 @@ class Infer():
 
     # Add hessian 
     if self.method in ["Covariance","CovarianceWithDMatrix"]:
-      inputs += [f"{self.data_input}/hessian{self.extra_file_name}.yaml"]
+      inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}.yaml"]
 
     # Add d matrix
     if self.method in ["CovarianceWithDMatrix"]:

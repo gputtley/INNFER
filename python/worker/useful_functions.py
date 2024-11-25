@@ -957,18 +957,33 @@ def SplitValidationParameters(val_loops, file_name, val_ind, cfg):
   if file_name == "combined":
     output = {}
     combined_row = val_loops["combined"][val_ind]["row"]
-    for fn, val_loop in val_loops.items():
-      if fn == "combined": continue
-      for indiv_val_ind, val_info in enumerate(val_loop):
-        indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
-        indiv_row = val_info["row"].loc[:, indiv_columns]
-        combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
-        if indiv_row.equals(combined_row_with_indiv_columns):
-          if len(indiv_row.columns) > 0:
-            output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
-          else:
-            output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
-          break
+    #for fn, val_loop in val_loops.items():
+    for fn in cfg["files"].keys():
+      if fn not in val_loops.keys():
+        output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
+      else:
+        for indiv_val_ind, val_info in enumerate(val_loops[fn]):
+          indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
+          indiv_row = val_info["row"].loc[:, indiv_columns]
+          combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
+          if indiv_row.equals(combined_row_with_indiv_columns):
+            if len(indiv_row.columns) > 0:
+              output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
+            else:
+              output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
+            break   
+
+      #if fn == "combined": continue
+      #for indiv_val_ind, val_info in enumerate(val_loop):
+      #  indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
+      #  indiv_row = val_info["row"].loc[:, indiv_columns]
+      #  combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
+      #  if indiv_row.equals(combined_row_with_indiv_columns):
+      #    if len(indiv_row.columns) > 0:
+      #      output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
+      #    else:
+      #      output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
+      #    break
     return output
   else:
     return f"data/{cfg['name']}/{file_name}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml"

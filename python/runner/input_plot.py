@@ -88,8 +88,8 @@ class InputPlot():
 
     for data_split in ["train","test","test_inf","val"]:
       for col in parameters["X_columns"] + parameters["Y_columns"]:
-        outputs += [f"{self.plots_outputs}/distributions_{col}_{data_split}_transformed.pdf"]
-        outputs += [f"{self.plots_outputs}/distributions_{col}_{data_split}.pdf"]
+        outputs += [f"{self.plots_output}/distributions_{col}_{data_split}_transformed.pdf"]
+        outputs += [f"{self.plots_output}/distributions_{col}_{data_split}.pdf"]
 
     return outputs
 

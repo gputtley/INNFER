@@ -19,7 +19,7 @@ source setup.sh env
 
 ## Setup Environment
 
-At the beginning of every session you will need to run the following command to setup the environment.
+At the beginning of every session you will need to run the following command to start the environment.
 ```
 source env.sh
 ```

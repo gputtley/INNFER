@@ -299,8 +299,8 @@ def main(args, default_args):
         loop = {"file_name" : file_name}
       )
 
-  # Plot preprocess data
-  if args.step == "SplitValidationFiles":
+  # Split the validation files
+  if args.step in ["PreProcess","SplitValidationFiles"]:
     print("<< Splitting the validation files >>")
     validate_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)["val_loops"]
     for file_name in GetFileLoop(cfg):

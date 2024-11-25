@@ -222,7 +222,7 @@ class PreProcess():
       if os.path.isfile(flattened_name):
         os.system(f"mv {flattened_name} {name}")
 
-  def _DoRemoveOutliers(self, data_splits=["train","test","val"]):
+  def _DoRemoveOutliers(self, data_splits=["train","test","val"], extra_columns=[]):
 
     min_selection = " & ".join([f"({k}>={v})" for k,v in self.min_columns.items()])
     max_selection = " & ".join([f"({k}<={v})" for k,v in self.max_columns.items()])
@@ -230,7 +230,7 @@ class PreProcess():
 
     for data_split in data_splits:
       names = [f"{self.data_output}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"] if os.path.isfile(f"{self.data_output}/{i}_{data_split}.parquet")]
-      removed_outliers_names = [f"{self.data_output}/{i}_{data_split}_removed_outliers.parquet" for i in ["X","Y","wt"] if os.path.isfile(f"{self.data_output}/{i}_{data_split}.parquet")]
+      removed_outliers_names = [f"{self.data_output}/{i}_{data_split}_removed_outliers.parquet" for i in ["X","Y","wt","Extra"] if os.path.isfile(f"{self.data_output}/{i}_{data_split}.parquet")]
 
       dp = DataProcessor(
         [names],
@@ -249,7 +249,7 @@ class PreProcess():
       dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoWriteAllFromDataProcesor, X_columns=self.parameters["X_columns"], Y_columns=self.parameters["Y_columns"], X_file_path=removed_outliers_names[0], Y_file_path=removed_outliers_names[1], wt_file_path=removed_outliers_names[2])
+          partial(self._DoWriteAllFromDataProcesor, X_columns=self.parameters["X_columns"], Y_columns=self.parameters["Y_columns"], X_file_path=removed_outliers_names[0], Y_file_path=removed_outliers_names[1], wt_file_path=removed_outliers_names[2], extra_file_path=removed_outliers_names[3] if len(removed_outliers_names)>3 else "", extra_columns=extra_columns if len(removed_outliers_names)>3 else [])
         ]
       )
 
@@ -461,9 +461,13 @@ class PreProcess():
 
     return {"train":train_df, "test":test_df, "test_inf":test_inf_df, "val":val_df, "full":copy.deepcopy(df)}
 
-  def _DoWriteAllFromDataProcesor(self, df, X_columns, Y_columns, X_file_path, Y_file_path, wt_file_path):
+  def _DoWriteAllFromDataProcesor(self, df, X_columns, Y_columns, X_file_path, Y_file_path, wt_file_path, extra_file_path="", extra_columns=[]):
     file_path_translate = {"X":X_file_path, "Y":Y_file_path, "wt":wt_file_path}
-    for data_type, columns in {"X":X_columns, "Y":Y_columns, "wt":["wt"]}.items():
+    loop_over = {"X":X_columns, "Y":Y_columns, "wt":["wt"]}
+    if len(extra_columns) > 0:
+      loop_over["Extra"] = [col for col in extra_columns if col in df.columns]
+      file_path_translate["Extra"] = extra_file_path
+    for data_type, columns in loop_over.items():
       file_path = file_path_translate[data_type]
       table = pa.Table.from_pandas(df.loc[:,columns], preserve_index=False)
       if os.path.isfile(file_path):
@@ -478,7 +482,7 @@ class PreProcess():
     for data_split in data_splits:
       loop_over = {"X":X_columns, "Y":Y_columns, "wt":["wt"]}
       if len(extra_columns) > 0:
-        loop_over["Extra"] = extra_columns
+        loop_over["Extra"] = [col for col in extra_columns if col in df[data_split].columns]
       for data_type, columns in loop_over.items():
         file_path = f"{self.data_output}{extra_name}/{data_type}_{data_split}.parquet"
         if len(df[data_split]) == 0: continue
@@ -831,7 +835,7 @@ class PreProcess():
     # Do removing outliers
     if self.verbose:
       print("- Removing outliers")
-    self._DoRemoveOutliers(data_splits=["test","test_inf","val"])
+    self._DoRemoveOutliers(data_splits=["test","test_inf","val"], extra_columns=cfg["preprocess"]["save_extra_columns"] if "save_extra_columns" in cfg["preprocess"] else [])
 
     # Do discrete to continuous transformation
     if self.verbose:

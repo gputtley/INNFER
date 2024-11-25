@@ -103,11 +103,22 @@ class SplitValidationFiles():
     Return a list of outputs given by class
     """
     outputs = []
+    for val_ind, val_info in enumerate(self.val_loop):
+      for data_type in ["X","Y","wt"]:
+        file_name = f"{self.data_output}/val_ind_{val_ind}/{data_type}_val.parquet"
+
     return outputs
 
   def Inputs(self):
     """
     Return a list of inputs required by class
     """
-    inputs = []
+    inputs = [
+      self.parameters,      
+    ]
+
+    with open(self.parameters, 'r') as yaml_file:
+      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    inputs += [f"{parameters['file_loc']}/X_val.parquet",f"{parameters['file_loc']}/Y_val.parquet",f"{parameters['file_loc']}/wt_val.parquet"]
+
     return inputs
