@@ -217,6 +217,7 @@ class DataProcessor():
       means = None,
       custom = None,
       custom_options = {},
+      print_dataset = False,
     ):
 
     if method == "std": # Get the mean for standard deviation calculation
@@ -265,6 +266,9 @@ class DataProcessor():
         functions_to_apply = functions_to_apply,
       )
 
+      if print_dataset:
+        print(tmp)
+
       # Run method
       if method in ["dataset"]: # get full dataset
         out = self._method_dataset(tmp, out)
@@ -282,6 +286,8 @@ class DataProcessor():
         out = self._method_sum_w_unique_columns(tmp, out, unique_combinations)
       elif method in ["count"]: # count events
         out = self._method_sum(tmp, out, count=True)
+      elif method in ["count_unique_columns"]: # sum up the weights for unique values of columns
+        out = self._method_count_unique_columns(tmp, out, unique_combinations)
       elif method in ["sum_w2"]: # sum up the weights or count events
         out = self._method_sum_w2(tmp, out)
       elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
@@ -363,15 +369,17 @@ class DataProcessor():
       if column_name == "prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] /= self.parameters["standardisation"][col]["std"]
-        for col in self.parameters["discrete_integral_differences"]:
-          data.loc[:,column_name] /= self.parameters["discrete_integral_differences"][col]
+        if "discrete_integral_differences" in self.parameters.keys():
+          for col in self.parameters["discrete_integral_differences"]:
+            data.loc[:,column_name] /= self.parameters["discrete_integral_differences"][col]
 
       # Unstandardise the log probabilities
       if column_name == "log_prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
-        for col in self.parameters["discrete_integral_differences"]:
-          data.loc[:,column_name] -= self.parameters["discrete_integral_differences"][col]
+        if "discrete_integral_differences" in self.parameters.keys():
+          for col in self.parameters["discrete_integral_differences"]:
+            data.loc[:,column_name] -= self.parameters["discrete_integral_differences"][col]
 
       # Unstandardise the first derivative of the log probabilities
       if column_name.startswith("d_log_prob_by_d_"):
@@ -498,6 +506,23 @@ class DataProcessor():
       data = data.loc[data.eval(selection),:]
     return data
 
+  def _method_count_unique_columns(self, tmp, out, unique_combinations, count=False):
+
+    for ind, uc in unique_combinations.iterrows():
+
+      selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
+      tmp_tmp = tmp.loc[tmp.eval(selection),:]
+      tmp_total = len(tmp_tmp)
+
+      if out is None:
+        out = copy.deepcopy(unique_combinations)
+        out.loc[:, "count"] = 0.0
+
+      out.loc[ind, "count"] = float(out.loc[ind, "count"]) + tmp_total
+
+    return out
+
   def _method_dataset(self, tmp, out):
     if out is None:
       out = copy.deepcopy(tmp)
@@ -575,6 +600,7 @@ class DataProcessor():
     for ind, uc in unique_combinations.iterrows():
 
       selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
       tmp_tmp = tmp.loc[tmp.eval(selection),:]
 
       if self.wt_name is None or count:
@@ -608,6 +634,7 @@ class DataProcessor():
     for ind, uc in unique_combinations.iterrows():
 
       selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
       tmp_tmp = tmp.loc[tmp.eval(selection),:]
 
       if self.wt_name is None:

@@ -136,15 +136,23 @@ class Generator():
       )
 
       # Make data processors
-      shape_Y_cols = [col for col in self.Y_synth.columns if "mu_" not in col and col in parameters["Y_columns"]]
+      shape_Y_test_cols = copy.deepcopy(parameters["Y_columns"])
+      if "Extra_columns" in parameters.keys():
+        shape_Y_test_cols += parameters["Extra_columns"]
+
+      shape_Y_cols = [col for col in self.Y_synth.columns if "mu_" not in col and col in shape_Y_test_cols]
       if self.verbose:
         print(f"- Making data processor for {file_name}")
 
       if self.data_type == "sim":
 
+        input_files = [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]
+        if "Extra_columns" in parameters.keys():
+          if len(parameters["Extra_columns"]) > 0:
+            input_files += [f"{parameters['file_loc']}/Extra_val.parquet"]
+
         sim_dps[file_name] = DataProcessor(
-          [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]],
-#          [[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"]],
+          [input_files],
           "parquet",
           wt_name = "wt",
           options = {
@@ -351,6 +359,7 @@ class Generator():
       for ind, file_name in enumerate(synth_dps.keys()):
         tf.random.set_seed(self.seed)
         tf.keras.utils.set_random_seed(self.seed)
+
         synth_hist, synth_hist_uncert, bins = synth_dps[file_name].GetFull(
           method = "histogram_and_uncert",
           functions_to_apply = functions_to_apply,

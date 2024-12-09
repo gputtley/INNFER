@@ -44,7 +44,6 @@ class PreProcess():
     self.verbose = True
     self.data_output = "data/"
     self.seed = 2
-    #self.batch_size = None
     self.batch_size = 10**7
     self.discrete_threshold = 50
 
@@ -56,42 +55,6 @@ class PreProcess():
     self.min_columns = {}
     self.max_columns = {}
     self.discrete_values = {}
-
-  def _DoContinuousNuisanceWeightShift(self, df, cfg, nuisances, data_splits=["train","test"]):
-    for data_split in data_splits:
-      df[data_split] = pd.concat([df[data_split]] * cfg["files"][self.file_name]["weight_shift_events_factor"], ignore_index=True)
-      for nui in nuisances:
-        df[data_split].loc[:,nui] = np.random.uniform(cfg["files"][self.file_name]["weight_shift_range"][0], cfg["files"][self.file_name]["weight_shift_range"][1], size=len(df[data_split]))
-        weight_shift = df[data_split].eval(cfg["files"][self.file_name]["weight_shifts"][nui].replace("$SHIFT",nui))
-        df[data_split].loc[:, "wt"] = (df[data_split].loc[:, "wt"] * weight_shift).astype(np.float32)
-      nan_rows = df[data_split][df[data_split].isna().any(axis=1)]
-      if len(nan_rows) > 0:
-        df[data_split] = df[data_split].dropna()    
-    return df
-
-  def _DoDiscreteNuisanceWeightShift(self, df, cfg, nuisances, data_splits=["val"]):
-    unique_values = {nui : cfg["preprocess"]["validation_y_vals"][nui] if nui in cfg["preprocess"]["validation_y_vals"].keys() else [0.0] for nui in nuisances}
-    unique_combinations = list(product(*unique_values.values()))
-    new_df = copy.deepcopy(df)
-    for data_split in data_splits:
-      if len(df[data_split]) == 0:
-        continue
-      first_loop = True
-      for unique_combination in unique_combinations:
-        for nui_ind, nui in enumerate(nuisances):
-          tmp_df = copy.deepcopy(df[data_split])
-          tmp_df.loc[:, nui] = unique_combination[nui_ind]
-          weight_shift = tmp_df.eval(cfg["files"][self.file_name]["weight_shifts"][nui].replace("$SHIFT",nui))
-          tmp_df.loc[:, "wt"] = (tmp_df.loc[:, "wt"] * weight_shift).astype(np.float32)
-          if first_loop:
-            new_df[data_split] = copy.deepcopy(tmp_df)
-            first_loop = False
-          else:
-            new_df[data_split] = pd.concat([new_df[data_split],tmp_df])
-      nan_rows = new_df[data_split][new_df[data_split].isna().any(axis=1)]
-      if len(nan_rows) > 0:
-        new_df[data_split] = new_df[data_split].dropna()    
-    return new_df
 
   def _DoDiscreteToContinuous(self, data_splits=["train","test"]):
 
@@ -190,6 +153,31 @@ class PreProcess():
 
     for data_split in data_splits:
 
+      # Run data processor
+      X_name = f"{self.data_output}/X_{data_split}.parquet"
+      Y_name = f"{self.data_output}/Y_{data_split}.parquet"
+      name = f"{self.data_output}/wt_{data_split}.parquet"
+      file_list = [X_name,Y_name,name]
+      extra_name = f"{self.data_output}/Extra_{data_split}.parquet"
+      if os.path.isfile(extra_name):
+        file_list.append(extra_name)
+
+      dp = DataProcessor([file_list],"parquet", batch_size=self.batch_size)
+
+      unique = dp.GetFull(method="unique")
+
+      discrete = True
+      for k, v in unique.items():
+        if k in pois+nuisances:
+          if v is None:
+            discrete = False
+            break
+
+      if discrete:
+        yield_name = f"yields_{data_split}"
+      else:
+        yield_name = "yield"
+
       # Build a yield function
       yields_class = Yields(
         pd.read_parquet(self.parameters['yield_loc']), 
@@ -197,19 +185,14 @@ class PreProcess():
         nuisances, 
         self.file_name,
         method="default", 
-        column_name=f"yields_{data_split}"
+        column_name=yield_name
       )
 
       def yield_function(Y,columns):
         Y.loc[:,"wt"] /= yields_class.GetYield(Y.loc[:,columns])
         return Y.loc[:,["wt"]]
 
-      # Run data processor
-      X_name = f"{self.data_output}/X_{data_split}.parquet"
-      Y_name = f"{self.data_output}/Y_{data_split}.parquet"
-      name = f"{self.data_output}/wt_{data_split}.parquet"
       flattened_name = f"{self.data_output}/wt_{data_split}_flattened.parquet"
-      dp = DataProcessor([[X_name,Y_name,name]],"parquet", batch_size=self.batch_size)
       if os.path.isfile(flattened_name):
         os.system(f"rm {flattened_name}")   
       dp.GetFull(
@@ -250,7 +233,7 @@ class PreProcess():
         method = None,
         functions_to_apply = [
           partial(self._DoWriteAllFromDataProcesor, X_columns=self.parameters["X_columns"], Y_columns=self.parameters["Y_columns"], X_file_path=removed_outliers_names[0], Y_file_path=removed_outliers_names[1], wt_file_path=removed_outliers_names[2], extra_file_path=removed_outliers_names[3] if len(removed_outliers_names)>3 else "", extra_columns=extra_columns if len(removed_outliers_names)>3 else [])
-        ]
+        ],
       )
 
       for ind, removed_outliers_name in enumerate(removed_outliers_names):
@@ -509,9 +492,10 @@ class PreProcess():
 
   def _DoWriteYields(self):
     for data_split in ["train", "test", "test_inf", "val"]:
-      numerator = self.yield_df.loc[:, f"yields_{data_split}"] ** 2
-      denominator = self.yield_df.loc[:, f"sum_wt_squared_{data_split}"]
-      self.yield_df.loc[:, f"effective_events_{data_split}"] = np.where(denominator != 0, numerator / denominator, 0)
+      if f"yields_{data_split}" in self.yield_df.columns or f"sum_wt_squared_{data_split}" in self.yield_df.columns:
+        numerator = self.yield_df.loc[:, f"yields_{data_split}"] ** 2
+        denominator = self.yield_df.loc[:, f"sum_wt_squared_{data_split}"]
+        self.yield_df.loc[:, f"effective_events_{data_split}"] = np.where(denominator != 0, numerator / denominator, 0)
     numerator_total = self.yield_df.loc[:, "yield"] ** 2
     denominator_total = self.yield_df.loc[:, "sum_wt_squared"]
     self.yield_df.loc[:, "effective_events"] = np.where(denominator_total != 0, numerator_total / denominator_total, 0)
@@ -523,62 +507,59 @@ class PreProcess():
     pq.write_table(table, self.parameters["yield_loc"], compression='snappy')
     print(f"Created {self.parameters['yield_loc']}")
 
-  def _DoYieldsDataframe(self, df, unique_poi_values, pois, nuisances, cfg):
+  def _DoYieldsDataframe(self, df, pois, nuisances, cfg):
 
-    # If empty
-    if len(unique_poi_values) == 0:
-      yield_dict = {
-        "yields_train" : [np.sum(df["train"].loc[:,"wt"])],
-        "yields_test" : [np.sum(df["test"].loc[:,"wt"])],
-        "yields_test_inf" : [np.sum(df["test_inf"].loc[:,"wt"])],
-        "yields_val" : [np.sum(df["val"].loc[:,"wt"])],
-        "sum_wt_squared_train" : [np.sum(df["train"].loc[:,"wt"]**2)],
-        "sum_wt_squared_test" : [np.sum(df["test"].loc[:,"wt"]**2)],
-        "sum_wt_squared_test_inf" : [np.sum(df["test_inf"].loc[:,"wt"]**2)],
-        "sum_wt_squared_val" : [np.sum(df["val"].loc[:,"wt"]**2)],
-        "yield" : [np.sum(df["full"].loc[:,"wt"])],
-        "sum_wt_squared" : [np.sum(df["full"].loc[:,"wt"]**2)],
-      }
-      if self.yield_df is None:
-        self.yield_df = pd.DataFrame(yield_dict)
+    for data_split in ["train", "test", "test_inf", "val", "nuisance_for_yields"]:
+
+      if data_split == "nuisance_for_yields":
+        yield_name = "yield"
+        sum_wt_squared_name = "sum_wt_squared"
+        length_name = "length"
       else:
-        for k, v in yield_dict.items():
-          self.yield_df.loc[:,k] += v[0]
+        yield_name = f"yields_{data_split}"
+        sum_wt_squared_name = f"sum_wt_squared_{data_split}"
+        length_name = f"length_{data_split}"  
 
-    else:
-
-      # Get sum of weights and effective events events
-      for data_split in ["train","test","test_inf","val","full"]:
-
-        if data_split == "full":
-          yield_name = "yield"
-          sum_wt_squared_name = "sum_wt_squared"
-        else:
-          yield_name = f"yields_{data_split}"
-          sum_wt_squared_name = f"sum_wt_squared_{data_split}"       
-
-        for index, _ in unique_poi_values.loc[:,pois].iterrows():
+      unique_rows = df[data_split].loc[:,pois+nuisances].drop_duplicates().reset_index(drop=True)
     
-          # Make row
-          row = unique_poi_values.loc[:,pois].iloc[[index]]
-          for nui in nuisances:
-            row.loc[:,nui] = 0.0
+      if len(unique_rows) > 100:
+        continue
 
-          # Get nominal sums
+      if len(df[data_split]) == 0:
+        continue
+
+      if len(unique_rows) == 0:
+        loop = [0]
+      else:
+        loop = range(len(unique_rows))
+
+      for index in loop:
+
+        if len(unique_rows) > 0:
+          row = copy.deepcopy(unique_rows.iloc[[index]])
           filtered_df = df[data_split][(df[data_split].loc[:,row.columns] == row.iloc[0]).all(axis=1)]
-          sum_wt = np.sum(filtered_df.loc[:,"wt"])
-          sum_wt_squared = np.sum(filtered_df.loc[:,"wt"]**2)
+        else:
+          filtered_df = df[data_split]
+        
+        sum_wt = np.sum(filtered_df.loc[:,"wt"])
+        sum_wt_squared = np.sum(filtered_df.loc[:,"wt"]**2)
+        length = len(filtered_df)
 
-          # Save yields
-          if self.yield_df is None:
+        if self.yield_df is None:
+          if len(unique_rows) > 0:
             row.loc[:,yield_name] = sum_wt
             row.loc[:,sum_wt_squared_name] = sum_wt_squared
+            row.loc[:,length_name] = length
             self.yield_df = copy.deepcopy(row)
           else:
+            self.yield_df = pd.DataFrame({yield_name : [sum_wt], sum_wt_squared_name : [sum_wt_squared], length_name : [length]})
+        else:
+          if len(unique_rows) > 0:
             row_exists = (self.yield_df.loc[:, list(row.columns)] == row.iloc[0]).all(axis=1)
             if not row_exists.any():
               row.loc[:,yield_name] = sum_wt
               row.loc[:,sum_wt_squared_name] = sum_wt_squared
+              row.loc[:,length_name] = length
               for col in self.yield_df.columns:
                 if col not in row.columns:
                   row.loc[:, col] = 0.0
@@ -588,39 +569,16 @@ class PreProcess():
               if not yield_name in self.yield_df.columns:
                 self.yield_df.loc[:,yield_name] = 0.0
               if not sum_wt_squared_name in self.yield_df.columns:
-                self.yield_df.loc[:,sum_wt_squared_name] = 0.0                
+                self.yield_df.loc[:,sum_wt_squared_name] = 0.0         
+              if not length_name in self.yield_df.columns:
+                self.yield_df.loc[:,length_name] = 0.0       
               self.yield_df.loc[row_index, yield_name] += sum_wt
-              self.yield_df.loc[row_index, sum_wt_squared_name] += sum_wt_squared              
-
-          # Loop through nuisances
-          for nui in nuisances:
-
-            for shift in [-1,1]:
-
-              row = unique_poi_values.loc[:,pois].iloc[[index]]
-              for nui_set in nuisances:
-                row.loc[:,nui_set] = 0.0
-              row.loc[:,nui] = shift
-
-              weight_shift = df[data_split].eval(cfg["files"][self.file_name]["weight_shifts"][nui].replace("$SHIFT",str(shift)))
-              sum_wt = np.sum(df[data_split].loc[:,"wt"] * weight_shift)
-
-              row_exists = (self.yield_df.loc[:, list(row.columns)] == row.iloc[0]).all(axis=1)
-              if not row_exists.any():
-                row.loc[:,yield_name] = np.sum(filtered_df.loc[:,"wt"]*weight_shift)
-                row.loc[:,sum_wt_squared_name] = np.sum((filtered_df.loc[:,"wt"]*weight_shift)**2)
-                for col in self.yield_df.columns:
-                  if col not in row.columns:
-                    row.loc[:, col] = 0.0
-                self.yield_df.loc[len(self.yield_df)] = row.loc[:, list(self.yield_df.columns)].squeeze()
-              else:
-                row_index = self.yield_df[row_exists].index[0]
-                if not yield_name in self.yield_df.columns:
-                  self.yield_df.loc[:,yield_name] = 0.0
-                if not sum_wt_squared_name in self.yield_df.columns:
-                  self.yield_df.loc[:,sum_wt_squared_name] = 0.0                
-                self.yield_df.loc[row_index, yield_name] += np.sum(filtered_df.loc[:, "wt"]*weight_shift)
-                self.yield_df.loc[row_index, sum_wt_squared_name] += np.sum((filtered_df.loc[:, "wt"]*weight_shift)**2)    
+              self.yield_df.loc[row_index, sum_wt_squared_name] += sum_wt_squared 
+              self.yield_df.loc[row_index, length_name] += length
+          else:
+            self.yield_df.loc[0,yield_name] += sum_wt
+            self.yield_df.loc[0,sum_wt_squared_name] += sum_wt_squared
+            self.yield_df.loc[0,length_name] += length
 
   def Configure(self, options):
     """
@@ -636,6 +594,10 @@ class PreProcess():
     """
     Run the code utilising the worker classes
     """    
+
+    # Set seed
+    np.random.seed(self.seed)
+
     # Set file names
     self.parameters["file_name"] = self.file_name
     if self.nuisance is not None:
@@ -706,11 +668,6 @@ class PreProcess():
           for extra_col_name, extra_col_value in cfg["files"][self.file_name]["add_columns"].items():
             df.loc[:,extra_col_name] = extra_col_value[input_file_ind]
 
-        # Pre calculate columns
-        if "pre_calculate" in cfg["files"][self.file_name].keys():
-          for pre_calc_col_name, pre_calc_col_value in cfg["files"][self.file_name]["pre_calculate"].items():
-            df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)
-
         # Calculate weight
         if "weight" in cfg["files"][self.file_name].keys():
           df.loc[:,"wt"] = df.eval(cfg["files"][self.file_name]["weight"])
@@ -730,62 +687,143 @@ class PreProcess():
         # Set type
         df = df.astype(np.float64)
 
-        # Check nuisances and pois list
-        if self.nuisance is None:
-          nuisances = [nui for nui in cfg["nuisances"] if nui in df.columns]
-        else:
-          nuisances = [self.nuisance]
-        pois = [poi for poi in cfg["pois"] if poi in df.columns]
-
-        # Remove y values
-        if "fraction_y_vals" in cfg["preprocess"].keys():
-          for k, val in cfg["preprocess"]["fraction_y_vals"].items():
-            if k in df.columns:
-              for v in val:
-                fraction_df = df[df[k].isin([v[0]])].sample(frac=v[1], random_state=self.seed)
-                df = df[~df[k].isin([v[0]])]
-                df = pd.concat([df,fraction_df], axis=0)
-
-        # Get unique poi values
-        unique_poi_values = df.loc[:,pois].apply(lambda col: col.unique())
-        if self.unique_poi_values is None or len(unique_poi_values)==0:
-          self.unique_poi_values = copy.deepcopy(unique_poi_values)
-        else:
-          for index, _ in unique_poi_values.loc[:,pois].iterrows():
-            if not (self.unique_poi_values == df.loc[:,pois].iloc[index]).all(axis=1).any():
-              self.unique_poi_values.loc[len(self.unique_poi_values)] = df.loc[:,pois].iloc[index]
-
-        # Train/test/val split
+        # train/test/val split
         df = self._DoTrainTestValSplit(
           df, 
           train_test_val_split=cfg["preprocess"]["train_test_val_split"], 
           train_test_y_vals=cfg["preprocess"]["train_test_y_vals"] if "train_test_y_vals" in cfg["preprocess"].keys() else {}, 
           validation_y_vals=cfg["preprocess"]["validation_y_vals"] if "validation_y_vals" in cfg["preprocess"].keys() else {}
-        )
+        )        
 
-        # Custom functions before yields
-        if "custom_functions_before_yields" in cfg["preprocess"].keys():
-          module = importlib.import_module("custom")
-          for func in cfg["preprocess"]["custom_functions_before_yields"]:
-            custom_function = getattr(module, func)
-            df = custom_function(df)
+        # Set up inputs for yield calculations
+        df["nuisance_for_yields"] = copy.deepcopy(df["full"])
 
-        # Get sum of weights and effective events events
-        self._DoYieldsDataframe(df, unique_poi_values, pois, nuisances, cfg)
-
-        # Custom functions after yields
-        if "custom_functions_after_yields" in cfg["preprocess"].keys():
-          module = importlib.import_module("custom")
-          for func in cfg["preprocess"]["custom_functions_after_yields"]:
-            custom_function = getattr(module, func)
-            df = custom_function(df)
-
-        # Do weight shifts for train and test
+        # setup shift input dictionary
+        shifts = {"pre_calculate" : {}, "weight" : {}, "nuisance_for_yields" : {}}
+        nuisance_shifts = []
+        if "pre_calculate_shifts" in cfg["files"][self.file_name].keys():
+          for k, v in cfg["files"][self.file_name]["pre_calculate_shifts"].items():
+            shifts["pre_calculate"][k] = v
+            for nui in v.keys():
+              if nui in cfg["nuisances"]:
+                nuisance_shifts.append(nui)
         if "weight_shifts" in cfg["files"][self.file_name].keys():
-          df = self._DoContinuousNuisanceWeightShift(df, cfg, nuisances, data_splits=["train","test"])
+          for k, v in cfg["files"][self.file_name]["weight_shifts"].items():
+            shifts["weight"][k] = v
+            for nui in v.keys():
+              if nui in cfg["nuisances"]:
+                nuisance_shifts.append(nui)
+        shifts["nuisance_for_yields"]["nuisance_for_yields"] = {}
+        nuisance_shifts = list(set(nuisance_shifts))
+        for nui in nuisance_shifts:
+          shifts["nuisance_for_yields"]["nuisance_for_yields"][nui] = {
+            "type" : "discrete",
+            "values" : [-1.0, 0.0, 1.0],
+            "off_axis_with" : None,
+          }        
 
-        # Do weight shifts for validation from nuisances
-        df = self._DoDiscreteNuisanceWeightShift(df, cfg, nuisances, data_splits=["test_inf","val","full"])
+        # setup weight function
+        weight_shift_function = "wt"
+        if "weight_functions" in cfg["files"][self.file_name].keys():
+          for k, v in cfg["files"][self.file_name]["weight_functions"].items():
+            weight_shift_function += f"*({v})"
+
+        # setup shift inputs
+        for _, shift_type in shifts.items():
+          for shift_name, shift_info in shift_type.items():
+            if shift_name == "training":
+              shift_files = ["train","test"]
+            elif shift_name == "nuisance_for_yields":
+              shift_files = ["nuisance_for_yields"]
+            else:
+              shift_files = ["test_inf","val","full"]
+
+            for col, col_info in shift_info.items():
+
+              for data_split in shift_files:
+
+                # setup initial copy
+                tmp_copy = copy.deepcopy(df[data_split])
+                first = True
+
+                if col_info["type"] == "continuous":
+    
+                  for ind in range(col_info["n_copies"]):
+                    tmp = copy.deepcopy(tmp_copy)
+                    tmp.loc[:,col] = np.random.uniform(col_info["range"][0], col_info["range"][1], len(tmp))   
+                    if first:
+                      df[data_split] = copy.deepcopy(tmp)
+                      first = False
+                    else:
+                      df[data_split] = pd.concat([df[data_split], tmp], axis=0, ignore_index=True)
+
+                elif col_info["type"] == "discrete":
+                  
+                  # find which columns to shift with
+                  if col_info["off_axis_with"] is None:
+                    zero_columns = [col for col in cfg["nuisances"] if col in df[data_split].columns]
+                  elif col_info["off_axis_with"] == "all":
+                    zero_columns = []
+                  else:
+                    zero_columns = [col for col in col_info["off_axis_with"] if col in df[data_split].columns]
+
+                  # add non shifted events
+                  if len(zero_columns) > 0:
+                    mask = (tmp_copy[zero_columns] == 0).all(axis=1)
+                    df[data_split] = tmp_copy[~mask]
+                    first = False
+                    tmp_copy = tmp_copy[mask]
+
+                  for val in col_info["values"]:
+                    tmp = copy.deepcopy(tmp_copy)
+                    tmp.loc[:,col] = val*np.ones(len(tmp))
+
+                    if first:
+                      df[data_split] = copy.deepcopy(tmp)
+                      first = False
+                    else:
+                      df[data_split] = pd.concat([df[data_split], tmp], axis=0, ignore_index=True)
+                      # check nans and set to 0
+                      check_cols = [col for col in cfg["nuisances"] if col in df[data_split].columns]
+                      df[data_split].loc[:,check_cols] = df[data_split].loc[:,check_cols].fillna(0)
+
+        for data_split in df.keys():
+
+          if len(df[data_split]) == 0: continue
+
+          # do precalculate if no shift
+          for pre_calc_col_name, pre_calc_col_value in cfg["files"][self.file_name]["pre_calculate"].items():
+            df[data_split].loc[:,pre_calc_col_name] = df[data_split].eval(pre_calc_col_value)          
+
+          # Apply post selection
+          df[data_split] = df[data_split].loc[df[data_split].eval(cfg["files"][self.file_name]["post_calculate_selection"]),:]
+
+          # do weight shift
+          df[data_split].loc[:,"wt"] = df[data_split].eval(weight_shift_function)
+
+          # remove y columns
+          if "ignore_y_columns" in cfg["preprocess"].keys():
+            if self.file_name in cfg["preprocess"]["ignore_y_columns"].keys():
+              for y_col in cfg["preprocess"]["ignore_y_columns"][self.file_name]:
+                if y_col in df[data_split].columns:
+                  df[data_split] = df[data_split].drop(y_col, axis=1)
+
+          # Removing nans
+          nan_rows = df[data_split][df[data_split].isna().any(axis=1)]
+          if len(nan_rows) > 0:
+            df[data_split] = df[data_split].dropna()
+
+        # Only execute on first pass
+        if input_file_ind == 0 and start == 0:
+          
+          # Check nuisances and pois list
+          nuisances = [nui for nui in cfg["nuisances"] if nui in df["full"].columns]
+          pois = [poi for poi in cfg["pois"] if poi in df["full"].columns]
+          extra_columns = cfg["preprocess"]["save_extra_columns"] if "save_extra_columns" in cfg["preprocess"] else []
+          extra_columns = [ec for ec in extra_columns if ec in df["full"].columns]
+
+        # Make yield dataframe
+        self._DoYieldsDataframe(df, pois, nuisances, cfg)
 
         # Get the sum of the columns for standardisation parameters
         self._DoSumColumns(df["train"], pois+nuisances+cfg["variables"]+["wt"])
@@ -806,8 +844,10 @@ class PreProcess():
         # Write dataset
         self._DoWriteDatasets(df, cfg["variables"], pois+nuisances, data_splits=["train","test","test_inf","val","full"], extra_name="", extra_columns=cfg["preprocess"]["save_extra_columns"] if "save_extra_columns" in cfg["preprocess"] else [])
 
-    # Set Y columns
+
+    # Set Y and extra columns columns
     self.parameters["Y_columns"] = sorted(pois+nuisances)
+    self.parameters["Extra_columns"] = sorted(extra_columns)
 
     # Make unique Y combinations
     self.parameters["unique_Y_values"] = {}
@@ -821,6 +861,7 @@ class PreProcess():
         self.parameters["unique_Y_values"][y_key] = cfg["preprocess"]["validation_y_vals"][y_key]
       else:
         self.parameters["unique_Y_values"][y_key] = [0.0]
+
 
     # Make yields
     if self.verbose:
@@ -838,9 +879,9 @@ class PreProcess():
     self._DoRemoveOutliers(data_splits=["test","test_inf","val"], extra_columns=cfg["preprocess"]["save_extra_columns"] if "save_extra_columns" in cfg["preprocess"] else [])
 
     # Do discrete to continuous transformation
-    if self.verbose:
-      print("- Do discrete to continuous")    
-    self._DoDiscreteToContinuous(data_splits=["train","test","test_inf","val"])
+    #if self.verbose:
+    #  print("- Do discrete to continuous")    
+    #self._DoDiscreteToContinuous(data_splits=["train","test","test_inf","val"])
 
     # Do standardisation transformation
     if self.verbose:
@@ -856,6 +897,7 @@ class PreProcess():
     if self.verbose:
       print("- Writing the parameters file")
     self._DoWriteParameters()
+
 
   def Outputs(self):
     """

@@ -64,6 +64,7 @@ class Infer():
     self.lkld_input = None
     self.scan_over_nuisances = False
     self.hessian_file = None
+    self.sim_type = "val"
 
   def Configure(self, options):
     """
@@ -171,6 +172,10 @@ class Infer():
       else:
         print(f"- Performing actions on the likelihood on data")
 
+    if self.verbose:
+      if self.freeze != {}:
+        print(f"- Freezing parameters: {self.freeze}")
+
     if self.method == "InitialFit":
 
       if self.verbose:
@@ -255,7 +260,7 @@ class Infer():
       self.lkld.GetAndWriteDMatrixToYaml(
         self.lkld_input, 
         row=self.true_Y, 
-        filename=f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 
+        filename=f"{self.data_output}/dmatrix{self.extra_file_name}.yaml", 
         freeze=self.freeze,
         #scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
       )
@@ -311,7 +316,7 @@ class Infer():
       with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
       # Open D matrix yaml
-      with open(f"{self.data_input}/Dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.data_input}/dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
         Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Save best fit
@@ -441,20 +446,18 @@ class Infer():
     if self.method == "DMatrix":
       outputs += [f"{self.data_output}/dmatrix{self.extra_file_name}.yaml"]
 
+    columns = [i for i in self.initial_best_fit_guess.columns if self.freeze is None or i not in self.freeze.keys()]
+
     # Add covariance
     if self.method == "Covariance":
       outputs += [f"{self.data_output}/covariance{self.extra_file_name}.yaml"]
-      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
-        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      for col in hessian["matrix_columns"]:      
+      for col in columns:      
         outputs += [f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"]
 
     # Add covariancewithdmatrix
     if self.method == "CovarianceWithDMatrix":
       outputs += [f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml"]
-      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
-        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      for col in hessian["matrix_columns"]:      
+      for col in columns:      
         outputs += [f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"]
 
     # Add scan ranges
@@ -467,7 +470,6 @@ class Infer():
 
     # Add approximate uncertainty
     if self.method == "ApproximateUncertainty":
-      print(f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml")
       outputs += [f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"]
 
     # Add other outputs
@@ -498,9 +500,9 @@ class Infer():
         with open(v, 'r') as yaml_file:
           parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
         inputs += [
-          f"{parameters['file_loc']}/X_val.parquet",
-          f"{parameters['file_loc']}/Y_val.parquet",
-          f"{parameters['file_loc']}/wt_val.parquet",
+          f"{parameters['file_loc']}/X_{self.sim_type}.parquet",
+          f"{parameters['file_loc']}/Y_{self.sim_type}.parquet",
+          f"{parameters['file_loc']}/wt_{self.sim_type}.parquet",
         ]
     elif self.data_type == "data":
       inputs += [self.data_file]      
@@ -583,19 +585,6 @@ class Infer():
         bin_cat_num = 0
         for cat_num, cat_info in categories.items():
 
-          #datasets = [
-            #[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            #[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
-          #]
-          #scalers = [
-            #self._BuildYieldFunctions(column_name=f"yields_train")[file_name](yields_df.iloc[[index]]),
-            #self._BuildYieldFunctions(column_name=f"yields_val")[file_name](yields_df.iloc[[index]]),
-            #self._BuildYieldFunctions(column_name=f"yield")[file_name](yields_df.iloc[[index]]),
-          #]
-          #if self.test_name == "test":
-          #  datasets += [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]
-          #  scalers += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](yields_df.iloc[[index]])]
-
           # Make data processor
           asimov_dps = DataProcessor(
             [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
@@ -605,18 +594,6 @@ class Infer():
               "selection" : y_selection,
             }
           )
-
-          #asimov_dps = DataProcessor(
-          #  datasets,
-          #  "parquet",
-          #  wt_name = "wt",
-          #  options = {
-          #    "parameters" : parameters,
-          #    "selection" : y_selection,
-          #    "scale" : scalers,
-          #    "functions" : ["untransform"]
-          #  }
-          #)
 
           hist, _ = asimov_dps.GetFull(
             method = "histogram",
@@ -667,41 +644,31 @@ class Infer():
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+      if self.yields is not None:
+        scale = self.yields[file_name](self.true_Y)
+        if scale == 0: continue
+      else:
+        scale = None
+
       # Generate simulated data processor
       if self.data_type == "sim":
-
-        if self.yields is not None:
-          scale = self.yields[file_name](self.true_Y)
-          if scale == 0: continue
-        else:
-          scale = None
-
         if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-          sim_inputs = [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]]
-          #sim_inputs = [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
-          #sim_inputs = [[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"]]
-          if self.yields is not None:
-            scale = self.yields[file_name](self.true_Y)
-            if scale == 0: continue
+          sim_inputs = [[f"{parameters['file_loc']}/X_{self.sim_type}.parquet", f"{parameters['file_loc']}/Y_{self.sim_type}.parquet", f"{parameters['file_loc']}/wt_{self.sim_type}.parquet"]]
+          if "Extra_columns" in parameters.keys():
+            if parameters["Extra_columns"] != []:
+              sim_inputs[0].append(f"{parameters['file_loc']}/Extra_{self.sim_type}.parquet")
+          if self.sim_type != "full":
+            functions = ["untransform"]
           else:
-            scale = None
-          functions = ["untransform"]
+            functions = []
         else:
           sim_inputs = [
-            #[f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            #[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
             [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
           ]
-          scale = [
-            #self._BuildYieldFunctions(column_name=f"yields_train")[file_name](self.true_Y),
-            #self._BuildYieldFunctions(column_name=f"yields_val")[file_name](self.true_Y),
-            #self._BuildYieldFunctions(column_name=f"yield")[file_name](self.true_Y),
-            None
-          ]
-          #if self.test_name == "test":
-          #  sim_inputs += [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
-          #  scale += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](self.true_Y)]
-
+          if "Extra_columns" in parameters.keys():
+            if parameters["Extra_columns"] != []:
+              sim_inputs[0].append(f"{parameters['file_loc']}/Extra_full.parquet")
+          scale = [None]
           functions = []
 
         shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in parameters["Y_columns"]]
@@ -844,13 +811,19 @@ class Infer():
         yields[k] = yields_class[k].GetYield
 
       else:
+
+        if self.sim_type == "full":
+          eff_name = "effective_events"
+        else:
+          eff_name = f"effective_events_{self.sim_type}"
+
         eff_events_class[k] = Yields(
           pd.read_parquet(parameters[k]['yield_loc']), 
           self.pois, 
           self.nuisances, 
           k,
           method=self.yield_function, 
-          column_name="effective_events_val"
+          column_name=eff_name
         )
         sum_wts_squared += (yields_class[k].GetYield(self.true_Y)**2)/eff_events_class[k].GetYield(self.true_Y)
         sum_wts += yields_class[k].GetYield(self.true_Y)
@@ -858,7 +831,10 @@ class Infer():
     if self.scale_to_eff_events:
       eff_events = (sum_wts**2)/sum_wts_squared
       for k in self.parameters.keys():
-        yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/sum_wts), k=k, eff_events=eff_events, sum_wts=sum_wts)
+        if self.sim_type != "full":
+          yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/sum_wts), k=k, eff_events=eff_events, sum_wts=sum_wts)
+        else:
+          yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/(sum_wts**2)), k=k, eff_events=eff_events, sum_wts=sum_wts)
 
     return yields
 
@@ -944,11 +920,17 @@ class Infer():
         "bin_yields" : self._BuildBinYields(),
       }
 
+    if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
+      constraint_center = self.true_Y.loc[:,list(self.inference_options["nuisance_constraints"].keys())]
+    else:
+      constraint_center = None
+
     lkld = Likelihood(
       likelihood_inputs, 
       likelihood_type = self.likelihood_type, 
       data_parameters = parameters,
       parameters = self.inference_options,
+      constraint_center = constraint_center,
     )
 
     return lkld

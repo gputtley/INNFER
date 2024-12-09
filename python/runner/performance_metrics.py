@@ -1,3 +1,4 @@
+import copy
 import yaml
 
 import numpy as np
@@ -5,7 +6,7 @@ import pandas as pd
 
 from functools import partial
 
-from useful_functions import MakeDirectories, GetYName
+from useful_functions import MakeDirectories, GetYName, SplitValidationParameters
 
 class PerformanceMetrics():
 
@@ -20,7 +21,8 @@ class PerformanceMetrics():
     self.val_loop = []
     self.pois = None
     self.nuisances = None
-
+    self.cfg_name = None
+  
     self.data_output = "data/"
     self.verbose = True
     self.do_loss = True
@@ -30,6 +32,7 @@ class PerformanceMetrics():
     self.inference_datasets = ["test_inf","val"]
     self.test_name = "test"
     self.save_extra_name = ""
+    self.split_validation_files = False
 
   def Configure(self, options):
     """
@@ -90,6 +93,9 @@ class PerformanceMetrics():
         print("- Getting the losses")
       metrics["loss_train"] = network.GetLoss(dataset="train")
       metrics["loss_test"] = network.GetLoss(dataset="test")
+      if self.verbose:
+        print(f"  - Train loss: {metrics['loss_train']}")
+        print(f"  - Test loss: {metrics['loss_test']}")
 
     # Get BDT separation metric
     if self.do_bdt_separation:
@@ -160,9 +166,16 @@ class PerformanceMetrics():
         )
 
         # Loop through validation values
+        orig_parameters = copy.deepcopy(parameters)
         inf_chi_squared = {}
         inf_dist = {}
         for loop_ind, loop in enumerate(self.val_loop):
+
+          if self.split_validation_files:
+            cfg = {"files" : {parameters["file_name"] : None}, "name" : self.cfg_name}
+            parameters_file_name = SplitValidationParameters(loop, parameters["file_name"], loop_ind, cfg)
+            with open(parameters_file_name, 'r') as yaml_file:
+              parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
           if self.verbose:
             print(f"- Running unbinned likelihood fit for the {inf_test_name} dataset and Y:")
@@ -203,6 +216,9 @@ class PerformanceMetrics():
             else:
               inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
             inf_dist[y_name][col] = abs(float(true_value - lkld.best_fit[col_index]))
+
+        # Reset parameters
+        parameters = copy.deepcopy(orig_parameters)
 
         # Get chi squared values
         total_sum = 0.0

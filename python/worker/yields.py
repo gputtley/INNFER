@@ -147,12 +147,17 @@ class Yields():
     # Get Y in the yield datasets
     Y = Y.loc[:, [col for col in Y.columns if col in list(self.yield_dataframe.columns)]]
 
-    ## Get nominal yield ##
+    ### Get nominal yield ##
     if len(self.shape_pois) > 0:
       nominal_Y = Y.loc[:,self.shape_pois]
       for nui in self.nuisances:
         nominal_Y.loc[:,nui] = np.zeros(len(nominal_Y))
       nominal_yields = self.Default(nominal_Y, self.shape_pois[0]) * df
+    elif len(self.nuisances) > 0:
+      nominal_Y = Y.loc[:,self.nuisances]
+      for nui in self.nuisances:
+        nominal_Y.loc[:,nui] = np.zeros(len(nominal_Y))
+      nominal_yields = self.Default(nominal_Y, self.nuisances[0]) * df
     else:
       constant_yield = self.yield_dataframe.loc[:,self.column_name].iloc[0]
       nominal_yields = pd.DataFrame({"yield": np.full(len(Y), constant_yield)}) * df
@@ -164,15 +169,29 @@ class Yields():
       # Find the closest nuisance shifts
       closest_down, closest_up = self._GetClosestValues(Y, nui)
 
-      # Get down shift
-      shifted_down_Y = copy.deepcopy(nominal_Y)
-      shifted_down_Y.loc[:,nui] = closest_down.loc[:,nui]
-      shifted_down_yields = self.Default(shifted_down_Y, self.shape_pois[0]) * df
+      if len(self.shape_pois) > 0:
 
-      # Get up shift
-      shifted_up_Y = copy.deepcopy(nominal_Y)
-      shifted_up_Y.loc[:,nui] = closest_up.loc[:,nui]
-      shifted_up_yields = self.Default(shifted_up_Y, self.shape_pois[0]) * df
+        # Get down shift
+        shifted_down_Y = copy.deepcopy(nominal_Y)
+        shifted_down_Y.loc[:,nui] = closest_down.loc[:,nui]
+        shifted_down_yields = self.Default(shifted_down_Y, self.shape_pois[0]) * df
+
+        # Get up shift
+        shifted_up_Y = copy.deepcopy(nominal_Y)
+        shifted_up_Y.loc[:,nui] = closest_up.loc[:,nui]
+        shifted_up_yields = self.Default(shifted_up_Y, self.shape_pois[0]) * df
+
+      elif len(self.nuisances) > 0:
+
+        # Get down shift
+        shifted_down_Y = copy.deepcopy(nominal_Y)
+        shifted_down_Y.loc[:,nui] = closest_down.loc[:,nui]
+        shifted_down_yields = self.Default(shifted_down_Y, self.nuisances[0]) * df
+
+        # Get up shift
+        shifted_up_Y = copy.deepcopy(nominal_Y)
+        shifted_up_Y.loc[:,nui] = closest_up.loc[:,nui]
+        shifted_up_yields = self.Default(shifted_up_Y, self.nuisances[0]) * df
 
       # Get nuisance interpolation
       grads = (shifted_up_yields.loc[:,"yield"]-shifted_down_yields.loc[:,"yield"])/(shifted_up_Y.loc[:,nui] - shifted_down_Y.loc[:,nui])

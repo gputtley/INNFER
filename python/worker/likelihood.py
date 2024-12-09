@@ -1,5 +1,6 @@
 import copy
 import gc
+import importlib
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
@@ -21,7 +22,7 @@ class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, likelihood_type="unbinned_extended", parameters={}, data_parameters={}):
+  def __init__(self, models, likelihood_type="unbinned_extended", parameters={}, data_parameters={}, constraint_center=None):
     """
     Initializes a Likelihood object.
 
@@ -38,6 +39,7 @@ class Likelihood():
     self.Y_columns = self._GetY()
     self.seed = 42
     self.verbose = True
+    self.constraint_center = constraint_center
 
     # saved parameters
     self.best_fit = None
@@ -146,10 +148,15 @@ class Likelihood():
         elif v == "LogNormal":
           constraint_func =self.__ConstraintLogNormal
 
+        constraint_input = float(Y.loc[:,k].iloc[0])
+        if self.constraint_center is not None:
+          if k in self.constraint_center.columns:
+            constraint_input -= float(self.constraint_center.loc[:,k].iloc[0])
+
         # Get nominal value
         if derivative == 0:
 
-          val = np.log(constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))
+          val = np.log(constraint_func(constraint_input, derivative=0))
 
           if first_loop:
             ln_constraint = val
@@ -160,7 +167,7 @@ class Likelihood():
         # Get first derivative
         elif derivative == 1:
 
-          val = (1/constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))*constraint_func(float(Y.loc[:,k].iloc[0]), derivative=1)
+          val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
 
           if column_1 is not None:
 
@@ -169,7 +176,7 @@ class Likelihood():
 
             else:
 
-              val = (1/constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))*constraint_func(float(Y.loc[:,k].iloc[0]), derivative=1)
+              val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
               if first_loop:
                 ln_constraint = [val]
               else:
@@ -177,7 +184,7 @@ class Likelihood():
 
           else:
 
-            val = (1/constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))*constraint_func(float(Y.loc[:,k].iloc[0]), derivative=1)
+            val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
             ind = list(Y.columns).index(k)
 
             if first_loop:
@@ -193,7 +200,7 @@ class Likelihood():
             first_loop = False
 
           if column_1 == column_2 and column_1 == k:
-            ln_constraint += -(constraint_func(float(Y.loc[:,k].iloc[0]), derivative=1)/constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))**2 + (constraint_func(float(Y.loc[:,k].iloc[0]), derivative=2)/constraint_func(float(Y.loc[:,k].iloc[0]), derivative=0))
+            ln_constraint += -(constraint_func(constraint_input, derivative=1)/constraint_func(constraint_input, derivative=0))**2 + (constraint_func(constraint_input, derivative=2)/constraint_func(constraint_input, derivative=0))
           
     return ln_constraint
 
@@ -212,6 +219,14 @@ class Likelihood():
 
       # Get rate times probability, get gradients simultaneously if required
       log_probs[name] = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True, order=gradient, column_1=column_1, column_2=column_2)  
+
+    if "custom_log_probs_function" in self.parameters.keys():
+      if gradient == 0 or gradient == [0]:
+        module = importlib.import_module(self.parameters["custom_log_probs_function"].split(".")[0])
+        func = getattr(module, self.parameters["custom_log_probs_function"].split(".")[1])
+        log_probs = func(X, Y, log_probs)
+      else:
+        print("WARNING: Custom log probs function not implemented for gradients. Skipping.")
 
     return log_probs
 
@@ -400,8 +415,6 @@ class Likelihood():
         if wt_name is not None:
           ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
 
-        #print(np.sum(ln_lklds, dtype=np.float128, axis=0))
-
         # Product the events
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
@@ -481,7 +494,10 @@ class Likelihood():
     if "rate_parameters" in self.parameters.keys():
       Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
     for _, data_params in self.data_parameters.items():
-      Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
+      if "Y_columns" in self.parameters.keys():
+        Y_columns += self.parameters["Y_columns"]
+      else:
+        Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
     return sorted(Y_columns)
 
   def _GetYield(self, file_name, Y):
@@ -699,6 +715,7 @@ class Likelihood():
 
     # Add constraint
     for grad_ind, grad in enumerate(gradient):
+      #print(self._GetConstraint(Y, derivative=grad, column_1=column_1, column_2=column_2))
       lkld_val[grad_ind] += self._GetConstraint(Y, derivative=grad, column_1=column_1, column_2=column_2)
 
     # Multiply by constant
@@ -817,6 +834,7 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
+
     for dps_ind, X_dp in enumerate(X_dps):
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",

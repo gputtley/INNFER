@@ -31,7 +31,6 @@ def CamelToSnake(name):
 
 def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind):
   common_config = {
-    "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
     "true_Y" : val_info["row"],
     "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
     "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
@@ -45,13 +44,14 @@ def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_
     "nuisances": cfg["nuisances"],
     "likelihood_type": args.likelihood_type,
     "scale_to_eff_events": args.scale_to_eff_events,
-    "freeze": {k.split("=")[0]: float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+    #"freeze": {k.split("=")[0]: float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
     "model_type": args.model_type,
     "verbose": not args.quiet,
     "data_file": cfg["data_file"],
     "binned_fit_input" : args.binned_fit_input,
     "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
     "minimisation_method" : args.minimisation_method,
+    "sim_type" : args.sim_type
   }
   return common_config
 
@@ -392,19 +392,46 @@ def GetDictionaryEntryFromYaml(file_name, keys):
   return entry
 
 def GetFileLoop(cfg):
-  split_nuisances = False
-  if "split_nuisance_models" in cfg.keys():
-    split_nuisances = cfg["split_nuisance_models"]  
+  return list(cfg["files"].keys())
 
-  if not split_nuisances:
-    return list(cfg["files"].keys())
+def GetFreezeLoop(freeze, val_info, column=None):
+  freeze_loop = []
+  if not (freeze == "all-but-one"):
+    freeze_loop += [{
+      "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
+      "extra_name" : "",
+    }]
+  elif len(val_info['row'].columns) < 2:
+    freeze_loop += [{
+      "freeze" : None,
+      "extra_name" : "",
+    }]  
   else:
-    split_nuisance_list = []
-    for key in cfg["files"].keys():
-      split_nuisance_list.append(key)
-      for nuisance in cfg["nuisances"]:
-        split_nuisance_list.append(f"{key}_{nuisance}")
-    return split_nuisance_list
+    for col in val_info['row'].columns:
+      if column is not None:
+        if col != column:
+          continue
+      freeze_loop += [{
+        "freeze" : {c:float(val_info['row'].loc[:,c].iloc[0]) for c in val_info['row'].columns if c != col},
+        "extra_name" : f"_floating_only_{col}",
+      }]
+  return freeze_loop
+
+#def GetFileLoop(cfg):
+#  
+#  split_nuisances = False
+#  if "split_nuisance_models" in cfg.keys():
+#    split_nuisances = cfg["split_nuisance_models"]  
+#
+#  if not split_nuisances:
+#    return list(cfg["files"].keys())
+#  else:
+#    split_nuisance_list = []
+#    for key in cfg["files"].keys():
+#      split_nuisance_list.append(key)
+#      for nuisance in cfg["nuisances"]:
+#        split_nuisance_list.append(f"{key}_{nuisance}")
+#    return split_nuisance_list
     
 def GetNuisanceLoop(cfg, parameters):
   """
@@ -565,14 +592,22 @@ def GetValidateInfo(
 
   parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in GetFileLoop(cfg)}
   loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
-  val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in GetFileLoop(cfg)}
+  if "val_loop" not in cfg["validation"].keys():
+    val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in GetFileLoop(cfg)}
+  else:
+    val_loops = {file_name: [{"row": pd.DataFrame(val_loop["row"], columns=val_loop["columns"]),"initial_best_fit_guess": pd.DataFrame(val_loop["initial_best_fit_guess"], columns=val_loop["columns"])} for val_loop in cfg["validation"]["val_loop"][file_name]] for file_name in GetFileLoop(cfg)}
+
   models = {file_name: f"{models_loc}/{file_name}/{file_name}.h5" for file_name in GetFileLoop(cfg)}
   architectures = {file_name: f"{models_loc}/{file_name}/{file_name}_architecture.yaml" for file_name in GetFileLoop(cfg)}
   if len(GetFileLoop(cfg)) > 1:
-    val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
+    if "val_loop" not in cfg["validation"].keys():
+      val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
+    else:
+      val_loops["combined"] = [{"row": pd.DataFrame(val_loop["row"], columns=val_loop["columns"]),"initial_best_fit_guess": pd.DataFrame(val_loop["initial_best_fit_guess"], columns=val_loop["columns"])} for val_loop in cfg["validation"]["val_loop"]["combined"]]
     parameters["combined"] = copy.deepcopy(parameters)
     models["combined"] = copy.deepcopy(models)
     architectures["combined"] = copy.deepcopy(architectures)
+
 
   if skip_empty_Y and data_type != "data":
     val_loops = {k : v for k, v in val_loops.items() if len(list(v[0]["row"].columns)) > 0}
