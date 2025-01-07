@@ -20,7 +20,8 @@ class top_bw_reweighting():
   def __init__(self):
     self.cfg = None
     self.options = {}
-    self.batch_size = 10**8    
+    self.batch_size = 10**7
+    self.number_of_shuffles = 10
 
   def _BW(self, s, l=1.32, m=172.5):
     k = 1
@@ -83,6 +84,66 @@ class top_bw_reweighting():
         first = False
       else:
         df = pd.concat([df, tmp], ignore_index=True)
+    return df
+
+  def _DoShuffle(self, data_splits=["train","test"], data_output="data/"):
+
+    for data_split in data_splits:
+      for i in ["X","Y","wt","Extra"]:
+        name = f"{data_output}/{i}_{data_split}.parquet"
+        if not os.path.isfile(name): continue
+        shuffle_name = f"{data_output}/{i}_{data_split}_shuffled.parquet"
+        if os.path.isfile(shuffle_name):
+          os.system(f"rm {shuffle_name}")   
+        shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+        for shuff in range(self.number_of_shuffles):
+          print(f" - data_split={data_split}, data_set={i}, shuffle={shuff}")
+          shuffle_dp.GetFull(
+            method = None,
+            functions_to_apply = [
+              partial(self._DoShuffleIteration, iteration=shuff, total_iterations=self.number_of_shuffles, seed=42, dataset_name=shuffle_name)
+            ]
+          )
+        if os.path.isfile(shuffle_name):
+          os.system(f"mv {shuffle_name} {name}")
+        shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+        shuffle_dp.GetFull(
+          method = None,
+          functions_to_apply = [
+            partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name)
+          ]
+        )
+        if os.path.isfile(shuffle_name):
+          os.system(f"mv {shuffle_name} {name}")
+
+  def _DoShuffleBatch(self, df, seed=42, dataset_name="dataset.parquet"):
+
+    # Select indices
+    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
+
+    # Write to file
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    if os.path.isfile(dataset_name):
+      combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
+      pq.write_table(combined_table, dataset_name, compression='snappy')
+    else:
+      pq.write_table(table, dataset_name, compression='snappy')
+
+    return df
+
+  def _DoShuffleIteration(self, df, iteration=0, total_iterations=10, seed=42, dataset_name="dataset.parquet"):
+
+    # Select indices
+    iteration_indices = (np.random.default_rng(seed).integers(0, total_iterations, size=len(df)) == iteration)
+
+    # Write to file
+    table = pa.Table.from_pandas(df.loc[iteration_indices, :], preserve_index=False)
+    if os.path.isfile(dataset_name):
+      combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
+      pq.write_table(combined_table, dataset_name, compression='snappy')
+    else:
+      pq.write_table(table, dataset_name, compression='snappy')
+
     return df
 
   def _FlatteningSpline(self, df, spline=None):
@@ -180,7 +241,12 @@ class top_bw_reweighting():
 
       # Find normalisation
       norm_hist, norm_bins = dp.GetFull(method="histogram", column="mass", bins=100, functions_to_apply = [partial(self._ChangeBatchDiscrete, unique=discrete_masses, fractions=normalised_fractions)])
-      norm_hist_before, _ = dp.GetFull(method="histogram", column="mass", bins=norm_bins)
+      norm_hist_before, norm_bins_before = dp.GetFull(method="histogram", column="mass", bins=100)
+      non_zero_indices = np.where(norm_hist_before != 0)
+      norm_hist_before = norm_hist_before[non_zero_indices]
+      norm_bins_before = norm_bins_before[non_zero_indices]
+      norm_before_spline = UnivariateSpline(norm_bins_before, norm_hist_before, s=0, k=1)
+      norm_hist_before = [norm_before_spline(norm_bin) for norm_bin in norm_bins[:-1]]
       normalisation = dict(zip(norm_bins[:-1], norm_hist_before/norm_hist))
 
       # Apply reweighting on datasets
@@ -238,6 +304,14 @@ class top_bw_reweighting():
           file_name = f"{self.file_loc}/{data_type}_{data_split}_bw.parquet"
           mv_file_name = f"{self.file_loc}/{data_type}_{data_split}.parquet"
           os.system(f"mv {file_name} {mv_file_name}")
+
+    # Rewrite parameters file with new unique value
+    if self.write:
+      with open(f"{self.file_loc}/parameters.yaml", 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      parameters["unique_Y_values"]["mass"] = self.discrete_masses_inference
+      with open(f"{self.file_loc}/parameters.yaml", 'w') as yaml_file:
+        yaml.dump(parameters, yaml_file)
 
   def DoContinuousReweighting(self, splines):
 
@@ -391,12 +465,14 @@ class top_bw_reweighting():
     for key, value in options.items():
       setattr(self, key, value)
 
-    self.write = False if "write" not in self.options else self.options["write"].strip() == "True"
+    self.write = True if "write" not in self.options else self.options["write"].strip() == "True"
     self.seed = 21 if "seed" not in self.options else int(self.options["seed"])
 
     self.discrete_masses_inference = [171.5,172.0,172.5,173.0,173.5] if "discrete_masses" not in self.options else [float(i) for i in (self.options["discrete_masses"].split(",") if "," in self.options["discrete_masses"] else [])]
+    #self.discrete_masses_inference = [171.5,172.5,173.5] if "discrete_masses" not in self.options else [float(i) for i in (self.options["discrete_masses"].split(",") if "," in self.options["discrete_masses"] else [])]
 
     self.discrete_mode = False if "discrete_mode" not in self.options else self.options["discrete_mode"].strip() == "True"
+
     self.continuous_mode = False if "continuous_mode" not in self.options else self.options["continuous_mode"].strip() == "True"
 
     if self.discrete_mode:
@@ -408,9 +484,10 @@ class top_bw_reweighting():
 
     elif self.continuous_mode:
 
-      self.discrete_reweighting = []
+      self.discrete_reweighting = ["test_inf","val","full"]
+      self.discrete_masses_train = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
       self.continuous_reweighting = ["train","test"]
-      self.n_samples_per_point = 20
+      self.n_samples_per_point = 7
       self.min_mass = 166.5
       self.max_mass = 178.5
       self.make_copy = {"train":"train_inf"}
@@ -424,6 +501,7 @@ class top_bw_reweighting():
 
       self.discrete_reweighting = ["train_inf","test_inf","val","full"] if "discrete_reweighting" not in self.options else self.options["discrete_reweighting"].split(",") if "," in self.options["discrete_reweighting"] else []
       self.discrete_masses_train = [166.5,169.5,171.5,172.5,173.5,175.5,178.5] if "discrete_masses_train_test" not in self.options else [float(i) for i in (self.options["discrete_masses_train_test"].split(",") if "," in self.options["discrete_masses_train_test"] else [])]
+      self.make_copy = {"train":"train_inf"} if "make_copy" not in self.options else {i.split(":")[0]:i.split(":")[1] for i in self.options["make_copy"].split(",")}
 
     self.discrete_masses = sorted(list(set(self.discrete_masses_inference + self.discrete_masses_train)))
 
@@ -447,7 +525,7 @@ class top_bw_reweighting():
     normalised_fractions, splines = self.CalculateOptimalFractions()
 
     # Plot reweighting
-    #self.PlotReweighting(normalised_fractions)
+    self.PlotReweighting(normalised_fractions)
 
     # Make copies
     for data_split, copy_to in self.make_copy.items():
@@ -461,6 +539,11 @@ class top_bw_reweighting():
 
     # Do continuous reweighting
     self.DoContinuousReweighting(splines)
+
+    # Shuffle train and test
+    if self.write:
+      print("- Shuffling the dataset")
+      self._DoShuffle(data_splits=["train","test"], data_output=self.file_loc)
 
   def Outputs(self):
     """

@@ -1,4 +1,7 @@
+import wandb
 import yaml
+
+from random_word import RandomWords
 
 class Train():
 
@@ -12,6 +15,9 @@ class Train():
 
     # other
     self.use_wandb = False
+    self.initiate_wandb = False
+    self.wandb_project_name = "innfer"
+    self.wandb_submit_name = "innfer"
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
@@ -45,6 +51,14 @@ class Train():
       print("- Loading in the architecture")
     with open(self.architecture, 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    if self.initiate_wandb:
+
+      if self.verbose:
+        print("- Initialising wandb")
+
+      r = RandomWords()
+      wandb.init(project=self.wandb_project_name, name=f"{self.wandb_submit_name}_{r.get_random_word()}", config=architecture)
 
     # Build model
     if self.verbose:

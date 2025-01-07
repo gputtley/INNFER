@@ -155,10 +155,8 @@ class DataProcessor():
         df.loc[:, self.wt_name] = scale
 
     # Apply functions
-
     if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
       df = self.ApplySelection(df, extra_sel=extra_sel)
-
     for f in functions_to_apply:
       if isinstance(f, str):
         if f == "untransform":
@@ -300,6 +298,8 @@ class DataProcessor():
         out = self._method_unique(tmp, out, unique_threshold)
       elif method in ["quantile"]: # find a quantile of the dataset
         out = self._method_part_quantile(tmp, out, column, quantile)
+      elif method in ["min_max"]: # find min and max of columns
+        out = self._method_min_max(tmp, out)
       elif method in ["custom"]: # custom function
         out = custom(tmp, out, options=custom_options)
       else: 
@@ -581,6 +581,16 @@ class DataProcessor():
     else:
       out[0] += tmp_hist
       out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
+    return out
+
+  def _method_min_max(self, tmp, out):
+
+    tmp_min_max = {col: [np.min(tmp.loc[:,col]), np.max(tmp.loc[:,col])] for col in tmp.columns}
+
+    if out is None:
+      out = copy.deepcopy(tmp_min_max)
+    else:
+      out = {col : [min(out[col][0], tmp_min_max[col][0]), max(out[col][1], tmp_min_max[col][1])] for col in tmp.columns}
     return out
 
   def _method_sum(self, tmp, out, count=False):

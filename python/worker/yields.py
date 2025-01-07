@@ -39,9 +39,10 @@ class Yields():
         Name of the column containing yield values (default is "yields").
     """
 
-    self.yield_dataframe = yield_dataframe
-    self.shape_pois = [poi for poi in pois if poi in self.yield_dataframe.columns]
-    self.nuisances = [nuisance for nuisance in nuisances if nuisance in self.yield_dataframe.columns]
+    #self.yield_dataframe = yield_dataframe
+    self.shape_pois = [poi for poi in pois if poi in yield_dataframe.columns]
+    self.nuisances = [nuisance for nuisance in nuisances if nuisance in yield_dataframe.columns]
+    self.yield_dataframe = yield_dataframe.loc[(yield_dataframe.loc[:,column_name] != 0) ,self.shape_pois + self.nuisances + [column_name]]
     self.method = method
     self.column_name = column_name
     self.file_name = file_name
@@ -131,6 +132,10 @@ class Yields():
         Computed yield value.
     """
 
+    # If yield dataframe is empty return 0
+    if len(self.yield_dataframe) == 0:
+      return 0.0
+
     # Reindex Y
     Y = Y.reset_index(drop=True)
 
@@ -139,7 +144,7 @@ class Yields():
 
     # Separate shape and rate Y terms
     if f"mu_{self.file_name}" in Y.columns and not ignore_rate:
-      df *= Y.loc[:,f"mu_{self.file_name}"]
+      df *= Y.loc[:,f"mu_{self.file_name}"].to_numpy()
 
     # Get shape varying Y parameters
     Y = Y.loc[:, [col for col in Y.columns if not col.startswith("mu_")]]

@@ -47,6 +47,7 @@ def parse_args():
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--overwrite-architecture', help='Comma separated list of key=values to overwrite architecture parameters', type=str, default='')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
@@ -58,6 +59,7 @@ def parse_args():
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
+  parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
   parser.add_argument('--split-validation-files', help='Split the validation files.', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
@@ -109,6 +111,22 @@ def parse_args():
         cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
       args.model_type = f"Benchmark_Dim1CfgToBenchmark_{cfg['name']}"
 
+  # Overwrite architecture
+  if args.overwrite_architecture != "":
+    with open(args.architecture, 'r') as yaml_file:
+      architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    for key, value in {i.split("=")[0] : i.split("=")[1] for i in args.overwrite_architecture.split(",")}.items():
+      if "." in value:
+        architecture[key] = float(value)
+      elif value.isdigit():
+        architecture[key] = int(value)
+      else:
+        architecture[key] = value
+    tmp_architecture_name = f"configs/architecture/tmp_architecture.yaml"
+    with open(tmp_architecture_name, 'w') as yaml_file:
+      yaml.dump(architecture, yaml_file)
+    args.architecture = tmp_architecture_name
+    
   return args, default_args
 
 
@@ -156,7 +174,7 @@ def main(args, default_args):
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
-        force = True,
+        force = args.snakemake_force_local,
       )
 
   # Custom
@@ -167,9 +185,24 @@ def main(args, default_args):
       class_name = args.custom_module,
       config = {
         "cfg" : args.cfg,
-        "options" : {i.split("=")[0] : i.split("=")[1] for i in (args.custom_options.split(";") if ";" in args.custom_options else [])},
+        "options" : {i.split("=")[0] : i.split("=")[1] for i in (args.custom_options.split(";") if args.custom_options != "" else [])},
       },
-      loop = {}
+      loop = {},
+      force = args.snakemake_force_local,
+    )
+
+  # Remove outlers
+  if args.step == "RemoveOutliers":
+    print("<< Removing outliers so not to get NaN probabilities >>")
+    module.Run(
+      module_name = "remove_outliers",
+      class_name = "RemoveOutliers",
+      config = {
+        "cfg" : args.cfg,
+        "verbose" : not args.quiet
+      },
+      loop = {},
+      force = args.snakemake_force_local,
     )
 
   # Plot preprocess data
@@ -187,7 +220,6 @@ def main(args, default_args):
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
-        force = True,
       )
 
   # Train network
@@ -203,6 +235,10 @@ def main(args, default_args):
           "data_output" : f"models/{cfg['name']}/{file_name}",
           "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",
           "disable_tqdm" : args.disable_tqdm,
+          "use_wandb" : args.use_wandb,
+          "initiate_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
           "verbose" : not args.quiet,        
         },
         loop = {"file_name" : file_name}
@@ -837,6 +873,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
+        if len(val_info['initial_best_fit_guess'].columns) <= 1: continue
         module.Run(
           module_name = "summary_all_but_one_collect",
           class_name = "SummaryAllButOneCollect",

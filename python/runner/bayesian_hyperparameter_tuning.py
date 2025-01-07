@@ -154,6 +154,10 @@ class BayesianHyperparameterTuning():
     # Load in metrics
     metrics_name = f"{self.data_output}/metrics_{self.objective_ind}.yaml"
     metric_val =  GetDictionaryEntryFromYaml(metrics_name, self.metric.split(",")[0].split(":"))
+    if metric_val is None:
+      print("- Metric not found, converting to loss_test")
+      self.metric = "loss_test,min"
+      metric_val = GetDictionaryEntryFromYaml(metrics_name, self.metric.split(",")[0].split(":"))
 
     # Increment indices
     self.objective_ind += 1

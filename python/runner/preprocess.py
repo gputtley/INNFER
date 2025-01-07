@@ -521,21 +521,21 @@ class PreProcess():
         length_name = f"length_{data_split}"  
 
       unique_rows = df[data_split].loc[:,pois+nuisances].drop_duplicates().reset_index(drop=True)
-    
-      if len(unique_rows) > 100:
+
+      if len(unique_rows) > 100 and len(pois+nuisances) > 0:
         continue
 
       if len(df[data_split]) == 0:
         continue
 
-      if len(unique_rows) == 0:
+      if len(unique_rows) == 0 or len(pois+nuisances) == 0:
         loop = [0]
       else:
         loop = range(len(unique_rows))
 
       for index in loop:
 
-        if len(unique_rows) > 0:
+        if len(unique_rows) > 0 or len(pois+nuisances) == 0:
           row = copy.deepcopy(unique_rows.iloc[[index]])
           filtered_df = df[data_split][(df[data_split].loc[:,row.columns] == row.iloc[0]).all(axis=1)]
         else:
@@ -546,7 +546,7 @@ class PreProcess():
         length = len(filtered_df)
 
         if self.yield_df is None:
-          if len(unique_rows) > 0:
+          if len(unique_rows) > 0 or len(pois+nuisances) == 0:
             row.loc[:,yield_name] = sum_wt
             row.loc[:,sum_wt_squared_name] = sum_wt_squared
             row.loc[:,length_name] = length
@@ -554,7 +554,7 @@ class PreProcess():
           else:
             self.yield_df = pd.DataFrame({yield_name : [sum_wt], sum_wt_squared_name : [sum_wt_squared], length_name : [length]})
         else:
-          if len(unique_rows) > 0:
+          if len(unique_rows) > 0 or len(pois+nuisances) == 0:
             row_exists = (self.yield_df.loc[:, list(row.columns)] == row.iloc[0]).all(axis=1)
             if not row_exists.any():
               row.loc[:,yield_name] = sum_wt
@@ -677,7 +677,10 @@ class PreProcess():
 
         # Scale 
         if "scale" in cfg["files"][self.file_name].keys():
-          df.loc[:,"wt"] *= cfg["files"][self.file_name]["scale"]
+          if isinstance(cfg["files"][self.file_name]["scale"], int) or isinstance(cfg["files"][self.file_name]["scale"], float):
+            df.loc[:,"wt"] *= cfg["files"][self.file_name]["scale"]
+          else:
+            df.loc[:,"wt"] *= cfg["files"][self.file_name]["scale"][input_file_ind]
 
         # Removing nans
         nan_rows = df[df.isna().any(axis=1)]

@@ -64,7 +64,7 @@ class Network():
     self.affine_num_dense_layers = 2
     self.affine_activation = "relu"
     self.affine_dropout = True
-    self.affine_mc_dropout = True
+    self.affine_mc_dropout = False
     self.affine_dropout_prob = 0.05
 
     # spline parameters
@@ -72,7 +72,7 @@ class Network():
     self.spline_num_dense_layers = 2
     self.spline_activation = "relu"
     self.spline_dropout = True
-    self.spline_mc_dropout = True
+    self.spline_mc_dropout = False
     self.spline_dropout_prob = 0.05
     self.spline_bins = 16
 
@@ -915,7 +915,10 @@ class Network():
 
       # return probability - change this for derivatives
       if return_log_prob:
-        log_probs[ind] = log_probs[ind].to_numpy()
+        if log_probs[ind] is not None:
+          log_probs[ind] = log_probs[ind].to_numpy()
+        else:
+          log_probs[ind] = np.zeros((len(X),1))
       else:
         log_probs[ind] = np.exp(log_probs[ind].to_numpy())
 

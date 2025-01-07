@@ -387,8 +387,13 @@ def GetDictionaryEntryFromYaml(file_name, keys):
     return None
 
   for key in keys:
+    if isinstance(entry, dict):
+      if key not in entry.keys():
+        return None
+    if isinstance(entry, list):
+      if key >= len(entry):
+        return None    
     entry = entry[key]
-
   return entry
 
 def GetFileLoop(cfg):
@@ -403,7 +408,7 @@ def GetFreezeLoop(freeze, val_info, column=None):
     }]
   elif len(val_info['row'].columns) < 2:
     freeze_loop += [{
-      "freeze" : None,
+      "freeze" : {},
       "extra_name" : "",
     }]  
   else:

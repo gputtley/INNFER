@@ -21,9 +21,12 @@ class SplitValidationFiles():
     self.val_loop = None
     self.verbose = True
 
-  def _DoWriteDatasets(self, df, X_columns=[], Y_columns=[], val_ind=0, data_split="val"):
+  def _DoWriteDatasets(self, df, X_columns=[], Y_columns=[], val_ind=0, data_split="val", extra_columns=[]):
 
-    for data_type, columns in {"X":X_columns, "Y":Y_columns, "wt":["wt"]}.items():
+    loop = {"X":X_columns, "Y":Y_columns, "wt":["wt"]}
+    if len(extra_columns) > 0:
+      loop["Extra"] = extra_columns
+    for data_type, columns in loop.items():
       file_path = f"{self.data_output}/val_ind_{val_ind}/{data_type}_{data_split}.parquet"
       table = pa.Table.from_pandas(df.loc[:, sorted(columns)], preserve_index=False)
       if os.path.isfile(file_path):
@@ -70,10 +73,15 @@ class SplitValidationFiles():
 
     for data_split in self.data_splits:
 
+      file_inputs = [f"{parameters['file_loc']}/X_{data_split}.parquet",f"{parameters['file_loc']}/Y_{data_split}.parquet",f"{parameters['file_loc']}/wt_{data_split}.parquet"]
+      if "Extra_columns" in parameters.keys():
+        if len(parameters["Extra_columns"]) > 0: 
+          file_inputs += [f"{parameters['file_loc']}/Extra_{data_split}.parquet"]
+
       # Build data processor
       from data_processor import DataProcessor
       dp = DataProcessor(
-        [[f"{parameters['file_loc']}/X_{data_split}.parquet",f"{parameters['file_loc']}/Y_{data_split}.parquet",f"{parameters['file_loc']}/wt_{data_split}.parquet"]],
+        [file_inputs],
         "parquet",
         options = {
           "parameters" : parameters,
@@ -97,12 +105,15 @@ class SplitValidationFiles():
           functions_to_apply = [
             "untransform",
             "transform",
-            partial(self._DoWriteDatasets, X_columns=parameters["X_columns"], Y_columns=parameters["Y_columns"], val_ind=val_ind, data_split=data_split),
+            partial(self._DoWriteDatasets, X_columns=parameters["X_columns"], Y_columns=parameters["Y_columns"], extra_columns=parameters["Extra_columns"] if "Extra_columns" in parameters.keys() else [], val_ind=val_ind, data_split=data_split),
           ]
         )
         print(f"Created {self.data_output}/val_ind_{val_ind}/X_{data_split}.yaml")
         print(f"Created {self.data_output}/val_ind_{val_ind}/Y_{data_split}.yaml")
         print(f"Created {self.data_output}/val_ind_{val_ind}/wt_{data_split}.yaml")
+        if "Extra_columns" in parameters.keys():
+          if len(parameters["Extra_columns"]) > 0: 
+            print(f"Created {self.data_output}/val_ind_{val_ind}/Extra_{data_split}.yaml")
 
   def Outputs(self):
     """

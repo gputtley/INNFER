@@ -201,6 +201,7 @@ class InputPlot():
           "parameters" : parameters
         }
       )
+      if dp.GetFull(method="count") == 0: continue
       for transform in [False, True]:
         functions_to_apply = []
         if not transform:

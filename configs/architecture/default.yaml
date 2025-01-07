@@ -17,13 +17,11 @@ affine_units_per_dense_layer: 128
 affine_num_dense_layers: 2
 affine_activation: "relu"
 affine_dropout: False
-affine_mc_dropout: False
 affine_dropout_prob: 0.0
 # spline or interleaved only
 spline_units_per_dense_layer: 256
 spline_num_dense_layers: 2
 spline_activation: "relu"
 spline_dropout: True
-spline_mc_dropout: False
 spline_dropout_prob: 0.1
 spline_bins: 16

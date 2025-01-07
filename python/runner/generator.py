@@ -147,9 +147,12 @@ class Generator():
       if self.data_type == "sim":
 
         input_files = [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]
+        #input_files = [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"]
         if "Extra_columns" in parameters.keys():
           if len(parameters["Extra_columns"]) > 0:
-            input_files += [f"{parameters['file_loc']}/Extra_val.parquet"]
+            #input_files += [f"{parameters['file_loc']}/Extra_val.parquet"]
+            input_files += [f"{parameters['file_loc']}/Extra_train.parquet"]
+
 
         sim_dps[file_name] = DataProcessor(
           [input_files],
@@ -268,12 +271,12 @@ class Generator():
     if self.do_1d:
       for col in parameters["X_columns"]:
         outputs += [
-          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}.pdf",
+          f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}_plot_style_1.pdf",
         ]
         if self.data_type != "data":
           if self.do_transformed:
             outputs += [
-              f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}.pdf",
+              f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}_plot_style_1.pdf",
             ]
 
     if self.do_2d_unrolled:
@@ -398,10 +401,12 @@ class Generator():
         sum_sim_hist_total = np.sum(sim_hist_total)
         sum_synth_hist_total = np.sum(synth_hist_total)
         sim_hist_total /= sum_sim_hist_total
+        sim_hists = {k : v/sum_sim_hist_total for k,v in sim_hists.items()}
         sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)/sum_sim_hist_total
+        sim_hist_uncerts = {k : v/sum_sim_hist_total for k,v in sim_hist_uncerts.items()}
         synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)/sum_synth_hist_total
-        for k in synth_hists.keys():
-          synth_hists[k] /= sum_synth_hist_total
+        synth_hists = {k : v/sum_synth_hist_total for k,v in synth_hists.items()}
+        synth_hist_uncerts = {k : v/sum_synth_hist_total for k,v in synth_hist_uncerts.items()}
       else:
         sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
         synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)       
@@ -413,7 +418,7 @@ class Generator():
         data_name = sim_plot_name, 
         xlabel=col,
         ylabel="Events" if self.scale_to_yield else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}", 
+        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_1", 
         data_errors=sim_hist_uncert, 
         stack_hist_errors=synth_hist_uncert, 
         use_stat_err=False,
@@ -427,7 +432,7 @@ class Generator():
         bins,
         xlabel = col,
         ylabel="Events" if self.scale_to_yield else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_non_stack_same_pad_{col}{extra_name}",    
+        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_2",    
       )
 
       plot_many_comparisons(
@@ -438,7 +443,7 @@ class Generator():
         bins,
         xlabel = col,
         ylabel="Events" if self.scale_to_yield else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_non_stack_{col}{extra_name}",       
+        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",       
         )
 
 
@@ -457,7 +462,7 @@ class Generator():
           bins,
           xlabel = col,
           ylabel="Events" if self.scale_to_yield else "Density",
-          name=f"{self.plots_output}/{extra_dir}generation_non_stack_inc_total_{col}{extra_name}",       
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",       
           )
 
   def _Plot2DUnrolledGeneration(

@@ -1,6 +1,7 @@
 import copy
 import gc
 import importlib
+import inspect
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
@@ -10,7 +11,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from functools import partial
+from functools import partial, update_wrapper
+from iminuit import Minuit
 from pprint import pprint
 from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize
@@ -110,6 +112,10 @@ class Likelihood():
       before_sum = True
     )[0]
 
+    if np.isnan(tmp_probs).any():
+      nan_rows_mask = np.isnan(tmp_probs).any(axis=1)  # True for rows with NaNs
+      tmp_probs[nan_rows_mask] = 0.0
+
     if out is None:
       out = np.zeros((len(options["scan_over"]), len(options["scan_over"])))
 
@@ -122,6 +128,9 @@ class Likelihood():
   def _GetBinned(self, bin_values, Y):
 
     predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    non_zero_indices = np.array(predicted_bin_values) > 0
+    predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
+    bin_values = list(np.array(bin_values)[non_zero_indices])
     predicted_bin_values = [predicted_bin_value*(np.sum(bin_values))/float(np.sum(predicted_bin_values)) for predicted_bin_value in predicted_bin_values]
     ln_lkld = np.sum([(bin_value*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index, bin_value in enumerate(bin_values)])
 
@@ -130,6 +139,9 @@ class Likelihood():
   def _GetBinnedExtended(self, bin_values, Y):
 
     predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    non_zero_indices = np.array(predicted_bin_values) > 0
+    predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
+    bin_values = list(np.array(bin_values)[non_zero_indices])
     ln_lkld = np.sum([(bin_value*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index, bin_value in enumerate(bin_values)])
     return ln_lkld
 
@@ -239,6 +251,7 @@ class Likelihood():
 
       # Get model scaling
       rate_param = self._GetYield(name, Y)
+
       if rate_param == 0: continue
 
       # Get rate times probability
@@ -398,18 +411,14 @@ class Likelihood():
 
       else:
 
-        #print("------------------------")
-        #print(np.isnan(ln_lklds).sum())
-        #nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
-        #print(X[nan_rows_mask])
 
-        #print(np.max(ln_lklds))
-        #print(ln_lklds[3550,:])
-        #print(ln_lklds[5831,:])
-        #print(np.min(ln_lklds),np.mean(ln_lklds),np.max(ln_lklds))
-        #print(X[ln_lklds==np.max(ln_lklds)])
-        #print(np.sum(ln_lklds, dtype=np.float128, axis=0))
-        #print("---------------")
+        if np.isnan(ln_lklds).any():
+          #print("------------------------")
+          #print(np.isnan(ln_lklds).sum())
+          nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
+          #print(X[nan_rows_mask])
+          #print("---------------")
+          ln_lklds[nan_rows_mask] = 0.0
 
         ## Weight the events
         if wt_name is not None:
@@ -492,7 +501,8 @@ class Likelihood():
     """
     Y_columns = []
     if "rate_parameters" in self.parameters.keys():
-      Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
+      if len(self.data_parameters) > 1:
+        Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
     for _, data_params in self.data_parameters.items():
       if "Y_columns" in self.parameters.keys():
         Y_columns += self.parameters["Y_columns"]
@@ -855,7 +865,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.05, save_best_fit=True):
+  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.2, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -865,12 +875,19 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
-    if method == "scipy":
+    if method in ["scipy"]:
 
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=0)
-      result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size)
+      result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method=method)
       
-    elif method in ["scipy_with_gradients","custom"]:
+    elif method in ["minuit"]:
+
+      inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
+      func_to_minimise = eval(f"lambda {inputs}: self.Run(X_dps, np.array([{inputs}]), multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'np': np})
+
+      result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, method=method, initial_step_size=initial_step_size)
+
+    elif method in ["scipy_with_gradients","minuit_with_gradients","custom"]:
 
       func_val_and_jac = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=[0,1])
       class NLLAndGradient():
@@ -891,8 +908,14 @@ class Likelihood():
             val, jac = func_val_and_jac(Y)
             return jac
       nllgrad = NLLAndGradient()
-      result = self.Minimise(nllgrad.GetNLL, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method=method, jac=nllgrad.GetJac)
-      
+
+      if method in ["scipy_with_gradients","custom"]:
+        result = self.Minimise(nllgrad.GetNLL, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method=method, jac=nllgrad.GetJac)
+      elif method in ["minuit_with_gradients"]:
+        inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
+        func_to_minimise = eval(f"lambda {inputs}: nllgrad.GetNLL(np.array([{inputs}))", {"nllgrad": nllgrad, 'np': np})
+        result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, method=method, jac=nllgrad.GetJac)
+
     if save_best_fit:
       self.best_fit = result[0]
       self.best_fit_nll = result[1]
@@ -1012,24 +1035,50 @@ class Likelihood():
     else:
       func, initial_guess = self._HelperFreeze(freeze, initial_guess, func)
 
-    # get initial simplex
-    n = len(initial_guess)
-    initial_simplex = [initial_guess]
-    for i in range(n):
-      row = copy.deepcopy(initial_guess)
-      row[i] += initial_step_size * max(row[i], 1.0)
-      initial_simplex.append(row)
-
-    # minimisation
+    # scipy
     if method == "scipy":
+      # get initial simplex
+      n = len(initial_guess)
+      initial_simplex = [initial_guess]
+      for i in range(n):
+        row = copy.deepcopy(initial_guess)
+        row[i] += initial_step_size * max(row[i], 1.0)
+        initial_simplex.append(row)
+      # run minimisation
       minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
       res = minimisation.x, minimisation.fun
     
+    # scipy with gradients
     elif method == "scipy_with_gradients":
-      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.001, options={'ftol': 1e-7, 'gtol':1e-7})
-      #minimisation = minimize(func, initial_guess, jac=jac, method='BFGS', tol=0.001, options={'xrtol': 0.0001})
+      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.001, options={'ftol': 1e-9, 'gtol':1e-8})
       res = minimisation.x, minimisation.fun
 
+    # minuit
+    elif method == "minuit":
+      minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
+      m = Minuit(func, **minuit_initial_guess)
+      for params in range(len(initial_guess)):
+        m.errors[f"p{params}"] *= 10
+      m.errordef = Minuit.LIKELIHOOD
+      m.strategy = 2
+      m.tol = 0.01
+      m.simplex()
+      res = m.values, m.fval
+
+    # minuit with gradients
+    elif method == "minuit_with_gradients":
+      minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
+      m = Minuit(func, **minuit_initial_guess)
+      for params in range(len(initial_guess)):
+        m.errors[f"p{params}"] *= 10
+      m.errordef = Minuit.LIKELIHOOD
+      m.strategy = 2
+      m.tol = 0.01
+      m.grad = jac
+      m.migrid()
+      res = m.values, m.fval
+
+    # custom
     elif method == "custom":     
       res = CustomMinimise(func, jac, initial_guess)
 
