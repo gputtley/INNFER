@@ -901,6 +901,7 @@ def plot_summary(
     shift = 0.2,
     subtract = False,
     text = "",
+    y_label = "",
   ):
   """
   Plot a validation summary.
@@ -1072,6 +1073,9 @@ def plot_summary(
   ax[-2].text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax[-2].transAxes)
+
+  # y title
+  ax[0].set_ylabel(y_label)
 
   # Legend
   ax[-1].spines['top'].set_visible(False)

@@ -348,8 +348,9 @@ class GeneratorSummary():
     file_name = list(self.model.keys())[0]
     with open(self.parameters[file_name], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    for col in parameters["X_columns"]:
-      outputs += [f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}.pdf"]
+    for dataset_type in ["train","test_inf","val"]:
+      for col in parameters["X_columns"]:
+        outputs += [f"{self.plots_output}/generation_summary_{dataset_type}_{col}{self.extra_plot_name}.pdf"]
 
     return outputs
 

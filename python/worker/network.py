@@ -651,28 +651,6 @@ class Network():
 
     return metrics
 
-  def GetLoss(self, dataset="train"):
-    """
-    Calculate the loss for the specified dataset using the trained model.
-
-    Parameters
-    ----------
-    dataset : str, optional
-        Dataset for which to calculate the loss. Possible values are "train" (default) or "test".
-
-    Returns
-    -------
-    float
-        Loss value calculated for the specified dataset.
-    """
-
-    self.BuildTrainer()
-    if dataset == "train":
-      loss = float(self.trainer._get_epoch_loss(self.X_train, self.Y_train, self.wt_train, 0))
-    elif dataset == "test":
-      loss = float(self.trainer._get_epoch_loss(self.X_test, self.Y_test, self.wt_test, 0))
-    return float(loss)
-
   def Load(self, name="model.h5", seed=42):
     """
     Load the model weights from a specified file.
@@ -692,6 +670,11 @@ class Network():
     self.Y_train.batch_num = 0
     _ = self.inference_net(X_train_batch, Y_train_batch)
     self.inference_net.load_weights(name)
+
+  def Loss(self, X, Y, wt):
+    self.BuildTrainer()
+    loss = float(self.trainer._get_epoch_loss(DataLoader(X, batch_size=self.batch_size), DataLoader(Y, batch_size=self.batch_size), DataLoader(wt, batch_size=self.batch_size), 0))
+    return loss
 
   def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False, order=0, column_1=None, column_2=None):
     """

@@ -274,41 +274,23 @@ class Infer():
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       self.lkld.best_fit = np.array(hessian["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
 
       # Get covariance
       self.lkld.GetAndWriteCovarianceToYaml(
-        hessian["hessian"], 
         row=self.true_Y, 
         filename=f"{self.data_output}/covariance{self.extra_file_name}.yaml", 
         scan_over=hessian["matrix_columns"],
       )    
 
-      with open(f"{self.data_output}/covariance{self.extra_file_name}.yaml", 'r') as yaml_file:
-        covariance = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
       # Get uncertainties from covariance
-      for col in covariance["matrix_columns"]:
-        col_index = covariance["matrix_columns"].index(col)
-        best_fit_col = covariance["best_fit"][covariance["columns"].index(col)]
-        dump = {
-          "columns" : covariance["columns"],
-          "row" : covariance["row"],
-          "varied_column" : col,
-          "crossings" : {
-            -2 : best_fit_col - 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            -1 : best_fit_col - float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            0 : best_fit_col,
-            1 : best_fit_col + float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            2 : best_fit_col + 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
-          }
-        }
-        filename = f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"
-        if self.verbose:
-          pprint(dump)
-        print(f"Created {filename}")
-        MakeDirectories(filename)
-        with open(filename, 'w') as yaml_file:
-          yaml.dump(dump, yaml_file, default_flow_style=False)
+      for col in hessian["matrix_columns"]:
+        self.lkld.GetAndWriteCovarianceIntervalsToYaml(
+          col,
+          row=self.true_Y, 
+          filename=f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml", 
+          scan_over=hessian["matrix_columns"],
+        )    
 
     elif self.method == "CovarianceWithDMatrix":
 
@@ -319,16 +301,16 @@ class Infer():
       with open(f"{self.data_input}/dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
         Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Save best fit
+      # Save to class
       self.lkld.best_fit = np.array(hessian["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
+      self.lkld.D_matrix = Dmatrix["D_matrix"]
 
       # Get covariance
       self.lkld.GetAndWriteCovarianceToYaml(
-        hessian["hessian"], 
         row=self.true_Y, 
         filename=f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml", 
         scan_over=hessian["matrix_columns"],
-        D_matrix=Dmatrix["D_matrix"],
       )    
 
       with open(f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
@@ -358,9 +340,7 @@ class Infer():
         with open(filename, 'w') as yaml_file:
           yaml.dump(dump, yaml_file, default_flow_style=False)
 
-      # Get uncertainties from covariance
-
-    elif self.method == "ScanPoints":
+    elif self.method == "ScanPointsFromApproximate":
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -384,7 +364,33 @@ class Infer():
         row=self.true_Y,
         estimated_sigmas_shown=((self.number_of_scan_points-1)/2)*self.sigma_between_scan_points, 
         estimated_sigma_step=self.sigma_between_scan_points,
-        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
+        method="approximate",
+      )
+
+    elif self.method == "ScanPointsFromHessian":
+
+      # Open best fit yaml
+      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Open hessian
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      self.lkld.best_fit = np.array(best_fit_info["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
+
+      # Make scan ranges
+      self.lkld.GetAndWriteScanRangesToYaml(
+        self.lkld_input, 
+        self.column,
+        row=self.true_Y,
+        estimated_sigmas_shown=((self.number_of_scan_points-1)/2)*self.sigma_between_scan_points, 
+        estimated_sigma_step=self.sigma_between_scan_points,
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
+        method="hessian",
       )
 
     elif self.method == "Scan":
@@ -461,7 +467,7 @@ class Infer():
         outputs += [f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"]
 
     # Add scan ranges
-    if self.method == "ScanPoints":
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
       outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",]
 
     # Add scan values
@@ -512,11 +518,11 @@ class Infer():
 
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPoints","Scan","Hessian","DMatrix","ApproximateUncertainty"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","DMatrix","ApproximateUncertainty"]:
       inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian 
-    if self.method in ["Covariance","CovarianceWithDMatrix"]:
+    if self.method in ["Covariance","CovarianceWithDMatrix","ScanPointsFromHessian"]:
       inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}.yaml"]
 
     # Add d matrix

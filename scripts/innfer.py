@@ -15,6 +15,7 @@ from useful_functions import (
     GetDictionaryEntryFromYaml,
     GetFileLoop,
     GetFreezeLoop,
+    GetParameterLoop,
     GetScanArchitectures,
     GetValidateInfo,
     SetupSnakeMakeFile,
@@ -36,7 +37,10 @@ def parse_args():
   parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='inference_chi_squared_test_inf:all,min')
+  parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
+  parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as POIs', action='store_true')
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
   parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
@@ -48,12 +52,15 @@ def parse_args():
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--overwrite-architecture', help='Comma separated list of key=values to overwrite architecture parameters', type=str, default='')
+  parser.add_argument('--performance-metrics-no-histogram', help='Do not run the histogram performance metrics.', action='store_true')
+  parser.add_argument('--performance-metrics-no-inference', help='Do not run the inference performance metrics.', action='store_true')
+  parser.add_argument('--performance-metrics-no-loss', help='Do not run the loss performance metrics.', action='store_true')
+  parser.add_argument('--performance-metrics-no-multidim', help='Do not run the multidimensional dataset performance metrics.', action='store_true')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
-  parser.add_argument('--scan-over-nuisances', help='Perform likelihood scans over nuisance parameters as well as POIs', action='store_true')
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
@@ -262,7 +269,11 @@ def main(args, default_args):
           "nuisances": cfg["nuisances"],
           "split_validation_files": args.split_validation_files,
           "cfg_name" : cfg["name"],
-          "verbose" : not  args.quiet,        
+          "do_inference": not args.performance_metrics_no_inference,
+          "do_loss": not args.performance_metrics_no_loss,
+          "do_histogram_metrics": not args.performance_metrics_no_histogram,
+          "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
+          "verbose" : not  args.quiet,     
         },
         loop = {"file_name" : file_name}
       )
@@ -499,7 +510,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
+        for column in GetParameterLoop(val_info, cfg, args):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
             module.Run(
               module_name = "infer",
@@ -537,7 +548,7 @@ def main(args, default_args):
               "extra_file_name" : str(val_ind),
               "data_file" : cfg["data_file"],
               "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "scan_over_nuisances" : args.scan_over_nuisances,
+              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
@@ -563,7 +574,7 @@ def main(args, default_args):
               "extra_file_name" : str(val_ind),
               "data_file" : cfg["data_file"],
               "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "scan_over_nuisances" : args.scan_over_nuisances,
+              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
@@ -588,7 +599,7 @@ def main(args, default_args):
               "extra_file_name" : str(val_ind),
               "data_file" : cfg["data_file"],
               "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "scan_over_nuisances" : args.scan_over_nuisances,
+              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
@@ -614,26 +625,26 @@ def main(args, default_args):
               "extra_file_name" : str(val_ind),
               "data_file" : cfg["data_file"],
               "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "scan_over_nuisances" : args.scan_over_nuisances,
+              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
           )
 
   # Find sensible scan points
-  if args.step == "ScanPoints":
+  if args.step in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
     print(f"<< Finding points to scan over >>")
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
+        for column in GetParameterLoop(val_info, cfg, args):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
               config = {
                 **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-                "method" : "ScanPoints",
+                "method" : args.step,
                 "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
                 "data_output" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}",
                 "column" : column,
@@ -643,9 +654,11 @@ def main(args, default_args):
                 "model_type" : args.model_type,
                 "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
                 "freeze" : freeze["freeze"],
+                "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}",
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             )
+
 
   # Run profiled likelihood scan
   if args.step == "Scan":
@@ -653,7 +666,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
+        for column in GetParameterLoop(val_info, cfg, args):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
             for scan_ind in range(args.number_of_scan_points):
               module.Run(
@@ -683,7 +696,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
+        for column in GetParameterLoop(val_info, cfg, args):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
             module.Run(
               module_name = "scan_collect",
@@ -705,7 +718,7 @@ def main(args, default_args):
     val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     for file_name, val_loop in val_loop_info["val_loops"].items():
       for val_ind, val_info in enumerate(val_loop):
-        for column in [i for i in val_info["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])]:
+        for column in GetParameterLoop(val_info, cfg, args):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
             module.Run(
               module_name = "scan_plot",
@@ -859,7 +872,7 @@ def main(args, default_args):
           "data_output" : f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])],
+          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.loop_over_nuisances else cfg["pois"]+cfg["nuisances"])],
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
@@ -908,7 +921,7 @@ def main(args, default_args):
           "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
-          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.scan_over_nuisances else cfg["pois"]+cfg["nuisances"])],
+          "column_loop" : GetParameterLoop(val_loop[0], cfg, args),
           "subtract" : args.summary_subtract,
           "verbose" : not args.quiet,
         },

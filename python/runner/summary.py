@@ -45,13 +45,28 @@ class Summary():
     Run the code utilising the worker classes
     """
 
+    # Check for repeated columns for axis label
+    columns = {}
+    for ind, info in enumerate(self.val_loop):
+      if ind == 0:
+        columns = {col:[] for col in info["row"].columns}
+      for col in info["row"].columns:
+        columns[col].append(float(info["row"].loc[0,col]))
+    non_repeated_columns = []
+    for col in columns.keys():
+      if len(set(columns[col])) > 1:
+        non_repeated_columns.append(col)
+
     # Open results
     if self.verbose:
       print("- Loading in results")
     results = {}
     other_results = {}
     for ind, info in enumerate(self.val_loop):
-      info_name = GetYName(info["row"],purpose="plot",prefix="y=")
+
+      # Find rows that are changing
+      info_name = GetYName(info["row"].loc[:,non_repeated_columns],purpose="plot",prefix="")
+
       for col in self.column_loop:
         if col in self.freeze.keys():
           continue
@@ -90,7 +105,8 @@ class Summary():
       show2sigma = self.show2sigma,
       subtract = self.subtract,
       nominal_name = "" if len(list(other_results.keys())) == 0 else self.nominal_name,
-      text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)}
+      text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)},
+      y_label = f"Truth ({', '.join(non_repeated_columns)})",
     )
 
   def Outputs(self):

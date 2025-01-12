@@ -49,6 +49,9 @@ class Likelihood():
     self.minimisation_step = None
     self.yield_splines_value = None
     self.yield_splines = None
+    self.hessian = None
+    self.D_matrix = None
+    self.covariance = None
 
   def _ConstraintGaussian(self, x, derivative=0):
     """
@@ -348,10 +351,6 @@ class Likelihood():
 
   def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
 
-    #if len(X) > 0:
-    #  print(np.min(X,axis=0))
-    #  print(np.max(X,axis=0))
-
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
       get_log_prob_gradients = [0,1,2]
@@ -458,8 +457,8 @@ class Likelihood():
       H1_grad_1_col_1 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_1)
     if 2 in get_log_prob_gradients:
       H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2)
-      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_2)
-    
+      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2)
+
     # Calculate and weight sum loop terms
     ln_lkld = []
     for grad in gradient:
@@ -471,20 +470,16 @@ class Likelihood():
         #ln_lklds = ((1/np.exp(log_H1))*H1_grad_1_col_1)
         ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_1_col_1)
       elif grad == 2:
-        ln_lklds = (np.exp(-log_H1)*H1_grad_2) - (np.exp(-2*log_H1)*H1_grad_1_col_1*H1_grad_1_col_2)
-        #ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_2) - self._HelperLogMultiplyTrick(-2*log_H1, H1_grad_1_col_1*H1_grad_1_col_2)
+        #ln_lklds = (np.exp(-log_H1)*H1_grad_2) - (np.exp(-2*log_H1)*H1_grad_1_col_1*H1_grad_1_col_2)
+        ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_2) - self._HelperLogMultiplyTrick(-2*log_H1, H1_grad_1_col_1*H1_grad_1_col_2)
 
       if before_sum:
-
         # Append full array
         ln_lkld.append(copy.deepcopy(ln_lklds))
-
       else:
-
         # Weight the events
         if wt_name is not None:
           ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
-
         # Product the events
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
@@ -922,6 +917,28 @@ class Likelihood():
 
     return result
 
+  def GetCovariance(self):
+
+    hessian = np.array(self.hessian)
+    inverse_hessian = np.linalg.inv(hessian)
+
+    if self.D_matrix is None:
+      covariance = inverse_hessian.tolist()
+    else:
+      covariance = (inverse_hessian @ self.D_matrix @ inverse_hessian).tolist()
+
+    return covariance
+
+
+  def GetCovarianceIntervals(self, covariance, column):
+
+    col_index = self.Y_columns.index(column)
+    best_fit_col = self.best_fit[col_index]
+    uncertainty = np.sqrt(covariance[col_index][col_index])
+    m1p1_vals = {-1: uncertainty, 1: uncertainty}
+    return m1p1_vals
+
+
   def GetDMatrix(self, X_dps, scan_over):
 
     if self.type in ["unbinned","unbinned_extended"]:
@@ -985,7 +1002,7 @@ class Likelihood():
     return m1p1_vals
 
 
-  def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1):
+  def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1, method="approximate"):
     """
     Computes the scan values for a given column.
 
@@ -1003,7 +1020,11 @@ class Likelihood():
     """
 
     col_index = self.Y_columns.index(column)
-    m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
+    if method == "approximate":
+      m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
+      print(m1p1_vals)
+    elif method == "hessian":
+      m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column)
 
     if self.verbose:
       print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
@@ -1154,20 +1175,14 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteCovarianceToYaml(self, hessian, row=None, scan_over=None, D_matrix=None, filename="covariance.yaml"):
+  def GetAndWriteCovarianceToYaml(self, row=None, scan_over=None, filename="covariance.yaml"):
 
-    hessian = np.array(hessian)
-    inverse_hessian = np.linalg.inv(hessian)
-
-    if D_matrix is None:
-      covariance = inverse_hessian.tolist()
-    else:
-      covariance = (inverse_hessian @ D_matrix @ inverse_hessian).tolist()
-
+    self.covariance = self.GetCovariance()
+    
     dump = {
       "columns": self.Y_columns, 
       "matrix_columns" : scan_over, 
-      "covariance" : covariance,
+      "covariance" : self.covariance,
       "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
       "best_fit": [float(i) for i in self.best_fit], 
     }
@@ -1177,6 +1192,31 @@ class Likelihood():
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
+
+
+  def GetAndWriteCovarianceIntervalsToYaml(self, col, row=None, scan_over=None, filename="covariance_results.yaml"):
+    
+    m1p1_vals = self.GetCovarianceIntervals(self.covariance, col)
+    col_index = self.Y_columns.index(col)
+    best_fit_col = self.best_fit[col_index]
+    dump = {
+      "columns": self.Y_columns, 
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+      "varied_column" : col,
+      "crossings" : {
+        -2 : float(best_fit_col-2*m1p1_vals[-1]),
+        -1 : float(best_fit_col-m1p1_vals[-1]),
+        0 : float(best_fit_col),
+        1 : float(best_fit_col+m1p1_vals[1]),
+        2 : float(best_fit_col+2*m1p1_vals[1]),
+      }
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+        yaml.dump(dump, yaml_file, default_flow_style=False)
 
   def GetAndWriteDMatrixToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="dmatrix.yaml"):
     """
@@ -1255,7 +1295,7 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
-  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4):
+  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate"):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -1266,7 +1306,9 @@ class Likelihood():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "scan_ranges.yaml").
     """
-    scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step)
+
+    scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method)
+
     dump = {
       "columns" : self.Y_columns, 
       "varied_column" : col,

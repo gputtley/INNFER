@@ -32,7 +32,7 @@ def CamelToSnake(name):
 def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind):
   common_config = {
     "true_Y" : val_info["row"],
-    "initial_best_fit_guess" : val_info["initial_best_fit_guess"],
+    "initial_best_fit_guess" : val_info["initial_best_fit_guess"] if args.initial_best_fit_guess is None or len(args.initial_best_fit_guess.split(",")) != len(val_info["initial_best_fit_guess"].columns) else pd.DataFrame([[float(i) for i in args.initial_best_fit_guess.split(",")]], columns=list(val_info["initial_best_fit_guess"].columns)),  
     "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
     "model" : val_loop_info["models"][file_name],
     "architecture" : val_loop_info["architectures"][file_name],
@@ -475,6 +475,18 @@ def GetNuisanceLoop(cfg, parameters):
       })
 
   return nuisance_loop
+
+def GetParameterLoop(val_info, cfg, args):
+
+  par_loop = []
+  for i in val_info["initial_best_fit_guess"].columns:
+    cor_par = cfg["pois"]
+    if args.loop_over_rates:
+      cor_par += ["mu_"+rp for rp in cfg["inference"]["rate_parameters"]]
+    if args.loop_over_nuisances:
+      cor_par += cfg["nuisances"]
+  return [i for i in val_info["initial_best_fit_guess"].columns if i in cor_par]
+
 
 def GetPOILoop(cfg, parameters):
   """

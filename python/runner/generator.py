@@ -39,6 +39,7 @@ class Generator():
     self.other_input_files = []
     self.other_output_files = []
     self.data_file = None
+    self.asimov_file = None
 
   def Configure(self, options):
     """
