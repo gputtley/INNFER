@@ -1,0 +1,299 @@
+name: BTM_070125_2D_JEC
+files:
+  other: 
+    inputs:
+      - data/top_mc_v2/st_2016_elec.root
+      - data/top_mc_v2/st_2017_elec.root
+      - data/top_mc_v2/st_2018_elec.root
+      - data/top_mc_v2/st_2016_muon.root
+      - data/top_mc_v2/st_2017_muon.root
+      - data/top_mc_v2/st_2018_muon.root
+      - data/top_mc_v2/wjets_2016_elec.root
+      - data/top_mc_v2/wjets_2017_elec.root
+      - data/top_mc_v2/wjets_2018_elec.root
+      - data/top_mc_v2/wjets_2016_muon.root
+      - data/top_mc_v2/wjets_2017_muon.root
+      - data/top_mc_v2/wjets_2018_muon.root
+    tree_name: AnalysisTree
+    selection: "((passed_massmigration_rec==0) & (passed_btagmigration_rec==0) & (passed_leptonptmigration_rec==0) & (passed_ptmigration_rec==0) & (passed_subptmigration_rec==0) & (passed_measurement_rec==1))"
+    weight: "gen_weight*rec_weight"
+    scale: 1.0
+    pre_calculate_shifts:
+      training:
+        jec:
+          type: discrete
+          values: [-2.0,-1.0,0.0,1.0,2.0]
+          off_axis_with: "all"
+      validation:
+        jec:
+          type: discrete
+          values: [-1.0,0.0,1.0]
+          off_axis_with: ~
+    post_calculate_selection: "((sub1_pt_rec>30) & (sub2_pt_rec>30) & (sub3_pt_rec>30) & (sub123_pt_rec>400))"
+    pre_calculate:
+      sub1_px_rec_cor: "sub1_px_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_px_rec_cor: "sub2_px_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_px_rec_cor: "sub3_px_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_py_rec_cor: "sub1_py_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_py_rec_cor: "sub2_py_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_py_rec_cor: "sub3_py_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_pz_rec_cor: "sub1_pz_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_pz_rec_cor: "sub2_pz_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_pz_rec_cor: "sub3_pz_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_E_rec_cor: "sub1_E_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_E_rec_cor: "sub2_E_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_E_rec_cor: "sub3_E_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub123_E_rec: "sub1_E_rec_cor + sub2_E_rec_cor + sub3_E_rec_cor"
+      sub123_px_rec: "sub1_px_rec_cor + sub2_px_rec_cor + sub3_px_rec_cor"
+      sub123_py_rec: "sub1_py_rec_cor + sub2_py_rec_cor + sub3_py_rec_cor"
+      sub123_pz_rec: "sub1_pz_rec_cor + sub2_pz_rec_cor + sub3_pz_rec_cor"
+      b_px_rec: "((index_b==1)*(sub1_px_rec_cor)) + ((index_b==2)*(sub2_px_rec_cor)) + ((index_b==3)*(sub3_px_rec_cor))"
+      b_py_rec: "((index_b==1)*(sub1_py_rec_cor)) + ((index_b==2)*(sub2_py_rec_cor)) + ((index_b==3)*(sub3_py_rec_cor))"
+      b_pz_rec: "((index_b==1)*(sub1_pz_rec_cor)) + ((index_b==2)*(sub2_pz_rec_cor)) + ((index_b==3)*(sub3_pz_rec_cor))"
+      b_E_rec: "((index_b==1)*(sub1_E_rec_cor)) + ((index_b==2)*(sub2_E_rec_cor)) + ((index_b==3)*(sub3_E_rec_cor))"
+      w1_px_rec: "((index_b==1)*(sub2_px_rec_cor)) + ((index_b==2)*(sub1_px_rec_cor)) + ((index_b==3)*(sub1_px_rec_cor))"
+      w1_py_rec: "((index_b==1)*(sub2_py_rec_cor)) + ((index_b==2)*(sub1_py_rec_cor)) + ((index_b==3)*(sub1_py_rec_cor))"
+      w1_pz_rec: "((index_b==1)*(sub2_pz_rec_cor)) + ((index_b==2)*(sub1_pz_rec_cor)) + ((index_b==3)*(sub1_pz_rec_cor))"
+      w1_E_rec: "((index_b==1)*(sub2_E_rec_cor)) + ((index_b==2)*(sub1_E_rec_cor)) + ((index_b==3)*(sub1_E_rec_cor))"
+      w2_px_rec: "((index_b==1)*(sub3_px_rec_cor)) + ((index_b==2)*(sub3_px_rec_cor)) + ((index_b==3)*(sub2_px_rec_cor))"
+      w2_py_rec: "((index_b==1)*(sub3_py_rec_cor)) + ((index_b==2)*(sub3_py_rec_cor)) + ((index_b==3)*(sub2_py_rec_cor))"
+      w2_pz_rec: "((index_b==1)*(sub3_pz_rec_cor)) + ((index_b==2)*(sub3_pz_rec_cor)) + ((index_b==3)*(sub2_pz_rec_cor))"
+      w2_E_rec: "((index_b==1)*(sub3_E_rec_cor)) + ((index_b==2)*(sub3_E_rec_cor)) + ((index_b==3)*(sub2_E_rec_cor))"
+      w_px_rec: "w1_px_rec + w2_px_rec"
+      w_py_rec: "w1_py_rec + w2_py_rec"
+      w_pz_rec: "w1_pz_rec + w2_pz_rec"
+      w_E_rec: "w1_E_rec + w2_E_rec"
+      sub1_pt_rec: "(sub1_px_rec_cor**2 + sub1_py_rec_cor**2)**0.5"
+      sub2_pt_rec: "(sub2_px_rec_cor**2 + sub2_py_rec_cor**2)**0.5"
+      sub3_pt_rec: "(sub3_px_rec_cor**2 + sub3_py_rec_cor**2)**0.5"
+      sub123_pt_rec: "(sub123_px_rec**2 + sub123_py_rec**2)**0.5"
+      sub123_mass_rec: "(sub123_E_rec**2 - sub123_px_rec**2 - sub123_py_rec**2 - sub123_pz_rec**2)**0.5"
+      w_mass_rec: "(w_E_rec**2 - w_px_rec**2 - w_py_rec**2 - w_pz_rec**2)**0.5"
+      b_pt_rec: "(b_px_rec**2 + b_py_rec**2)**0.5"
+      w_pt_rec: "(w_px_rec**2 + w_py_rec**2)**0.5"
+  ttbar: 
+    inputs:
+      - data/top_mc_v2/ttbar_1665_2016_elec.root # 166.5
+      - data/top_mc_v2/ttbar_1665_2017_elec.root
+      - data/top_mc_v2/ttbar_1665_2018_elec.root
+      - data/top_mc_v2/ttbar_1665_2016_muon.root
+      - data/top_mc_v2/ttbar_1665_2017_muon.root
+      - data/top_mc_v2/ttbar_1665_2018_muon.root
+      - data/top_mc_v2/ttbar_1695_2016_elec.root # 169.5
+      - data/top_mc_v2/ttbar_1695_2017_elec.root
+      - data/top_mc_v2/ttbar_1695_2018_elec.root
+      - data/top_mc_v2/ttbar_1695_2016_muon.root
+      - data/top_mc_v2/ttbar_1695_2017_muon.root
+      - data/top_mc_v2/ttbar_1695_2018_muon.root
+      - data/top_mc_v2/ttbar_1715_2016_elec.root # 171.5
+      - data/top_mc_v2/ttbar_1715_2017_elec.root
+      - data/top_mc_v2/ttbar_1715_2018_elec.root
+      - data/top_mc_v2/ttbar_1715_2016_muon.root
+      - data/top_mc_v2/ttbar_1715_2017_muon.root
+      - data/top_mc_v2/ttbar_1715_2018_muon.root
+      - data/top_mc_v2/ttbar_2016_elec.root # 172.5
+      - data/top_mc_v2/ttbar_2017_elec.root
+      - data/top_mc_v2/ttbar_2018_elec.root
+      - data/top_mc_v2/ttbar_2016_muon.root
+      - data/top_mc_v2/ttbar_2017_muon.root
+      - data/top_mc_v2/ttbar_2018_muon.root
+      - data/top_mc_v2/ttbar_1735_2016_elec.root # 173.5
+      - data/top_mc_v2/ttbar_1735_2017_elec.root
+      - data/top_mc_v2/ttbar_1735_2018_elec.root
+      - data/top_mc_v2/ttbar_1735_2016_muon.root
+      - data/top_mc_v2/ttbar_1735_2017_muon.root
+      - data/top_mc_v2/ttbar_1735_2018_muon.root
+      - data/top_mc_v2/ttbar_1755_2016_elec.root # 175.5
+      - data/top_mc_v2/ttbar_1755_2017_elec.root
+      - data/top_mc_v2/ttbar_1755_2018_elec.root
+      - data/top_mc_v2/ttbar_1755_2016_muon.root
+      - data/top_mc_v2/ttbar_1755_2017_muon.root
+      - data/top_mc_v2/ttbar_1755_2018_muon.root
+      - data/top_mc_v2/ttbar_1785_2016_elec.root # 178.5
+      - data/top_mc_v2/ttbar_1785_2017_elec.root
+      - data/top_mc_v2/ttbar_1785_2018_elec.root
+      - data/top_mc_v2/ttbar_1785_2016_muon.root
+      - data/top_mc_v2/ttbar_1785_2017_muon.root
+      - data/top_mc_v2/ttbar_1785_2018_muon.root
+    add_columns:
+      mass: 
+        - 166.5 # 166.5
+        - 166.5
+        - 166.5
+        - 166.5
+        - 166.5
+        - 166.5
+        - 169.5 # 169.5
+        - 169.5
+        - 169.5
+        - 169.5
+        - 169.5
+        - 169.5
+        - 171.5 # 171.5
+        - 171.5
+        - 171.5
+        - 171.5
+        - 171.5
+        - 171.5
+        - 172.5 # 172.5
+        - 172.5
+        - 172.5
+        - 172.5
+        - 172.5
+        - 172.5
+        - 173.5 # 173.5
+        - 173.5
+        - 173.5
+        - 173.5
+        - 173.5
+        - 173.5
+        - 175.5 # 175.5
+        - 175.5
+        - 175.5
+        - 175.5
+        - 175.5
+        - 175.5
+        - 178.5 # 178.5
+        - 178.5
+        - 178.5
+        - 178.5
+        - 178.5
+        - 178.5
+    tree_name: AnalysisTree
+    selection: "((passed_massmigration_rec==0) & (passed_btagmigration_rec==0) & (passed_leptonptmigration_rec==0) & (passed_ptmigration_rec==0) & (passed_subptmigration_rec==0) & (passed_measurement_rec==1))"
+    weight: "gen_weight*rec_weight"
+    scale:
+      - 1.1547793589085706 # 166.5
+      - 1.1547793589085706
+      - 1.1547793589085706
+      - 1.1547793589085706
+      - 1.1547793589085706
+      - 1.1547793589085706
+      - 1.0790041042059568 # 169.5
+      - 1.0790041042059568
+      - 1.0790041042059568
+      - 1.0790041042059568
+      - 1.0790041042059568
+      - 1.0790041042059568
+      - 1.0249377622024929 # 171.5
+      - 1.0249377622024929
+      - 1.0249377622024929
+      - 1.0249377622024929
+      - 1.0249377622024929
+      - 1.0249377622024929
+      - 1.0 # 172.5
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 0.981768355047654 # 173.5
+      - 0.981768355047654
+      - 0.981768355047654
+      - 0.981768355047654
+      - 0.981768355047654
+      - 0.981768355047654
+      - 0.9466980132717627 # 175.5
+      - 0.9466980132717627
+      - 0.9466980132717627
+      - 0.9466980132717627
+      - 0.9466980132717627
+      - 0.9466980132717627
+      - 0.7691640543498941 # 178.5
+      - 0.7691640543498941
+      - 0.7691640543498941
+      - 0.7691640543498941
+      - 0.7691640543498941
+      - 0.7691640543498941
+    pre_calculate_shifts:
+      training:
+        jec:
+          type: discrete
+          values: [-2.0,-1.0,0.0,1.0,2.0]
+          off_axis_with: "all"
+      validation:
+        jec:
+          type: discrete
+          values: [-1.0,0.0,1.0]
+          off_axis_with: ~
+    post_calculate_selection: "((sub1_pt_rec>30) & (sub2_pt_rec>30) & (sub3_pt_rec>30) & (sub123_pt_rec>400))"
+    pre_calculate:
+      sub1_px_rec_cor: "sub1_px_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_px_rec_cor: "sub2_px_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_px_rec_cor: "sub3_px_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_py_rec_cor: "sub1_py_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_py_rec_cor: "sub2_py_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_py_rec_cor: "sub3_py_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_pz_rec_cor: "sub1_pz_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_pz_rec_cor: "sub2_pz_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_pz_rec_cor: "sub3_pz_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub1_E_rec_cor: "sub1_E_rec*(sub1_factor_cor+(jec*sub1_sigma_jec))"
+      sub2_E_rec_cor: "sub2_E_rec*(sub2_factor_cor+(jec*sub2_sigma_jec))"
+      sub3_E_rec_cor: "sub3_E_rec*(sub3_factor_cor+(jec*sub3_sigma_jec))"
+      sub123_E_rec: "sub1_E_rec_cor + sub2_E_rec_cor + sub3_E_rec_cor"
+      sub123_px_rec: "sub1_px_rec_cor + sub2_px_rec_cor + sub3_px_rec_cor"
+      sub123_py_rec: "sub1_py_rec_cor + sub2_py_rec_cor + sub3_py_rec_cor"
+      sub123_pz_rec: "sub1_pz_rec_cor + sub2_pz_rec_cor + sub3_pz_rec_cor"
+      b_px_rec: "((index_b==1)*(sub1_px_rec_cor)) + ((index_b==2)*(sub2_px_rec_cor)) + ((index_b==3)*(sub3_px_rec_cor))"
+      b_py_rec: "((index_b==1)*(sub1_py_rec_cor)) + ((index_b==2)*(sub2_py_rec_cor)) + ((index_b==3)*(sub3_py_rec_cor))"
+      b_pz_rec: "((index_b==1)*(sub1_pz_rec_cor)) + ((index_b==2)*(sub2_pz_rec_cor)) + ((index_b==3)*(sub3_pz_rec_cor))"
+      b_E_rec: "((index_b==1)*(sub1_E_rec_cor)) + ((index_b==2)*(sub2_E_rec_cor)) + ((index_b==3)*(sub3_E_rec_cor))"
+      w1_px_rec: "((index_b==1)*(sub2_px_rec_cor)) + ((index_b==2)*(sub1_px_rec_cor)) + ((index_b==3)*(sub1_px_rec_cor))"
+      w1_py_rec: "((index_b==1)*(sub2_py_rec_cor)) + ((index_b==2)*(sub1_py_rec_cor)) + ((index_b==3)*(sub1_py_rec_cor))"
+      w1_pz_rec: "((index_b==1)*(sub2_pz_rec_cor)) + ((index_b==2)*(sub1_pz_rec_cor)) + ((index_b==3)*(sub1_pz_rec_cor))"
+      w1_E_rec: "((index_b==1)*(sub2_E_rec_cor)) + ((index_b==2)*(sub1_E_rec_cor)) + ((index_b==3)*(sub1_E_rec_cor))"
+      w2_px_rec: "((index_b==1)*(sub3_px_rec_cor)) + ((index_b==2)*(sub3_px_rec_cor)) + ((index_b==3)*(sub2_px_rec_cor))"
+      w2_py_rec: "((index_b==1)*(sub3_py_rec_cor)) + ((index_b==2)*(sub3_py_rec_cor)) + ((index_b==3)*(sub2_py_rec_cor))"
+      w2_pz_rec: "((index_b==1)*(sub3_pz_rec_cor)) + ((index_b==2)*(sub3_pz_rec_cor)) + ((index_b==3)*(sub2_pz_rec_cor))"
+      w2_E_rec: "((index_b==1)*(sub3_E_rec_cor)) + ((index_b==2)*(sub3_E_rec_cor)) + ((index_b==3)*(sub2_E_rec_cor))"
+      w_px_rec: "w1_px_rec + w2_px_rec"
+      w_py_rec: "w1_py_rec + w2_py_rec"
+      w_pz_rec: "w1_pz_rec + w2_pz_rec"
+      w_E_rec: "w1_E_rec + w2_E_rec"
+      sub1_pt_rec: "(sub1_px_rec_cor**2 + sub1_py_rec_cor**2)**0.5"
+      sub2_pt_rec: "(sub2_px_rec_cor**2 + sub2_py_rec_cor**2)**0.5"
+      sub3_pt_rec: "(sub3_px_rec_cor**2 + sub3_py_rec_cor**2)**0.5"
+      sub123_pt_rec: "(sub123_px_rec**2 + sub123_py_rec**2)**0.5"
+      sub123_mass_rec: "(sub123_E_rec**2 - sub123_px_rec**2 - sub123_py_rec**2 - sub123_pz_rec**2)**0.5"
+      w_mass_rec: "(w_E_rec**2 - w_px_rec**2 - w_py_rec**2 - w_pz_rec**2)**0.5"
+      b_pt_rec: "(b_px_rec**2 + b_py_rec**2)**0.5"
+      w_pt_rec: "(w_px_rec**2 + w_py_rec**2)**0.5"
+variables:
+  - sub123_mass_rec
+  - sub123_pt_rec
+pois:
+  - mass
+nuisances:
+  - jec
+preprocess:
+  save_extra_columns:
+    - mass_had_top
+  train_test_val_split: 0.8:0.1:0.1
+  train_test_y_vals:
+    mass:
+    - 166.5
+    - 169.5
+    - 171.5
+    - 172.5
+    - 173.5
+    - 175.5
+    - 178.5
+  validation_y_vals:
+    mass:
+    - 171.5
+    - 172.5
+    - 173.5
+    jec:
+    - -1.0
+    - 0.0
+    - 1.0
+inference:
+  nuisance_constraints:
+    jec: Gaussian
+  rate_parameters:
+  - ttbar
+validation:
+  rate_parameter_vals:
+    ttbar:
+    - 1.0
+data_file: ~
