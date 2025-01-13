@@ -6,6 +6,7 @@ import pandas as pd
 
 from functools import partial
 
+from histogram_metrics import HistogramMetrics
 from useful_functions import MakeDirectories, GetYName, SplitValidationParameters
 
 class PerformanceMetrics():
@@ -25,14 +26,27 @@ class PerformanceMetrics():
   
     self.data_output = "data/"
     self.verbose = True
+
     self.do_loss = True
-    self.do_chi_squared = False
-    self.do_bdt_separation = False
+    self.loss_datasets = ["train","test","test_inf","val"]
+
+    self.do_histogram_metrics = True
+    self.do_chi_squared = True
+    self.do_kl_divergence = True
+    self.do_binned_wasserstein = True
+    self.histogram_datasets = ["train","test","test_inf","val"]
+
+    self.do_multidimensional_dataset_metrics = True
+    self.do_bdt_separation = True
+    self.multidimensional_datasets = ["train","test","test_inf","val"]
+
     self.do_inference = True
     self.inference_datasets = ["test_inf","val"]
+
     self.test_name = "test"
     self.save_extra_name = ""
     self.split_validation_files = False
+
 
   def Configure(self, options):
     """
@@ -52,7 +66,7 @@ class PerformanceMetrics():
     if self.verbose:
       print("- Loading in the parameters")
     with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      self.open_parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     # Load the architecture in
     if self.verbose:
@@ -64,17 +78,17 @@ class PerformanceMetrics():
     if self.verbose:
       print("- Building the model")
     from network import Network
-    network = Network(
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
+    self.network = Network(
+      f"{self.open_parameters['file_loc']}/X_train.parquet",
+      f"{self.open_parameters['file_loc']}/Y_train.parquet", 
+      f"{self.open_parameters['file_loc']}/wt_train.parquet", 
+      f"{self.open_parameters['file_loc']}/X_{self.test_name}.parquet",
+      f"{self.open_parameters['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{self.open_parameters['file_loc']}/wt_{self.test_name}.parquet",
       options = {
         **architecture,
         **{
-          "data_parameters" : parameters
+          "data_parameters" : self.open_parameters
         }
       }
     )  
@@ -82,163 +96,33 @@ class PerformanceMetrics():
     # Loading model
     if self.verbose:
       print("- Loading the model")
-    network.Load(name=self.model)
+    self.network.Load(name=self.model)
 
     # Set up metrics dictionary
-    metrics = {} 
+    self.metrics = {} 
 
     # Get the loss values
     if self.do_loss:
       if self.verbose:
         print("- Getting the losses")
-      metrics["loss_train"] = network.GetLoss(dataset="train")
-      metrics["loss_test"] = network.GetLoss(dataset="test")
-      if self.verbose:
-        print(f"  - Train loss: {metrics['loss_train']}")
-        print(f"  - Test loss: {metrics['loss_test']}")
+      self.DoLoss()
 
-    # Get BDT separation metric
-    if self.do_bdt_separation:
-      if self.verbose:
-        print("- Getting BDT separation")
-      metrics["bdt_separation_train"] = network.GetAUC(dataset="train")
-      metrics["bdt_separation_test"] = network.GetAUC(dataset="test")
-
-
-    # Get histogram metrics to run
-    histogram_metrics = []
-    if self.do_chi_squared:
-      histogram_metrics.append("chi_squared")
-
-    if len(histogram_metrics):
+    # Get histogram metrics
+    if self.do_histogram_metrics:
       if self.verbose:
         print("- Getting histogram metrics")
-      hist_metrics = network.GetHistogramMetric(metric=histogram_metrics)
+      self.DoHistogramMetrics()
 
-      # Add hist_metric sums
-      summed_hist_metrics = {}
-      for metric_name, metric_results in hist_metrics.items():
-        summed_hist_metrics[metric_name] = {"total":0.0}
-        for k1, v1 in metric_results.items():
-          for k2, v2 in v1.items():
-            summed_hist_metrics[metric_name]["total"] += v2
-            k1_sum_name = f"{k1}_sum"
-            k2_sum_name = f"{k2}_sum"
-            if k1_sum_name not in summed_hist_metrics[metric_name].keys():
-              summed_hist_metrics[metric_name][k1_sum_name] = v2*1.0
-            else:
-              summed_hist_metrics[metric_name][k1_sum_name] += v2
-            if k2_sum_name not in summed_hist_metrics[metric_name].keys():
-              summed_hist_metrics[metric_name][k2_sum_name] = v2*1.0
-            else:
-              summed_hist_metrics[metric_name][k2_sum_name] += v2
-        hist_metrics[metric_name] = {**hist_metrics[metric_name], **summed_hist_metrics[metric_name]}
+    # Get multidimensional dataset metrics
+    if self.do_multidimensional_dataset_metrics:
+      if self.verbose:
+        print("- Getting multidimensional dataset metrics")
+      self.DoMultidimensionalDatasetMetrics()
 
-      metrics = {**metrics, **hist_metrics}
-
-    if self.do_inference and len(parameters["Y_columns"]) > 0:
-
+    if self.do_inference and len(self.open_parameters["Y_columns"]) > 0:
       if self.verbose:
         print("- Getting chi squared from quick inference")
-
-
-      for inf_test_name in self.inference_datasets:
-      
-        # Build yields
-        from yields import Yields
-        eff_events_class = Yields(
-          pd.read_parquet(parameters['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          parameters["file_name"],
-          method="default", 
-          column_name=f"effective_events_{inf_test_name}"
-        )
-
-        # Build likelihood
-        from likelihood import Likelihood
-        lkld = Likelihood(
-          {
-            "pdfs" : {parameters["file_name"] : network},
-          },
-          likelihood_type = "unbinned", 
-          data_parameters = {parameters["file_name"] : parameters},
-        )
-
-        # Loop through validation values
-        orig_parameters = copy.deepcopy(parameters)
-        inf_chi_squared = {}
-        inf_dist = {}
-        for loop_ind, loop in enumerate(self.val_loop):
-
-          if self.split_validation_files:
-            cfg = {"files" : {parameters["file_name"] : None}, "name" : self.cfg_name}
-            parameters_file_name = SplitValidationParameters(loop, parameters["file_name"], loop_ind, cfg)
-            with open(parameters_file_name, 'r') as yaml_file:
-              parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-          if self.verbose:
-            print(f"- Running unbinned likelihood fit for the {inf_test_name} dataset and Y:")
-            print(loop["row"])
-
-          # Build test data loader
-          from data_processor import DataProcessor
-          dps = DataProcessor(
-            [[f"{parameters['file_loc']}/X_{inf_test_name}.parquet", f"{parameters['file_loc']}/Y_{inf_test_name}.parquet", f"{parameters['file_loc']}/wt_{inf_test_name}.parquet"]],
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "parameters" : parameters,
-              "selection" : " & ".join([f"({col}=={loop['row'].loc[:,col].iloc[0]})" for col in loop['row'].columns]),
-              "scale" : eff_events_class.GetYield(loop["row"]),
-              "functions" : ["untransform"]
-            }
-          )
-
-          # Skip if empty
-          if dps.GetFull(method="count") == 0: continue
-
-          # Do initial fit
-          lkld.GetBestFit([dps], loop["initial_best_fit_guess"])
-
-          # Get uncertainty
-          y_name = GetYName(loop['row'], purpose="file")
-          inf_chi_squared[y_name] = {}
-          inf_dist[y_name] = {}
-          for col in loop['row'].columns:
-            if self.verbose:
-              print(f"- Finding uncertainty estimates for {col}")
-            uncert = lkld.GetApproximateUncertainty([dps], col)
-            col_index = list(loop['row'].columns).index(col)
-            true_value = float(loop['row'].loc[0,col])
-            if true_value > lkld.best_fit[col_index]:
-              inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
-            else:
-              inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
-            inf_dist[y_name][col] = abs(float(true_value - lkld.best_fit[col_index]))
-
-        # Reset parameters
-        parameters = copy.deepcopy(orig_parameters)
-
-        # Get chi squared values
-        total_sum = 0.0
-        total_count = 0.0
-        for val_name, val_dict in inf_chi_squared.items():
-          total_sum += np.sum(list(val_dict.values()))
-          total_count += len(list(val_dict.values()))
-          inf_chi_squared[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
-        inf_chi_squared["all"] = float(total_sum/total_count)
-        metrics[f"inference_chi_squared_{inf_test_name}"] = inf_chi_squared
-
-        # Get distance values
-        total_sum = 0.0
-        total_count = 0.0
-        for val_name, val_dict in inf_dist.items():
-          total_sum += np.sum(list(val_dict.values()))
-          total_count += len(list(val_dict.values()))
-          inf_dist[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
-        inf_dist["all"] = float(total_sum/total_count)
-        metrics[f"inference_distance_{inf_test_name}"] = inf_dist
+      self.DoInference()
 
     # Write to yaml
     if self.verbose:
@@ -246,22 +130,172 @@ class PerformanceMetrics():
     output_name = f"{self.data_output}/metrics{self.save_extra_name}.yaml"
     MakeDirectories(output_name)
     with open(output_name, 'w') as yaml_file:
-      yaml.dump(metrics, yaml_file, default_flow_style=False) 
+      yaml.dump(self.metrics, yaml_file, default_flow_style=False) 
 
     # Print metrics
-    for metric in sorted(list(metrics.keys())):
-      if not isinstance(metrics[metric], dict):
-        print(f"{metric} : {metrics[metric]}")
+    for metric in sorted(list(self.metrics.keys())):
+      if not isinstance(self.metrics[metric], dict):
+        print(f"{metric} : {self.metrics[metric]}")
       else:
         print(f"{metric} :")
-        for k1 in sorted(list(metrics[metric].keys())):
-          if not isinstance(metrics[metric][k1], dict):
-            print(f"  {k1} : {metrics[metric][k1]}")
+        for k1 in sorted(list(self.metrics[metric].keys())):
+          if not isinstance(self.metrics[metric][k1], dict):
+            print(f"  {k1} : {self.metrics[metric][k1]}")
           else:
             print(f"  {k1} :")
-            for k2 in sorted(list(metrics[metric][k1].keys())):
-              print(f"    {k2} : {metrics[metric][k1][k2]}")          
+            for k2 in sorted(list(self.metrics[metric][k1].keys())):
+              print(f"    {k2} : {self.metrics[metric][k1][k2]}")          
 
+  def DoLoss(self):
+
+    # Get loss values
+    for data_type in self.loss_datasets:
+      if self.verbose:
+        print(f"  - Getting loss for {data_type}")
+      self.metrics[f"loss_{data_type}"] = self.network.Loss(
+        f"{self.open_parameters['file_loc']}/X_{data_type}.parquet", 
+        f"{self.open_parameters['file_loc']}/Y_{data_type}.parquet", 
+        f"{self.open_parameters['file_loc']}/wt_{data_type}.parquet"
+      )
+
+  def DoHistogramMetrics(self):
+
+    # Initialise histogram metrics
+    hm = HistogramMetrics(
+      self.network,
+      self.open_parameters,
+      {data_type:[f"{self.open_parameters['file_loc']}/X_{data_type}.parquet", f"{self.open_parameters['file_loc']}/Y_{data_type}.parquet", f"{self.open_parameters['file_loc']}/wt_{data_type}.parquet"] for data_type in self.histogram_datasets}
+    )
+
+    # Get chi squared values
+    if self.do_chi_squared:
+      if self.verbose:
+        print(" - Doing chi squared")
+      chi_squared, dof_for_chi_squared, chi_squared_per_dof = hm.GetChiSquared()
+      self.metrics = {**self.metrics, **chi_squared, **dof_for_chi_squared, **chi_squared_per_dof}
+
+    # Get KL divergence values
+    if self.do_kl_divergence:
+      if self.verbose:
+        print(" - Doing KL divergence")
+      kl_divergence = hm.GetKLDivergence()
+      self.metrics = {**self.metrics, **kl_divergence}
+
+    # Get binned Wasserstein values
+    if self.do_binned_wasserstein:
+      if self.verbose:
+        print(" - Doing binned Wasserstein")
+      wasserstein = hm.GetWasserstein()
+      self.metrics = {**self.metrics, **wasserstein}
+
+  def DoMultidimensionalDatasetMetrics(self):
+
+    # Get BDT separation metric
+    if self.do_bdt_separation:
+      if self.verbose:
+        print(" - Doing BDT separation")
+      self.metrics["bdt_separation_train"] = self.network.GetAUC(dataset="train")
+      self.metrics["bdt_separation_test"] = self.network.GetAUC(dataset="test")
+
+  def DoInference(self):
+
+    for inf_test_name in self.inference_datasets:
+    
+      # Build yields
+      from yields import Yields
+      eff_events_class = Yields(
+        pd.read_parquet(self.open_parameters['yield_loc']), 
+        self.pois, 
+        self.nuisances, 
+        self.open_parameters["file_name"],
+        method="default", 
+        column_name=f"effective_events_{inf_test_name}"
+      )
+
+      # Build likelihood
+      from likelihood import Likelihood
+      lkld = Likelihood(
+        {
+          "pdfs" : {self.open_parameters["file_name"] : self.network},
+        },
+        likelihood_type = "unbinned", 
+        data_parameters = {self.open_parameters["file_name"] : self.open_parameters},
+      )
+
+      # Loop through validation values
+      orig_parameters = copy.deepcopy(self.open_parameters)
+      inf_chi_squared = {}
+      inf_dist = {}
+      for loop_ind, loop in enumerate(self.val_loop):
+
+        if self.split_validation_files:
+          cfg = {"files" : {self.open_parameters["file_name"] : None}, "name" : self.cfg_name}
+          parameters_file_name = SplitValidationParameters(loop, self.open_parameters["file_name"], loop_ind, cfg)
+          with open(parameters_file_name, 'r') as yaml_file:
+            self.open_parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        if self.verbose:
+          print(f"  - Running unbinned likelihood fit for the {inf_test_name} dataset and Y:")
+          print(loop["row"])
+
+        # Build test data loader
+        from data_processor import DataProcessor
+        dps = DataProcessor(
+          [[f"{self.open_parameters['file_loc']}/X_{inf_test_name}.parquet", f"{self.open_parameters['file_loc']}/Y_{inf_test_name}.parquet", f"{self.open_parameters['file_loc']}/wt_{inf_test_name}.parquet"]],
+          "parquet",
+          wt_name = "wt",
+          options = {
+            "parameters" : self.open_parameters,
+            "selection" : " & ".join([f"({col}=={loop['row'].loc[:,col].iloc[0]})" for col in loop['row'].columns]),
+            "scale" : eff_events_class.GetYield(loop["row"]),
+            "functions" : ["untransform"]
+          }
+        )
+
+        # Skip if empty
+        if dps.GetFull(method="count") == 0: continue
+
+        # Do initial fit
+        lkld.GetBestFit([dps], loop["initial_best_fit_guess"])
+
+        # Get uncertainty
+        y_name = GetYName(loop['row'], purpose="file")
+        inf_chi_squared[y_name] = {}
+        inf_dist[y_name] = {}
+        for col in loop['row'].columns:
+          if self.verbose:
+            print(f"  - Finding uncertainty estimates for {col}")
+          uncert = lkld.GetApproximateUncertainty([dps], col)
+          col_index = list(loop['row'].columns).index(col)
+          true_value = float(loop['row'].loc[0,col])
+          if true_value > lkld.best_fit[col_index]:
+            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
+          else:
+            inf_chi_squared[y_name][col] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[-1]**2))
+          inf_dist[y_name][col] = abs(float(true_value - lkld.best_fit[col_index]))
+
+      # Reset parameters
+      self.open_parameters = copy.deepcopy(orig_parameters)
+
+      # Get chi squared values
+      total_sum = 0.0
+      total_count = 0.0
+      for val_name, val_dict in inf_chi_squared.items():
+        total_sum += np.sum(list(val_dict.values()))
+        total_count += len(list(val_dict.values()))
+        inf_chi_squared[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
+      inf_chi_squared["all"] = float(total_sum/total_count)
+      self.metrics[f"inference_chi_squared_{inf_test_name}"] = inf_chi_squared
+
+      # Get distance values
+      total_sum = 0.0
+      total_count = 0.0
+      for val_name, val_dict in inf_dist.items():
+        total_sum += np.sum(list(val_dict.values()))
+        total_count += len(list(val_dict.values()))
+        inf_dist[val_name]["all"] = float(np.sum(list(val_dict.values())))/len(list(val_dict.values()))
+      inf_dist["all"] = float(total_sum/total_count)
+      self.metrics[f"inference_distance_{inf_test_name}"] = inf_dist
 
   def Outputs(self):
     """
