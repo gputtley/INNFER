@@ -7,9 +7,10 @@ import pandas as pd
 from functools import partial
 
 from histogram_metrics import HistogramMetrics
+from multidim_metrics import MultiDimMetrics
 from useful_functions import MakeDirectories, GetYName, SplitValidationParameters
 
-class PerformanceMetrics():
+class DensityPerformanceMetrics():
 
   def __init__(self):
     """
@@ -26,19 +27,22 @@ class PerformanceMetrics():
   
     self.data_output = "data/"
     self.verbose = True
+    
+    self.do_latex_table = True
 
     self.do_loss = True
-    self.loss_datasets = ["train","test","test_inf","val"]
+    self.loss_datasets = ["test","test_inf","val"]
 
     self.do_histogram_metrics = True
     self.do_chi_squared = True
-    self.do_kl_divergence = True
-    self.do_binned_wasserstein = True
-    self.histogram_datasets = ["train","test","test_inf","val"]
+    self.do_kl_divergence = False
+    self.histogram_datasets = ["test","test_inf","val"]
 
     self.do_multidimensional_dataset_metrics = True
     self.do_bdt_separation = True
-    self.multidimensional_datasets = ["train","test","test_inf","val"]
+    self.do_wasserstein = True
+    self.do_sliced_wasserstein = True
+    self.multidimensional_datasets = ["test","test_inf","val"]
 
     self.do_inference = True
     self.inference_datasets = ["test_inf","val"]
@@ -117,7 +121,7 @@ class PerformanceMetrics():
     if self.do_multidimensional_dataset_metrics:
       if self.verbose:
         print("- Getting multidimensional dataset metrics")
-      self.DoMultidimensionalDatasetMetrics()
+      self.DoMultiDimensionalDatasetMetrics()
 
     if self.do_inference and len(self.open_parameters["Y_columns"]) > 0:
       if self.verbose:
@@ -181,21 +185,39 @@ class PerformanceMetrics():
       kl_divergence = hm.GetKLDivergence()
       self.metrics = {**self.metrics, **kl_divergence}
 
-    # Get binned Wasserstein values
-    if self.do_binned_wasserstein:
-      if self.verbose:
-        print(" - Doing binned Wasserstein")
-      wasserstein = hm.GetWasserstein()
-      self.metrics = {**self.metrics, **wasserstein}
 
-  def DoMultidimensionalDatasetMetrics(self):
+  def DoMultiDimensionalDatasetMetrics(self):
+
+    # Initialise multi metrics
+    mm = MultiDimMetrics(
+      self.network,
+      self.open_parameters,
+      {data_type:[f"{self.open_parameters['file_loc']}/X_{data_type}.parquet", f"{self.open_parameters['file_loc']}/Y_{data_type}.parquet", f"{self.open_parameters['file_loc']}/wt_{data_type}.parquet"] for data_type in self.multidimensional_datasets}
+    )
+    mm.verbose = self.verbose
 
     # Get BDT separation metric
     if self.do_bdt_separation:
       if self.verbose:
-        print(" - Doing BDT separation")
-      self.metrics["bdt_separation_train"] = self.network.GetAUC(dataset="train")
-      self.metrics["bdt_separation_test"] = self.network.GetAUC(dataset="test")
+        print(" - Adding BDT separation")
+      mm.AddBDTSeparation()
+    
+    # Get Wasserstein metric
+    if self.do_wasserstein:
+      if self.verbose:
+        print(" - Adding Wasserstein")
+      mm.AddWassersteinUnbinned()
+
+    # Get sliced Wasserstein metric
+    if self.do_sliced_wasserstein:
+      if self.verbose:
+        print(" - Adding sliced Wasserstein")
+      mm.AddWassersteinSliced()
+
+    # Run metrics
+    multidim_metrics = mm.Run()
+    self.metrics = {**self.metrics, **multidim_metrics}
+
 
   def DoInference(self):
 
@@ -297,32 +319,19 @@ class PerformanceMetrics():
       inf_dist["all"] = float(total_sum/total_count)
       self.metrics[f"inference_distance_{inf_test_name}"] = inf_dist
 
+
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    outputs = [
-      f"{self.data_output}/metrics{self.save_extra_name}.yaml"
-    ]
+    outputs = []
     return outputs
 
   def Inputs(self):
     """
     Return a list of inputs required by class
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    inputs = [
-      self.model,
-      self.architecture,
-      self.parameters,
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
-    ]
+    inputs = []
     return inputs
 
         

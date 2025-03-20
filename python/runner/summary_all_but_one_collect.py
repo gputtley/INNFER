@@ -9,6 +9,7 @@ class SummaryAllButOneCollect():
     A template class.
     """
     # Default values - these will be set by the configure function
+    self.file_name = None
     self.val_info = None
     self.summary_from = None
     self.val_ind = None
@@ -16,6 +17,7 @@ class SummaryAllButOneCollect():
     self.data_input = "data"
     self.data_output = "data"
     self.verbose = True
+    self.column_loop = []
 
   def Configure(self, options):
     """
@@ -30,8 +32,8 @@ class SummaryAllButOneCollect():
   def _get_files(self):
 
     files = []
-    for col in self.val_info['row'].columns:
-      file_loc = f"{self.data_input}_floating_only_{col}/{self.summary_from.lower()}_results_{col}_{self.val_ind}.yaml"
+    for col in self.column_loop:
+      file_loc = f"{self.data_input}_floating_only_{col}/{self.file_name}/{self.summary_from.lower()}_results_{col}_{self.val_ind}.yaml"
       files.append(file_loc)
 
     return files

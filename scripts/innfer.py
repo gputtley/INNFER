@@ -12,44 +12,55 @@ import pyfiglet as pyg
 from module import Module
 from useful_functions import (
     CommonInferConfigOptions,
+    GetBestFitFromYaml,
+    GetCombinedValdidationIndices,
     GetDictionaryEntryFromYaml,
-    GetFileLoop,
+    GetBaseFileLoop,
     GetFreezeLoop,
+    GetModelLoop,
+    GetModelFileLoop,
     GetParameterLoop,
     GetScanArchitectures,
-    GetValidateInfo,
+    GetValidationLoop,
+    LoadConfig,
     SetupSnakeMakeFile,
-    SplitValidationParameters
+    SkipNonDensity,
 )
 
 def parse_args():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--architecture', help='Config for running', type=str, default='configs/architecture/default.yaml')
+  parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--custom-module', help='Name of custom module', default=None)
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
+  parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
   parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='inference_chi_squared_test_inf:all,min')
+  parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
+  parser.add_argument('--include-per-model-rate', help='Include the rate parameters in the non-combined likelihood.', action='store_true')
   parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
+  parser.add_argument('--loop-over-lnN', help='Loop over log normal parameters as well as shape parameter', action='store_true')
   parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
-  parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as POIs', action='store_true')
+  parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as shape parameter', action='store_true')
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
-  parser.add_argument('--model-type', help='Name of model type', type=str, default='BayesFlow')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=10)
+  parser.add_argument('--number-of-toys', help='The number of toys for p-value dataset comparisons', type=int, default=100)
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
+  parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--overwrite-architecture', help='Comma separated list of key=values to overwrite architecture parameters', type=str, default='')
   parser.add_argument('--performance-metrics-no-histogram', help='Do not run the histogram performance metrics.', action='store_true')
@@ -60,9 +71,12 @@ def parse_args():
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
+  parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
+  parser.add_argument('--save-model-per-epoch', help='Save a model at each epoch', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
+  parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
@@ -77,6 +91,7 @@ def parse_args():
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
   parser.add_argument('--summary-subtract', help='Use subtraction instead of division in summary', action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
+  parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
   args = parser.parse_args()
@@ -86,12 +101,16 @@ def parse_args():
     raise ValueError("The --cfg or --benchmark is required.")
   if args.step is None:
     raise ValueError("The --step is required.")
+  if args.data_type != "sim" and args.scale_to_eff_events:
+    raise ValueError("The --scale-to-eff-events option is only valid for --data-type=sim.")
 
   # Adjust input paths
   if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
     args.cfg = f"configs/run/{args.cfg}"
-  if os.path.exists(f"configs/architecture/{args.architecture}"): # Change architecture path
-    args.architecture = f"configs/architecture/{args.architecture}"
+  if os.path.exists(f"configs/architecture/{args.density_architecture}"): # Change architecture path
+    args.density_architecture = f"configs/architecture/{args.density_architecture}"
+  if os.path.exists(f"configs/architecture/{args.regression_architecture}"): # Change architecture path
+    args.regression_architecture = f"configs/architecture/{args.regression_architecture}"
   if args.snakemake_cfg is not None:
     if os.path.exists(f"configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
       args.snakemake_cfg = f"configs/snakemake/{args.snakemake_cfg}"
@@ -102,25 +121,17 @@ def parse_args():
     if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
       args.benchmark = f"configs/run/{args.benchmark}"
   if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
-    if ".yaml" not in args.benchmark:
       args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
-    else:
-      args.cfg = f"configs/run/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}.yaml"
   if args.submit is not None:
     args.disable_tqdm = True
 
-  # Adjust other inputs
-  if args.model_type == "Benchmark":
-    if ".yaml" not in args.benchmark:
-      args.model_type = f"Benchmark_{args.benchmark}"
-    else:
-      with open(args.benchmark, 'r') as yaml_file:
-        cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      args.model_type = f"Benchmark_Dim1CfgToBenchmark_{cfg['name']}"
+  ## Adjust other inputs
+  #if args.density_model_type == "Benchmark":
+  #  args.density_model_type = f"Benchmark_{args.benchmark}"
 
   # Overwrite architecture
   if args.overwrite_architecture != "":
-    with open(args.architecture, 'r') as yaml_file:
+    with open(args.density_architecture, 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
     for key, value in {i.split("=")[0] : i.split("=")[1] for i in args.overwrite_architecture.split(",")}.items():
       if "." in value:
@@ -132,7 +143,7 @@ def parse_args():
     tmp_architecture_name = f"configs/architecture/tmp_architecture.yaml"
     with open(tmp_architecture_name, 'w') as yaml_file:
       yaml.dump(architecture, yaml_file)
-    args.architecture = tmp_architecture_name
+    args.density_architecture = tmp_architecture_name
     
   return args, default_args
 
@@ -162,26 +173,43 @@ def main(args, default_args):
     )
   else:
     # Load in configuration file
-    with open(args.cfg, 'r') as yaml_file:
-      cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    cfg = LoadConfig(args.cfg)
     module.job_name = f"jobs/{cfg['name']}/innfer_{args.step}"
+
+  # Prepare the dataset
+  if args.step == "LoadData":
+    print("<< Load data in to make the base datasets >>")
+    for base_file_name in GetBaseFileLoop(cfg):
+      module.Run(
+        module_name = "load_data",
+        class_name = "LoadData",
+        config = {
+          "cfg" : args.cfg,
+          "file_name" : base_file_name,
+          "data_output" : f"data/{cfg['name']}/LoadData",
+          "number_of_shuffles" : args.number_of_shuffles,
+          "verbose" : not args.quiet,
+        },
+        loop = {"base_file_name" : base_file_name},
+      )
 
   # PreProcess the dataset
   if args.step == "PreProcess":
-    print("<< Preprocessing datasets >>")
-    for file_name, parquet_name in cfg["files"].items():
+    print("<< Preprocessing datasets for training, testing and validation >>")
+    for file_name in GetModelFileLoop(cfg):
       module.Run(
         module_name = "preprocess",
         class_name = "PreProcess",
         config = {
           "cfg" : args.cfg,
           "file_name" : file_name,
-          "data_output" : f"data/{cfg['name']}/{file_name}/PreProcess",
+          "data_input" : f"data/{cfg['name']}/LoadData",
+          "data_output" : f"data/{cfg['name']}/PreProcess/{file_name}",
           "number_of_shuffles" : args.number_of_shuffles,
+          "binned_fit_input" : args.binned_fit_input,
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
-        force = args.snakemake_force_local,
       )
 
   # Custom
@@ -195,466 +223,638 @@ def main(args, default_args):
         "options" : {i.split("=")[0] : i.split("=")[1] for i in (args.custom_options.split(";") if args.custom_options != "" else [])},
       },
       loop = {},
-      force = args.snakemake_force_local,
     )
 
-  # Remove outlers
-  if args.step == "RemoveOutliers":
-    print("<< Removing outliers so not to get NaN probabilities >>")
-    module.Run(
-      module_name = "remove_outliers",
-      class_name = "RemoveOutliers",
-      config = {
-        "cfg" : args.cfg,
-        "verbose" : not args.quiet
-      },
-      loop = {},
-      force = args.snakemake_force_local,
-    )
 
-  # Plot preprocess data
-  if args.step == "InputPlot":
-    print("<< Plotting datasets >>")
-    for file_name in GetFileLoop(cfg):
+  # Plot preprocessed training and testing data 
+  if args.step == "InputPlotTraining":
+    print("<< Plotting training and testing datasets >>")
+    for model_info in GetModelLoop(cfg):
       module.Run(
-        module_name = "input_plot",
-        class_name = "InputPlot",
+        module_name = "input_plot_training",
+        class_name = "InputPlotTraining",
+        config = {
+          "parameters" : model_info["parameters"],
+          "data_input" : model_info['file_loc'],
+          "plots_output" : f"plots/{cfg['name']}/InputPlotTraining/{model_info['name']}",
+          "model_type" : model_info['type'],
+          "parameter" : model_info["parameter"],
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info['name']},
+      )
+
+
+  # Plot preprocessed validation data
+  if args.step == "InputPlotValidation":
+    print("<< Plotting validation datasets >>")
+    for file_name in GetModelFileLoop(cfg):
+      module.Run(
+        module_name = "input_plot_validation",
+        class_name = "InputPlotValidation",
         config = {
           "cfg" : args.cfg,
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "data_input" : f"data/{cfg['name']}/{file_name}/PreProcess",
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/InputPlot",
+          "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+          "data_input" : f"data/{cfg['name']}/PreProcess/{file_name}/",
+          "plots_output" : f"plots/{cfg['name']}/InputPlotValidation/{file_name}/",
+          "val_loop" : GetValidationLoop(cfg, file_name),
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
       )
 
-  # Train network
-  if args.step == "Train":
-    print("<< Training the networks >>")
-    for file_name in GetFileLoop(cfg):
+
+  # Train density network
+  if args.step == "TrainDensity":
+    print("<< Training the density networks >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
       module.Run(
-        module_name = "train",
-        class_name = "Train",
+        module_name = "train_density",
+        class_name = "TrainDensity",
         config = {
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "architecture" : args.architecture,
-          "data_output" : f"models/{cfg['name']}/{file_name}",
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/Train/",
+          "parameters" : model_info["parameters"],
+          "architecture" : args.density_architecture,
+          "data_output" : f"models/{cfg['name']}/{model_info['name']}/",
+          "plots_output" : f"plots/{cfg['name']}/TrainDensity/{model_info['name']}/",
           "disable_tqdm" : args.disable_tqdm,
           "use_wandb" : args.use_wandb,
           "initiate_wandb" : args.use_wandb,
           "wandb_project_name" : args.wandb_project_name,
-          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
+          "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
+          "save_model_per_epoch" : args.save_model_per_epoch,
           "verbose" : not args.quiet,        
         },
-        loop = {"file_name" : file_name}
+        loop = {"model_name" : model_info['name']}
       )
 
-  # Get performance metrics
-  if args.step == "PerformanceMetrics":
-    print("<< Getting the performance metrics of the trained networks >>")
-    for file_name in GetFileLoop(cfg):
-      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-      module.Run(
-        module_name = "performance_metrics",
-        class_name = "PerformanceMetrics",
-        config = {
-          "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
-          "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
-          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-          "pois": cfg["pois"],
-          "nuisances": cfg["nuisances"],
-          "split_validation_files": args.split_validation_files,
-          "cfg_name" : cfg["name"],
-          "do_inference": not args.performance_metrics_no_inference,
-          "do_loss": not args.performance_metrics_no_loss,
-          "do_histogram_metrics": not args.performance_metrics_no_histogram,
-          "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
-          "verbose" : not  args.quiet,     
-        },
-        loop = {"file_name" : file_name}
-      )
 
-  # Perform a hyperparameter scan
-  if args.step == "HyperparameterScan":
-    print("<< Running a hyperparameter scan >>")
-    for file_name in GetFileLoop(cfg):
-      for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
-        val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-        module.Run(
-          module_name = "hyperparameter_scan",
-          class_name = "HyperparameterScan",
-          config = {
-            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-            "architecture" : architecture,
-            "data_output" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
-            "use_wandb" : args.use_wandb,
-            "wandb_project_name" : args.wandb_project_name,
-            "wandb_submit_name" : f"{cfg['name']}_{file_name}",
-            "disable_tqdm" : args.disable_tqdm,
-            "save_extra_name" : f"_{architecture_ind}",
-            "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-            "pois": cfg["pois"],
-            "nuisances": cfg["nuisances"],
-            "verbose" : not args.quiet,        
-          },
-          loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}
-        )
-
-  # Collect a hyperparameter scan
-  if args.step == "HyperparameterScanCollect":
-    print("<< Collecting hyperparameter scan >>")
-    for file_name in GetFileLoop(cfg):
+  # Train regression network
+  if args.step == "TrainRegression":
+    print("<< Training the regression networks >>")
+    for model_info in GetModelLoop(cfg, only_regression=True):
       module.Run(
-        module_name = "hyperparameter_scan_collect",
-        class_name = "HyperparameterScanCollect",
+        module_name = "train_regression",
+        class_name = "TrainRegression",
         config = {
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
-          "data_input" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
-          "data_output" : f"models/{cfg['name']}/{file_name}",
-          "metric" : args.hyperparameter_metric,
-          "verbose" : not args.quiet,        
-        },
-        loop = {"file_name" : file_name}
-      )
-
-  # Perform a hyperparameter scan
-  if args.step == "BayesianHyperparameterTuning":
-    print("<< Running a bayesian hyperparameter tuning >>")
-    for file_name in GetFileLoop(cfg):
-      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-      module.Run(
-        module_name = "bayesian_hyperparameter_tuning",
-        class_name = "BayesianHyperparameterTuning",
-        config = {
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "tune_architecture" : args.architecture,
-          "data_output" : f"data/{cfg['name']}/{file_name}/BayesianHyperparameterTuning",
-          "best_model_output" : f"models/{cfg['name']}/{file_name}",
-          "use_wandb" : args.use_wandb,
-          "wandb_project_name" : args.wandb_project_name,
-          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
+          "parameters" : model_info["parameters"],
+          "architecture" : args.regression_architecture,
+          "parameter" : model_info["parameter"],
+          "data_output" : f"models/{cfg['name']}/{model_info['name']}/",
+          "plots_output" : f"plots/{cfg['name']}/TrainRegression/{model_info['name']}/",
           "disable_tqdm" : args.disable_tqdm,
-          "verbose" : not args.quiet,
-          "metric" : args.hyperparameter_metric,
-          "n_trials" : args.number_of_trials,
-          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-          "pois": cfg["pois"],
-          "nuisances": cfg["nuisances"],
-        },
-        loop = {"file_name" : file_name}
-      )
-
-  # Split the validation files
-  if args.step == "SplitValidationFiles":
-    print("<< Splitting the validation files >>")
-    validate_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)["val_loops"]
-    for file_name in GetFileLoop(cfg):
-      if file_name not in validate_info.keys(): continue
-      module.Run(
-        module_name = "split_validation_files",
-        class_name = "SplitValidationFiles",
-        config = {
-          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-          "data_output" : f"data/{cfg['name']}/{file_name}/SplitValidationFiles",
-          "val_loop" : validate_info[file_name],
-          "verbose" : not args.quiet,
-        },
-        loop = {"file_name" : file_name},
-        force = True,
-      )
-
-  # Making plots using the network as a generator for individual Y values
-  if args.step == "Flow":
-    print("<< Making plots looking at the flow of the network >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      if file_name == "combined": continue
-      for val_ind, val_info in enumerate(val_loop):
-        module.Run(
-          module_name = "flow",
-          class_name = "Flow",
-          config = {
-            "Y_sim" : val_info["row"],
-            "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
-            "model" : val_loop_info["models"][file_name],
-            "architecture" : val_loop_info["architectures"][file_name],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/Flow{args.extra_infer_dir_name}",
-            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-          },
-          loop = {"file_name" : file_name, "val_ind" : val_ind}
-        )
-
-  # Making plots using the network as a generator for individual Y values
-  if args.step == "Generator":
-    print("<< Making plots using the network as a generator for individual Y values >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        module.Run(
-          module_name = "generator",
-          class_name = "Generator",
-          config = {
-            "Y_sim" : val_info["row"],
-            "Y_synth" : val_info["row"],
-            "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
-            "model" : val_loop_info["models"][file_name],
-            "architecture" : val_loop_info["architectures"][file_name],
-            "yield_function" : "default",
-            "pois" : cfg["pois"],
-            "nuisances" : cfg["nuisances"],
-            "plots_output" : f"plots/{cfg['name']}/{file_name}/Generator{args.extra_infer_dir_name}",
-            "scale_to_yield" : "extended" in args.likelihood_type,
-            "do_2d_unrolled" : args.plot_2d_unrolled,
-            "do_transformed" : args.plot_transformed,
-            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-            "data_type" : args.data_type,
-            "verbose" : not args.quiet,
-            "data_file" : cfg["data_file"],     
-            "split_nuisance_models" : cfg["split_nuisance_models"] if "split_nuisance_models" in cfg.keys() and file_name == "combined" else False,
-          },
-          loop = {"file_name" : file_name, "val_ind" : val_ind}
-        )
-
-  # Making plots using the network as a generator for individual Y values
-  if args.step == "GeneratorSummary":
-    print("<< Making plots using the network as a generator summarising all Y values >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      module.Run(
-        module_name = "generator_summary",
-        class_name = "GeneratorSummary",
-        config = {
-          "val_loop" : val_loop,
-          "parameters" : val_loop_info["parameters"][file_name],
-          "model" : val_loop_info["models"][file_name],
-          "architecture" : val_loop_info["architectures"][file_name],
-          "yield_function" : "default",
-          "pois" : cfg["pois"],
-          "nuisances" : cfg["nuisances"],
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/GeneratorSummary{args.extra_infer_dir_name}",
-          "scale_to_yield" : "extended" in args.likelihood_type,
-          "extra_plot_name" : args.extra_infer_plot_name,
+          "use_wandb" : args.use_wandb,
+          "initiate_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
+          "save_model_per_epoch" : args.save_model_per_epoch,
           "verbose" : not args.quiet,        
         },
-        loop = {"file_name" : file_name},
+        loop = {"model_name" : model_info['name']}
       )
+
+
+  # Evaluate the regression models
+  if args.step == "EvaluateRegression":
+    print("<< Training the regression networks >>")
+    for model_info in GetModelLoop(cfg, only_regression=True):
+      module.Run(
+        module_name = "evaluate_regression",
+        class_name = "EvaluateRegression",
+        config = {
+          "model_input" : f"models/{cfg['name']}",
+          "model_name" : model_info["name"],
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "data_output" : f"data/{cfg['name']}/EvaluateRegression/{model_info['name']}",
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
+  # Plot the regression models
+  if args.step == "PlotRegression":
+    print("<< Plotting the regression distributions >>")
+    for model_info in GetModelLoop(cfg, only_regression=True):
+      module.Run(
+        module_name = "plot_regression",
+        class_name = "PlotRegression",
+        config = {
+          "model_name" : model_info["name"],
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "data_input" : f"data/{cfg['name']}/EvaluateRegression/{model_info['name']}",
+          "plots_output" : f"plots/{cfg['name']}/PlotRegression/{model_info['name']}",
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
 
   # Make the asimov datasets
   if args.step == "MakeAsimov":
     print(f"<< Making the asimov datasets >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
+    for file_name in GetModelFileLoop(cfg):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         module.Run(
-          module_name = "infer",
-          class_name = "Infer",
+          module_name = "make_asimov",
+          class_name = "MakeAsimov",
           config = {
-            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-            "method" : "MakeAsimov",
-            "extra_file_name" : str(val_ind),
+            "cfg" : args.cfg,
+            "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True)[0],
+            "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True),
+            "regression_spline_input" : f"data/{cfg['name']}/EvaluateRegression/",
+            "model_input" : f"models/{cfg['name']}",
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "data_output" : f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{file_name}/val_ind_{val_ind}",
             "n_asimov_events" : args.number_of_asimov_events,
+            "seed" : args.asimov_seed,
+            "val_info" : val_info,
+            "val_ind" : val_ind,
+            "only_density" : args.only_density,
+            "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
+
+
+  # Get performance metrics - THIS STILL NEEDS TO BE FIXED
+  if args.step == "DensityPerformanceMetrics":
+    print("<< Getting the performance metrics of the trained networks >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
+        module.Run(
+          module_name = "density_performance_metrics",
+          class_name = "DensityPerformanceMetrics",
+          config = {
+            "model" : f"models/{cfg['name']}/{model_info['name']}/{file_name}{extra_name}.h5",
+            "architecture" : f"models/{cfg['name']}/{model_info['name']}/{file_name}_architecture.yaml",
+            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+            "data_output" : f"data/{cfg['name']}/{file_name}/DensityPerformanceMetrics",
+            "val_loop" : GetValidationLoop(cfg, file_name),
+            "pois": cfg["pois"],
+            "nuisances": cfg["nuisances"],
+            "split_validation_files": args.split_validation_files,
+            "cfg_name" : cfg["name"],
+            "do_inference": not args.performance_metrics_no_inference,
+            "do_loss": not args.performance_metrics_no_loss,
+            "do_histogram_metrics": not args.performance_metrics_no_histogram,
+            "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
+            "save_extra_name": extra_name,
+            "verbose" : not  args.quiet,     
+          },
+          loop = {"model_name" : model_info['name']}
+        )
+
+
+  ## Get performance metrics
+  #if args.step == "PerformanceMetrics":
+  #  print("<< Getting the performance metrics of the trained networks >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
+  #      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
+  #      module.Run(
+  #        module_name = "performance_metrics",
+  #        class_name = "PerformanceMetrics",
+  #        config = {
+  #          "model" : f"models/{cfg['name']}/{file_name}/{file_name}{extra_name}.h5",
+  #          "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
+  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #          "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
+  #          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+  #          "pois": cfg["pois"],
+  #          "nuisances": cfg["nuisances"],
+  #          "split_validation_files": args.split_validation_files,
+  #          "cfg_name" : cfg["name"],
+  #          "do_inference": not args.performance_metrics_no_inference,
+  #          "do_loss": not args.performance_metrics_no_loss,
+  #          "do_histogram_metrics": not args.performance_metrics_no_histogram,
+  #          "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
+  #          "save_extra_name": extra_name,
+  #          "verbose" : not  args.quiet,     
+  #        },
+  #        loop = {"file_name" : file_name, "extra_name" : extra_name}
+  #      )
+
+  ## Plot performance metrics per epoch
+  #if args.step == "EpochPerformanceMetricsPlot":
+  #  print("<< Plotting the performance metrics as a function of the epoch of training >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    module.Run(
+  #      module_name = "epoch_performance_metrics_plot",
+  #      class_name = "EpochPerformanceMetricsPlot",
+  #      config = {
+  #        "architecture": f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
+  #        "data_input" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
+  #        "plots_output" : f"plots/{cfg['name']}/{file_name}/EpochPerformanceMetricsPlot",
+  #        "merged_plot" : args.other_input.split(",") if args.other_input is not None else None,
+  #        "verbose" : not args.quiet,  
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+
+  ## Perform a p-value dataset comparison test for sim vs synth
+  #if args.step == "PValueSimVsSynth":
+  #  print("<< Getting the metrics for Sim Vs Synth comparison >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    module.Run(
+  #      module_name = "p_value_dataset_comparison",
+  #      class_name = "PValueDatasetComparison",
+  #      config = {
+  #        "comparison_type" : "SimVsSynth",
+  #        "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
+  #        "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
+  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #        "data_output" : f"data/{cfg['name']}/{file_name}/PValueSimVsSynth",
+  #        "sim_type" : args.sim_type,
+  #        "verbose" : not args.quiet,  
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+  ## Perform a p-value dataset comparison test bootstrapping synth vs synth
+  #if args.step == "PValueSynthVsSynth":
+  #  print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    for seed in range(args.number_of_toys):
+  #      module.Run(
+  #        module_name = "p_value_dataset_comparison",
+  #        class_name = "PValueDatasetComparison",
+  #        config = {
+  #          "comparison_type" : "SynthVsSynth",
+  #          "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
+  #          "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
+  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #          "data_output" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynth",
+  #          "seed" : seed,
+  #          "sim_type" : args.sim_type,
+  #          "verbose" : not args.quiet,  
+  #        },
+  #        loop = {"file_name" : file_name, "seed" : seed}
+  #      )
+
+  ## Collect the synth vs synth tests
+  #if args.step == "PValueSynthVsSynthCollect":
+  #  print("<< Collecting the classifier 2 sample test >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    module.Run(
+  #      module_name = "p_value_synth_vs_synth_collect",
+  #      class_name = "PValueSynthVsSynthCollect",
+  #      config = {
+  #        "data_input" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynth",
+  #        "data_output" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynthCollect",
+  #        "number_of_toys" : args.number_of_toys,
+  #        "sim_type" : args.sim_type,
+  #        "verbose" : not args.quiet,  
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+  ## Plot the p values dataset comparisons
+  #if args.step == "PValueDatasetComparisonPlot":
+  #  print("<< Plotting p-value dataset comparisons >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    module.Run(
+  #      module_name = "p_value_dataset_comparison_plot",
+  #      class_name = "PValueDatasetComparisonPlot",
+  #      config = {
+  #        "synth_vs_synth_input" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynthCollect",
+  #        "sim_vs_synth_input" : f"data/{cfg['name']}/{file_name}/PValueSimVsSynth",
+  #        "plots_output" : f"plots/{cfg['name']}/{file_name}/PValueDatasetComparisonPlot",
+  #        "sim_type" : args.sim_type,
+  #        "verbose" : not args.quiet,  
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+  ## Perform a hyperparameter scan
+  #if args.step == "HyperparameterScan":
+  #  print("<< Running a hyperparameter scan >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
+  #      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
+  #      module.Run(
+  #        module_name = "hyperparameter_scan",
+  #        class_name = "HyperparameterScan",
+  #        config = {
+  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #          "architecture" : architecture,
+  #          "data_output" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
+  #          "use_wandb" : args.use_wandb,
+  #          "wandb_project_name" : args.wandb_project_name,
+  #          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
+  #          "disable_tqdm" : args.disable_tqdm,
+  #          "save_extra_name" : f"_{architecture_ind}",
+  #          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+  #          "pois": cfg["pois"],
+  #          "nuisances": cfg["nuisances"],
+  #          "verbose" : not args.quiet,        
+  #        },
+  #        loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}
+  #      )
+
+  ## Collect a hyperparameter scan
+  #if args.step == "HyperparameterScanCollect":
+  #  print("<< Collecting hyperparameter scan >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    module.Run(
+  #      module_name = "hyperparameter_scan_collect",
+  #      class_name = "HyperparameterScanCollect",
+  #      config = {
+  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #        "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
+  #        "data_input" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
+  #        "data_output" : f"models/{cfg['name']}/{file_name}",
+  #        "metric" : args.hyperparameter_metric,
+  #        "verbose" : not args.quiet,        
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+  ## Perform a hyperparameter scan
+  #if args.step == "BayesianHyperparameterTuning":
+  #  print("<< Running a bayesian hyperparameter tuning >>")
+  #  for file_name in GetFileLoop(cfg):
+  #    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
+  #    module.Run(
+  #      module_name = "bayesian_hyperparameter_tuning",
+  #      class_name = "BayesianHyperparameterTuning",
+  #      config = {
+  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
+  #        "tune_architecture" : args.architecture,
+  #        "data_output" : f"data/{cfg['name']}/{file_name}/BayesianHyperparameterTuning",
+  #        "best_model_output" : f"models/{cfg['name']}/{file_name}",
+  #        "use_wandb" : args.use_wandb,
+  #        "wandb_project_name" : args.wandb_project_name,
+  #        "wandb_submit_name" : f"{cfg['name']}_{file_name}",
+  #        "disable_tqdm" : args.disable_tqdm,
+  #        "verbose" : not args.quiet,
+  #        "metric" : args.hyperparameter_metric,
+  #        "n_trials" : args.number_of_trials,
+  #        "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
+  #        "pois": cfg["pois"],
+  #        "nuisances": cfg["nuisances"],
+  #      },
+  #      loop = {"file_name" : file_name}
+  #    )
+
+
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "Flow":
+    print("<< Making plots looking at the flow of the network >>")
+    for file_name in GetModelFileLoop(cfg):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
+        module.Run(
+          module_name = "flow",
+          class_name = "Flow",
+          config = {
+            "model_input" : f"models/{cfg['name']}",
+            "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True)[0],
+            "data_input" : f"data/{cfg['name']}/PreProcess/{file_name}/val_ind_{val_ind}",
+            "plots_output" : f"plots/{cfg['name']}/Flow{args.extra_infer_dir_name}/{file_name}",
+            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+            "sim_type" : args.sim_type,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind}
+        )
+
+
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "Generator":
+    print("<< Making plots using the network as a generator for individual Y values >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        module.Run(
+          module_name = "generator",
+          class_name = "Generator",
+          config = {
+            "cfg" : args.cfg,
+            "data_input" : {k:f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+            "asimov_input": {k:f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+            "plots_output" : f"plots/{cfg['name']}/Generator{args.extra_infer_dir_name}/{file_name}/",
+            "do_2d_unrolled" : args.plot_2d_unrolled,
+            "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+            "sim_type" : args.sim_type,
+            "val_info" : val_info,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind}
+        )
+
+
+  # Making a summary plot using the network as a generator for individual Y values
+  if args.step == "GeneratorSummary":
+    print("<< Making plots using the network as a generator summarising all Y values >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      validation_loop = GetValidationLoop(cfg, file_name)
+      module.Run(
+        module_name = "generator_summary",
+        class_name = "GeneratorSummary",
+        config = {
+          "cfg" : args.cfg,
+          "val_loop" : validation_loop,
+          "data_input" : [{k:f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+          "asimov_input": [{k:f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+          "sim_type" : args.sim_type,
+          "plots_output" : f"plots/{cfg['name']}/GeneratorSummary{args.extra_infer_dir_name}/{file_name}/",
+          "extra_plot_name" : args.extra_infer_plot_name,
+          "file_name" : file_name,
+          "val_inds" : args.val_inds,
+          "verbose" : not args.quiet,
+          
+        },
+        loop = {"file_name" : file_name},
+      )
+
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
     print(f"<< Running a single likelihood value for Y={args.other_input} >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         module.Run(
           module_name = "infer",
           class_name = "Infer",
           config = {
-            **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+            **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
             "method" : "Debug",
             "extra_file_name" : str(val_ind),
             "other_input" : args.other_input,
-            "model_type" : args.model_type,
-            "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+            "val_ind" : val_ind
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
 
+
   # Run initial fits from a full dataset
   if args.step == "InitialFit":
     print(f"<< Running initial fits >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
             config = {
-              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "InitialFit",
-              "data_output" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
+              "data_output" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
-              "model_type" : args.model_type,
-              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
               "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
           )
+
 
   # Run approximate uncertainties
   if args.step == "ApproximateUncertainty":
     print(f"<< Finding the approximate uncertainties >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in GetParameterLoop(val_info, cfg, args):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
               config = {
-                **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+                **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                 "method" : "ApproximateUncertainty",
-                "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "data_output" : f"data/{cfg['name']}/{file_name}/ApproximateUncertainty{args.extra_infer_dir_name}{freeze['extra_name']}",
+                "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"data/{cfg['name']}/ApproximateUncertainty{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
                 "column" : column,
                 "extra_file_name" : str(val_ind),
-                "model_type" : args.model_type,
-                "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
                 "freeze" : freeze["freeze"],
+                "val_ind" : val_ind,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             )
 
+
   # Get the Hessian matrix
   if args.step == "Hessian":
     print(f"<< Calculating the Hessian matrix >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
             config = {
-              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "Hessian",
-              "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "model_type" : args.model_type,
+              "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
-              "data_file" : cfg["data_file"],
-              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
-        )
+          )
+
 
   # Get the Covariance matrix
   if args.step == "Covariance":
     print(f"<< Calculating the Covariance matrix >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
             config = {
-              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "Covariance",
-              "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/Covariance{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "model_type" : args.model_type,
+              "hessian_input" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"data/{cfg['name']}/Covariance{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
-              "data_file" : cfg["data_file"],
-              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
-        )
+          )
+
 
   # Get the D matrix
   if args.step == "DMatrix":
     print(f"<< Calculating the D matrix >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
             config = {
-              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "DMatrix",
-              "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "model_type" : args.model_type,
+              "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"data/{cfg['name']}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
-              "data_file" : cfg["data_file"],
-              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
           )
+
 
   # Get the Hessian, D matrix and the Covariance matrix
   if args.step == "CovarianceWithDMatrix":
     print(f"<< Calculating the Covariance matrix with the D matrix correction >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
             config = {
-              **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "CovarianceWithDMatrix",
-              "data_input" : f"data/{cfg['name']}/{file_name}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/CovarianceWithDMatrix{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "model_type" : args.model_type,
+              "hessian_input" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "d_matrix_input" : f"data/{cfg['name']}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"data/{cfg['name']}/CovarianceWithDMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
-              "data_file" : cfg["data_file"],
-              "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-              "loop_over_nuisances" : args.loop_over_nuisances,
               "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
           )
 
+
   # Find sensible scan points
   if args.step in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
     print(f"<< Finding points to scan over >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in GetParameterLoop(val_info, cfg, args):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
               config = {
-                **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
+                **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                 "method" : args.step,
-                "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "data_output" : f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}",
+                "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "hessian_input" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"data/{cfg['name']}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "extra_file_name" : str(val_ind),
+                "freeze" : freeze["freeze"],
+                "val_ind" : val_ind,
                 "column" : column,
                 "sigma_between_scan_points" : args.sigma_between_scan_points,
                 "number_of_scan_points" : args.number_of_scan_points,
-                "extra_file_name" : str(val_ind),
-                "model_type" : args.model_type,
-                "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
-                "freeze" : freeze["freeze"],
-                "hessian_input" : f"data/{cfg['name']}/{file_name}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}",
+
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             )
@@ -663,70 +863,74 @@ def main(args, default_args):
   # Run profiled likelihood scan
   if args.step == "Scan":
     print(f"<< Running profiled likelihood scans >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in GetParameterLoop(val_info, cfg, args):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             for scan_ind in range(args.number_of_scan_points):
               module.Run(
                 module_name = "infer",
                 class_name = "Infer",
                 config = {
-                  **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-                  "method" : "Scan",
-                  "data_input" : f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}",
-                  "data_output" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}",
-                  "column" : column,
-                  "scan_value" : GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
-                  "scan_ind" : str(scan_ind),
+                  **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
+                  "method" : args.step,
+                  "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "hessian_input" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "data_output" : f"data/{cfg['name']}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
                   "extra_file_name" : str(val_ind),
-                  "other_input_files": [f"data/{cfg['name']}/{file_name}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/scan_ranges_{column}_{val_ind}.yaml"],
-                  "model_type" : args.model_type,
-                  "asimov_input" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
                   "freeze" : freeze["freeze"],
+                  "val_ind" : val_ind,
+                  "column" : column,
+                  "sigma_between_scan_points" : args.sigma_between_scan_points,
+                  "number_of_scan_points" : args.number_of_scan_points,
+                  "scan_value" : GetDictionaryEntryFromYaml(f"data/{cfg['name']}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
+                  "scan_ind" : str(scan_ind),
+                  "other_input_files": [f"data/{cfg['name']}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
                 },
                 loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind},
                 save_class = not ((scan_ind + 1 == args.number_of_scan_points))
               )
 
+
   # Collect likelihood scan
   if args.step == "ScanCollect":
     print(f"<< Collecting likelihood scan results >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in GetParameterLoop(val_info, cfg, args):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
               module_name = "scan_collect",
               class_name = "ScanCollect",
               config = {
                 "number_of_scan_points" : args.number_of_scan_points,
                 "column" : column,
-                "data_input" : f"data/{cfg['name']}/{file_name}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "data_output" : f"data/{cfg['name']}/{file_name}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}",
+                "data_input" : f"data/{cfg['name']}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"data/{cfg['name']}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
                 "extra_file_name" : str(val_ind),
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
-            )
+            )          
+
 
   # Plot likelihood scan
   if args.step == "ScanPlot":
     print(f"<< Plot likelihood scan >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in GetParameterLoop(val_info, cfg, args):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
               module_name = "scan_plot",
               class_name = "ScanPlot",
               config = {
                 "column" : column,
-                "data_input" : f"data/{cfg['name']}/{file_name}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "plots_output" : f"plots/{cfg['name']}/{file_name}/ScanPlot{args.extra_infer_dir_name}{freeze['extra_name']}", 
+                "data_input" : f"data/{cfg['name']}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "plots_output" : f"plots/{cfg['name']}/ScanPlot{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}", 
                 "extra_file_name" : str(val_ind),
                 "other_input" : {other_input.split(':')[0] : f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")} if args.other_input is not None else {},
                 "extra_plot_name" : args.extra_infer_plot_name,
@@ -735,198 +939,161 @@ def main(args, default_args):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             ) 
 
-  # Bootstrap initial fits
-  if args.step == "BootstrapInitialFits":
-    print(f"<< Bootstrapping the initial fits >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
-          for bootstrap_ind in range(args.number_of_bootstraps):
-            module.Run(
-              module_name = "infer",
-              class_name = "Infer",
-              config = {
-                **CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind),
-                "method" : "InitialFit",
-                "data_output" : f"data/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "plots_output" : f"plots/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "resample" : True,
-                "resampling_seed" : bootstrap_ind,
-                "extra_file_name" : f"{val_ind}_{bootstrap_ind}",
-                "model_type" : args.model_type,
-                "freeze" : freeze["freeze"],
-              },
-              loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "bootstrap_ind": bootstrap_ind},
-          )
 
-  # Collect boostrapped fits
-  if args.step == "BootstrapCollect":
-    print(f"<< Collecting the initial fits >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info)):
-          module.Run(
-            module_name = "bootstrap_collect",
-            class_name = "BootstrapCollect",
-            config = {
-              "number_of_bootstraps" : args.number_of_bootstraps,
-              "columns" : list(val_info["initial_best_fit_guess"].columns),
-              "data_input" : f"data/{cfg['name']}/{file_name}/BootstrapInitialFits{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "data_output" : f"data/{cfg['name']}/{file_name}/BootstrapCollect{args.extra_infer_dir_name}{freeze['extra_name']}",
-              "extra_file_name" : f"{val_ind}",
-              "verbose" : not args.quiet,
-            },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
-          )
+  # Make the postfit asimov datasets
+  if args.step == "MakePostFitAsimov":
+    print(f"<< Making the postfit asimov datasets >>")
+    for file_name in GetModelFileLoop(cfg):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        module.Run(
+          module_name = "make_asimov",
+          class_name = "MakeAsimov",
+          config = {
+            "cfg" : args.cfg,
+            "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True)[0],
+            "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True),
+            "regression_spline_input" : f"data/{cfg['name']}/EvaluateRegression/",
+            "model_input" : f"models/{cfg['name']}",
+            "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
+            "data_output" : f"data/{cfg['name']}/MakePostFitAsimov{args.extra_infer_dir_name}/{file_name}/val_ind_{val_ind}",
+            "n_asimov_events" : args.number_of_asimov_events,
+            "seed" : args.asimov_seed,
+            "val_info" : GetBestFitFromYaml(f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}/{file_name}/best_fit_{val_ind}.yaml"),
+            "val_ind" : val_ind,
+            "only_density" : args.only_density,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
 
-  # Plot the boostrapped fits
-  if args.step == "BootstrapPlot":
-    print(f"<< Plot the bootstrapped fits >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        for column in list(val_info["initial_best_fit_guess"].columns):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, column=column)):
-            module.Run(
-              module_name = "bootstrap_plot",
-              class_name = "BootstrapPlot",
-              config = {
-                "column" : column,
-                "data_input" : f"data/{cfg['name']}/{file_name}/BootstrapCollect{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "plots_output" : f"plots/{cfg['name']}/{file_name}/BootstrapPlot{args.extra_infer_dir_name}{freeze['extra_name']}",
-                "extra_file_name" : f"{val_ind}",
-                "extra_plot_name" : args.extra_infer_plot_name,
-                "verbose" : not args.quiet,
-              },
-              loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
-          )
 
-  # Draw best fit distributions
-  if args.step == "BestFitDistributions":
+  # Making plots using the network as a generator for individual Y values
+  if args.step == "PostFitPlot":
     print(f"<< Drawing the distributions for the best fit values >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        best_fit = GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml", [])
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if args.likelihood_type in ["unbinned", "unbinned_extended"]:
           module.Run(
             module_name = "generator",
             class_name = "Generator",
             config = {
-              "Y_sim" : val_info["row"],
-              "Y_synth" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
-              "data_type" : args.data_type if args.data_type is not None else "sim",
-              "parameters" : val_loop_info["parameters"][file_name],
-              "model" : val_loop_info["models"][file_name],
-              "architecture" : val_loop_info["architectures"][file_name],
-              "yield_function" : "default",
-              "pois" : cfg["pois"],
-              "nuisances" : cfg["nuisances"],
-              "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
-              "scale_to_yield" : "extended" in args.likelihood_type,
+              "cfg" : args.cfg,
+              "data_input" : {k:f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+              "asimov_input": {k:f"data/{cfg['name']}/MakePostFitAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+              "plots_output" : f"plots/{cfg['name']}/PostFitPlot{args.extra_infer_dir_name}/{file_name}/",
               "do_2d_unrolled" : args.plot_2d_unrolled,
-              "do_transformed" : args.plot_transformed,
               "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-              "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
+              "sim_type" : args.sim_type,
+              "val_info" : GetBestFitFromYaml(f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}/{file_name}/best_fit_{val_ind}.yaml"),
               "verbose" : not args.quiet,
-              "data_file" : cfg["data_file"],
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind}
           )
-        elif args.likelihood_type in ["binned", "binned_extended"]:
-          module.Run(
-            module_name = "binned_distributions",
-            class_name = "BinnedDistributions",
-            config = {
-              "Y_data" : val_info["row"],
-              "Y_stack" : pd.DataFrame([best_fit["best_fit"]], columns=best_fit["columns"], dtype=np.float64) if best_fit is not None else None,
-              "data_type" : args.data_type if args.data_type is not None else "sim",
-              "binned_fit_input" : args.binned_fit_input,
-              "parameters" : val_loop_info["parameters"][file_name],
-              "pois" : cfg["pois"],
-              "nuisances" : cfg["nuisances"],
-              "plots_output" : f"plots/{cfg['name']}/{file_name}/BestFitDistributions{args.extra_infer_dir_name}",
-              "scale_to_yield" : "extended" in args.likelihood_type,
-              "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
-              "other_input_files" : [f"data/{cfg['name']}/{file_name}/InitialFit{args.extra_infer_dir_name}/best_fit_{val_ind}.yaml"],
-              "verbose" : not args.quiet,
-              "data_file" : cfg["data_file"],
-            },
-            loop = {"file_name" : file_name, "val_ind" : val_ind}
-          )
+        else:
+          raise NotImplementedError("PostFitPlot is not implemented for binned likelihoods yet.")
+
 
   # Calculate the chi squared of the summary
   if args.step == "SummaryChiSquared":
     print(f"<< Getting the chi squared of the summary >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    if args.summary_from in ["Scan","Bootstrap"]: args.summary_from += "Collect"
-    for file_name, val_loop in val_loop_info["val_loops"].items():
+    summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      validation_loop = GetValidationLoop(cfg, file_name)
       module.Run(
         module_name = "summary_chi_squared",
         class_name = "SummaryChiSquared",
         config = {
-          "val_loop" : val_loop,
-          "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}{args.extra_infer_dir_name}",
-          "data_output" : f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}",
-          "file_name" : f"{args.summary_from}_results".lower(),
+          "val_loop" : validation_loop,
+          "data_input" : f"data/{cfg['name']}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
+          "data_output" : f"data/{cfg['name']}//SummaryChiSquared{summary_from}{args.extra_infer_dir_name}/{file_name}",
+          "file_name" : f"{summary_from}_results".lower(),
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-          "column_loop" : [i for i in val_loop[0]["initial_best_fit_guess"].columns if i in (cfg["pois"] if not args.loop_over_nuisances else cfg["pois"]+cfg["nuisances"])],
+          "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
       )
 
+
   # Collect all-but-one results for summary
   if args.step == "SummaryAllButOneCollect":
     print(f"<< Collecting all-but-one results for the summary plot >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
-    for file_name, val_loop in val_loop_info["val_loops"].items():
-      for val_ind, val_info in enumerate(val_loop):
-        if len(val_info['initial_best_fit_guess'].columns) <= 1: continue
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
         module.Run(
           module_name = "summary_all_but_one_collect",
           class_name = "SummaryAllButOneCollect",
           config = {
+            "file_name" : file_name,
             "val_ind" : val_ind,
-            "val_info" : val_info,
-            "data_input" : f"data/{cfg['name']}/{file_name}/{args.summary_from}{args.extra_infer_dir_name}",
-            "data_output" : f"data/{cfg['name']}/{file_name}/{args.summary_from}{args.extra_infer_dir_name}",
+            "data_input" : f"data/{cfg['name']}/{args.summary_from}{args.extra_infer_dir_name}",
+            "data_output" : f"data/{cfg['name']}/{args.summary_from}{args.extra_infer_dir_name}/{file_name}/",
             "verbose" : not args.quiet,
             "summary_from" : summary_from,
+            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
 
+
   # Plot the summary of the results
   if args.step == "Summary":
     print(f"<< Plot the summary of results >>")
-    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type=args.data_type, skip_empty_Y=True)
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    for file_name, val_loop in val_loop_info["val_loops"].items():
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      validation_loop = GetValidationLoop(cfg, file_name)
       module.Run(
         module_name = "summary",
         class_name = "Summary",
         config = {
-          "val_loop" : val_loop,
-          "data_input" : f"data/{cfg['name']}/{file_name}/{summary_from}{args.extra_infer_dir_name}",
-          "plots_output" : f"plots/{cfg['name']}/{file_name}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}",
+          "val_loop" : validation_loop,
+          "data_input" : f"data/{cfg['name']}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
+          "plots_output" : f"plots/{cfg['name']}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}/{file_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
           "other_input" : {other_input.split(':')[0] : [f"data/{cfg['name']}/{file_name}/{other_input.split(':')[1]}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
           "extra_plot_name" : args.extra_infer_plot_name,
           "show2sigma" : args.summary_show_2sigma,
-          "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"data/{cfg['name']}/{file_name}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/summary_chi_squared.yaml", []),
+          "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"data/{cfg['name']}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/{file_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
-          "column_loop" : GetParameterLoop(val_loop[0], cfg, args),
+          "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
           "subtract" : args.summary_subtract,
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
       )
+
+
+  # Plot the summary of the results per validation index
+  if args.step == "SummaryPerVal":
+    print(f"<< Plot the summary of results per validation index >>")
+    summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        module.Run(
+          module_name = "summary_per_val",
+          class_name = "SummaryPerVal",
+          config = {
+            "val_info" : val_info,
+            "val_ind" : val_ind,
+            "data_input" : f"data/{cfg['name']}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
+            "plots_output" : f"plots/{cfg['name']}/SummaryPerVal{args.summary_from}Plot{args.extra_infer_dir_name}/{file_name}",
+            "file_name" : f"{args.summary_from}_results".lower(),
+            "other_input" : {other_input.split(':')[0] : [f"data/{cfg['name']}/{other_input.split(':')[1]}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+            "extra_plot_name" : args.extra_infer_plot_name,
+            "show2sigma" : args.summary_show_2sigma,
+            "nominal_name" : args.summary_nominal_name,
+            "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
+            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=True, include_lnN=True),
+            "verbose" : not args.quiet,
+            "constraints" : cfg["inference"]["nuisance_constraints"],
+          },
+          loop = {"file_name" : file_name, "val_ind" : val_ind},
+        )
+
 
   module.Sweep()
 

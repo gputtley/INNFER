@@ -1,7 +1,6 @@
 import copy
 import gc
 import importlib
-import inspect
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
@@ -11,20 +10,20 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from functools import partial, update_wrapper
+from functools import partial
 from iminuit import Minuit
 from pprint import pprint
 from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize
 
 from minimise import Minimise as CustomMinimise
-from useful_functions import GetYName, MakeDirectories
+from useful_functions import MakeDirectories
 
 class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, likelihood_type="unbinned_extended", parameters={}, data_parameters={}, constraint_center=None):
+  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}):
     """
     Initializes a Likelihood object.
 
@@ -36,11 +35,13 @@ class Likelihood():
     """
     self.type = likelihood_type # unbinned, unbinned_extended, binned, binned_extended
     self.models = models
-    self.parameters = parameters
-    self.data_parameters = data_parameters
-    self.Y_columns = self._GetY()
+    self.X_columns = X_columns
+    self.Y_columns = Y_columns
+    self.Y_columns_per_model = Y_columns_per_model
+
     self.seed = 42
     self.verbose = True
+    self.constraints = constraints
     self.constraint_center = constraint_center
 
     # saved parameters
@@ -72,24 +73,6 @@ class Likelihood():
     elif derivative == 2:
       return (x**2 - 1) * gauss
 
-  def _ConstraintLogNormal(self, x, derivative=0):
-    """
-    Computes the Log-Normal distribution.
-
-    Args:
-        x (float): The input value.
-
-    Returns:
-        float: The Log-Normal distribution value.
-    """
-    x = float(x)
-    log_normal = 1 / (x * np.sqrt(2 * np.pi)) * np.exp(-0.5 * (np.log(x))**2)
-    if derivative == 0:
-      return log_normal
-    elif derivative == 1:
-      return log_normal * (-1 / x - np.log(x) / x)
-    elif derivative == 2:
-      return log_normal * (1 / x**2 + (3 * np.log(x) + np.log(x)**3) / x**2)
 
   def _CustomDPMethod(self, tmp, out, options={}):
 
@@ -104,6 +87,7 @@ class Likelihood():
         out += tmp_total
     return out
 
+
   def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
     tmp_probs = self._GetEventLoopUnbinned(
@@ -111,7 +95,7 @@ class Likelihood():
       options["Y"], 
       wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
       gradient = [1], 
-      column_1 = None,
+      column_1 = self.Y_columns,
       before_sum = True
     )[0]
 
@@ -150,72 +134,58 @@ class Likelihood():
 
   def _GetConstraint(self, Y, derivative=0, column_1=None, column_2=None):
 
+    first_loop = True
     ln_constraint = 0.0
-    if "nuisance_constraints" in self.parameters.keys():
+    for k in self.constraints:
 
-      first_loop = True
-      for k, v in self.parameters["nuisance_constraints"].items():
+      if k not in list(Y.columns): continue
 
-        if k not in list(Y.columns): continue
+      constraint_func = self._ConstraintGaussian
 
-        if v == "Gaussian":
-          constraint_func = self._ConstraintGaussian
-        elif v == "LogNormal":
-          constraint_func =self.__ConstraintLogNormal
+      constraint_input = float(Y.loc[:,k].iloc[0])
+      if self.constraint_center is not None:
+        if k in self.constraint_center.columns:
+          constraint_input -= float(self.constraint_center.loc[:,k].iloc[0])
 
-        constraint_input = float(Y.loc[:,k].iloc[0])
-        if self.constraint_center is not None:
-          if k in self.constraint_center.columns:
-            constraint_input -= float(self.constraint_center.loc[:,k].iloc[0])
+      # Get nominal value
+      if derivative == 0:
 
-        # Get nominal value
-        if derivative == 0:
+        val = np.log(constraint_func(constraint_input, derivative=0))
 
-          val = np.log(constraint_func(constraint_input, derivative=0))
+        if first_loop:
+          ln_constraint = val
+          first_loop = False
+        else:
+          ln_constraint += val
 
-          if first_loop:
-            ln_constraint = val
-            first_loop = False
+      # Get first derivative
+      elif derivative == 1:
+
+        vals = np.array([])
+        for col in column_1:
+
+          if col != k:
+            val = 0.0
           else:
-            ln_constraint += val
-
-        # Get first derivative
-        elif derivative == 1:
-
-          val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
-
-          if column_1 is not None:
-
-            if column_1 != k:
-              continue
-
-            else:
-
-              val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
-              if first_loop:
-                ln_constraint = [val]
-              else:
-                ln_constraint[0] += val
-
-          else:
-
             val = (1/constraint_func(constraint_input, derivative=0))*constraint_func(constraint_input, derivative=1)
-            ind = list(Y.columns).index(k)
 
-            if first_loop:
-              ln_constraint = [0.0]*(len(Y.columns))
-              first_loop = False
+          vals = np.append(vals, val)
 
-            ln_constraint[ind] += val
+        if first_loop:
+          ln_constraint = vals
+          first_loop = False
+        else:
+          ln_constraint += vals
 
-        elif derivative == 2:
+      elif derivative == 2:
 
-          if first_loop:
-            ln_constraint = 0.0
-            first_loop = False
-
-          if column_1 == column_2 and column_1 == k:
-            ln_constraint += -(constraint_func(constraint_input, derivative=1)/constraint_func(constraint_input, derivative=0))**2 + (constraint_func(constraint_input, derivative=2)/constraint_func(constraint_input, derivative=0))
+        if first_loop:
+          ln_constraint = 0.0
+          first_loop = False
+      
+        if column_1[0] == column_2[0] and column_1[0] == k:
+          val = -(constraint_func(constraint_input, derivative=1)/constraint_func(constraint_input, derivative=0))**2 + (constraint_func(constraint_input, derivative=2)/constraint_func(constraint_input, derivative=0))
+          ln_constraint += val
           
     return ln_constraint
 
@@ -225,7 +195,6 @@ class Likelihood():
     log_probs = {}
 
     # Loop through pdf models
-    first_loop = True
     for name, pdf in self.models["pdfs"].items():
 
       # Get model scaling
@@ -233,15 +202,25 @@ class Likelihood():
       if rate_param == 0: continue
 
       # Get rate times probability, get gradients simultaneously if required
-      log_probs[name] = pdf.Probability(X.loc[:, self.data_parameters[name]["X_columns"]], Y, return_log_prob=True, order=gradient, column_1=column_1, column_2=column_2)  
+      log_probs[name] = pdf.Probability(
+        X.loc[:,self.X_columns], 
+        Y.loc[:,self.Y_columns], 
+        return_log_prob=True, 
+        order=gradient, 
+        column_1=column_1, 
+        column_2=column_2
+      )  
 
-    if "custom_log_probs_function" in self.parameters.keys():
-      if gradient == 0 or gradient == [0]:
-        module = importlib.import_module(self.parameters["custom_log_probs_function"].split(".")[0])
-        func = getattr(module, self.parameters["custom_log_probs_function"].split(".")[1])
-        log_probs = func(X, Y, log_probs)
-      else:
-        print("WARNING: Custom log probs function not implemented for gradients. Skipping.")
+      # Shift density with regression
+      log_probs[name] = self._ShiftDensityByRegression(
+        log_probs[name],
+        X.loc[:,self.X_columns], 
+        Y.loc[:,self.Y_columns],
+        name,
+        gradient=gradient, 
+        column_1=column_1, 
+        column_2=column_2        
+      )
 
     return log_probs
 
@@ -250,7 +229,7 @@ class Likelihood():
 
     # Loop through pdf models
     first_loop = True
-    for name, pdf in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"].items():
 
       # Get model scaling
       rate_param = self._GetYield(name, Y)
@@ -277,7 +256,7 @@ class Likelihood():
 
     # Loop through pdf models
     first_loop = True
-    for name, pdf in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"].items():
 
       # Get rate times probability
       ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) + (self._GetYield(name, Y) * log_probs_first_derivative[name]))
@@ -295,7 +274,7 @@ class Likelihood():
 
     # Loop through pdf models
     first_loop = True
-    for name, pdf in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"].items():
 
       # Get rate times probability
       ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) * log_probs_first_derivative_2[name]) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_2) * log_probs_first_derivative_1[name]) + (self._GetYield(name, Y) * (log_probs_second_derivative[name] + (log_probs_first_derivative_1[name]*log_probs_first_derivative_2[name]))))
@@ -313,7 +292,7 @@ class Likelihood():
 
     # Loop through pdf models
     H2 = 0.0
-    for name, pdf in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"].items():
 
       # Get model scaling
       rate_param = self._GetYield(name, Y)
@@ -337,6 +316,7 @@ class Likelihood():
 
     return H2FirstDerivative
 
+
   def _GetH2SecondDerivative(self, Y, column_1=None, column_2=None):
 
     # Loop through pdf models
@@ -349,6 +329,7 @@ class Likelihood():
 
     return H2SecondDerivative
 
+
   def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
 
     # Get probabilities and other first derivative if needed
@@ -360,20 +341,20 @@ class Likelihood():
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2)
 
-    if 1 in gradient or 2 in gradient:
+    if 2 in gradient:
       if column_1 != column_2:
         first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
       else:
         first_derivative_other = {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}
 
     # Reshape the first derivatives so they are in the correct order
-    if 1 in gradient:
-      for k, v in self.data_parameters.items():
-        reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
-        reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v["Y_columns"]]] = log_probs[k][get_log_prob_gradients.index(1)]
-        log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
-        del reshaped_first_derivative
-        gc.collect()
+    #if 1 in gradient:
+    #  for k, v in self.Y_columns_per_model.items():
+    #    reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
+    #    reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v]] = log_probs[k][get_log_prob_gradients.index(1)]
+    #    log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
+    #    del reshaped_first_derivative
+    #    gc.collect()
 
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
@@ -410,24 +391,20 @@ class Likelihood():
 
       else:
 
-
         if np.isnan(ln_lklds).any():
-          #print("------------------------")
-          #print(np.isnan(ln_lklds).sum())
           nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
-          #print(X[nan_rows_mask])
-          #print("---------------")
           ln_lklds[nan_rows_mask] = 0.0
 
-        ## Weight the events
+        # Weight the events
         if wt_name is not None:
           ln_lklds = X.loc[:,[wt_name]].to_numpy(dtype=np.float64)*ln_lklds
-
+      
         # Product the events
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
 
     return ln_lkld
+
 
   def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
 
@@ -439,17 +416,17 @@ class Likelihood():
     else:
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2)
-    if 1 in gradient or 2 in gradient:
+    if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
 
-    # Reshape the first derivatives so they are in the correct order
-    if 1 in gradient:
-      for k, v in self.data_parameters.items():
-        reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
-        reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v["Y_columns"]]] = log_probs[k][get_log_prob_gradients.index(1)]
-        log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
-        del reshaped_first_derivative
-        gc.collect()
+    ## Reshape the first derivatives so they are in the correct order
+    #if 1 in gradient:
+    #  for k, v in self.Y_columns_per_model.items():
+    #    reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
+    #    reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v]] = log_probs[k][get_log_prob_gradients.index(1)]
+    #    log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
+    #    del reshaped_first_derivative
+    #    gc.collect()
 
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
@@ -486,24 +463,6 @@ class Likelihood():
 
     return ln_lkld
 
-  def _GetY(self):
-    """
-    Internal method to create a list of Y column names.
-
-    Returns:
-        list: A list of column names for the Y-values used in the likelihood calculation.
-
-    """
-    Y_columns = []
-    if "rate_parameters" in self.parameters.keys():
-      if len(self.data_parameters) > 1:
-        Y_columns += ["mu_"+rate_parameter for rate_parameter in self.parameters["rate_parameters"]]
-    for _, data_params in self.data_parameters.items():
-      if "Y_columns" in self.parameters.keys():
-        Y_columns += self.parameters["Y_columns"]
-      else:
-        Y_columns += [name for name in data_params["Y_columns"] if name not in Y_columns]
-    return sorted(Y_columns)
 
   def _GetYield(self, file_name, Y):
     if "yields" in self.models.keys():
@@ -512,7 +471,11 @@ class Likelihood():
       yd = 1.0
     return yd
 
+
+
+
   def _GetYieldGradient(self, file_name, Y, gradient=0, column_1=None, column_2=None, from_spline=False):
+
     if gradient == 0: 
       return self._GetYield(file_name, Y)
     elif gradient == 1:
@@ -532,6 +495,7 @@ class Likelihood():
           inner_func = lambda func, column, file_name, val, : self._HelperNumericalGradientFromSpline(func, val, column, file_name, gradient=1)
           inner_func = partial(inner_func, partial(self._GetYield, file_name), column_1, file_name)
           return self._HelperNumericalGradientFromSpline(inner_func, Y, column_2, file_name, gradient=1)[0]
+
 
   def _HelperFreeze(self, freeze, initial_guess, func, jac=None):
 
@@ -572,15 +536,18 @@ class Likelihood():
     else:
       return func, jac, initial_guess
 
+
   def _HelperSetSeed(self):
     tf.random.set_seed(self.seed)
     tf.keras.utils.set_random_seed(self.seed)
     np.random.seed(self.seed)
 
+
   def _HelperLogSumExpTrick(self, ln_a, ln_b):
     mask = ln_b > ln_a
     ln_a[mask], ln_b[mask] = ln_b[mask], ln_a[mask]
     return ln_a + np.log1p(np.exp(ln_b - ln_a))
+
 
   def _HelperLogMultiplyTrick(self, ln_a, b):
 
@@ -595,12 +562,15 @@ class Likelihood():
     out[indices] = b_sign[indices]*np.exp(ln_a[indices] + np.log(np.abs(b[indices])))
     return out
 
+
   def _HelperNumericalGradientFromLinear(self, func, val, column, file_name, gradient=1, shift=1e-5):
 
     if column is None:
       columns = list(val.columns)
-    else:
+    elif isinstance(column, str):
       columns = [column]
+    else:
+      columns = column
 
     if gradient == 2:
       return [0.0]*len(columns)
@@ -616,12 +586,15 @@ class Likelihood():
 
     return np.array(grads)
 
+
   def _HelperNumericalGradientFromSpline(self, func, val, column, file_name, n_points=10, frac=0.01, gradient=1):
 
     if column is None:
       columns = list(val.columns)
-    else:
+    elif isinstance(column, str):
       columns = [column]
+    else:
+      columns = column
 
     grads = []
 
@@ -682,6 +655,69 @@ class Likelihood():
 
     return np.array(grads)
 
+
+  def _ShiftDensityByRegression(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None):
+
+    if "pdf_shifts_with_regression" not in self.models.keys():
+      return log_probs
+
+    # Make gradient loop
+    if not isinstance(gradient, list):
+      gradient_loop = [gradient]
+      log_probs = [log_probs]
+    else:
+      gradient_loop = gradient
+
+    # Make combined dataset
+    combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
+    del X, Y
+    gc.collect()
+
+    # Loop through regression models
+    if file_name in self.models["pdf_shifts_with_regression"].keys():
+      for k, v in self.models["pdf_shifts_with_regression"][file_name].items():
+
+        # Get predictions
+        if max(gradient_loop) == 0:
+          get_gradient = [0]
+        elif max(gradient_loop) == 1:
+          get_gradient = [0,1]
+        elif max(gradient_loop) == 2:
+          get_gradient = [0,1,2]
+
+        pred = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2)
+
+        # Update log prob
+        for ind, grad in enumerate(gradient_loop):
+          if grad == 0:
+            log_probs[ind] += np.log(pred[0])                
+          elif grad == 1:
+            log_probs[ind] += pred[1]/pred[0]
+          elif grad == 2:
+            log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
+
+        # Normalise predictions
+        for ind, grad in enumerate(gradient_loop):
+          if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
+            if file_name in self.models["pdf_shifts_with_regression_norm_spline"].keys():
+              if k in self.models["pdf_shifts_with_regression_norm_spline"][file_name].keys():
+                norm = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k](combined.loc[:,[k]])
+                if grad == 0:
+                  log_probs[ind] += np.log(norm)                
+                elif grad == 1 and k in column_1:
+                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+                elif grad == 2 and column_1 == k and column_2 == k:
+                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(2)(combined.loc[:,[k]])
+                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+        
+    if not isinstance(gradient, list):
+      log_probs = log_probs[0]
+
+    return log_probs
+
+
   def Run(self, inputs, Y, multiply_by=1, gradient=0, column_1=None, column_2=None):
     """
     Evaluates the likelihood for given data.
@@ -707,6 +743,14 @@ class Likelihood():
     if isinstance(gradient,int):
       gradient = [gradient]
       convert_back = True
+    if 2 in gradient and column_1 is None and column_2 is None:
+      raise ValueError("You must specifiy the exact columns required for the second derivative.")
+    if 1 in gradient and column_1 is None:
+      column_1 = self.Y_columns
+    if isinstance(column_1, str):
+      column_1 = [column_1]
+    if isinstance(column_2, str):
+      column_2 = [column_2]  
 
     # Run likelihood
     if self.type == "unbinned":
@@ -720,40 +764,43 @@ class Likelihood():
 
     # Add constraint
     for grad_ind, grad in enumerate(gradient):
-      #print(self._GetConstraint(Y, derivative=grad, column_1=column_1, column_2=column_2))
       lkld_val[grad_ind] += self._GetConstraint(Y, derivative=grad, column_1=column_1, column_2=column_2)
 
     # Multiply by constant
     lkld_val = [val*multiply_by for val in lkld_val]
 
-    # Calculate minimisation step
-    step_print = ""
-    if self.minimisation_step is not None:
-      self.minimisation_step += 1
-      step_print = f"Step={self.minimisation_step}, "
-
     # End output
     end_time = time.time()
-    if self.verbose:
-      if column_1 is None:
-        column_1 = "Y"
-      if column_2 is None:
-        column_2 = "Y"
-      result_print = ""
-      for grad in gradient:
-        result = lkld_val[gradient.index(grad)]
-        if grad == 0:
-          result_print += f"{multiply_by}lnL={result}, "
-        elif grad == 1:
-          calc = f"dlnL/d{column_1}"
-          result_print += f"{multiply_by}dlnL/d{column_1}={result}, "
-        elif grad == 2:
-          if column_1 == column_2:
-            result_print += f"{multiply_by}d^2lnL/d{column_1}^2={result}, "
-          else:
-            result_print += f"{multiply_by}d^2lnL/d{column_1}_{column_2}={result}, "
-      print(f"{step_print}Y={Y.to_numpy().flatten()}, {result_print[:-2]}, time={round(end_time-start_time,2)}")
 
+    # Calculate minimisation step
+    if self.minimisation_step is not None:
+      self.minimisation_step += 1
+      if self.verbose:
+        print(f"Step={self.minimisation_step}")
+
+    # Print Y
+    print(f"  Y: ")
+    for ind, Y_col in enumerate(self.Y_columns):
+      print(f"    {Y_col} = {float(Y.to_numpy().flatten()[ind])}")
+
+    # Print result
+    print(f"  Result: ")
+    for grad in gradient:
+      result = lkld_val[gradient.index(grad)]
+      if grad == 0:
+        print(f"    {multiply_by}lnL = {result}")
+      elif grad == 1:
+        for col_ind, col in enumerate(column_1):
+          print(f"    {multiply_by}dlnL/d{col} = {result[col_ind]}")
+      elif grad == 2:
+        if column_1 == column_2:
+          print(f"    {multiply_by}d^2lnL/d{column_1[0]}^2 = {result}")
+        else:
+          print(f"    {multiply_by}d^2lnL/d{column_1[0]}_d{column_2[0]} = {result}")
+
+    # Print time
+    print(f"  Time-taken: {round(end_time-start_time,2)} seconds")
+      
     # Convert back
     if convert_back:
       lkld_val = lkld_val[0]
@@ -854,7 +901,7 @@ class Likelihood():
 
     # Add poisson term
     for grad_ind, grad in enumerate(gradient):
-      for name, pdf in self.models["yields"].items():
+      for name, _ in self.models["yields"].items():
         ln_lkld[grad_ind] -= self._GetYieldGradient(name, Y, gradient=grad, column_1=column_1, column_2=column_2)
 
     return ln_lkld
@@ -900,7 +947,7 @@ class Likelihood():
             return self.jac
           else:
             self.prev_nll_calc = False
-            val, jac = func_val_and_jac(Y)
+            _, jac = func_val_and_jac(Y)
             return jac
       nllgrad = NLLAndGradient()
 
@@ -1022,7 +1069,6 @@ class Likelihood():
     col_index = self.Y_columns.index(column)
     if method == "approximate":
       m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
-      print(m1p1_vals)
     elif method == "hessian":
       m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column)
 

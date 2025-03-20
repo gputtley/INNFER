@@ -1,23 +1,26 @@
+import copy
 import yaml
 
 import numpy as np
 
+from data_processor import DataProcessor
 from multidim_metrics import MultiDimMetrics
 from useful_functions import MakeDirectories
 
-class C2ST():
+class PValueDatasetComparison():
 
   def __init__(self):
     """
     A template class.
     """
+    self.comparison_type = "sim_vs_synth"
     self.model = None
     self.architecture = None
     self.parameters = None
     self.data_output = "data/"
     self.seed = 0
     self.verbose = True
-    self.sim_type = "test"
+    self.sim_type = "val"
 
   def Configure(self, options):
     """
@@ -69,41 +72,67 @@ class C2ST():
       print("- Loading the model")
     self.network.Load(name=self.model)
 
-    # Make multidimensional metrics
-    if self.verbose:
-      print("- Getting C2ST metrics")
+    sim_files = [f"{self.open_parameters['file_loc']}/X_{self.sim_type}.parquet", f"{self.open_parameters['file_loc']}/Y_{self.sim_type}.parquet", f"{self.open_parameters['file_loc']}/wt_{self.sim_type}.parquet"]
 
     mm = MultiDimMetrics(
       self.network,
       self.open_parameters,
-      {self.sim_type:[f"{self.open_parameters['file_loc']}/X_{self.sim_type}.parquet", f"{self.open_parameters['file_loc']}/Y_{self.sim_type}.parquet", f"{self.open_parameters['file_loc']}/wt_{self.sim_type}.parquet"]}
+      {self.sim_type:sim_files}
     )
     mm.verbose = self.verbose
-    mm.resample_sim = True
     mm.AddBDTSeparation()
-    res = mm.Run(seed=self.seed)
+    mm.AddWassersteinSliced()
+    mm.AddWassersteinUnbinned()
+    mm.AddKMeansChiSquared()
 
-    out = {}
-    for k, v in res.items():
-      if "auc" in k:
-        out["auc"] = {self.seed: float(v)}
-      elif "accuracy" in k:
-        out["accuracy"] = {self.seed: float(v)}
+    if self.verbose:
+      print(f" - Building datasets")
+
+    # Get simulated data
+    sim_dp = DataProcessor(
+      sim_files,
+      "parquet",
+      wt_name = "wt",
+      options = {
+        "parameters" : self.open_parameters
+      }
+    )
+    mm.sim_dataset = sim_dp.GetFull("dataset", functions_to_apply=["untransform"])    
+
+    import tensorflow as tf
+    tf.random.set_seed(self.seed)
+    tf.keras.utils.set_random_seed(self.seed)    
+
+    if self.comparison_type == "SimVsSynth":
+      extra_name = ""
+      mm.MakeDatasets(None,only_synth=True,synth_size="n_eff_conditions")
+    elif self.comparison_type == "SynthVsSynth":  
+      extra_name = f"_{self.seed}"
+      mm.MakeDatasets(None,only_synth=True,synth_size="n_eff_conditions")
+      syth_dataset_seed_1 = copy.deepcopy(mm.synth_dataset)
+      tf.random.set_seed(self.seed+1)
+      tf.keras.utils.set_random_seed(self.seed+1)    
+      mm.MakeDatasets(None,only_synth=True,synth_size="n_eff_conditions")      
+      mm.sim_dataset = syth_dataset_seed_1
+
+    if self.verbose:
+      print(f" - Calculating metrics")
+
+    out = mm.Run(make_datasets=False)
 
     # Write out the results to yaml
     if self.verbose:
       print("- Writing the results to yaml")
     MakeDirectories(self.data_output)
-    with open(f"{self.data_output}/c2st_{self.sim_type}_{self.seed}.yaml", 'w') as file:
+    with open(f"{self.data_output}/p_value_dataset_comparison_{self.sim_type}{extra_name}.yaml", 'w') as file:
       yaml.dump(out, file)
-
 
 
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    outputs = [f"{self.data_output}/c2st_{self.sim_type}_{self.seed}.yaml"]
+    outputs = []
     return outputs
 
   def Inputs(self):

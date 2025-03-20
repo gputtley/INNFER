@@ -22,6 +22,8 @@ hep.style.use("CMS")
 cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
 lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
+'''
+
 def plot_histograms(
     bins,
     hists,
@@ -29,7 +31,7 @@ def plot_histograms(
     colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
     linestyles = ["-"]*100,
     title_right = "",
-    name = "hists.pdf",
+    name = "hists",
     x_label = "",
     y_label = "",
     error_bar_hists = [],
@@ -44,7 +46,12 @@ def plot_histograms(
     vertical_line_names = [],
     vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
     discrete=False,
-    hist_errs = None
+    hist_errs = None,
+    fill_between_bins = None,
+    fill_between_hist = None,
+    fill_between_step = "mid",
+    fill_between_color = 'red',
+    fill_between_alpha = 0.7,
   ):
   """
   Plot histograms with optional error bars.
@@ -103,6 +110,9 @@ def plot_histograms(
     for ind, hist in enumerate(hists):
       plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle[ind])
   
+  if fill_between_hist is not None:
+    plt.fill_between(fill_between_bins, fill_between_hist, step=fill_between_step, alpha=fill_between_alpha, color=fill_between_color)
+
   if hist_errs is not None:
     for ind, uncerts in enumerate(hist_errs):
       plt.fill_between(
@@ -141,6 +151,135 @@ def plot_histograms(
   print("Created {}.pdf".format(name))
   plt.close()
 
+'''
+
+def plot_histograms(
+    bins,
+    hists,
+    hist_names,
+    colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+    linestyles = ["-"]*100,
+    title_right = "",
+    name = "hists",
+    x_label = "",
+    y_label = "",
+    error_bar_hists = [],
+    error_bar_hist_errs = [],
+    error_bar_names = [],
+    anchor_y_at_0 = False,
+    drawstyle = "default",
+    smooth_func = None,
+    smooth_func_name = "",
+    smooth_func_color = "green",
+    vertical_lines = [],
+    vertical_line_names = [],
+    vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
+    discrete=False,
+    hist_errs = None,
+    fill_between_bins = None,
+    fill_between_hist = None,
+    fill_between_step = "mid",
+    fill_between_color = 'red',
+    fill_between_alpha = 0.7,
+    legend_right=False,  # New option to move legend to the right
+):
+  """
+  Plot histograms with optional error bars and an optional right-side legend.
+
+  Parameters
+  ----------
+  legend_right : bool, optional
+      If True, moves the legend to a separate subplot on the right.
+  """
+  
+  # Create figure with two subplots if legend_right is True
+  if legend_right:
+      fig, (ax, ax_leg) = plt.subplots(ncols=2, gridspec_kw={"width_ratios": [3, 1]}, figsize=(12, 8))
+      ax_leg.axis("off")  # Hide axis for legend-only panel
+  else:
+      fig, ax = plt.subplots()
+
+  hep.cms.text(cms_label,ax=ax)
+
+  if isinstance(drawstyle, str):
+      drawstyle = [drawstyle] * 100
+
+  if isinstance(bins, list):
+      bins = np.array(bins)
+
+  for ind, hist in enumerate(error_bar_hists):
+      non_empty_bins = (hist != 0)
+      ax.errorbar(
+          bins[non_empty_bins], hist[non_empty_bins],
+          yerr=error_bar_hist_errs[ind][non_empty_bins],
+          label=error_bar_names[ind],
+          markerfacecolor='none', linestyle='None', fmt='+', color=colors[ind]
+      )
+
+  if discrete:
+      for i in range(len(bins)):
+          hist_val = sorted([hist[i] for hist in hists])[::-1]
+          for ind, hist in enumerate(hist_val):
+              ax.vlines(
+                  bins[i], ymin=0, ymax=hist, color=colors[ind], lw=2, 
+                  label=hist_names[ind] if i == 0 else None
+              )
+  else:
+      for ind, hist in enumerate(hists):
+          ax.plot(
+              bins, hist, label=hist_names[ind], color=colors[ind], 
+              linestyle=linestyles[ind], drawstyle=drawstyle[ind]
+          )
+
+  if fill_between_hist is not None:
+      ax.fill_between(fill_between_bins, fill_between_hist, step=fill_between_step, 
+                      alpha=fill_between_alpha, color=fill_between_color)
+
+  if hist_errs is not None:
+      for ind, uncerts in enumerate(hist_errs):
+          ax.fill_between(
+              bins,
+              hists[ind] - uncerts,
+              hists[ind] + uncerts,
+              color=colors[ind],
+              alpha=0.5,
+              step='mid'
+          )
+
+  ax.text(1.0, 1.0, title_right,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes)
+
+  if anchor_y_at_0:
+      ax.set_ylim(bottom=0, top=1.2 * max(np.max(hist) for hist in hists))
+
+  if smooth_func is not None:
+      x_func = np.linspace(min(bins), max(bins), num=200)
+      y_func = [smooth_func(x) for x in x_func]
+      ax.plot(x_func, y_func, label=smooth_func_name, color=smooth_func_color)
+
+  for ind, vertical_line in enumerate(vertical_lines):
+      ax.axvline(x=vertical_line, color=vertical_line_colors[ind], linestyle='--', linewidth=2, 
+                  label=vertical_line_names[ind])
+
+  ax.xaxis.get_major_formatter().set_useOffset(False)
+  ax.set_xlabel(x_label)
+  ax.set_ylabel(y_label)
+
+  if not all(item is None for item in error_bar_names + hist_names):
+      if legend_right:
+          handles, labels = ax.get_legend_handles_labels()
+          ax_leg.legend(handles, labels, loc="center", fontsize=10)
+      else:
+          ax.legend()
+
+  plt.tight_layout()
+  MakeDirectories(name+".pdf")
+  plt.savefig(f"{name}.pdf")
+  print(f"Created {name}.pdf")
+  plt.close()
+
+
 def plot_histograms_with_ratio(
   hists,
   hist_uncerts,
@@ -148,7 +287,8 @@ def plot_histograms_with_ratio(
   bins,
   xlabel = "",
   ylabel="Events",
-  name="histogram_with_ratio",       
+  name="histogram_with_ratio",    
+  ratio_range = [0.5,1.5],   
 ):
 
   fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
@@ -212,7 +352,7 @@ def plot_histograms_with_ratio(
   ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
   ax[-1].set_xlabel(xlabel)
   ax[-1].set_ylabel('Ratio')
-  ax[-1].set_ylim([0.5,1.5])
+  ax[-1].set_ylim([ratio_range[0],ratio_range[1]])
   ax[-1].xaxis.get_major_formatter().set_useOffset(False)
 
   # Adjust spacing between subplots
@@ -783,7 +923,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     ax1.axvline(x=i, color='black', linestyle='-', linewidth=4)
 
   # Draw text showing unrolled bin splits
-  text_y = 1.1*max(np.concatenate((total_stack_hist,data_hist)))
+  text_y = 1.05*max(np.concatenate((total_stack_hist,data_hist)))
   unrolled_bin_name = unrolled_bin_name.replace("_","\_")
   for i in range(len(data_hists)):
     text_x = i + 0.5
@@ -793,6 +933,9 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
 
     significant_figures = sf_diff - int(np.floor(np.log10(abs(unrolled_bin[-1]-unrolled_bin[0])))) - 1
 
+    if "$" in unrolled_bin_name:
+      unrolled_bin_name = unrolled_bin_name.replace("$","").replace("\\","")
+
     if unrolled_bin[0] == -np.inf:
       unrolled_bin_string = rf"${unrolled_bin_name} < {RoundToSF(unrolled_bin[1],significant_figures)}$"
     elif unrolled_bin[1] == np.inf:
@@ -800,7 +943,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     else:
       unrolled_bin_string = rf"${RoundToSF(unrolled_bin[0],significant_figures)} \leq {unrolled_bin_name} < {RoundToSF(unrolled_bin[1],significant_figures)}$"
 
-    ax1.text(text_x, text_y, unrolled_bin_string, verticalalignment='center', horizontalalignment='center', fontsize=14)
+    ax1.text(text_x, text_y, unrolled_bin_string, verticalalignment='center', horizontalalignment='center', fontsize=12)
 
   # Change x axis labels
   x_locator = ticker.MaxNLocator(integer=True, nbins=3, prune='both', min_n_ticks=3)
@@ -851,7 +994,9 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax1.transAxes)
 
-  ax1.text(0.03, 0.96, axis_text, transform=ax1.transAxes, va='top', ha='left')
+  ax1.text(0.03, 0.98, axis_text, transform=ax1.transAxes, 
+      va='top', ha='left', fontsize=18,
+      bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.3'))
 
   # Compute the ratio of the histograms
   zero_indices = np.where(total_stack_hist == 0)
@@ -1115,4 +1260,202 @@ def plot_summary(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  plt.close()
+
+def plot_summary_per_val(
+  results_with_constraints,
+  results_without_constraints,
+  truth_without_constraints,
+  names,
+  show2sigma = False,
+  plot_name = f"summary_per_val.pdf",
+  plot_text = None,
+  ):
+  """
+  Plot a summary of results with and without constraints.
+  Parameters
+  ----------
+  results_with_constraints : dict
+      Dictionary of results with constraints.
+  results_without_constraints : dict
+      Dictionary of results without constraints.
+  truth_without_constraints : dict
+      Dictionary of truth values without constraints.
+  names : list
+      List of names for the results.
+  show_2_sigma : bool, optional
+      Whether to show 2 sigma (default is False).
+  plot_name : str, optional
+      Name of the output plot file (default is "/summary_per_val.pdf").
+  """
+  # Calculate the number of pads
+  n_pads = 1 # legend
+  n_pads += len(results_without_constraints.keys())  # results without constraints
+  if len(results_with_constraints.keys()) > 0: # results with constraints
+    n_pads += 1
+
+  # Calculate the pad sizes
+  pad_sizes = [1 for _ in range(len(results_without_constraints.keys()))]
+  pad_sizes += [len(results_with_constraints.keys())]
+  sum_pad_sizes = sum(pad_sizes)
+  pad_sizes = [x/sum_pad_sizes for x in pad_sizes]
+  pad_sizes = [0.2] + pad_sizes
+  sum_pad_sizes = sum(pad_sizes)
+  pad_sizes = [x/sum_pad_sizes for x in pad_sizes]
+
+  # Create the figure and axes
+  fig, ax = plt.subplots(n_pads, 1, gridspec_kw={'height_ratios': pad_sizes}, figsize=(8.27, 11.69), constrained_layout=True)
+  hep.cms.text(cms_label,ax=ax[0])
+
+  # Draw lumi label
+  ax[0].text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax[0].transAxes)
+
+  # turn of top (legend) pad axis labels and ticks
+  ax[0].tick_params(
+    axis='both', 
+    which='both', 
+    bottom=False, 
+    top=False, 
+    left=False, 
+    right=False,
+    labelbottom=False, 
+    labeltop=False, 
+    labelleft=False, 
+    labelright=False
+    )
+
+  # turn off y axis labels and ticks on all axis
+  for i in range(1,n_pads):
+    ax[i].tick_params(
+      axis='both', 
+      which='both', 
+      bottom=True, 
+      top=True, 
+      left=False, 
+      right=False,
+      labelbottom=True, 
+      labeltop=False, 
+      labelleft=False, 
+      labelright=False
+      )
+
+  # Draw horizontal lines on constraint pad
+  constraint_pad = n_pads - 1
+  for i in range(1, len(results_with_constraints.keys())):
+    ax[constraint_pad].axhline(y=i, color='black', linestyle='-')
+
+  # Set range of non constraint pad to be 0 and 1
+  for i in range(1, constraint_pad):
+    ax[i].set_ylim(0, 1)
+
+  # Set range of constraint pad to be 0 to len(results_with_constraints.keys())
+  ax[constraint_pad].set_ylim(0, len(results_with_constraints.keys()))
+
+  # Write y labels (names) on non constraint pads
+  for i, name in enumerate(results_without_constraints.keys()):
+    ax[i+1].text(-0.02, 0.5, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[i+1].transAxes)
+
+  # Write y labels (names) on constraint pad
+  for i, name in enumerate(results_with_constraints.keys()):
+    y_coord = ((1/(2*len(results_with_constraints.keys())))) + (i/(len(results_with_constraints.keys())))
+    ax[constraint_pad].text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[constraint_pad].transAxes)
+
+  # Draw vertical lines on non constraint pads for the truth values
+  for i in range(1, constraint_pad):
+    if truth_without_constraints[list(results_without_constraints.keys())[i-1]] is not None:
+      ax[i].axvline(x=truth_without_constraints[list(results_without_constraints.keys())[i-1]], color='black', linestyle='--')
+
+  # Set x axis title for non constraint pads
+  for i in range(1, constraint_pad):
+    ax[i].set_xlabel(r"$\hat{\theta}$", fontsize=20)
+
+  # Set x axis title for constraint pad
+  ax[constraint_pad].set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$", fontsize=20)
+
+  # Draw vertical lines on constraint pad around the truth value 0
+  ax[constraint_pad].axvline(x=0, color='black', linestyle='--')
+
+  # Define colours, black first
+  colors = sns.color_palette("bright", 8)
+
+  # Draw results without constraints 
+  for ind, (col, vals) in enumerate(results_without_constraints.items()):
+    x = []
+    y = []
+    x_err_lower = []
+    x_err_higher = []
+    if show2sigma:
+      x_2err_lower = []
+      x_2err_higher = []
+    for val_ind, val in enumerate(vals):
+      x.append(val[0])
+      x_err_lower.append(val[0]-val[-1] if -1 in val.keys() else 0.0)
+      x_err_higher.append(val[1]-val[0] if 1 in val.keys() else 0.0)
+      if show2sigma:
+        x_2err_lower.append(val[0]-val[-2] if -2 in val.keys() else 0.0)
+        x_2err_higher.append(val[2]-val[0] if 2 in val.keys() else 0.0)
+      y.append((val_ind + 1)*(1/(len(vals)+1)))
+      if show2sigma:
+        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_2err_lower[-1]], [x_2err_higher[-1]]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colors[val_ind], alpha=0.5))
+        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][val_ind]}")
+      else:
+        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][val_ind]}")
+    if truth_without_constraints[col] is not None:
+      if show2sigma:
+        up_cap = [abs(x[i] + x_2err_higher[i] - truth_without_constraints[col]) for i in range(len(x))]
+        low_cap = [abs(x[i] - x_2err_lower[i] - truth_without_constraints[col]) for i in range(len(x))]
+      else:
+        up_cap = [abs(x[i] + x_err_higher[i] - truth_without_constraints[col]) for i in range(len(x))]
+        low_cap = [abs(x[i] - x_err_lower[i] - truth_without_constraints[col]) for i in range(len(x))]
+      max_crossing = 1.2*max(max(up_cap), max(low_cap))
+      ax[ind+1].set_xlim(truth_without_constraints[col] - max_crossing, truth_without_constraints[col] + max_crossing)
+
+  # Draw results with constraints
+  for ind, (col, vals) in enumerate(results_with_constraints.items()):
+    x = []
+    y = []
+    x_err_lower = []
+    x_err_higher = []
+    if show2sigma:
+      x_2err_lower = []
+      x_2err_higher = []
+    for val_ind, val in enumerate(vals):
+      x.append(val[0])
+      x_err_lower.append(val[0]-val[-1] if -1 in val.keys() else 0.0)
+      x_err_higher.append(val[1]-val[0] if 1 in val.keys() else 0.0)
+      if show2sigma:
+        x_2err_lower.append(val[0]-val[-2] if -2 in val.keys() else 0.0)
+        x_2err_higher.append(val[2]-val[0] if 2 in val.keys() else 0.0)
+      y.append(ind + ((val_ind + 1)/(len(vals)+1)))
+      if show2sigma:
+        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_2err_lower[-1]], [x_2err_higher[-1]]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colors[val_ind], alpha=0.5))
+        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][val_ind]}")
+      else:
+        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][val_ind]}")
+    if show2sigma:
+      up_cap = [abs(x[i] + x_2err_higher[i]) for i in range(len(x))]
+      low_cap = [abs(x[i] - x_2err_lower[i]) for i in range(len(x))]
+    else:
+      up_cap = [abs(x[i] + x_err_higher[i]) for i in range(len(x))]
+      low_cap = [abs(x[i] - x_err_lower[i]) for i in range(len(x))]
+    max_crossing = 1.2*max(max(up_cap), max(low_cap))
+    ax[constraint_pad].set_xlim(-max_crossing, max_crossing)
+
+  # Draw text on the top left corner of top axis
+  if plot_text is not None:
+    ax[0].text(0.03, 0.9, plot_text, transform=ax[0].transAxes, 
+        va='top', ha='left', fontsize=18,
+        bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.3'))
+
+  # Draw legend on the top right of the top axis
+  handles, labels = ax[1].get_legend_handles_labels()
+  handles = handles[::-1]
+  labels = labels[::-1]
+  legend = ax[0].legend(handles, labels, loc='upper right', frameon=True, framealpha=1, facecolor='white', edgecolor="white", fontsize=16)
+
+  print("Created "+plot_name+".pdf")
+  MakeDirectories(plot_name+".pdf")
+  plt.savefig(plot_name+".pdf")
   plt.close()

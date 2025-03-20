@@ -38,14 +38,12 @@ class SummaryChiSquared():
     if self.verbose:
       print("- Loading in results")
     results = {}
-    for ind, info in enumerate(self.val_loop):
-      info_name = GetYName(info["row"],purpose="file")
+    for ind, _ in enumerate(self.val_loop):
       for col in self.column_loop:
         if col in self.freeze.keys():
           continue
         with open(f"{self.data_input}/{self.file_name}_{col}_{ind}.yaml", 'r') as yaml_file:
           scan_results_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        #crossings = {k:v/scan_results_info["row"][scan_results_info["columns"].index(col)] for k,v in scan_results_info["crossings"].items()}
         chi_squared = ((scan_results_info["crossings"][0]-scan_results_info["row"][scan_results_info["columns"].index(col)])**2) # numerator
         if scan_results_info["crossings"][0] < 1.0:
           chi_squared /= (scan_results_info["crossings"][1]-scan_results_info["crossings"][0])**2
@@ -53,9 +51,9 @@ class SummaryChiSquared():
           chi_squared /= (scan_results_info["crossings"][0]-scan_results_info["crossings"][-1])**2
 
         if col not in results.keys():
-          results[col] = {info_name:chi_squared}
+          results[col] = {ind:chi_squared}
         else:
-          results[col][info_name] = chi_squared
+          results[col][ind] = chi_squared
 
     # Make combined chi squared / ndof values 
     total_sum = 0.0
@@ -79,7 +77,7 @@ class SummaryChiSquared():
     Return a list of outputs given by class
     """
     outputs = [
-      f"{self.data_output}/summary_chi_squared.pdf"
+      f"{self.data_output}/summary_chi_squared.yaml"
     ]
     return outputs
 
@@ -88,8 +86,7 @@ class SummaryChiSquared():
     Return a list of inputs required by class
     """
     inputs = []
-    for ind, info in enumerate(self.val_loop):
-      info_name = GetYName(info["row"],purpose="plot",prefix="y=")
+    for ind, _ in enumerate(self.val_loop):
       for col in self.column_loop:
         if col in self.freeze.keys():
           continue

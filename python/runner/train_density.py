@@ -3,7 +3,9 @@ import yaml
 
 from random_word import RandomWords
 
-class Train():
+from useful_functions import InitiateDensityModel
+
+class TrainDensity():
 
   def __init__(self):
     """
@@ -25,6 +27,8 @@ class Train():
     self.save_extra_name = ""
     self.test_name = "test"
     self.no_plot = False
+    self.save_model_per_epoch = False
+    self.model_type = "BayesFlow"
 
   def Configure(self, options):
     """
@@ -63,24 +67,18 @@ class Train():
     # Build model
     if self.verbose:
       print("- Building the model")
-    from network import Network
-    network = Network(
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
+    network = InitiateDensityModel(
+      architecture,
+      parameters['density']['file_loc'],
+      test_name = self.test_name,
       options = {
-        **architecture,
-        **{
-          "plot_dir" : self.plots_output,
-          "disable_tqdm" : self.disable_tqdm,
-          "use_wandb" : self.use_wandb,
-          "data_parameters" : parameters, # Do we actually need this to train?
-        }
+        "plot_dir" : self.plots_output,
+        "disable_tqdm" : self.disable_tqdm,
+        "use_wandb" : self.use_wandb,
+        "data_parameters" : parameters["density"],
       }
-    )  
+    )
+
     network.BuildModel()
     
     if self.no_plot:
@@ -91,12 +89,12 @@ class Train():
     if self.verbose:
       print("- Training the model")
     network.BuildTrainer()
+    network.save_model_per_epoch = self.save_model_per_epoch
     network.Train(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
 
     # Saving model architecture
     if self.verbose:
       print("- Saving the model and its architecture")
-    #network.Save(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
     with open(f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml", 'w') as file:
       yaml.dump(architecture, file)
 
@@ -104,8 +102,11 @@ class Train():
     """
     Return a list of outputs given by class
     """
+    # Open parameters
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    # Add model and architecture
     outputs = [
       f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5",
       f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml",
@@ -116,18 +117,22 @@ class Train():
     """
     Return a list of inputs required by class
     """
+    # Open parameters
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    # Set inputs
     inputs = [
       self.parameters,
       self.architecture,
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
+      f"{parameters['density']['file_loc']}/X_train.parquet",
+      f"{parameters['density']['file_loc']}/Y_train.parquet", 
+      f"{parameters['density']['file_loc']}/wt_train.parquet", 
+      f"{parameters['density']['file_loc']}/X_{self.test_name}.parquet",
+      f"{parameters['density']['file_loc']}/Y_{self.test_name}.parquet", 
+      f"{parameters['density']['file_loc']}/wt_{self.test_name}.parquet",
     ]
+
     return inputs
 
         

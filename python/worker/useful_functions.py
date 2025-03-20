@@ -7,8 +7,33 @@ import yaml
 import numpy as np
 import pandas as pd
 
-import scipy.ndimage as ndimage
 from itertools import product
+
+def BuildBinnedCategories(var_input):
+
+  # Make selection, variable and bins
+  categories = {}
+  for category_ind, category in enumerate(var_input.split(";")):
+
+    # Make selection, variable and bins
+    if ":" in category:
+      sel = category.split(":")[0]
+      var_and_bins = category.split(":")[1]
+    else:
+      sel = None
+      var_and_bins = category
+
+    if "[" in var_and_bins:
+      var = var_and_bins.split("[")[0]
+      bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
+    elif "(" in var_and_bins:
+      var = var_and_bins.split("(")[0]
+      start_stop_step = [float(i) for i in list(var_and_bins.split("(")[1].split(")")[0].split(","))]
+      bins = [float(i) for i in np.arange(start_stop_step[0], start_stop_step[1], start_stop_step[2])]
+    categories[category_ind] = [sel, var, bins]
+  
+  return categories
+
 
 def CamelToSnake(name):
   """
@@ -29,30 +54,42 @@ def CamelToSnake(name):
   return s2.lower()
 
 
-def CommonInferConfigOptions(args, cfg, val_info, val_loop_info, file_name, val_ind):
+def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
+
+  defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
+
+  if args.data_type == "sim":
+    data_input = {k:[f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
+  elif args.data_type == "asimov":
+    data_input = {k:[f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
+
+
+  if args.likelihood_type == "binned":
+    print("Not implemented yet")
+
   common_config = {
-    "true_Y" : val_info["row"],
-    "initial_best_fit_guess" : val_info["initial_best_fit_guess"] if args.initial_best_fit_guess is None or len(args.initial_best_fit_guess.split(",")) != len(val_info["initial_best_fit_guess"].columns) else pd.DataFrame([[float(i) for i in args.initial_best_fit_guess.split(",")]], columns=list(val_info["initial_best_fit_guess"].columns)),  
-    "parameters" : val_loop_info["parameters"][file_name] if not args.split_validation_files else  SplitValidationParameters(val_loop_info["val_loops"], file_name, val_ind, cfg),
-    "model" : val_loop_info["models"][file_name],
-    "architecture" : val_loop_info["architectures"][file_name],
-    "data_output" : f"data/{cfg['name']}/{file_name}/MakeAsimov{args.extra_infer_dir_name}",
+    "density_models" : {k:GetModelLoop(cfg, model_file_name=k, only_density=True)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
+    "regression_models" : {k:GetModelLoop(cfg, model_file_name=k, only_regression=True) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
+    "model_input" : f"models/{cfg['name']}",
+    "parameters" : {k:f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()},
+    "data_input" : data_input,
+    "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
+    "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
     "inference_options" : cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != 'nuisance_constraints'},
-    "data_type": args.data_type if args.data_type is not None else "sim",
-    "yield_function": "default",
-    "pois": cfg["pois"],
-    "nuisances": cfg["nuisances"],
     "likelihood_type": args.likelihood_type,
     "scale_to_eff_events": args.scale_to_eff_events,
-    #"freeze": {k.split("=")[0]: float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-    "model_type": args.model_type,
     "verbose": not args.quiet,
     "data_file": cfg["data_file"],
     "binned_fit_input" : args.binned_fit_input,
-    "test_name" : "test" if cfg["preprocess"]["train_test_val_split"].count(":") == 2 else "val",
     "minimisation_method" : args.minimisation_method,
-    "sim_type" : args.sim_type
+    "sim_type" : args.sim_type,
+    "X_columns" : cfg["variables"],
+    "Y_columns" : list(defaults_in_model),
+    "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
+    "only_density" : args.only_density,
+    #"binned_fit_data_input" : 
   }
+
   return common_config
 
 def CustomHistogram(
@@ -362,6 +399,34 @@ def GetCombinedValidateLoop(cfg, parameters):
 
   return val_loop
 
+def GetDictionaryEntry(entry, keys):
+  """
+  Retrieve a nested dictionary entry.
+
+  Parameters
+  ----------
+  entry : dict
+      The dictionary to search in.
+  keys : list of str
+      A list of keys to navigate through the nested dictionary.
+
+  Returns
+  -------
+  object or None
+      The value associated with the provided keys if the file and keys exist,
+      otherwise None.
+  """
+
+  for key in keys:
+    if isinstance(entry, dict):
+      if key not in entry.keys():
+        return None
+    if isinstance(entry, list):
+      if key >= len(entry):
+        return None    
+    entry = entry[key]
+  return entry
+
 def GetDictionaryEntryFromYaml(file_name, keys):
   """
   Retrieve a nested dictionary entry from a YAML file using a list of keys.
@@ -396,31 +461,247 @@ def GetDictionaryEntryFromYaml(file_name, keys):
     entry = entry[key]
   return entry
 
+def GetBestFitFromYaml(file_name):
+
+  if not os.path.isfile(file_name):
+    return None
+
+  with open(file_name, 'r') as yaml_file:
+    entry = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+  return {entry["columns"][ind]: entry["best_fit"][ind] for ind in range(len(entry["columns"]))}
+
+def GetBaseFileLoop(cfg):
+  return list(cfg["files"].keys())
+
 def GetFileLoop(cfg):
   return list(cfg["files"].keys())
 
-def GetFreezeLoop(freeze, val_info, column=None):
+def GetModelFileLoop(cfg, with_combined=False):
+  model_files = list(cfg["models"].keys())
+  if with_combined: 
+    model_files += ["combined"]
+  return model_files
+
+
+def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None):
+  models = []
+  for k, v in cfg["models"].items():
+
+    if model_file_name is not None:
+      if model_file_name != k:
+        continue
+
+    if not only_regression:
+      models.append(
+        {
+          "type" : "density",
+          "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/density/",
+          "name" : f"density_{k}",
+          "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
+          "parameter" : None,
+        }
+      )
+    for value in v["regression_models"]:
+      if not only_density:
+        models.append(
+          {
+            "type" : "regression",
+            "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/regression/{value['parameter']}",
+            "name" : f"regression_{k}_{value['parameter']}",
+            "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
+            "parameter" : value['parameter'],
+          }
+        )
+  return models
+
+def GetDefaults(cfg):
+  defaults = {}
+  for param in cfg["pois"]:
+    if param in cfg["default_values"].keys():
+      defaults[param] = cfg["default_values"][param]
+    else:
+      print(f"WARNING: Default value for {param} not set")
+  for param in cfg["nuisances"]:
+    defaults[param] = 0.0
+  for rate in cfg["inference"]["rate_parameters"]:
+    defaults[f"mu_{rate}"] = 1.0
+  return defaults
+
+def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False):
+  defaults = GetDefaults(cfg)
+  if file_name == "combined":
+    return defaults
+  params_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  return {k:v for k, v in defaults.items() if k in params_in_model}
+
+def GetFilesInModel(file_name, cfg):
+  parameters_in_model = []
+  for v in cfg["models"][file_name]["density_models"]:
+    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+  for v in cfg["models"][file_name]["regression_models"]:
+    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+  return parameters_in_model
+
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, include_rate=False, include_lnN=False):
+  parameters_in_model = []
+  if not only_regression:
+    for v in cfg["models"][file_name]["density_models"]:
+      parameters_in_model = list(set(parameters_in_model + v["parameters"]))
+  if not only_density:
+    for v in cfg["models"][file_name]["regression_models"]:
+      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
+  if include_rate and file_name in cfg["inference"]["rate_parameters"]:
+    parameters_in_model.append(f"mu_{file_name}")
+  if include_lnN:
+    parameters_in_model += list(cfg["inference"]["lnN"].keys())
+  return parameters_in_model
+
+def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False):
+  if file_name == "combined":
+    return cfg["validation"]["loop"]
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  if len(parameters_in_model) == 0:
+    return [{}]
+  loop_with_parameters = []
+  for value in cfg["validation"]["loop"]:
+    loop_with_parameters.append({k:v for k, v in value.items() if k in parameters_in_model})
+  loop_with_unique_parameters = []
+  for v in loop_with_parameters:
+    if v not in loop_with_unique_parameters:
+      loop_with_unique_parameters.append(v)
+
+  return loop_with_unique_parameters
+
+def GetCombinedValdidationIndices(cfg, file_name, val_ind):
+  if file_name != "combined":
+    return {file_name : val_ind}
+  combined_val = GetValidationLoop(cfg, file_name)[val_ind]
+  indices = {}
+  for fn in GetModelFileLoop(cfg):
+    indiv_val_loop = GetValidationLoop(cfg, fn)
+    for ind, val in enumerate(indiv_val_loop):
+      skimmed_combined_val = {k:v for k,v in combined_val.items() if k in val.keys()}
+      if val == skimmed_combined_val:
+        indices[fn] = ind
+        break
+  return indices
+
+
+def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
+
+  if architecture["type"] == "BayesFlow":
+
+    from bayes_flow_network import BayesFlowNetwork
+    network = BayesFlowNetwork(
+      f"{file_loc}/X_train.parquet",
+      f"{file_loc}/Y_train.parquet", 
+      f"{file_loc}/wt_train.parquet",
+      f"{file_loc}/X_{test_name}.parquet" if test_name is not None else None,
+      f"{file_loc}/Y_{test_name}.parquet" if test_name is not None else None,
+      f"{file_loc}/wt_{test_name}.parquet" if test_name is not None else None,
+      options = {
+        **{k:v for k,v in architecture.items() if k!="type"},
+        **options
+      }
+    )  
+
+  return network
+
+def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
+
+  if architecture["type"] == "FCNN":
+
+    from fcnn_network import FCNNNetwork
+    network = FCNNNetwork(
+      f"{file_loc}/X_train.parquet",
+      f"{file_loc}/y_train.parquet", 
+      f"{file_loc}/wt_train.parquet",
+      f"{file_loc}/X_{test_name}.parquet" if test_name is not None else None,
+      f"{file_loc}/y_{test_name}.parquet" if test_name is not None else None,
+      f"{file_loc}/wt_{test_name}.parquet" if test_name is not None else None,
+      options = {
+        **{k:v for k,v in architecture.items() if k!="type"},
+        **options
+      }
+    )  
+
+  return network
+
+def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
+  if not skip_non_density:
+    return False
+  if file_name == "combined":
+    return True  
+
+  params_in_density = GetParametersInModel(file_name, cfg, only_density=True)
+  defaults_not_in_model = GetDefaultsInModel(file_name, cfg)
+
+  default = True
+  for k,v in val_info.items():
+    if k in params_in_density: continue
+    if v != defaults_not_in_model[k]:
+      default = False
+      break
+
+  return not default
+
+def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
+
+  val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+
   freeze_loop = []
   if not (freeze == "all-but-one"):
+
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
     }]
-  elif len(val_info['row'].columns) < 2:
+
+  elif len(val_info_with_defaults.keys()) < 2:
     freeze_loop += [{
       "freeze" : {},
       "extra_name" : "",
     }]  
+
   else:
-    for col in val_info['row'].columns:
+
+    #val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+    for k, v in val_info.items():
+      val_info_with_defaults[k] = v
+    for col in GetParameterLoop(file_name, cfg, include_nuisances=loop_over_nuisances, include_rate=loop_over_rates, include_lnN=loop_over_lnN):
       if column is not None:
         if col != column:
           continue
       freeze_loop += [{
-        "freeze" : {c:float(val_info['row'].loc[:,c].iloc[0]) for c in val_info['row'].columns if c != col},
+        "freeze" : {k: v for k, v in val_info_with_defaults.items() if k != col},
         "extra_name" : f"_floating_only_{col}",
       }]
+
   return freeze_loop
+
+#def GetFreezeLoop(freeze, val_info, column=None):
+#  freeze_loop = []
+#  if not (freeze == "all-but-one"):
+#    freeze_loop += [{
+#      "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
+#      "extra_name" : "",
+#    }]
+#  elif len(val_info['row'].columns) < 2:
+#    freeze_loop += [{
+#      "freeze" : {},
+#      "extra_name" : "",
+#    }]  
+#  else:
+#    for col in val_info['row'].columns:
+#      if column is not None:
+#        if col != column:
+#          continue
+#      freeze_loop += [{
+#        "freeze" : {c:float(val_info['row'].loc[:,c].iloc[0]) for c in val_info['row'].columns if c != col},
+#        "extra_name" : f"_floating_only_{col}",
+#      }]
+#  return freeze_loop
 
 #def GetFileLoop(cfg):
 #  
@@ -476,6 +757,7 @@ def GetNuisanceLoop(cfg, parameters):
 
   return nuisance_loop
 
+"""
 def GetParameterLoop(val_info, cfg, args):
 
   par_loop = []
@@ -486,6 +768,17 @@ def GetParameterLoop(val_info, cfg, args):
     if args.loop_over_nuisances:
       cor_par += cfg["nuisances"]
   return [i for i in val_info["initial_best_fit_guess"].columns if i in cor_par]
+"""
+
+def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False):
+
+  defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)  
+  par_loop = [i for i in cfg["pois"] if i in defaults_in_model.keys()]
+  par_loop += [f"mu_{i}" for i in cfg["inference"]["rate_parameters"] if f"mu_{i}" in defaults_in_model.keys()]
+  if include_nuisances:
+    par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
+  return par_loop
+
 
 
 def GetPOILoop(cfg, parameters):
@@ -748,6 +1041,17 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   if name is not None and name != "":
     name = prefix+name
   return name
+
+def LoadConfig(config_name):
+  with open(config_name, 'r') as yaml_file:
+    cfg_before = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  if "export_string" in cfg_before.keys():
+    for k,v in cfg_before["export_string"].items():
+      os.environ[k] = v
+  with open(config_name, 'r') as yaml_file:
+    content = os.path.expandvars(yaml_file.read())  # Replace ${VAR} with environment value
+    cfg = yaml.safe_load(content)
+  return cfg
 
 def MakeDictionaryEntry(dictionary, keys, val):
   """
@@ -1059,3 +1363,10 @@ def StringToFile(string):
   if string.count(".") > 1:
     string = f'{"p".join(string.split(".")[:-1])}.{string.split(".")[-1]}'
   return string
+
+def Translate(key, translation_file="configs/translate/translate.yaml"):
+  val = GetDictionaryEntryFromYaml(translation_file, [key])
+  if val is not None:
+    return val
+  else:
+    return key

@@ -1,31 +1,32 @@
 import copy
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import pickle
 import yaml
 
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from functools import partial
 from pprint import pprint
 
-from plotting import plot_stacked_histogram_with_ratio
-from useful_functions import MakeDirectories
+from useful_functions import (
+  InitiateDensityModel, 
+  InitiateRegressionModel, 
+  MakeDirectories
+)
 
 class Infer():
 
   def __init__(self):
 
-    self.parameters =  None
-    self.model = None
-    self.architecture = None
+    self.parameters = None
+    self.model_input = None
+    self.density_models = {}
+    self.regression_models = {}
 
     self.true_Y = None
+    self.val_ind = None
     self.initial_best_fit_guess = None
-    self.pois = None
-    self.nuisances = None
     self.method = "InitialFit"
 
     self.inference_options = {}
@@ -38,7 +39,6 @@ class Infer():
     self.resample = False
     self.resampling_seed = 1
     self.verbose = True
-    self.n_asimov_events = 10**6
     self.minimisation_method = "nominal"
     self.freeze = {}
     self.extra_file_name = ""
@@ -52,19 +52,19 @@ class Infer():
     self.other_input_files = []
     self.other_output_files = []
     self.model_type = "BayesFlow"
-    self.data_file = None
-    self.write_asimov = True
-    self.asimov_input = None
-    self.plot_resampling = True
     self.binned_fit_input = None
     self.yields = None
     self.dps = None
-    self.test_name = "test"
     self.lkld = None
     self.lkld_input = None
-    self.scan_over_nuisances = False
-    self.hessian_file = None
     self.sim_type = "val"
+    self.X_columns = None
+    self.Y_columns = None
+    self.Y_columns_per_model = {}
+    self.only_density = False
+    self.best_fit_input = None
+    self.hessian_input = None
+    self.d_matrix_input = None
 
   def Configure(self, options):
     """
@@ -75,16 +75,6 @@ class Infer():
     """
     for key, value in options.items():
       setattr(self, key, value)
-
-    # Make singular inputs as dictionaries
-    combined_model = True
-    if isinstance(self.model, str):
-      combined_model = False
-      with open(self.parameters, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      self.model = {parameters['file_name'] : self.model}
-      self.parameters = {parameters['file_name'] : self.parameters}
-      self.architecture = {parameters['file_name'] : self.architecture}
 
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
@@ -98,79 +88,35 @@ class Infer():
     # Make yields or use existing
     if self.yields is None:
       self.yields = self._BuildYieldFunctions()
-  
+
+    # Make data processors or use existing
+    if self.dps is None:
+      self.dps = self._BuildDataProcessors()
+
     # Make likelihood or use exisiting
     if self.lkld is None:
       self.lkld = self._BuildLikelihood()
 
-    if self.method != "MakeAsimov":
 
-      # Make data processors or use existing
-      if self.dps is None:
-        self.dps = self._BuildDataProcessors()
-
-      # Make likelihood inputs
-      if self.lkld_input is None:
-        if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-          self.lkld_input = self.dps.values()
-        elif self.likelihood_type in ["binned", "binned_extended"]:
-          categories = self._BuildCategories()
-          self.lkld_input = [0.0 for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
-          for file_name in self.parameters.keys():
-            bin_cat_num = 0        
-            for cat_num, cat_info in categories.items():
-              hist, _ = self.dps[file_name].GetFull(
-                method = "histogram",
-                extra_sel = cat_info[0],
-                column = cat_info[1],
-                bins = cat_info[2],
-              )
-              for b in hist:
-                self.lkld_input[bin_cat_num] += b
-                bin_cat_num += 1
-
-    # Method to make the asimov datasets
-    if self.method == "MakeAsimov" and self.likelihood_type in ["unbinned", "unbinned_extended"]:
-
-      import tensorflow as tf
-      from data_processor import DataProcessor
-
-      sum_yields = np.sum([self.lkld.models["yields"][fn](self.true_Y) for fn in self.parameters.keys()])
-
-      for file_name in self.parameters.keys():
-        if self.lkld.models["yields"][file_name](self.true_Y) == 0: continue
-        frac_yields = self.lkld.models["yields"][file_name](self.true_Y)/sum_yields
-        asimov_writer = DataProcessor(
-          [[partial(self.lkld.models["pdfs"][file_name].Sample, self.true_Y)]],
-          "generator",
-          n_events = int(self.n_asimov_events*frac_yields),
-          wt_name = "wt",
-          options = {
-            "parameters" : self.lkld.data_parameters[file_name],
-            "scale" : self.lkld.models["yields"][file_name](self.true_Y),
-          }
-        )
-        if self.verbose:
-          print(f"- Making asimov dataset for {file_name} and writing it to file")
-        asimov_file_name = f"{self.data_output}/asimov_{file_name}{self.extra_file_name}.parquet"
-        MakeDirectories(asimov_file_name)
-        if os.path.isfile(asimov_file_name): os.system(f"rm {asimov_file_name}")
-        tf.random.set_seed(self.lkld.seed)
-        tf.keras.utils.set_random_seed(self.lkld.seed)
-        asimov_writer.GetFull(
-          method = None,
-          functions_to_apply = [
-            partial(self._WriteDatasets,file_path=asimov_file_name)
-          ]
-        )
-      return None
-
-    if self.verbose:
-      if self.data_type != "data":
-        print(f"- Performing actions on the likelihood for the dataframe on data type {self.data_type}:")
-        print(self.true_Y)
-      else:
-        print(f"- Performing actions on the likelihood on data")
+    # Make likelihood inputs
+    if self.lkld_input is None:
+      if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+        self.lkld_input = self.dps.values()
+      #elif self.likelihood_type in ["binned", "binned_extended"]:
+      #  categories = self._BuildCategories()
+      #  self.lkld_input = [0.0 for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
+      #  for file_name in self.parameters.keys():
+      #    bin_cat_num = 0        
+      #    for cat_num, cat_info in categories.items():
+      #      hist, _ = self.dps[file_name].GetFull(
+      #        method = "histogram",
+      #        extra_sel = cat_info[0],
+      #        column = cat_info[1],
+      #        bins = cat_info[2],
+      #      )
+      #      for b in hist:
+      #        self.lkld_input[bin_cat_num] += b
+      #        bin_cat_num += 1
 
     if self.verbose:
       if self.freeze != {}:
@@ -196,7 +142,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -221,7 +167,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -237,7 +183,6 @@ class Infer():
         row=self.true_Y, 
         filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
         freeze=self.freeze,
-        #scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
       )    
 
     elif self.method == "DMatrix":
@@ -246,7 +191,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -262,7 +207,6 @@ class Infer():
         row=self.true_Y, 
         filename=f"{self.data_output}/dmatrix{self.extra_file_name}.yaml", 
         freeze=self.freeze,
-        #scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
       )
 
     elif self.method == "Covariance":
@@ -298,7 +242,7 @@ class Infer():
       with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
       # Open D matrix yaml
-      with open(f"{self.data_input}/dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.d_matrix_input}/dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
         Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Save to class
@@ -346,7 +290,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -370,16 +314,12 @@ class Infer():
 
     elif self.method == "ScanPointsFromHessian":
 
-      # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
-        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
       # Open hessian
       with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
-      self.lkld.best_fit = np.array(best_fit_info["best_fit"])
+      self.lkld.best_fit = np.array(hessian["best_fit"])
       self.lkld.hessian = hessian["hessian"]
 
       # Make scan ranges
@@ -399,7 +339,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -433,13 +373,6 @@ class Infer():
     # Initiate outputs
     outputs = []
 
-    # Add asimov files
-    if self.method == "MakeAsimov":
-      yields = self._BuildYieldFunctions()
-      for file_name in self.parameters.keys():
-        if yields[file_name](self.true_Y) == 0: continue
-        outputs += [f"{self.data_output}/asimov_{file_name}{self.extra_file_name}.parquet"]
-
     # Add best fit
     if self.method == "InitialFit":
       outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
@@ -452,7 +385,7 @@ class Infer():
     if self.method == "DMatrix":
       outputs += [f"{self.data_output}/dmatrix{self.extra_file_name}.yaml"]
 
-    columns = [i for i in self.initial_best_fit_guess.columns if self.freeze is None or i not in self.freeze.keys()]
+    columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
 
     # Add covariance
     if self.method == "Covariance":
@@ -488,38 +421,35 @@ class Infer():
     # Initiate inputs
     inputs = []
 
-    # Add parameters and model inputs
-    for k in self.parameters.keys():
+    # Add parameters
+    for k, v in self.parameters.items():
+      inputs += [v]
+
+    # Add data inputs and parameters
+    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+      for k, v in self.parameters.keys():
+        inputs += self.data_input[k]
+        inputs += [v]
+
+    # Add density model inputs
+    for k, v in self.density_models.items():
       inputs += [
-        self.parameters[k],
+        f"{v['file_loc']}/{v['name']}/{self.model_input}/architecture.yaml",
+        f"{v['file_loc']}/{v['name']}/{self.model_input}/{self.model_type}.h5",
       ]
 
-      if self.likelihood_type in ["unbinned","unbinned_extended"]:
+    # Add regression model inputs
+    for k, v in self.regression_models.items():
+      for vi in v:
         inputs += [
-          self.model[k],
-          self.architecture[k],
+          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/architecture.yaml",
+          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/{self.model_type}.h5", 
+          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/{self.model_type}_norm_spline.pkl"
         ]
-
-    # Add input datasets
-    if self.data_type == "sim" or (self.data_type == "asimov" and self.likelihood_type in ["binned", "binned_extended"]):
-      for k, v in self.parameters.items():
-        with open(v, 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        inputs += [
-          f"{parameters['file_loc']}/X_{self.sim_type}.parquet",
-          f"{parameters['file_loc']}/Y_{self.sim_type}.parquet",
-          f"{parameters['file_loc']}/wt_{self.sim_type}.parquet",
-        ]
-    elif self.data_type == "data":
-      inputs += [self.data_file]      
-    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov" and self.likelihood_type in ["unbinned", "unbinned_extended"]:
-      for file_name in self.parameters.keys():
-        inputs += [f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"]
-
 
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","DMatrix","ApproximateUncertainty"]:
-      inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
+      inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian 
     if self.method in ["Covariance","CovarianceWithDMatrix","ScanPointsFromHessian"]:
@@ -527,12 +457,13 @@ class Infer():
 
     # Add d matrix
     if self.method in ["CovarianceWithDMatrix"]:
-      inputs += [f"{self.data_input}/dmatrix{self.extra_file_name}.yaml"]
+      inputs += [f"{self.d_matrix_input}/dmatrix{self.extra_file_name}.yaml"]
 
     # Add other inputs
     inputs += self.other_input_files
 
     return inputs
+
 
   def _BuildCategories(self):
 
@@ -547,12 +478,32 @@ class Infer():
       else:
         sel = None
         var_and_bins = category
-      var = var_and_bins.split("[")[0]
-      bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
+
+      if "[" in var_and_bins:
+        var = var_and_bins.split("[")[0]
+        bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
+      elif "(" in var_and_bins:
+        var = var_and_bins.split("(")[0]
+        start_stop_step = [float(i) for i in list(var_and_bins.split("(")[1].split(")")[0].split(","))]
+        bins = [float(i) for i in np.arange(start_stop_step[0], start_stop_step[1], start_stop_step[2])]
       categories[category_ind] = [sel, var, bins]
     
     return categories
 
+
+  def _BuildBinYields(self):
+
+    from data_processor import DataProcessor
+    from yields import Yields
+
+    # Make selection, variable and bins
+    categories = self._BuildCategories()
+
+    # Define bin_yields dictionary
+    bin_yields = {}
+
+
+  """
   def _BuildBinYields(self):
 
     from data_processor import DataProcessor
@@ -631,7 +582,9 @@ class Infer():
         bin_yields[file_name].append(bin_yield_class.GetYield)
 
     return bin_yields
+  """
 
+    
   def _BuildDataProcessors(self):
 
     from data_processor import DataProcessor
@@ -643,266 +596,140 @@ class Infer():
     elif self.method in ["Hessian","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
 
+    # Build dataprocessors
     dps = {}
-    for file_name, v in self.parameters.items():
+    for k, v in self.parameters.items():
 
       # Open data parameters
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      if self.yields is not None:
-        scale = self.yields[file_name](self.true_Y)
-        if scale == 0: continue
+      if self.scale_to_eff_events:
+        scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
       else:
         scale = None
 
-      # Generate simulated data processor
-      if self.data_type == "sim":
-        if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-          sim_inputs = [[f"{parameters['file_loc']}/X_{self.sim_type}.parquet", f"{parameters['file_loc']}/Y_{self.sim_type}.parquet", f"{parameters['file_loc']}/wt_{self.sim_type}.parquet"]]
-          if "Extra_columns" in parameters.keys():
-            if parameters["Extra_columns"] != []:
-              sim_inputs[0].append(f"{parameters['file_loc']}/Extra_{self.sim_type}.parquet")
-          if self.sim_type != "full":
-            functions = ["untransform"]
-          else:
-            functions = []
-        else:
-          sim_inputs = [
-            [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
-          ]
-          if "Extra_columns" in parameters.keys():
-            if parameters["Extra_columns"] != []:
-              sim_inputs[0].append(f"{parameters['file_loc']}/Extra_full.parquet")
-          scale = [None]
-          functions = []
-
-        shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in parameters["Y_columns"]]
-        dps[file_name] = DataProcessor(
-          sim_inputs,
-          "parquet",
-          wt_name = "wt",
-          batch_size = batch_size,
-          options = {
-            "parameters" : parameters,
-            "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-            "scale" : scale,
-            "resample" : self.resample,
-            "resampling_seed" : self.resampling_seed,
-            "functions" : functions, 
-          }
-        )
-
-        # plot resampling
-        if self.plot_resampling and self.resample:
-          non_resampling_dp = DataProcessor(
-            sim_inputs,
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "parameters" : parameters,
-              "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-              "scale" : scale,
-              "functions" : ["untransform"]
-            }
-          )
-          for col in parameters["X_columns"]:
-            # Get binning
-            bins = non_resampling_dp.GetFull(
-              method = "bins_with_equal_spacing", 
-              bins = 40,
-              column = col,
-            )      
-            # Get histograms
-            non_resampled_hist, non_resampled_hist_hist_uncert, bins = non_resampling_dp.GetFull(
-              method = "histogram_and_uncert",
-              bins = bins,
-              column = col,
-            )
-            resampled_hist, resampled_hist_hist_uncert, bins =  dps[file_name].GetFull(
-              methoƒd = "histogram_and_uncert",
-              bins = bins,
-              column = col,
-            )
-            plot_stacked_histogram_with_ratio(
-              resampled_hist, 
-              {"Full Dataset" : non_resampled_hist}, 
-              bins, 
-              data_name = f"Resampled with Seed {self.resampling_seed}", 
-              xlabel=col,
-              ylabel="Events",
-              name=f"{self.plots_output}/resampling_{col}_seed_{self.resampling_seed}", 
-              data_errors=resampled_hist_hist_uncert, 
-              stack_hist_errors=non_resampled_hist_hist_uncert, 
-              use_stat_err=False,
-              axis_text="",
-              )
-
-      elif self.data_type == "asimov":
-
-        # Generate asimov as you go
-        if not self.write_asimov:
-
-          if self.yields is not None:
-            sum_yields = np.sum([self.yields[fn](self.true_Y) for fn in self.parameters.keys()])
-            scale = self.yields[file_name](self.true_Y)
-            if scale == 0.0: continue
-            frac_yields = scale/sum_yields
-          else:
-            frac_yields = 1.0
-            scale = None
-
-          dps[file_name] = DataProcessor(
-            [[partial(self.models[file_name].Sample, self.true_Y)]],
-            "generator",
-            n_events = int(self.n_asimov_events*frac_yields), # multiply by yield fractions
-            wt_name = "wt",
-            batch_size = batch_size,
-            options = {
-              "parameters" : parameters,
-              "scale" : scale,
-            }
-          )
-
-        # Use asimov that has been written to file file first 
-        else:
-
-          asimov_file_name = f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"
-          dps[file_name] = DataProcessor(
-            [[asimov_file_name]],
-            "parquet",
-            wt_name = "wt",
-            batch_size = batch_size,
-          )
-
-    if self.data_type == "data":
-
-      dps["Data"] = DataProcessor(
-        [[self.data_file]],
+      dps[k] = DataProcessor(
+        self.data_input[k],
         "parquet",
+        wt_name = "wt",
         batch_size = batch_size,
+        options = {
+          "parameters" : parameters,
+          "scale" : scale,
+        }
       )
 
     return dps
 
-  def _BuildYieldFunctions(self, column_name="yield"):
+
+  def _BuildYieldFunctions(self):
 
     from yields import Yields
 
-    # Load parameters
+    # Load parameters in
     parameters = {}
     for k, v in self.parameters.items():
       with open(v, 'r') as yaml_file:
         parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    # Build yield function
+    # If scale to effective events, recalculate effective events for combined models
+    if self.scale_to_eff_events:
+      sum_wt = 0.0
+      sum_wt_squared = 0.0
+      for k, v in parameters.items():
+        sum_wt += v["yields"]["nominal"]
+        sum_wt_squared += (v["yields"]["nominal"]**2) / v["eff_events"][self.sim_type][self.val_ind]
+      eff_events = (sum_wt**2) / sum_wt_squared
+      scale_to = {k: v["yields"]["nominal"]*eff_events/sum_wt for k, v in parameters.items()}
+    else:
+      scale_to = {k: v["yields"]["nominal"] for k, v in parameters.items()}
+
+    # build yield functions
     yields = {}
     yields_class = {}
-    eff_events_class = {}
-    sum_wts_squared = 0.0
-    sum_wts = 0.0
-
-    for ind, (k, v) in enumerate(self.parameters.items()):
-    
+    for k, v in parameters.items():
       yields_class[k] = Yields(
-        pd.read_parquet(parameters[k]['yield_loc']), 
-        self.pois, 
-        self.nuisances, 
-        k,
-        method=self.yield_function, 
-        column_name=column_name
+        scale_to[k],
+        lnN = v["yields"]["lnN"],
+        physics_model = None,
+        rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
       )
-
-      if not self.scale_to_eff_events:
-        yields[k] = yields_class[k].GetYield
-
-      else:
-
-        if self.sim_type == "full":
-          eff_name = "effective_events"
-        else:
-          eff_name = f"effective_events_{self.sim_type}"
-
-        eff_events_class[k] = Yields(
-          pd.read_parquet(parameters[k]['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          k,
-          method=self.yield_function, 
-          column_name=eff_name
-        )
-        sum_wts_squared += (yields_class[k].GetYield(self.true_Y)**2)/eff_events_class[k].GetYield(self.true_Y)
-        sum_wts += yields_class[k].GetYield(self.true_Y)
-
-    if self.scale_to_eff_events:
-      eff_events = (sum_wts**2)/sum_wts_squared
-      for k in self.parameters.keys():
-        if self.sim_type != "full":
-          yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/sum_wts), k=k, eff_events=eff_events, sum_wts=sum_wts)
-        else:
-          yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/(sum_wts**2)), k=k, eff_events=eff_events, sum_wts=sum_wts)
+      yields[k] = yields_class[k].GetYield
 
     return yields
 
-  def _BuildModels(self):
 
-    if self.model_type == "BayesFlow":
+  def _BuildDensityModels(self):
 
-      from network import Network
+    networks = {}
+    parameters = {}
+    for k, v in self.density_models.items():
 
-      networks = {}
-      parameters = {}
-      for file_name in self.parameters.keys():
+      # Open parameters
+      with open(v["parameters"], 'r') as yaml_file:
+        parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        # Open parameters
-        if self.verbose:
-          print(f"- Loading in the parameters for model {file_name}")
-        with open(self.parameters[file_name], 'r') as yaml_file:
-          parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Open architecture
+      density_model_name = f"{self.model_input}/{v['name']}/{parameters[k]['file_name']}"
+      with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
+        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        # Load the architecture in
-        if self.verbose:
-          print(f"- Loading in the architecture for model {file_name}")
-        with open(self.architecture[file_name], 'r') as yaml_file:
-          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Make model
+      networks[k] = InitiateDensityModel(
+        architecture,
+        v['file_loc'],
+        options = {
+          "data_parameters" : parameters[k]["density"],
+        }
+      )
 
-        # Build model
-        if self.verbose:
-          print(f"- Building the model for {file_name}")
-        networks[file_name] = Network(
-          f"{parameters[file_name]['file_loc']}/X_val.parquet",
-          f"{parameters[file_name]['file_loc']}/Y_val.parquet", 
-          f"{parameters[file_name]['file_loc']}/wt_val.parquet",
-          options = {
-            **architecture,
-            **{
-              "data_parameters" : parameters[file_name]
-            }
-          }
-        )  
-        
-        # Loading model
-        if self.verbose:
-          print(f"- Loading the model for {file_name}")
-        networks[file_name].Load(name=self.model[file_name])
-
-    elif self.model_type.startswith("Benchmark"):
-
-      if not "Dim1CfgToBenchmark" in self.model_type:
-        import importlib
-        module_name = self.model_type.split("Benchmark_")[1]
-        module = importlib.import_module(module_name)
-        module_class = getattr(module, module_name)
-        networks = {}
-        for file_name in self.parameters.keys():
-          networks[file_name] = module_class(file_name=file_name)
-      else:
-        from Dim1CfgToBenchmark import Dim1CfgToBenchmark
-        cfg_name = self.model_type.split("Dim1CfgToBenchmark_")[-1]
-        for file_name, params in self.parameters.items():
-          networks[file_name] = module_class(cfg_name, params, file_name=file_name)                  
+      networks[k].Load(name=f"{density_model_name}.h5")
 
     return networks
+
+
+  def _BuildRegressionModels(self):
+
+
+    networks = {}
+    splines = {}
+    parameters = {}
+    for k, v in self.regression_models.items():
+
+      networks[k] = {}
+      splines[k] = {}
+
+      for vi in v:
+
+        # Open parameters
+        with open(vi["parameters"], 'r') as yaml_file:
+          parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Open architecture
+        regression_model_name = f"{self.model_input}/{vi['name']}/{parameters[k]['file_name']}"
+        with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Make model
+        networks[k][vi["parameter"]] = InitiateRegressionModel(
+          architecture,
+          vi['file_loc'],
+          options = {
+            "data_parameters" : parameters[k]["regression"][vi["parameter"]],
+          }
+        )
+
+        networks[k][vi["parameter"]].Load(name=f"{regression_model_name}.h5")
+
+        # Make normalising spline
+        spline_name = f"{regression_model_name}_norm_spline.pkl"
+        if os.path.isfile(spline_name):
+          with open(spline_name, 'rb') as f:
+            splines[k][vi["parameter"]] = pickle.load(f)
+
+    return networks, splines
+
 
   def _BuildLikelihood(self):
 
@@ -910,6 +737,7 @@ class Infer():
 
     if self.verbose:
       print(f"- Building likelihood")
+      print(f"- Y_columns={self.Y_columns}")
 
     parameters = {}
     for file_name in self.parameters.keys():
@@ -918,25 +746,35 @@ class Infer():
 
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       likelihood_inputs = {
-        "pdfs" : self._BuildModels(),
+        "pdfs" : self._BuildDensityModels(),
         "yields" : self.yields,
       }
+      if not self.only_density:
+        likelihood_inputs["pdf_shifts_with_regression"], likelihood_inputs["pdf_shifts_with_regression_norm_spline"] = self._BuildRegressionModels()
+
     elif self.likelihood_type in ["binned", "binned_extended"]:
       likelihood_inputs = {
         "bin_yields" : self._BuildBinYields(),
       }
 
+    if "nuisance_constraints" in self.inference_options.keys():
+      constraints = [i for i in self.inference_options["nuisance_constraints"] if i in self.Y_columns]
+    else:
+      constraints = []
+
     if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
-      constraint_center = self.true_Y.loc[:,list(self.inference_options["nuisance_constraints"].keys())]
+      constraint_center = self.true_Y.loc[:,constraints]
     else:
       constraint_center = None
 
     lkld = Likelihood(
       likelihood_inputs, 
       likelihood_type = self.likelihood_type, 
-      data_parameters = parameters,
-      parameters = self.inference_options,
       constraint_center = constraint_center,
+      constraints = constraints,
+      X_columns = self.X_columns,
+      Y_columns = self.Y_columns,
+      Y_columns_per_model = self.Y_columns_per_model
     )
 
     return lkld

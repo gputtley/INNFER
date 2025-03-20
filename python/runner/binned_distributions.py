@@ -8,7 +8,7 @@ import pandas as pd
 from functools import partial
 
 from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
-from useful_functions import GetYName
+from useful_functions import GetYName, Translate
 
 class BinnedDistributions():
 
@@ -116,7 +116,7 @@ class BinnedDistributions():
         sim_hists, 
         cat_info[2], 
         data_name=data_plot_name, 
-        xlabel=cat_info[1],
+        xlabel=Translate(cat_info[1]),
         ylabel="Events",
         name=f"{self.plots_output}/binned_distribution_category{cat_ind}{self.extra_plot_name}", 
         data_errors=data_hist_uncert, 

@@ -50,6 +50,7 @@ class InnferTrainer(bf.trainers.Trainer):
       active_learning_options = {},
       resample = False,
       model_name = "model.h5",
+      save_model_per_epoch = False,
       **kwargs,
    ):
       """
@@ -110,6 +111,11 @@ class InnferTrainer(bf.trainers.Trainer):
       # Create early stopper, if conditions met, otherwise None returned
       early_stopper = self._config_early_stopping(early_stopping, **kwargs)
 
+      # Save model per epoch
+      if save_model_per_epoch:
+         MakeDirectories(model_name)
+         self.amortizer.inference_net.save_weights(model_name.replace(".h5","_epoch_0.h5"))
+
       # Loop through epochs
       for ep in range(1, epochs + 1):
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
@@ -119,7 +125,6 @@ class InnferTrainer(bf.trainers.Trainer):
 
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
-               #print(input_dict)
 
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
@@ -130,9 +135,6 @@ class InnferTrainer(bf.trainers.Trainer):
                avg_dict = self.loss_history.get_running_losses(ep)
                lr = self._convert_lr(extract_current_lr(self.optimizer))
 
-            #print(self.amortizer.compute_loss(input_dict))
-            #print(ep, bi, loss, avg_dict, lr)
-            #print("-------------------------------------------------")
                disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
                p_bar.set_postfix_str(disp_str)
                p_bar.update(1)
@@ -148,6 +150,10 @@ class InnferTrainer(bf.trainers.Trainer):
          val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
          self.lr_history.append(lr)
          
+         # Save model per epoch
+         if save_model_per_epoch:
+            self.amortizer.inference_net.save_weights(model_name.replace(".h5",f"_epoch_{ep}.h5"))
+
          # Save best model
          if (best_val_loss is None) or (val_loss < best_val_loss):
             best_val_loss = 1.0*val_loss
@@ -265,7 +271,6 @@ class InnferTrainer(bf.trainers.Trainer):
          (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data)
       if Y_data.shape[1] == 0:
          Y_data = np.empty((X_data.shape[0],0))
-      #print(np.sum(wt_data),len(X_data))
       return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):

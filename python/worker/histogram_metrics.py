@@ -74,7 +74,7 @@ class HistogramMetrics():
         selection = None
       else:
         uc_name = GetYName(uc, purpose="file")
-        Y = pd.DataFrame(np.array(uc), columns=unique_columns, dtype=np.float64)
+        Y = pd.DataFrame(np.array([uc]), columns=unique_columns, dtype=np.float64)
         selection = " & ".join([f"({k}=={uc[ind]})" for ind, k in enumerate(unique_columns)])
 
       # Make synthetic data processors
@@ -250,51 +250,3 @@ class HistogramMetrics():
             kl_divergence_dict[f"kl_divergence_{sim_file_name}"]["mean"] =  total_sim_file_kl_divergence/count_sim_file_kl_divergence
 
     return kl_divergence_dict
-
-  def GetWasserstein(self, add_sum=True, add_mean=True):
-
-    # Make histograms is they don't exist
-    if not self.hists_exist:
-      self.MakeHistograms()
-
-    # Setup dictionaries
-    wasserstein_dict = {}
-
-    # Loop through the sim files
-    for sim_file_name, sim_hist_per_file in self.sim_hists.items():
-      total_sim_file_wasserstein = 0
-      count_sim_file_wasserstein = 0
-      # Loop through the unique combinations
-      for uc_name, sim_hist in sim_hist_per_file.items():
-        total_uc_wasserstein = 0
-        count_uc_wasserstein = 0
-        # Loop through the columns
-        for col in sim_hist.keys():
-
-          # Calculate KL divergence
-          wasserstein = wasserstein_distance(self.bin_centers[sim_file_name][uc_name][col], self.bin_centers[sim_file_name][uc_name][col], self.synth_hists[sim_file_name][uc_name][col], self.sim_hists[sim_file_name][uc_name][col])
-
-          # Add to dictionaries
-          wasserstein_dict = MakeDictionaryEntry(wasserstein_dict, [f"wasserstein_{sim_file_name}",uc_name,col], wasserstein)
-
-          total_uc_wasserstein += wasserstein
-          count_uc_wasserstein += 1
-
-        # Add sum and mean to dictionaries
-        if count_uc_wasserstein > 0:
-          if add_sum:
-            wasserstein_dict[f"wasserstein_{sim_file_name}"][uc_name]["sum"] =  total_uc_wasserstein
-          if add_mean:
-            wasserstein_dict[f"wasserstein_{sim_file_name}"][uc_name]["mean"] =  total_uc_wasserstein/count_uc_wasserstein
-          
-        total_sim_file_wasserstein += total_uc_wasserstein
-        count_sim_file_wasserstein += count_uc_wasserstein
-
-        # Add sum and mean to dictionaries
-        if count_sim_file_wasserstein > 0:
-          if add_sum:
-            wasserstein_dict[f"wasserstein_{sim_file_name}"]["sum"] =  total_sim_file_wasserstein
-          if add_mean:
-            wasserstein_dict[f"wasserstein_{sim_file_name}"]["mean"] =  total_sim_file_wasserstein/count_sim_file_wasserstein
-
-    return wasserstein_dict

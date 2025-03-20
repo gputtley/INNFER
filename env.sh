@@ -16,12 +16,12 @@ if ! command -v nvidia-smi &> /dev/null ; then
   export EVENTS_PER_BATCH_FOR_HESSIAN=2000
   ulimit -s unlimited
 else
-  export EVENTS_PER_BATCH=200000
-  export EVENTS_PER_BATCH_FOR_GRADIENTS=100000
-  export EVENTS_PER_BATCH_FOR_HESSIAN=20000
+  export EVENTS_PER_BATCH=50000
+  export EVENTS_PER_BATCH_FOR_GRADIENTS=10000
+  export EVENTS_PER_BATCH_FOR_HESSIAN=5000
 fi
 export PLOTTING_CMS_LABEL="Work In Progress"
-export PLOTTING_LUMINOSITY="\$138\ fb^{-1}\$"
+export PLOTTING_LUMINOSITY="\$138\ fb^{-1} (13\ TeV)\$"
 
 ulimit -s unlimited
 source miniconda/files/etc/profile.d/conda.sh

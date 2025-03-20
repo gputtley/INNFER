@@ -71,8 +71,8 @@ class DataProcessor():
       self.data_loaders = [[DataLoader(d, batch_size=self.batch_size) for d in ds] for ds in self.datasets]
       self.num_batches = [self.data_loaders[ind][0].num_batches for ind in range(len(self.datasets))]
 
-    if np.sum(self.num_batches) == 0:
-      print("WARNING: No batches found!")
+    #if np.sum(self.num_batches) == 0:
+    #  print("WARNING: No batches found!")
 
     if not isinstance(self.scale, list):
       self.scale = [self.scale]*len(self.datasets)
@@ -132,10 +132,15 @@ class DataProcessor():
       if df is None:
         df = copy.deepcopy(tmp)
       else:
+        
+        # remove non unique columns
+        for col in tmp.columns:
+          if col in df.columns:
+            tmp = tmp.drop(columns=[col])
+            
         df = pd.concat([df, tmp], axis=1)
 
       del tmp
-
 
     if df is None: 
       self.finished = True
@@ -212,6 +217,7 @@ class DataProcessor():
       quantile = 0.01,
       ignore_quantile = 0.005,
       unique_combinations = None,
+      sampling_fraction = 1.0,
       means = None,
       custom = None,
       custom_options = {},
@@ -270,6 +276,8 @@ class DataProcessor():
       # Run method
       if method in ["dataset"]: # get full dataset
         out = self._method_dataset(tmp, out)
+      elif method in ["sampled_dataset"]: # get sampled dataset
+        out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
       elif method in ["histogram"]: # make a histogram from the dataset
         out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
       elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
@@ -292,6 +300,8 @@ class DataProcessor():
         out = self._method_sum_w2_unique_columns(tmp, out, unique_combinations)
       elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
         out = self._method_sum_columns(tmp, out)
+      elif method in ["sum_formula"]:
+        out = self._method_sum_formula(tmp, out, column)
       elif method in ["std"]: # find partial information for std of columns
         out = self._method_part_std(tmp, out, means)
       elif method in ["unique"]: # find unique values of a column
@@ -393,6 +403,21 @@ class DataProcessor():
         col_2 = column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]
         if col_1 in self.parameters["standardisation"].keys() and col_2 in self.parameters["standardisation"].keys():
           data.loc[:,column_name] /= (self.parameters["standardisation"][col_1]["std"] * self.parameters["standardisation"][col_2]["std"])
+
+      # Unstandardise the first derivative of the one standardised paramater with respect to another
+      for col_1 in self.parameters["standardisation"].keys():
+        if column_name.startswith(f"d_{col_1}_by_d_"):
+          for col_2 in self.parameters["standardisation"].keys():
+            if column_name == f"d_{col_1}_by_d_{col_2}":
+              data.loc[:,column_name] *= self.parameters["standardisation"][col_1]["std"] / self.parameters["standardisation"][col_2]["std"]
+
+      # Unstandardise the second derivative of the one standardised paramater with respect to another
+      for col_1 in self.parameters["standardisation"].keys():
+        if column_name.startswith(f"d2_{col_1}_by_d_"):
+          for col_2 in self.parameters["standardisation"].keys():
+            for col_3 in self.parameters["standardisation"].keys():
+              if column_name == f"d2_{col_1}_by_d_{col_2}_and_{col_3}":
+                data.loc[:,column_name] *= self.parameters["standardisation"][col_1]["std"] / (self.parameters["standardisation"][col_2]["std"] * self.parameters["standardisation"][col_3]["std"])
 
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
@@ -593,12 +618,33 @@ class DataProcessor():
       out = {col : [min(out[col][0], tmp_min_max[col][0]), max(out[col][1], tmp_min_max[col][1])] for col in tmp.columns}
     return out
 
+  def _method_sampled_dataset(self, tmp, out, sampling_fraction=1.0):
+
+    if sampling_fraction != 1.0:
+      indices = np.random.choice(tmp.index, int(len(tmp)*sampling_fraction), replace=False)
+      tmp = tmp.loc[indices,:]
+
+    if out is None:
+      out = copy.deepcopy(tmp)
+    else:
+      out = pd.concat([out, tmp], axis=0, ignore_index=True)
+    return out
+
   def _method_sum(self, tmp, out, count=False):
     if self.wt_name is None or count:
       tmp_total = len(tmp)
     else:
       tmp_total = float(np.sum(tmp.loc[:,self.wt_name]))
 
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out += tmp_total
+    return out
+
+  def _method_sum_formula(self, tmp, out, column):
+    tmp.loc[:,"tmp_for_sum_formula"] = tmp.eval(column)
+    tmp_total = float(np.sum(tmp.loc[:,"tmp_for_sum_formula"]))
     if out is None:
       out = copy.deepcopy(tmp_total)
     else:
