@@ -4,7 +4,7 @@ import yaml
 from random_word import RandomWords
 
 from train import Train
-from performance_metrics import PerformanceMetrics
+from python.runner.archive.performance_metrics import PerformanceMetrics
 
 class HyperparameterScan():
 

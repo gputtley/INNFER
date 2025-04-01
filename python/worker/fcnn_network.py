@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
-  print("INFO: Using GPUs")
+  print("INFO: Using GPUs for FCNNNetwork")
   for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 

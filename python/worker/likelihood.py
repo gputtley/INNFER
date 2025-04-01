@@ -52,6 +52,7 @@ class Likelihood():
     self.yield_splines = None
     self.hessian = None
     self.D_matrix = None
+    self.D_matrix_columns = None
     self.covariance = None
 
   def _ConstraintGaussian(self, x, derivative=0):
@@ -90,25 +91,58 @@ class Likelihood():
 
   def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
-    tmp_probs = self._GetEventLoopUnbinned(
-      tmp, 
-      options["Y"], 
-      wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
-      gradient = [1], 
-      column_1 = self.Y_columns,
-      before_sum = True
-    )[0]
+    # Get the per event log likelihoods
+    if self.type == "unbinned":
+      # For unbinned
+      tmp_probs = self._GetEventLoopUnbinned(
+        tmp, 
+        options["Y"], 
+        wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+        gradient = [1], 
+        column_1 = self.Y_columns,
+        before_sum = True
+      )[0]
+    elif self.type == "unbinned_extended":
+      # For unbinned extended
+      tmp_probs = self._GetEventLoopUnbinnedExtended(
+        tmp, 
+        options["Y"], 
+        wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+        gradient = [1], 
+        column_1 = self.Y_columns,
+        before_sum = True
+      )[0]
+      # Add in the extended part
+      for name in self.models["yields"].keys():
+        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=self.Y_columns)/options["sum_wts"]
 
+    # Add constraints
+    tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=self.Y_columns)/options["sum_wts"]
+
+    # Check for nans
     if np.isnan(tmp_probs).any():
       nan_rows_mask = np.isnan(tmp_probs).any(axis=1)  # True for rows with NaNs
       tmp_probs[nan_rows_mask] = 0.0
 
+    # Initiate D matrix
     if out is None:
       out = np.zeros((len(options["scan_over"]), len(options["scan_over"])))
 
+    # Check for constant values of first derivatives
+    consts = []
+    for ind in range(len(options["scan_over"])):
+      if len(np.unique(tmp_probs[:,self.Y_columns.index(options["scan_over"][ind])].astype(np.float32))) == 1:
+        consts.append(True)
+      else:
+        consts.append(False)
+
+    # Calculate D matrix
     for ind_1 in range(len(options["scan_over"])):
       for ind_2 in range(len(options["scan_over"])):
-        out[ind_1, ind_2] += np.sum((tmp.loc[:,options["wt_name"]].to_numpy()**2) * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_1])] * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_2])], dtype=np.float64)
+        if consts[ind_1] or consts[ind_2]:
+          out[ind_1, ind_2] = np.nan
+        elif out[ind_1, ind_2] is not np.nan:
+          out[ind_1, ind_2] += np.sum((tmp.loc[:,options["wt_name"]].to_numpy()**2) * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_1])] * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_2])], dtype=np.float64)
 
     return out
 
@@ -347,15 +381,6 @@ class Likelihood():
       else:
         first_derivative_other = {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}
 
-    # Reshape the first derivatives so they are in the correct order
-    #if 1 in gradient:
-    #  for k, v in self.Y_columns_per_model.items():
-    #    reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
-    #    reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v]] = log_probs[k][get_log_prob_gradients.index(1)]
-    #    log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
-    #    del reshaped_first_derivative
-    #    gc.collect()
-
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
     log_H2 = self._GetH2(Y, log=True)
@@ -419,15 +444,6 @@ class Likelihood():
     if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
 
-    ## Reshape the first derivatives so they are in the correct order
-    #if 1 in gradient:
-    #  for k, v in self.Y_columns_per_model.items():
-    #    reshaped_first_derivative = np.zeros((len(log_probs[k][get_log_prob_gradients.index(1)]),len(self.Y_columns)))
-    #    reshaped_first_derivative[:,[self.Y_columns.index(i) for i in v]] = log_probs[k][get_log_prob_gradients.index(1)]
-    #    log_probs[k][get_log_prob_gradients.index(1)] = copy.deepcopy(reshaped_first_derivative)
-    #    del reshaped_first_derivative
-    #    gc.collect()
-
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
     if 1 in get_log_prob_gradients:
@@ -444,10 +460,8 @@ class Likelihood():
       if grad == 0:
         ln_lklds = log_H1
       elif grad == 1:
-        #ln_lklds = ((1/np.exp(log_H1))*H1_grad_1_col_1)
         ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_1_col_1)
       elif grad == 2:
-        #ln_lklds = (np.exp(-log_H1)*H1_grad_2) - (np.exp(-2*log_H1)*H1_grad_1_col_1*H1_grad_1_col_2)
         ln_lklds = self._HelperLogMultiplyTrick(-log_H1, H1_grad_2) - self._HelperLogMultiplyTrick(-2*log_H1, H1_grad_1_col_1*H1_grad_1_col_2)
 
       if before_sum:
@@ -470,8 +484,6 @@ class Likelihood():
     else:
       yd = 1.0
     return yd
-
-
 
 
   def _GetYieldGradient(self, file_name, Y, gradient=0, column_1=None, column_2=None, from_spline=False):
@@ -854,10 +866,12 @@ class Likelihood():
     Computes the likelihood for unbinned data.
 
     Args:
-        X (array): The independent variables.
-        Y (array): The model parameters.
-        wts (array): The weights for the data points (optional).
-        return_ln (bool): Whether to return the natural logarithm of the likelihood (optional).
+      X (data processor): The independent variables.
+      Y (array): The model parameters.
+      gradient (int or list): The gradient to compute (0, 1, or 2).
+      column_1 (str or list): The first column for the gradient.
+      column_2 (str or list): The second column for the gradient.
+      before_sum (bool): If True, returns the full array before summing.
 
     Returns:
         float: The likelihood value.
@@ -867,7 +881,7 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
-    for dps_ind, X_dp in enumerate(X_dps):
+    for X_dp in X_dps:
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
@@ -886,8 +900,7 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
-
-    for dps_ind, X_dp in enumerate(X_dps):
+    for X_dp in X_dps:
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
@@ -970,17 +983,25 @@ class Likelihood():
     inverse_hessian = np.linalg.inv(hessian)
 
     if self.D_matrix is None:
-      covariance = inverse_hessian.tolist()
+      covariance = inverse_hessian
     else:
-      covariance = (inverse_hessian @ self.D_matrix @ inverse_hessian).tolist()
+      D_matrix_columns_inds = [self.Y_columns.index(i) for i in self.D_matrix_columns]
+      inverse_hessian_D_matrix_columns = inverse_hessian[:,D_matrix_columns_inds][D_matrix_columns_inds,:]
+      covariance_D_matrix_columns = inverse_hessian_D_matrix_columns @ self.D_matrix @ inverse_hessian_D_matrix_columns
+      covariance = np.zeros((len(self.Y_columns), len(self.Y_columns)))
+      for ind_1, col_1 in enumerate(self.Y_columns):
+        for ind_2, col_2 in enumerate(self.Y_columns):
+          if col_1 in self.D_matrix_columns and col_2 in self.D_matrix_columns:
+            covariance[ind_1][ind_2] = covariance_D_matrix_columns[self.D_matrix_columns.index(col_1)][self.D_matrix_columns.index(col_2)]
+          else:
+            covariance[ind_1][ind_2] = inverse_hessian[ind_1][ind_2]
 
-    return covariance
+    return covariance.tolist()
 
 
   def GetCovarianceIntervals(self, covariance, column):
 
     col_index = self.Y_columns.index(column)
-    best_fit_col = self.best_fit[col_index]
     uncertainty = np.sqrt(covariance[col_index][col_index])
     m1p1_vals = {-1: uncertainty, 1: uncertainty}
     return m1p1_vals
@@ -988,21 +1009,35 @@ class Likelihood():
 
   def GetDMatrix(self, X_dps, scan_over):
 
+    # Get the sum of weights of the dataset
+    sum_wts = 0.0
+    for X_dp in X_dps:
+      sum_wts += X_dp.GetFull(method="sum")
+
+    # Get the D matrix
     if self.type in ["unbinned","unbinned_extended"]:
       d_matrix = 0
       self._HelperSetSeed()
-      for dps_ind, X_dp in enumerate(X_dps):
+      for X_dp in X_dps:
         # Get D matrix
         dps_d_matrix = X_dp.GetFull(
           method = "custom",
           custom = self._CustomDPMethodForDMatrix,
-          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over}
+          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over, "sum_wts" : sum_wts}
         )
         d_matrix += dps_d_matrix
     else:
       raise ValueError("D matrix only valid for unbinned fits.")
 
-    return d_matrix.tolist()
+    # Remove nan columns or rows
+    non_nan_cols = [scan_over[ind] for ind, row in enumerate(d_matrix) if not np.isnan(row).all()]
+    non_nan_d_matrix = np.zeros((len(non_nan_cols), len(non_nan_cols)))
+    for ind_1, col_1 in enumerate(non_nan_cols):
+      for ind_2, col_2 in enumerate(non_nan_cols):
+        non_nan_d_matrix[ind_1][ind_2] = d_matrix[scan_over.index(col_1)][scan_over.index(col_2)]
+
+    return non_nan_d_matrix.tolist(), non_nan_cols
+
 
   def GetApproximateUncertainty(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1):
 
@@ -1279,7 +1314,7 @@ class Likelihood():
       scan_over = self.Y_columns
     scan_over = [col for col in scan_over if col not in freeze.keys()]
 
-    D_matrix = self.GetDMatrix(X_dps, scan_over)
+    D_matrix, scan_over = self.GetDMatrix(X_dps, scan_over)
 
     dump = {
       "columns": self.Y_columns, 
@@ -1295,7 +1330,7 @@ class Likelihood():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml"):
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml", specific_column_1=None, specific_column_2=None):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -1315,6 +1350,9 @@ class Likelihood():
     for index_1, column_1 in enumerate(scan_over):
       for index_2, column_2 in enumerate(scan_over):
         if index_1 <= index_2:
+          if not (specific_column_1 is None or specific_column_2 is None):
+            if not(column_1 == specific_column_1 and column_2 == specific_column_2):
+              continue
           hessian[index_1, index_2] = self.Run(X_dps, self.best_fit, multiply_by=-1, gradient=2, column_1=column_1, column_2=column_2)
 
     # Make it into a full square

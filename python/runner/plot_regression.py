@@ -21,6 +21,7 @@ class PlotRegression():
     """
     # Required input which is the location of a file
     self.parameters = None
+    self.cfg = None
 
     # other
     self.data_input = "data/"
@@ -128,13 +129,12 @@ class PlotRegression():
     # Initialise outputs
     outputs = []
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    # Load config
+    cfg = LoadConfig(self.cfg)
 
     # Add plots
     for data_split in ["train", self.test_name]:
-      for col in parameters["regression"][self.parameter]["X_columns"]:
+      for col in cfg["variables"]:
         outputs += [f"{self.plots_output}/average_weight_{col}_{data_split}.pdf"]
         
     return outputs
@@ -155,13 +155,9 @@ class PlotRegression():
       f"{self.data_input}/pred_{self.test_name}.parquet",
     ]
   
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add data input
-    inputs += [f"{parameters['regression'][self.parameter]['file_loc']}/{i}_{self.test_name}.parquet" for i in ["X","y","wt"]]
-    inputs += [f"{parameters['regression'][self.parameter]['file_loc']}/{i}_train.parquet" for i in ["X","y","wt"]]
+    inputs += [f"{self.data_input}/{i}_{self.test_name}.parquet" for i in ["X","y","wt"]]
+    inputs += [f"{self.data_input}/{i}_train.parquet" for i in ["X","y","wt"]]
 
     return inputs
 

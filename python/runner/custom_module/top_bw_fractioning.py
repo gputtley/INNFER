@@ -89,6 +89,8 @@ class top_bw_fractioning():
 
     # calculate weight
     def apply_wt(df, wt_func):
+      if "bw_mass" not in df.columns:
+        df.loc[:,"bw_mass"] = 172.5
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
@@ -180,7 +182,7 @@ class top_bw_fractioning():
       parameters_dict = parameters["density"]
       functions = ["untransform"]
     elif file_type == "regression":
-      parameters_dict = parameters["regression"]["bw_mass"]
+      parameters_dict = parameters["regression"][shift_file.split("/")[-2]]
       functions = ["untransform"]
     elif file_type == "validation":
       parameters_dict = {}
@@ -203,6 +205,8 @@ class top_bw_fractioning():
       os.system(f"rm {wt_alt}")
 
     def ApplyFractions(df, fraction_splines={}, shift_column="wt"):
+      if "bw_mass" not in df.columns:
+        df.loc[:,"bw_mass"] = 172.5
       for k, v in fraction_splines.items():
         indices = (df.loc[:,"mass"]==k)
         df.loc[indices,shift_column] *= v(df.loc[indices,"bw_mass"].to_numpy())
@@ -248,6 +252,8 @@ class top_bw_fractioning():
         }      
       ) 
       def apply_flattening(df, hist, bins):
+        if "bw_mass" not in df.columns:
+          df.loc[:,"bw_mass"] = 172.5
         for ind in range(len(hist)):
           df.loc[((df.loc[:,"bw_mass"]>=bins[ind]) & (df.loc[:,"bw_mass"]<bins[ind+1])),"wt"] /= hist[ind]     
         return df.loc[:,["wt"]]
@@ -292,10 +298,10 @@ class top_bw_fractioning():
       tmp_files = []
       for k in ["X","y","wt","Extra"]:
         for value in cfg["models"]["ttbar"]["regression_models"]:
-          if value["parameter"] == "bw_mass":
-            outfile = f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
-            if os.path.isfile(outfile):
-              tmp_files.append(outfile)
+          #if value["parameter"] == "bw_mass":
+          outfile = f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
+          if os.path.isfile(outfile):
+            tmp_files.append(outfile)
       if len(tmp_files) > 0:
         files["regression"].append(tmp_files)
         shift_files["regression"].append(f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
@@ -338,6 +344,8 @@ class top_bw_fractioning():
 
     # calculate weight
     def apply_wt(df, wt_func):
+      if "bw_mass" not in df.columns:
+        df.loc[:,"bw_mass"] = 172.5
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
@@ -463,7 +471,7 @@ class top_bw_fractioning():
     self.base_file_name = "base_ttbar" if "base_file_name" not in self.options else self.options["base_file_name"]
     #self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
     self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
-    self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
+    self.use_copies = True if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
 
     cfg = LoadConfig(self.cfg)
     self.parameters_name = f"data/{cfg['name']}/PreProcess/ttbar/parameters.yaml"
@@ -536,6 +544,8 @@ class top_bw_fractioning():
         outfile = infile.replace('.parquet','_normalised.parquet')
         if os.path.isfile(outfile): os.system(f"rm {outfile}")
         def normalise(df, sum_wt):
+          if "bw_mass" not in df.columns:
+            df.loc[:,"bw_mass"] = 172.5
           df.loc[:,"wt"] /= sum_wt
           return df.loc[:,["wt"]]
         dp.GetFull(

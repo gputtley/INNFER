@@ -16,6 +16,8 @@ class TrainDensity():
     self.architecture = None
 
     # other
+    self.data_input = "data/"
+    self.file_name = None
     self.use_wandb = False
     self.initiate_wandb = False
     self.wandb_project_name = "innfer"
@@ -69,7 +71,7 @@ class TrainDensity():
       print("- Building the model")
     network = InitiateDensityModel(
       architecture,
-      parameters['density']['file_loc'],
+      self.data_input,
       test_name = self.test_name,
       options = {
         "plot_dir" : self.plots_output,
@@ -102,14 +104,10 @@ class TrainDensity():
     """
     Return a list of outputs given by class
     """
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add model and architecture
     outputs = [
-      f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5",
-      f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml",
+      f"{self.data_output}/{self.file_name}{self.save_extra_name}.h5",
+      f"{self.data_output}/{self.file_name}{self.save_extra_name}_architecture.yaml",
     ]
     return outputs
 
@@ -117,20 +115,17 @@ class TrainDensity():
     """
     Return a list of inputs required by class
     """
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     # Set inputs
     inputs = [
       self.parameters,
       self.architecture,
-      f"{parameters['density']['file_loc']}/X_train.parquet",
-      f"{parameters['density']['file_loc']}/Y_train.parquet", 
-      f"{parameters['density']['file_loc']}/wt_train.parquet", 
-      f"{parameters['density']['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['density']['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['density']['file_loc']}/wt_{self.test_name}.parquet",
+      f"{self.data_input}/X_train.parquet",
+      f"{self.data_input}/Y_train.parquet", 
+      f"{self.data_input}/wt_train.parquet", 
+      f"{self.data_input}/X_{self.test_name}.parquet",
+      f"{self.data_input}/Y_{self.test_name}.parquet", 
+      f"{self.data_input}/wt_{self.test_name}.parquet",
     ]
 
     return inputs

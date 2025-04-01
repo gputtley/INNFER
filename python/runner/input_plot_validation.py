@@ -17,6 +17,7 @@ class InputPlotValidation():
     self.parameters = None
 
     # Other
+    self.file_name = None
     self.val_loop = []
     self.verbose = True
     self.data_input = "data/"
@@ -76,18 +77,15 @@ class InputPlotValidation():
     # Load config
     cfg = LoadConfig(self.cfg)
 
-    # Load parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add plots
-    defaults = GetDefaultsInModel(parameters['file_name'], cfg)
+    defaults = GetDefaultsInModel(self.file_name, cfg)
     for col in cfg["variables"]:
       outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
       for vary_name in defaults.keys():        
         outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
 
     return outputs
+
 
   def Inputs(self):
     """

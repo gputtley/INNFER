@@ -137,9 +137,6 @@ class Generator():
     # Initiate outputs
     outputs = []
 
-    # Add config
-    outputs += [self.cfg]
-
     # Load config
     cfg = LoadConfig(self.cfg)
 
@@ -163,6 +160,9 @@ class Generator():
     """
     # Initiate inputs
     inputs = []
+
+    # Add config
+    inputs += [self.cfg]
 
     # Add data files
     for k in self.data_input.keys():

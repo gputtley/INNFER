@@ -16,6 +16,8 @@ class TrainRegression():
     self.architecture = None
 
     # other
+    self.file_name = None
+    self.data_input = None
     self.parameter = None
     self.use_wandb = False
     self.initiate_wandb = False
@@ -72,7 +74,7 @@ class TrainRegression():
       print("- Building the model")
     network = InitiateRegressionModel(
       architecture,
-      parameters['regression'][self.parameter]['file_loc'],
+      self.data_input,
       test_name = self.test_name,
       options = {
         "plot_dir" : self.plots_output,
@@ -106,17 +108,14 @@ class TrainRegression():
     # Initialise outputs
     outputs = []
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add model
-    outputs += [f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5"]
+    outputs += [f"{self.data_output}/{self.file_name}{self.save_extra_name}.h5"]
 
     # Add architecture
-    outputs += [f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml"]
+    outputs += [f"{self.data_output}/{self.file_name}{self.save_extra_name}_architecture.yaml"]
 
     return outputs
+
 
   def Inputs(self):
     """
@@ -131,20 +130,14 @@ class TrainRegression():
     # Add architecture
     inputs += [self.architecture]
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add data input
     inputs += [
-      f"{parameters['regression'][self.parameter]['file_loc']}/X_train.parquet", 
-      f"{parameters['regression'][self.parameter]['file_loc']}/y_train.parquet",
-      f"{parameters['regression'][self.parameter]['file_loc']}/wt_train.parquet", 
-      f"{parameters['regression'][self.parameter]['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['regression'][self.parameter]['file_loc']}/y_{self.test_name}.parquet", 
-      f"{parameters['regression'][self.parameter]['file_loc']}/wt_{self.test_name}.parquet",
+      f"{self.data_input}/X_train.parquet", 
+      f"{self.data_input}/y_train.parquet",
+      f"{self.data_input}/wt_train.parquet", 
+      f"{self.data_input}/X_{self.test_name}.parquet",
+      f"{self.data_input}/y_{self.test_name}.parquet", 
+      f"{self.data_input}/wt_{self.test_name}.parquet",
     ]
 
     return inputs
-
-        

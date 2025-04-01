@@ -1,12 +1,9 @@
 import argparse
-import copy
 import os
 import sys
 import time
 import yaml
 
-import numpy as np
-import pandas as pd
 import pyfiglet as pyg
 
 from module import Module
@@ -14,6 +11,7 @@ from useful_functions import (
     CommonInferConfigOptions,
     GetBestFitFromYaml,
     GetCombinedValdidationIndices,
+    GetDefaultsInModel,
     GetDictionaryEntryFromYaml,
     GetBaseFileLoop,
     GetFreezeLoop,
@@ -72,6 +70,8 @@ def parse_args():
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
+  parser.add_argument('--replace-inputs', help='Colon and comma separated string to replace the inputs', type=str, default=None)
+  parser.add_argument('--replace-outputs', help='Colon and comma separated string to replace the outputs and write a dummy file', type=str, default=None)
   parser.add_argument('--save-model-per-epoch', help='Save a model at each epoch', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
@@ -234,10 +234,12 @@ def main(args, default_args):
         module_name = "input_plot_training",
         class_name = "InputPlotTraining",
         config = {
+          "cfg" : args.cfg,
           "parameters" : model_info["parameters"],
           "data_input" : model_info['file_loc'],
           "plots_output" : f"plots/{cfg['name']}/InputPlotTraining/{model_info['name']}",
           "model_type" : model_info['type'],
+          "file_name" : model_info['file_name'],
           "parameter" : model_info["parameter"],
           "verbose" : not args.quiet,
         },
@@ -254,6 +256,7 @@ def main(args, default_args):
         class_name = "InputPlotValidation",
         config = {
           "cfg" : args.cfg,
+          "file_name" : file_name,
           "parameters" : f"data/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
           "data_input" : f"data/{cfg['name']}/PreProcess/{file_name}/",
           "plots_output" : f"plots/{cfg['name']}/InputPlotValidation/{file_name}/",
@@ -274,6 +277,8 @@ def main(args, default_args):
         config = {
           "parameters" : model_info["parameters"],
           "architecture" : args.density_architecture,
+          "file_name" : model_info["file_name"],
+          "data_input" : f"data/{cfg['name']}/PreProcess/{model_info['file_name']}/density/",
           "data_output" : f"models/{cfg['name']}/{model_info['name']}/",
           "plots_output" : f"plots/{cfg['name']}/TrainDensity/{model_info['name']}/",
           "disable_tqdm" : args.disable_tqdm,
@@ -298,6 +303,8 @@ def main(args, default_args):
         config = {
           "parameters" : model_info["parameters"],
           "architecture" : args.regression_architecture,
+          "file_name" : model_info["file_name"],
+          "data_input" : f"data/{cfg['name']}/PreProcess/{model_info['file_name']}/regression/{model_info['parameter']}",
           "parameter" : model_info["parameter"],
           "data_output" : f"models/{cfg['name']}/{model_info['name']}/",
           "plots_output" : f"plots/{cfg['name']}/TrainRegression/{model_info['name']}/",
@@ -315,14 +322,16 @@ def main(args, default_args):
 
   # Evaluate the regression models
   if args.step == "EvaluateRegression":
-    print("<< Training the regression networks >>")
+    print("<< Evaluating the regression networks >>")
     for model_info in GetModelLoop(cfg, only_regression=True):
       module.Run(
         module_name = "evaluate_regression",
         class_name = "EvaluateRegression",
         config = {
+          "data_input" : f"data/{cfg['name']}/PreProcess/{model_info['file_name']}/regression/{model_info['parameter']}",
           "model_input" : f"models/{cfg['name']}",
           "model_name" : model_info["name"],
+          "file_name" : model_info["file_name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
           "data_output" : f"data/{cfg['name']}/EvaluateRegression/{model_info['name']}",
@@ -340,6 +349,8 @@ def main(args, default_args):
         module_name = "plot_regression",
         class_name = "PlotRegression",
         config = {
+          "cfg" : args.cfg,
+          "data_input" : f"data/{cfg['name']}/PreProcess/{model_info['file_name']}/regression/{model_info['parameter']}",
           "model_name" : model_info["name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
@@ -374,6 +385,7 @@ def main(args, default_args):
             "val_ind" : val_ind,
             "only_density" : args.only_density,
             "verbose" : not args.quiet,
+            "file_name" : file_name,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -388,20 +400,18 @@ def main(args, default_args):
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
           config = {
-            "model" : f"models/{cfg['name']}/{model_info['name']}/{file_name}{extra_name}.h5",
-            "architecture" : f"models/{cfg['name']}/{model_info['name']}/{file_name}_architecture.yaml",
-            "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-            "data_output" : f"data/{cfg['name']}/{file_name}/DensityPerformanceMetrics",
-            "val_loop" : GetValidationLoop(cfg, file_name),
-            "pois": cfg["pois"],
-            "nuisances": cfg["nuisances"],
-            "split_validation_files": args.split_validation_files,
-            "cfg_name" : cfg["name"],
+            "cfg" : args.cfg,
+            "parameters" : model_info["parameters"],
+            "architecture" : args.density_architecture,
+            "data_input" : f"data/{cfg['name']}/PreProcess/",
+            "data_output" : f"data/{cfg['name']}/DensityPerformanceMetrics/{model_info['name']}",
             "do_inference": not args.performance_metrics_no_inference,
             "do_loss": not args.performance_metrics_no_loss,
             "do_histogram_metrics": not args.performance_metrics_no_histogram,
             "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
             "save_extra_name": extra_name,
+            "n_asimov_events" : args.number_of_asimov_events,
+            "seed" : args.asimov_seed,
             "verbose" : not  args.quiet,     
           },
           loop = {"model_name" : model_info['name']}
@@ -761,6 +771,56 @@ def main(args, default_args):
           )
 
 
+  # Get the Hessian matrix running in parallel
+  if args.step == "HessianParallel":
+    print(f"<< Calculating the Hessian matrix in parallel >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          columns = [col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()]
+          for column_1_ind, column_1 in enumerate(columns):
+            for column_2_ind, column_2 in enumerate(columns):
+              if column_1_ind > column_2_ind: continue
+              module.Run(
+                module_name = "infer",
+                class_name = "Infer",
+                config = {
+                  **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
+                  "method" : "HessianParallel",
+                  "best_fit_input" : f"data/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "data_output" : f"data/{cfg['name']}/HessianParallel{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "extra_file_name" : str(val_ind),
+                  "freeze" : freeze["freeze"],
+                  "val_ind" : val_ind,
+                  "hessian_parallel_column_1" : column_1,
+                  "hessian_parallel_column_2" : column_2,
+                },
+                loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "column_1" : column_1, "column_2" : column_2},
+              )
+
+  # Get the Hessian matrix running in parallel
+  if args.step == "HessianCollect":
+    print(f"<< Collecting the Hessian matrix >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
+              "method" : "HessianCollect",
+              "hessian_input" : f"data/{cfg['name']}/HessianParallel{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"data/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "extra_file_name" : str(val_ind),
+              "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+          )
+
   # Get the Covariance matrix
   if args.step == "Covariance":
     print(f"<< Calculating the Covariance matrix >>")
@@ -1087,23 +1147,27 @@ def main(args, default_args):
             "show2sigma" : args.summary_show_2sigma,
             "nominal_name" : args.summary_nominal_name,
             "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
-            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=True, include_lnN=True),
+            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN),
             "verbose" : not args.quiet,
             "constraints" : cfg["inference"]["nuisance_constraints"],
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
 
-
+  # Run the sweep
   module.Sweep()
 
 if __name__ == "__main__":
 
+  # Start the timer
   start_time = time.time()
+
+  # Print title
   title = pyg.figlet_format("INNFER")
   print()
   print(title)
 
+  # Parse the arguments
   args, default_args = parse_args()
 
   if args.step != "SnakeMake": # Run a non snakemake step
@@ -1114,14 +1178,17 @@ if __name__ == "__main__":
       args.step = step
       main(args, default_args)
 
-  else:
+  else: # Run snakemake
 
+    # Setting up snakemake file
     snakemake_file = SetupSnakeMakeFile(args, default_args, main)
-    if not args.snakemake_dry_run:
+
+    if not args.snakemake_dry_run: # Run snakemake
       os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
       snakemake_extra = " --forceall" if args.snakemake_force else ""
       os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
+  # Print the time elapsed
   print("<< Finished running without error >>")
   end_time = time.time()
   hours, remainder = divmod(end_time-start_time, 3600)

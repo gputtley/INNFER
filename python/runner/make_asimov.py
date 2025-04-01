@@ -22,6 +22,7 @@ class MakeAsimov():
 
     self.cfg = None
 
+    self.file_name = None
     self.density_model = None
     self.regression_models = None
     self.parameters = None
@@ -236,18 +237,14 @@ class MakeAsimov():
     # Add parameters
     inputs += [self.parameters]
 
-    # Load parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add density model
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}_architecture.yaml"]
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}.h5"]
+    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}_architecture.yaml"]
+    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}.h5"]
 
     # Add regression models
     for regression_model in self.regression_models:
-      inputs += [f"{self.model_input}/{regression_model['name']}/{parameters['file_name']}_architecture.yaml"]
-      inputs += [f"{self.model_input}/{regression_model['name']}/{parameters['file_name']}.h5"]
-      inputs += [f"{self.model_input}/{regression_model['name']}/{parameters['file_name']}_norm_spline.pkl"]
+      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
+      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
+      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
 
     return inputs

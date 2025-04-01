@@ -18,7 +18,7 @@ from useful_functions import MakeDirectories
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
-  print("INFO: Using GPUs")
+  print("INFO: Using GPUs for BayesFlowNetwork")
   for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
@@ -384,27 +384,30 @@ class BayesFlowNetwork():
         data["parameters"] = tf.convert_to_tensor(tf.cast(data["parameters"], dtype=tf.float32), dtype=tf.float32)
         data["direct_conditions"] = tf.convert_to_tensor(tf.cast(data["direct_conditions"], dtype=tf.float32), dtype=tf.float32)
 
-      if self.graph_mode:
-        predictions, grad = self._ComputeGradient(data["parameters"], data["direct_conditions"])
-      else:
-        tf.keras.backend.clear_session()
-        if not self.graph_mode:
-          data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-          data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
-        with tf.GradientTape(watch_accessed_variables=False) as tape:
-          tape.watch(data[grad_of])
-          z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-          predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
-        grad = tape.gradient(predictions, data[grad_of])
-        del tape
-        gc.collect()
-
       if len(indices_1) == 0:
+
+        predictions = tf.convert_to_tensor(self.amortizer.log_posterior(data), dtype=tf.float32)
         first_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
+
       else:
+
+        if self.graph_mode:
+          predictions, grad = self._ComputeGradient(data["parameters"], data["direct_conditions"])
+        else:
+          tf.keras.backend.clear_session()
+          if not self.graph_mode:
+            data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+            data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+          with tf.GradientTape(watch_accessed_variables=False) as tape:
+            tape.watch(data[grad_of])
+            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+            predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
+          grad = tape.gradient(predictions, data[grad_of])
+          del tape
+          gc.collect()
         first_derivative = tf.gather(grad, indices_1, axis=1)
-      del grad
-      gc.collect()
+        del grad
+        gc.collect()
       
       # Make log_probs array
       log_probs = []
@@ -426,22 +429,46 @@ class BayesFlowNetwork():
       # Get the second derivative
       data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
       data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
-      with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_2:
-        tape_2.watch(data[grad_of])
-        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_1:
-          tape_1.watch(data[grad_of])
-          z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-          predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
-        if len(indices_1) == 0 or len(indices_2) == 0:
-          first_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
+
+      if len(indices_1) == 0:
+
+        predictions = tf.convert_to_tensor(self.amortizer.log_posterior(data), dtype=tf.float32)
+        first_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
+        second_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
+
+      elif len(indices_2) == 0:
+
+        if self.graph_mode:
+          predictions, grad = self._ComputeGradient(data["parameters"], data["direct_conditions"])
         else:
+          tf.keras.backend.clear_session()
+          if not self.graph_mode:
+            data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
+            data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+          with tf.GradientTape(watch_accessed_variables=False) as tape:
+            tape.watch(data[grad_of])
+            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+            predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
+          grad = tape.gradient(predictions, data[grad_of])
+          del tape
+          gc.collect()
+        first_derivative = tf.gather(grad, indices_1, axis=1)
+        del grad
+        gc.collect()
+        second_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
+      
+      else:
+
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_2:
+          tape_2.watch(data[grad_of])
+          with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_1:
+            tape_1.watch(data[grad_of])
+            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
+            predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
           grad = tape_1.gradient(predictions, data[grad_of])
           first_derivative = tf.gather(grad, indices_1, axis=1)   
           del grad
           gc.collect()
-      if len(indices_1) == 0 or len(indices_2) == 0:
-        second_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
-      else:
         grad_of_grad = tape_2.gradient(first_derivative, data[grad_of])
         second_derivative = tf.gather(grad_of_grad, indices_2, axis=1)
         del grad_of_grad

@@ -65,6 +65,9 @@ class Infer():
     self.best_fit_input = None
     self.hessian_input = None
     self.d_matrix_input = None
+    self.hessian_parallel_column_1 = None
+    self.hessian_parallel_column_2 = None
+    self.non_nn_columns = []
 
   def Configure(self, options):
     """
@@ -161,7 +164,7 @@ class Infer():
         filename=f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"
       )
 
-    elif self.method == "Hessian":
+    elif self.method in ["Hessian","HessianParallel"]:
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -177,13 +180,47 @@ class Infer():
       if self.verbose:
         print(f"- Calculating the Hessian matrix")
 
+      extra_col_name = ""
+      if self.method == "HessianParallel":
+        extra_col_name = f"_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}"
+
       # Get Hessian
       self.lkld.GetAndWriteHessianToYaml(
         self.lkld_input, 
         row=self.true_Y, 
-        filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
+        filename=f"{self.data_output}/hessian{self.extra_file_name}{extra_col_name}.yaml", 
         freeze=self.freeze,
+        specific_column_1=self.hessian_parallel_column_1,
+        specific_column_2=self.hessian_parallel_column_2,
       )    
+
+    elif self.method == "HessianCollect":
+
+      first = True
+      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      for column_1_ind, column_1 in enumerate(columns):
+        for column_2_ind, column_2 in enumerate(columns):
+          if column_1_ind > column_2_ind: continue
+          # load in the hessian
+          if self.verbose:
+            print(f"- Loading hessian for {column_1} and {column_2}")
+          with open(f"{self.hessian_input}/hessian{self.extra_file_name}_{column_1}_{column_2}.yaml", 'r') as yaml_file:
+            hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if first:
+            hessian_metadata = hessian
+            total_hessian = np.array(hessian["hessian"])
+            first = False
+          else:
+            total_hessian = np.add(total_hessian, np.array(hessian["hessian"]))
+      hessian_metadata["hessian"] = total_hessian.tolist()
+
+      # write out the hessian
+      if self.verbose:
+        print(f"- Writing out the hessian")
+      hess_out_name = f"{self.data_output}/hessian{self.extra_file_name}.yaml"
+      MakeDirectories(hess_out_name)
+      with open(hess_out_name, 'w') as yaml_file: 
+        yaml.dump(hessian_metadata, yaml_file, default_flow_style=False)
 
     elif self.method == "DMatrix":
 
@@ -249,6 +286,7 @@ class Infer():
       self.lkld.best_fit = np.array(hessian["best_fit"])
       self.lkld.hessian = hessian["hessian"]
       self.lkld.D_matrix = Dmatrix["D_matrix"]
+      self.lkld.D_matrix_columns = Dmatrix["matrix_columns"]
 
       # Get covariance
       self.lkld.GetAndWriteCovarianceToYaml(
@@ -378,8 +416,12 @@ class Infer():
       outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian
-    if self.method == "Hessian":
+    if self.method in ["Hessian","HessianCollect"]:
       outputs += [f"{self.data_output}/hessian{self.extra_file_name}.yaml"]
+
+    # Add hessian parallel
+    if self.method == "HessianParallel":
+      outputs += [f"{self.data_output}/hessian{self.extra_file_name}_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}.yaml"]
 
     # Add dmatrix
     if self.method == "DMatrix":
@@ -427,29 +469,37 @@ class Infer():
 
     # Add data inputs and parameters
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-      for k, v in self.parameters.keys():
+      for k, v in self.parameters.items():
         inputs += self.data_input[k]
         inputs += [v]
 
     # Add density model inputs
     for k, v in self.density_models.items():
       inputs += [
-        f"{v['file_loc']}/{v['name']}/{self.model_input}/architecture.yaml",
-        f"{v['file_loc']}/{v['name']}/{self.model_input}/{self.model_type}.h5",
+        f"{self.model_input}/{v['name']}/{k}_architecture.yaml",
+        f"{self.model_input}/{v['name']}/{k}.h5",
       ]
 
     # Add regression model inputs
     for k, v in self.regression_models.items():
       for vi in v:
         inputs += [
-          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/architecture.yaml",
-          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/{self.model_type}.h5", 
-          f"{vi['file_loc']}/{vi['name']}/{self.model_input}/{self.model_type}_norm_spline.pkl"
+          f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+          f"{self.model_input}/{vi['name']}/{k}.h5",
+          f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
         ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","DMatrix","ApproximateUncertainty"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","DMatrix","ApproximateUncertainty"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
+
+    # Add hessian parallel
+    if self.method == "HessianCollect":
+      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      for column_1_ind, column_1 in enumerate(columns):
+        for column_2_ind, column_2 in enumerate(columns):
+          if column_1_ind > column_2_ind: continue
+          inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}_{column_1}_{column_2}.yaml"]
 
     # Add hessian 
     if self.method in ["Covariance","CovarianceWithDMatrix","ScanPointsFromHessian"]:
@@ -593,8 +643,12 @@ class Infer():
     batch_size = None
     if self.method in ["InitialFit","Scan"] and self.minimisation_method in ["scipy_with_gradients","custom"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
-    elif self.method in ["Hessian","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
+    elif self.method in ["Hessian","HessianParallel","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
+    if self.method == "HessianParallel" and self.hessian_parallel_column_1 in self.non_nn_columns and self.hessian_parallel_column_2 in self.non_nn_columns:
+      batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+    elif self.method == "HessianParallel" and (self.hessian_parallel_column_2 in self.non_nn_columns or self.hessian_parallel_column_1 in self.non_nn_columns):
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
 
     # Build dataprocessors
     dps = {}
@@ -690,7 +744,6 @@ class Infer():
 
 
   def _BuildRegressionModels(self):
-
 
     networks = {}
     splines = {}

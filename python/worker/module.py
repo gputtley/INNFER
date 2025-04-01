@@ -179,7 +179,7 @@ class Module():
     """
 
     argv = self._MakeCommandOptions(self.args)
-    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg"]
+    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--replace-inputs", "--replace-outputs"]
     for remove in to_remove:
       remove_str = None
       for string in argv:
@@ -279,6 +279,8 @@ class Module():
       self.output_store += class_instance.Outputs()
       self.input_store = list(set(self.input_store))
       self.output_store = list(set(self.output_store))
+      # if output is in the inputs change to dummy file and add dummy file creation to cmd store
+      
 
     # Check points per job and whether to add 
     if len(self.cmd_store) < self.args.points_per_job:
@@ -325,6 +327,7 @@ class Module():
 
     # Add snakemake information
     elif self.snakemake:
+
       # Make job
       job_name = StringToFile(f"{self.job_name}{extra_name}")
 
@@ -339,7 +342,6 @@ class Module():
       job_name += ".sh"
       b = Batch(options={"job_name":job_name})
       b._CreateBatchJob(self.cmd_store)
-
 
       # Begin writting rules
       rules = [f"rule {rule_name}:"]

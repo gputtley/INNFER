@@ -24,6 +24,8 @@ class EvaluateRegression():
     self.parameters = None
 
     # other
+    self.data_input = "data/"
+    self.file_name = None
     self.data_output = None
     self.model_input = None
     self.model_name = None
@@ -74,7 +76,7 @@ class EvaluateRegression():
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
     network = InitiateRegressionModel(
       architecture,
-      parameters["regression"][self.parameter]['file_loc'],
+      self.data_input,
       options = {
         "data_parameters" : parameters['regression'][self.parameter]    
       }
@@ -175,17 +177,13 @@ class EvaluateRegression():
     # Initiate outputs
     outputs = []
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add output data
     outputs += [f"{self.data_output}/pred_train.parquet"]
     if self.test_name is not None:
       outputs += [f"{self.data_output}/pred_{self.test_name}.parquet"]
 
     # Add normalisation spline
-    outputs += [f"{self.model_input}/{self.model_name}/{parameters['file_name']}_norm_spline.pkl"]
+    outputs += [f"{self.model_input}/{self.model_name}/{self.file_name}_norm_spline.pkl"]
 
     return outputs
 
@@ -199,23 +197,19 @@ class EvaluateRegression():
     # Add parameters
     inputs += [self.parameters]
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     # Add model
-    inputs += [f"{self.model_input}/{self.model_name}/{parameters['file_name']}_architecture.yaml"]
-    inputs += [f"{self.model_input}/{self.model_name}/{parameters['file_name']}.h5"]
+    inputs += [f"{self.model_input}/{self.model_name}/{self.file_name}_architecture.yaml"]
+    inputs += [f"{self.model_input}/{self.model_name}/{self.file_name}.h5"]
 
     # Add data
     inputs += [
-      f"{parameters['regression'][self.parameter]['file_loc']}/X_train.parquet", 
-      f"{parameters['regression'][self.parameter]['file_loc']}/wt_train.parquet",
+      f"{self.data_input}/X_train.parquet", 
+      f"{self.data_input}/wt_train.parquet",
     ]
     if self.test_name is not None:
       inputs += [
-        f"{parameters['regression'][self.parameter]['file_loc']}/X_{self.test_name}.parquet",
-        f"{parameters['regression'][self.parameter]['file_loc']}/wt_{self.test_name}.parquet",
+        f"{self.data_input}/X_{self.test_name}.parquet",
+        f"{self.data_input}/wt_{self.test_name}.parquet",
       ]
 
     return inputs

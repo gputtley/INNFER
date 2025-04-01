@@ -84,9 +84,10 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "minimisation_method" : args.minimisation_method,
     "sim_type" : args.sim_type,
     "X_columns" : cfg["variables"],
-    "Y_columns" : list(defaults_in_model),
+    "Y_columns" : list(defaults_in_model.keys()),
     "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "only_density" : args.only_density,
+    "non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
     #"binned_fit_data_input" : 
   }
 
@@ -500,6 +501,7 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
           "name" : f"density_{k}",
           "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
           "parameter" : None,
+          "file_name" : k,
         }
       )
     for value in v["regression_models"]:
@@ -511,6 +513,7 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
             "name" : f"regression_{k}_{value['parameter']}",
             "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
             "parameter" : value['parameter'],
+            "file_name" : k,
           }
         )
   return models

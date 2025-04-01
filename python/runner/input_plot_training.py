@@ -2,7 +2,7 @@ import yaml
 
 from data_processor import DataProcessor
 from plotting import plot_histograms
-from useful_functions import LoadConfig
+from useful_functions import GetParametersInModel, LoadConfig
 
 class InputPlotTraining():
 
@@ -13,9 +13,11 @@ class InputPlotTraining():
     validation datasets.
     """
     # Required input which is the location of a file
+    self.cfg = None
     self.parameters = None
 
     # Other
+    self.file_name = None
     self.parameter = None
     self.model_type = "density"
     self.verbose = True
@@ -36,6 +38,9 @@ class InputPlotTraining():
     """
     Run the code utilising the worker classes
     """    
+
+    # Load config
+    cfg = LoadConfig(self.cfg)
 
     # Open parameters
     with open(self.parameters, 'r') as yaml_file:
@@ -62,20 +67,18 @@ class InputPlotTraining():
     # Initialise outputs
     outputs = []
 
-    # Open parameters
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    # Load config
+    cfg = LoadConfig(self.cfg)
 
-    # Get condition target
+    # Find columns
+    columns = cfg["variables"]
     if self.model_type == "density":
-      condition_target = "Y"
-      specific_parameters = parameters[self.model_type]
+      columns += GetParametersInModel(self.file_name, cfg, only_density=True)
     elif self.model_type == "regression":
-      condition_target = "y"
-      specific_parameters = parameters[self.model_type][self.parameter]
+      columns += [self.parameter]
 
     # Add plots
-    for col in specific_parameters["X_columns"]+specific_parameters[f"{condition_target}_columns"]:
+    for col in columns:
       for data_split in ["train","test"]:
         outputs += [
           f"{self.plots_output}/distributions_{col}_{data_split}.pdf",
