@@ -282,26 +282,30 @@ class top_bw_fractioning():
     shift_files = {"density":[], "regression":[], "validation":[]}
     shift_columns = {"density":[], "regression":[], "validation":[]}
 
+    density_loop = ["X","Y","wt"]
+    regression_loop = ["X","y","wt"]
+    if "save_extra_columns" in cfg["preprocess"]:
+      if "ttbar" in cfg["preprocess"]["save_extra_columns"].keys():
+        density_loop += ["Extra"]
+        regression_loop += ["Extra"]
 
     for data_split in ["train","test"]:
       tmp_files = []
-      for k in ["X","Y","wt","Extra"]:
+      for k in density_loop:
         outfile = f"data/{cfg['name']}/PreProcess/ttbar/density/{k}_{data_split}.parquet"
-        if os.path.isfile(outfile):
-          tmp_files.append(outfile)
-          os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+        tmp_files.append(outfile)
+        os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["density"].append(tmp_files)
         shift_files["density"].append(f"data/{cfg['name']}/PreProcess/ttbar/density/wt_{data_split}.parquet")
         shift_columns["density"].append("wt")
 
       tmp_files = []
-      for k in ["X","y","wt","Extra"]:
+      for k in regression_loop:
         for value in cfg["models"]["ttbar"]["regression_models"]:
-          #if value["parameter"] == "bw_mass":
           outfile = f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
-          if os.path.isfile(outfile):
-            tmp_files.append(outfile)
+          tmp_files.append(outfile)
+          os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["regression"].append(tmp_files)
         shift_files["regression"].append(f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
@@ -310,10 +314,10 @@ class top_bw_fractioning():
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
         tmp_files = []
-        for k in ["X","Y","wt","Extra"]:
+        for k in density_loop:
           outfile = f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet"
-          if os.path.isfile(outfile):
-            tmp_files.append(outfile)
+          tmp_files.append(outfile)
+          os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
         if len(tmp_files) > 0:
           files["validation"].append(tmp_files)
           shift_files["validation"].append(f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet")
@@ -471,7 +475,7 @@ class top_bw_fractioning():
     self.base_file_name = "base_ttbar" if "base_file_name" not in self.options else self.options["base_file_name"]
     #self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
     self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
-    self.use_copies = True if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
+    self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
 
     cfg = LoadConfig(self.cfg)
     self.parameters_name = f"data/{cfg['name']}/PreProcess/ttbar/parameters.yaml"

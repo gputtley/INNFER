@@ -497,7 +497,7 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
       models.append(
         {
           "type" : "density",
-          "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/density/",
+          "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/density",
           "name" : f"density_{k}",
           "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
           "parameter" : None,
@@ -1303,6 +1303,37 @@ def SetupSnakeMakeFile(args, default_args, main):
           rules_all.append(line+",")
   rules_all[-1] = rules_all[-1][:-1]
 
+  # Check if inputs and outputs are the same, if so then add dummy
+  output_line = False
+  input_line = False
+  sweep = False
+  for line_ind, line in enumerate(all_lines):
+    if line.startswith("  input:"):
+      input_line = True
+      sweep = False
+      inputs = []
+    elif line.startswith("  output:"):
+      output_line = True
+      input_line = False
+      sweep = False
+      outputs = []
+      output_ind = line_ind
+    elif line.startswith("  shell:"):
+      output_line = False
+      input_line = False
+      sweep = True
+    elif input_line:
+      inputs.append(line.replace(" ","").replace('"','').replace("'","").replace(",",""))
+    elif output_line:
+      outputs.append(line.replace(" ","").replace('"','').replace("'","").replace(",",""))
+    elif sweep:
+      for output in outputs:
+        if output in inputs:
+          all_lines[line_ind] = all_lines[line_ind][:-1] + f"; echo -n '' > {output.replace('.','_dummy.')}" + all_lines[line_ind][-1]
+          for change_ind in range(output_ind, len(all_lines)):
+            all_lines[change_ind] = all_lines[change_ind].replace(output, output.replace(".","_dummy."))
+      sweep = False
+    
   # Make snakemake file
   rules = rules_all+[""]+all_lines
   from batch import Batch
