@@ -531,12 +531,14 @@ def GetDefaults(cfg):
     defaults[f"mu_{rate}"] = 1.0
   return defaults
 
+
 def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False):
   defaults = GetDefaults(cfg)
   if file_name == "combined":
     return defaults
   params_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
   return {k:v for k, v in defaults.items() if k in params_in_model}
+
 
 def GetFilesInModel(file_name, cfg):
   parameters_in_model = []
@@ -545,6 +547,7 @@ def GetFilesInModel(file_name, cfg):
   for v in cfg["models"][file_name]["regression_models"]:
     parameters_in_model = list(set(parameters_in_model + [v["file"]]))
   return parameters_in_model
+
 
 def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, include_rate=False, include_lnN=False):
   parameters_in_model = []
@@ -560,10 +563,11 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
     parameters_in_model += list(cfg["inference"]["lnN"].keys())
   return parameters_in_model
 
-def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False):
+
+def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False):
   if file_name == "combined":
     return cfg["validation"]["loop"]
-  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression)
   if len(parameters_in_model) == 0:
     return [{}]
   loop_with_parameters = []
@@ -575,6 +579,7 @@ def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False):
       loop_with_unique_parameters.append(v)
 
   return loop_with_unique_parameters
+
 
 def GetCombinedValdidationIndices(cfg, file_name, val_ind):
   if file_name != "combined":
@@ -943,6 +948,7 @@ def GetValidateInfo(
 
   return info
 
+
 def GetValidateLoop(cfg, parameters_file):
   """
   Generate a list of dictionaries representing parameter combinations for validation loops.
@@ -1002,6 +1008,7 @@ def GetValidateLoop(cfg, parameters_file):
 
   return val_loop
 
+
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   """
   Generate a formatted label for a given unique row.
@@ -1045,6 +1052,7 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
     name = prefix+name
   return name
 
+
 def LoadConfig(config_name):
   with open(config_name, 'r') as yaml_file:
     cfg_before = yaml.load(yaml_file, Loader=yaml.FullLoader)
@@ -1055,6 +1063,7 @@ def LoadConfig(config_name):
     content = os.path.expandvars(yaml_file.read())  # Replace ${VAR} with environment value
     cfg = yaml.safe_load(content)
   return cfg
+
 
 def MakeDictionaryEntry(dictionary, keys, val):
   """
@@ -1082,6 +1091,7 @@ def MakeDictionaryEntry(dictionary, keys, val):
   else:
     dictionary[keys[0]] = val
   return dictionary
+
 
 def MakeDirectories(file_loc):
   """
@@ -1114,6 +1124,7 @@ def MakeDirectories(file_loc):
     # Make directory if it is missing
     if not os.path.isdir(full_dir): 
       os.system(f"mkdir {full_dir}")
+
 
 def Resample(datasets, weights, n_samples=None, seed=42):
   """
@@ -1202,6 +1213,7 @@ def Resample(datasets, weights, n_samples=None, seed=42):
 
   return resampled_datasets, resampled_weights
 
+
 def RoundToSF(num, sig_figs):
   """
   Round a number to a specified number of significant figures.
@@ -1224,6 +1236,7 @@ def RoundToSF(num, sig_figs):
     rounded_number = round(num, sig_figs)
     decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
     return round(num, decimal_places)
+
 
 def SetupSnakeMakeFile(args, default_args, main):
   """
@@ -1342,41 +1355,6 @@ def SetupSnakeMakeFile(args, default_args, main):
 
   return snakemake_file
 
-def SplitValidationParameters(val_loops, file_name, val_ind, cfg):
-
-  if file_name == "combined":
-    output = {}
-    combined_row = val_loops["combined"][val_ind]["row"]
-    #for fn, val_loop in val_loops.items():
-    for fn in cfg["files"].keys():
-      if fn not in val_loops.keys():
-        output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
-      else:
-        for indiv_val_ind, val_info in enumerate(val_loops[fn]):
-          indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
-          indiv_row = val_info["row"].loc[:, indiv_columns]
-          combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
-          if indiv_row.equals(combined_row_with_indiv_columns):
-            if len(indiv_row.columns) > 0:
-              output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
-            else:
-              output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
-            break   
-
-      #if fn == "combined": continue
-      #for indiv_val_ind, val_info in enumerate(val_loop):
-      #  indiv_columns = [col for col in val_info["row"].columns if col in list(combined_row.columns)]
-      #  indiv_row = val_info["row"].loc[:, indiv_columns]
-      #  combined_row_with_indiv_columns = combined_row.loc[:, indiv_columns]
-      #  if indiv_row.equals(combined_row_with_indiv_columns):
-      #    if len(indiv_row.columns) > 0:
-      #      output[fn] = f"data/{cfg['name']}/{fn}/SplitValidationFiles/val_ind_{indiv_val_ind}/parameters.yaml"
-      #    else:
-      #      output[fn] = f"data/{cfg['name']}/{fn}/PreProcess/parameters.yaml"
-      #    break
-    return output
-  else:
-    return f"data/{cfg['name']}/{file_name}/SplitValidationFiles/val_ind_{val_ind}/parameters.yaml"
 
 def StringToFile(string):
   """

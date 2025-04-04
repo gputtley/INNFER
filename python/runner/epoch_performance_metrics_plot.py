@@ -13,6 +13,7 @@ class EpochPerformanceMetricsPlot():
     """
     # Default values - these will be set by the configure function
     self.architecture = None
+
     self.data_input = "data/"
     self.plots_output = "plots"
     self.merged_plot = None
@@ -111,6 +112,9 @@ class EpochPerformanceMetricsPlot():
         y_label = "$(x-x_{min})/(x_{max}-x_{min})$",      
       )
 
+    # Make dummy file for output
+    with open(f"{self.plots_output}/epoch_pm.txt", 'w') as file:
+      file.write("")
 
 
   def Outputs(self):
@@ -118,14 +122,9 @@ class EpochPerformanceMetricsPlot():
     Return a list of outputs given by class
     """
     outputs = []
-    if self.merged_plot is None:
-      for pm in self.merged_plot:
-        outputs.append(f"{self.plots_output}/epoch_pm_{pm.replace('.','_')}.pdf")
-        outputs.append(f"{self.plots_output}/epoch_pm_{pm.replace('.','_')}_no_zero.pdf")
-    else:
-      outputs.append(f"{self.plots_output}/epoch_pm_merged.pdf")
-      outputs.append(f"{self.plots_output}/epoch_pm_merged_no_zero.pdf")
+    outputs += [f"{self.plots_output}/epoch_pm.txt"]
     return outputs
+
 
   def Inputs(self):
     """

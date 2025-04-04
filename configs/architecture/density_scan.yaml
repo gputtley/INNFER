@@ -1,6 +1,6 @@
+type: "BayesFlow"
 # coupling design
-coupling_design:
-  - "interleaved"
+coupling_design: "interleaved"
 permutation: "fixed"
 num_coupling_layers: 
   - 10
@@ -9,9 +9,7 @@ num_coupling_layers:
 epochs: 10
 batch_size: 512
 early_stopping: False
-learning_rate: 
-  - 0.001
-  - 0.0001
+learning_rate: 0.001
 optimizer_name: "AdamW"
 lr_scheduler_name: "CosineDecay"
 active_learning: False

@@ -223,6 +223,7 @@ class Likelihood():
           
     return ln_constraint
 
+
   def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None):
 
     # Initiate log probs
@@ -243,7 +244,7 @@ class Likelihood():
         order=gradient, 
         column_1=column_1, 
         column_2=column_2
-      )  
+      )
 
       # Shift density with regression
       log_probs[name] = self._ShiftDensityByRegression(
@@ -286,6 +287,7 @@ class Likelihood():
 
     return H1
 
+
   def _GetH1FirstDerivative(self, log_probs, log_probs_first_derivative, Y, column_1=None):
 
     # Loop through pdf models
@@ -303,6 +305,7 @@ class Likelihood():
         H1FirstDerivative += ln_lklds_with_rate_params
 
     return H1FirstDerivative
+
 
   def _GetH1SecondDerivative(self, log_probs, log_probs_first_derivative_1, log_probs_first_derivative_2, log_probs_second_derivative, Y, column_1=None, column_2=None):
 
@@ -322,6 +325,7 @@ class Likelihood():
 
     return H1SecondDerivative
 
+
   def _GetH2(self, Y, log=False):
 
     # Loop through pdf models
@@ -337,6 +341,7 @@ class Likelihood():
       H2 = np.log(H2)
 
     return H2
+
 
   def _GetH2FirstDerivative(self, Y, column_1=None):
 
@@ -479,10 +484,12 @@ class Likelihood():
 
 
   def _GetYield(self, file_name, Y):
+
     if "yields" in self.models.keys():
       yd = self.models["yields"][file_name](Y)
     else:
       yd = 1.0
+      
     return yd
 
 

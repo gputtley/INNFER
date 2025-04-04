@@ -35,12 +35,13 @@ def parse_args():
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
+  parser.add_argument('--density-performance-metrics', help='Comma separated list of sensity performance metrics', type=str, default='loss,histogram,multidim')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
   parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
-  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='inference_chi_squared_test_inf:all,min')
+  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
   parser.add_argument('--include-per-model-rate', help='Include the rate parameters in the non-combined likelihood.', action='store_true')
   parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
@@ -61,10 +62,6 @@ def parse_args():
   parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--overwrite-architecture', help='Comma separated list of key=values to overwrite architecture parameters', type=str, default='')
-  parser.add_argument('--performance-metrics-no-histogram', help='Do not run the histogram performance metrics.', action='store_true')
-  parser.add_argument('--performance-metrics-no-inference', help='Do not run the inference performance metrics.', action='store_true')
-  parser.add_argument('--performance-metrics-no-loss', help='Do not run the loss performance metrics.', action='store_true')
-  parser.add_argument('--performance-metrics-no-multidim', help='Do not run the multidimensional dataset performance metrics.', action='store_true')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
@@ -391,78 +388,50 @@ def main(args, default_args):
         )
 
 
-  # Get performance metrics - THIS STILL NEEDS TO BE FIXED
+  # Get performance metrics
   if args.step == "DensityPerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for model_info in GetModelLoop(cfg, only_density=True):
-      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
+      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"models/{cfg['name']}/{model_info['name']}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
           config = {
             "cfg" : args.cfg,
+            "file_name" : model_info["file_name"],
             "parameters" : model_info["parameters"],
-            "architecture" : args.density_architecture,
-            "data_input" : f"data/{cfg['name']}/PreProcess/",
+            "model_input" : f"models/{cfg['name']}/{model_info['name']}",
+            "data_input" : f"data/{cfg['name']}/PreProcess",
             "data_output" : f"data/{cfg['name']}/DensityPerformanceMetrics/{model_info['name']}",
-            "do_inference": not args.performance_metrics_no_inference,
-            "do_loss": not args.performance_metrics_no_loss,
-            "do_histogram_metrics": not args.performance_metrics_no_histogram,
-            "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
+            "do_inference": "inference" in args.density_performance_metrics,
+            "do_loss": "loss" in args.density_performance_metrics,
+            "do_histogram_metrics": "histogram" in args.density_performance_metrics,
+            "do_multidimensional_dataset_metrics": "multidim" in args.density_performance_metrics,
             "save_extra_name": extra_name,
             "n_asimov_events" : args.number_of_asimov_events,
             "seed" : args.asimov_seed,
             "verbose" : not  args.quiet,     
           },
-          loop = {"model_name" : model_info['name']}
+          loop = {"model_name" : model_info['name'], "extra_name" : extra_name}
         )
 
 
-  ## Get performance metrics
-  #if args.step == "PerformanceMetrics":
-  #  print("<< Getting the performance metrics of the trained networks >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
-  #      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-  #      module.Run(
-  #        module_name = "performance_metrics",
-  #        class_name = "PerformanceMetrics",
-  #        config = {
-  #          "model" : f"models/{cfg['name']}/{file_name}/{file_name}{extra_name}.h5",
-  #          "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #          "data_output" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
-  #          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-  #          "pois": cfg["pois"],
-  #          "nuisances": cfg["nuisances"],
-  #          "split_validation_files": args.split_validation_files,
-  #          "cfg_name" : cfg["name"],
-  #          "do_inference": not args.performance_metrics_no_inference,
-  #          "do_loss": not args.performance_metrics_no_loss,
-  #          "do_histogram_metrics": not args.performance_metrics_no_histogram,
-  #          "do_multidimensional_dataset_metrics": not args.performance_metrics_no_multidim,
-  #          "save_extra_name": extra_name,
-  #          "verbose" : not  args.quiet,     
-  #        },
-  #        loop = {"file_name" : file_name, "extra_name" : extra_name}
-  #      )
-
-  ## Plot performance metrics per epoch
-  #if args.step == "EpochPerformanceMetricsPlot":
-  #  print("<< Plotting the performance metrics as a function of the epoch of training >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    module.Run(
-  #      module_name = "epoch_performance_metrics_plot",
-  #      class_name = "EpochPerformanceMetricsPlot",
-  #      config = {
-  #        "architecture": f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-  #        "data_input" : f"data/{cfg['name']}/{file_name}/PerformanceMetrics",
-  #        "plots_output" : f"plots/{cfg['name']}/{file_name}/EpochPerformanceMetricsPlot",
-  #        "merged_plot" : args.other_input.split(",") if args.other_input is not None else None,
-  #        "verbose" : not args.quiet,  
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+  # Plot performance metrics per epoch
+  if args.step == "EpochPerformanceMetricsPlot":
+    print("<< Plotting the performance metrics as a function of the epoch of training >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "epoch_performance_metrics_plot",
+        class_name = "EpochPerformanceMetricsPlot",
+        config = {
+          "architecture": f"models/{cfg['name']}/{model_info['name']}/{model_info['file_name']}_architecture.yaml",
+          "data_input" : f"data/{cfg['name']}/DensityPerformanceMetrics/{model_info['name']}",
+          "plots_output" : f"plots/{cfg['name']}/EpochPerformanceMetricsPlot/{model_info['name']}",
+          "merged_plot" : args.other_input.split(",") if args.other_input is not None else None,
+          "verbose" : not args.quiet,  
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
 
   ## Perform a p-value dataset comparison test for sim vs synth
@@ -539,76 +508,76 @@ def main(args, default_args):
   #      loop = {"file_name" : file_name}
   #    )
 
-  ## Perform a hyperparameter scan
-  #if args.step == "HyperparameterScan":
-  #  print("<< Running a hyperparameter scan >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    for architecture_ind, architecture in enumerate(GetScanArchitectures(args.architecture, data_output=f"data/{cfg['name']}/{file_name}/HyperparameterScan/")):
-  #      val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-  #      module.Run(
-  #        module_name = "hyperparameter_scan",
-  #        class_name = "HyperparameterScan",
-  #        config = {
-  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #          "architecture" : architecture,
-  #          "data_output" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
-  #          "use_wandb" : args.use_wandb,
-  #          "wandb_project_name" : args.wandb_project_name,
-  #          "wandb_submit_name" : f"{cfg['name']}_{file_name}",
-  #          "disable_tqdm" : args.disable_tqdm,
-  #          "save_extra_name" : f"_{architecture_ind}",
-  #          "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-  #          "pois": cfg["pois"],
-  #          "nuisances": cfg["nuisances"],
-  #          "verbose" : not args.quiet,        
-  #        },
-  #        loop = {"file_name" : file_name, "architecture_ind" : architecture_ind}
-  #      )
+  # Perform a hyperparameter scan
+  if args.step == "HyperparameterScan":
+    print("<< Running a hyperparameter scan >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      for architecture_ind, architecture in enumerate(GetScanArchitectures(args.density_architecture, data_output=f"data/{cfg['name']}/HyperparameterScan/{model_info['name']}/")):
+        module.Run(
+          module_name = "hyperparameter_scan",
+          class_name = "HyperparameterScan",
+          config = {
+            "cfg" : args.cfg,
+            "data_input" : f"data/{cfg['name']}/PreProcess",
+            "parameters" : model_info["parameters"],
+            "architecture" : architecture,
+            "file_name" : model_info["file_name"],
+            "data_output" : f"data/{cfg['name']}/HyperparameterScan/{model_info['name']}",
+            "use_wandb" : args.use_wandb,
+            "wandb_project_name" : args.wandb_project_name,
+            "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
+            "disable_tqdm" : args.disable_tqdm,
+            "save_extra_name" : f"_{architecture_ind}",
+            "density_performance_metrics" : args.density_performance_metrics,
+            "verbose" : not args.quiet,        
+          },
+          loop = {"model_name" : model_info['name'], "architecture_ind" : architecture_ind}
+        )
 
-  ## Collect a hyperparameter scan
-  #if args.step == "HyperparameterScanCollect":
-  #  print("<< Collecting hyperparameter scan >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    module.Run(
-  #      module_name = "hyperparameter_scan_collect",
-  #      class_name = "HyperparameterScanCollect",
-  #      config = {
-  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #        "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.architecture, write=False)))],
-  #        "data_input" : f"data/{cfg['name']}/{file_name}/HyperparameterScan",
-  #        "data_output" : f"models/{cfg['name']}/{file_name}",
-  #        "metric" : args.hyperparameter_metric,
-  #        "verbose" : not args.quiet,        
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+  # Collect a hyperparameter scan
+  if args.step == "HyperparameterScanCollect":
+    print("<< Collecting hyperparameter scan >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "hyperparameter_scan_collect",
+        class_name = "HyperparameterScanCollect",
+        config = {
+          "file_name" : model_info["file_name"],
+          "data_input" : f"data/{cfg['name']}/HyperparameterScan/{model_info['name']}",
+          "data_output" : f"models/{cfg['name']}/{model_info['name']}",
+          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.density_architecture, write=False)))],
+          "metric" : args.hyperparameter_metric,
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
-  ## Perform a hyperparameter scan
-  #if args.step == "BayesianHyperparameterTuning":
-  #  print("<< Running a bayesian hyperparameter tuning >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    val_loop_info = GetValidateInfo(f"data/{cfg['name']}", f"models/{cfg['name']}", cfg, data_type="sim", skip_empty_Y=True)
-  #    module.Run(
-  #      module_name = "bayesian_hyperparameter_tuning",
-  #      class_name = "BayesianHyperparameterTuning",
-  #      config = {
-  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #        "tune_architecture" : args.architecture,
-  #        "data_output" : f"data/{cfg['name']}/{file_name}/BayesianHyperparameterTuning",
-  #        "best_model_output" : f"models/{cfg['name']}/{file_name}",
-  #        "use_wandb" : args.use_wandb,
-  #        "wandb_project_name" : args.wandb_project_name,
-  #        "wandb_submit_name" : f"{cfg['name']}_{file_name}",
-  #        "disable_tqdm" : args.disable_tqdm,
-  #        "verbose" : not args.quiet,
-  #        "metric" : args.hyperparameter_metric,
-  #        "n_trials" : args.number_of_trials,
-  #        "val_loop" : val_loop_info["val_loops"][file_name] if file_name in val_loop_info["val_loops"].keys() else {},
-  #        "pois": cfg["pois"],
-  #        "nuisances": cfg["nuisances"],
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+  # Perform a hyperparameter scan
+  if args.step == "BayesianHyperparameterTuning":
+    print("<< Running a bayesian hyperparameter tuning >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "bayesian_hyperparameter_tuning",
+        class_name = "BayesianHyperparameterTuning",
+        config = {
+            "cfg" : args.cfg,
+            "data_input" : f"data/{cfg['name']}/PreProcess",
+            "parameters" : model_info["parameters"],
+            "tune_architecture" : args.density_architecture,
+            "file_name" : model_info["file_name"],
+            "best_model_output" : f"models/{cfg['name']}/{model_info['file_name']}",
+            "data_output" : f"data/{cfg['name']}/BayesianHyperparameterTuning/{model_info['name']}",
+            "use_wandb" : args.use_wandb,
+            "wandb_project_name" : args.wandb_project_name,
+            "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
+            "disable_tqdm" : args.disable_tqdm,
+            "density_performance_metrics" : args.density_performance_metrics,
+            "n_trials" : args.number_of_trials,
+            "metric" : args.hyperparameter_metric,
+            "verbose" : not args.quiet,     
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
 
   # Making plots using the network as a generator for individual Y values

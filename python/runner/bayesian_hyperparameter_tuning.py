@@ -5,8 +5,8 @@ import yaml
 
 from random_word import RandomWords
 
-from train import Train
-from performance_metrics import PerformanceMetrics
+from train_density import TrainDensity
+from density_performance_metrics import DensityPerformanceMetrics
 from useful_functions import FindKeysAndValuesInDictionaries, MakeDictionaryEntry, GetDictionaryEntryFromYaml, MakeDirectories
 
 class BayesianHyperparameterTuning():
@@ -16,28 +16,30 @@ class BayesianHyperparameterTuning():
     A template class.
     """
     # Required input which is the location of a file
-    self.parameters = None
+    self.cfg = None
+    self.parameters = None    
     self.tune_architecture = None
 
     # other
     self.best_model_output = None
     self.metric = ""
+
+    self.file_name = None
+    self.data_input = "data/"
     self.use_wandb = False
     self.wandb_project_name = "innfer"
     self.wandb_submit_name = "innfer"
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
+    self.density_performance_metrics = None
     self.n_trials = 10
-    self.test_name = "test"
-    self.val_loop = []
-    self.pois = None
-    self.nuisances = None
 
     self.objective_ind = 0
     self.tune_architecture_name = None
 
-  def _TrainAndPerfomanceMetric(self):
+
+  def _TrainAndPerformanceMetric(self):
     """
     Run the code utilising the worker classes
     """
@@ -74,6 +76,7 @@ class BayesianHyperparameterTuning():
       wandb.log(metric)
       wandb.finish()
 
+
   def Configure(self, options):
     """
     Configure the class settings.
@@ -83,6 +86,7 @@ class BayesianHyperparameterTuning():
     """
     for key, value in options.items():
       setattr(self, key, value)
+
 
   def Run(self):
     """
@@ -101,13 +105,10 @@ class BayesianHyperparameterTuning():
     best_trial = study.best_trial.number
 
     # Move best model and architecture to correct directory
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    model_output_name = f"{self.best_model_output}/{parameters['file_name']}.h5"
-    model_architecture_name = f"{self.best_model_output}/{parameters['file_name']}_architecture.yaml"
-    best_model_name = f"{self.data_output}/{parameters['file_name']}_{best_trial}.h5"
-    best_architecture_name = f"{self.data_output}/{parameters['file_name']}_{best_trial}_architecture.yaml"
-
+    model_output_name = f"{self.best_model_output}/{self.file_name}.h5"
+    model_architecture_name = f"{self.best_model_output}/{self.file_name}_architecture.yaml"
+    best_model_name = f"{self.data_output}/{self.file_name}_{best_trial}.h5"
+    best_architecture_name = f"{self.data_output}/{self.file_name}_{best_trial}_architecture.yaml"
 
     if self.verbose:
       print("- Best model is:")
@@ -149,7 +150,7 @@ class BayesianHyperparameterTuning():
       yaml.dump(output, yaml_file, default_flow_style=False)
 
     # Train and performance metrics
-    self._TrainAndPerfomanceMetric()
+    self._TrainAndPerformanceMetric()
 
     # Load in metrics
     metrics_name = f"{self.data_output}/metrics_{self.objective_ind}.yaml"
@@ -164,69 +165,89 @@ class BayesianHyperparameterTuning():
 
     return metric_val
 
+
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
     outputs = []
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     outputs += [
-      f"{self.best_model_output}/{parameters['file_name']}.h5",
-      f"{self.best_model_output}/{parameters['file_name']}_architecture.yaml"      
+      f"{self.best_model_output}/{self.file_name}.h5",
+      f"{self.best_model_output}/{self.file_name}_architecture.yaml"      
     ]
     return outputs
+
 
   def Inputs(self):
     """
     Return a list of inputs required by class
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    inputs = [
-      self.parameters,
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
-    ]
+    inputs = []
+
+    # Add config
+    inputs += [self.cfg]
+
+    # Add parameters
+    inputs += [self.parameters]
+
+    # Add architecture
+    inputs += [self.tune_architecture]
+
+    # Add other inputs
+    t = self._SetupTrain()
+    pf = self._SetupPerformanceMetrics()
+    t_inputs = t.Inputs()
+    t_inputs = [i for i in t_inputs if i is not None]
+    t_outputs = t.Outputs()
+    pf_inputs = pf.Inputs()
+    pf_unique = [i for i in pf_inputs if i not in t_outputs and i is not None]
+    inputs = list(set(inputs + t_inputs + pf_unique))
+
     return inputs
 
+
   def _SetupTrain(self):
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    t = Train()
-    t.Configure(
-      {
+
+    t = TrainDensity()
+    t.Configure(     
+      {     
         "parameters" : self.parameters,
         "architecture" : self.tune_architecture_name,
+        "file_name" : self.file_name,
+        "data_input" : f"{self.data_input}/{self.file_name}/density",
         "data_output" : self.data_output,
-        "use_wandb" : self.use_wandb,
-        "disable_tqdm" : self.disable_tqdm,
         "no_plot" : True,
-        "test_name" : self.test_name,
-        "save_extra_name" : f"_{self.objective_ind}"
+        "disable_tqdm" : self.disable_tqdm,
+        "use_wandb" : self.use_wandb,
+        "initiate_wandb" : self.use_wandb,
+        "wandb_project_name" : self.wandb_project_name,
+        "wandb_submit_name" : self.wandb_submit_name,
+        "save_extra_name" : f"_{self.objective_ind}",
+        "verbose" : self.verbose,        
       }
     )
+
     return t
 
+
   def _SetupPerformanceMetrics(self):
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    pf = PerformanceMetrics()
+
+    pf = DensityPerformanceMetrics()
     pf.Configure(
       {
-        "model" : f"{self.data_output}/{parameters['file_name']}_{self.objective_ind}.h5",
-        "architecture" : self.tune_architecture_name,
+        "cfg" : self.cfg,
+        "file_name" : self.file_name,
         "parameters" : self.parameters,
+        "model_input" : self.data_output,
+        "data_input" : self.data_input,
         "data_output" : self.data_output,
+        "do_inference": "inference" in self.density_performance_metrics,
+        "do_loss": "loss" in self.density_performance_metrics,
+        "do_histogram_metrics": "histogram" in self.density_performance_metrics,
+        "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
         "save_extra_name" : f"_{self.objective_ind}",
-        "test_name" : self.test_name,
-        "val_loop" : self.val_loop,
-        "pois": self.pois,
-        "nuisances": self.nuisances,
+        "verbose" : self.verbose,     
       }
     )
+
     return pf

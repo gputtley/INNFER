@@ -6,6 +6,8 @@ import re
 import numpy as np
 import pandas as pd
 
+from sklearn.model_selection import train_test_split
+
 from data_loader import DataLoader
 from useful_functions import CustomHistogram, Resample
 
@@ -220,6 +222,7 @@ class DataProcessor():
       sampling_fraction = 1.0,
       means = None,
       custom = None,
+      test_fraction = 0.2,
       custom_options = {},
       print_dataset = False,
     ):
@@ -278,6 +281,8 @@ class DataProcessor():
         out = self._method_dataset(tmp, out)
       elif method in ["sampled_dataset"]: # get sampled dataset
         out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
+      elif method in ["train_test_split"]: # get train and test dataset
+        out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
       elif method in ["histogram"]: # make a histogram from the dataset
         out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
       elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
@@ -740,6 +745,17 @@ class DataProcessor():
         out[1] + tmp_total_wt
       ]
     return out
+
+  def _method_train_test_split(self, tmp, out, column, test_fraction=0.2):
+
+    train, test = train_test_split(tmp, test_size=test_fraction, random_state=42)
+    if out is None:
+      out = [copy.deepcopy(train), copy.deepcopy(test)]
+    else:
+      out[0] = pd.concat([out[0], train], axis=0, ignore_index=True)
+      out[1] = pd.concat([out[1], test], axis=0, ignore_index=True)
+    return out
+
 
   def _method_unique(self, tmp, out, unique_threshold=20):
     tmp_unique = {}

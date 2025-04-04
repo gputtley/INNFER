@@ -3,8 +3,8 @@ import yaml
 
 from random_word import RandomWords
 
-from train import Train
-from python.runner.archive.performance_metrics import PerformanceMetrics
+from train_density import TrainDensity
+from density_performance_metrics import DensityPerformanceMetrics
 
 class HyperparameterScan():
 
@@ -13,21 +13,22 @@ class HyperparameterScan():
     A template class.
     """
     # Required input which is the location of a file
+    self.cfg = None
     self.parameters = None
     self.architecture = None
 
     # other
+    self.file_name = None
+    self.data_input = "data/"
     self.use_wandb = False
     self.wandb_project_name = "innfer"
     self.wandb_submit_name = "innfer"
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
-    self.test_name = "test"
     self.save_extra_name = ""
-    self.val_loop = []
-    self.pois = None
-    self.nuisances = None
+    self.density_performance_metrics = None
+ 
 
   def Configure(self, options):
     """
@@ -38,6 +39,7 @@ class HyperparameterScan():
     """
     for key, value in options.items():
       setattr(self, key, value)
+
 
   def Run(self):
     """
@@ -77,7 +79,6 @@ class HyperparameterScan():
       wandb.finish()
 
 
-
   def Outputs(self):
     """
     Return a list of outputs given by class
@@ -86,60 +87,66 @@ class HyperparameterScan():
     t = self._SetupTrain()
     pf = self._SetupPerformanceMetrics()
 
-    outputs = t.Outputs() + pf.Outputs()
+    outputs = list(set(t.Outputs() + pf.Outputs()))
     return outputs
+
 
   def Inputs(self):
     """
     Return a list of inputs required by class
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    inputs = [
-      self.parameters,
-      self.architecture,
-      f"{parameters['file_loc']}/X_train.parquet",
-      f"{parameters['file_loc']}/Y_train.parquet", 
-      f"{parameters['file_loc']}/wt_train.parquet", 
-      f"{parameters['file_loc']}/X_{self.test_name}.parquet",
-      f"{parameters['file_loc']}/Y_{self.test_name}.parquet", 
-      f"{parameters['file_loc']}/wt_{self.test_name}.parquet",
-    ]
+    t = self._SetupTrain()
+    pf = self._SetupPerformanceMetrics()
+
+    pf_inputs = pf.Inputs()
+    t_outputs = t.Outputs()
+
+    inputs = list(set(t.Inputs() + [i for i in pf_inputs if i not in t_outputs]))
+
     return inputs
 
+
   def _SetupTrain(self):
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    t = Train()
-    t.Configure(
-      {
+
+    t = TrainDensity()
+    t.Configure(     
+      {     
         "parameters" : self.parameters,
         "architecture" : self.architecture,
+        "file_name" : self.file_name,
+        "data_input" : f"{self.data_input}/{self.file_name}/density",
         "data_output" : self.data_output,
-        "use_wandb" : self.use_wandb,
-        "disable_tqdm" : self.disable_tqdm,
         "no_plot" : True,
-        "test_name" : self.test_name,
-        "save_extra_name" : self.save_extra_name
+        "disable_tqdm" : self.disable_tqdm,
+        "use_wandb" : self.use_wandb,
+        "initiate_wandb" : self.use_wandb,
+        "wandb_project_name" : self.wandb_project_name,
+        "wandb_submit_name" : self.wandb_submit_name,
+        "save_extra_name" : self.save_extra_name,
+        "verbose" : self.verbose,        
       }
     )
+
     return t
 
   def _SetupPerformanceMetrics(self):
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    pf = PerformanceMetrics()
+
+    pf = DensityPerformanceMetrics()
     pf.Configure(
       {
-        "model" : f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5",
-        "architecture" : f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml",
+        "cfg" : self.cfg,
+        "file_name" : self.file_name,
         "parameters" : self.parameters,
+        "model_input" : self.data_output,
+        "data_input" : self.data_input,
         "data_output" : self.data_output,
-        "test_name" : self.test_name,
-        "save_extra_name" : self.save_extra_name,
-        "val_loop" : self.val_loop,
-        "pois": self.pois,
-        "nuisances": self.nuisances,
+        "do_inference": "inference" in self.density_performance_metrics,
+        "do_loss": "loss" in self.density_performance_metrics,
+        "do_histogram_metrics": "histogram" in self.density_performance_metrics,
+        "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
+        "save_extra_name": self.save_extra_name,
+        "verbose" : self.verbose,     
       }
     )
+
     return pf

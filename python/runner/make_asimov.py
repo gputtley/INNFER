@@ -25,6 +25,7 @@ class MakeAsimov():
     self.file_name = None
     self.density_model = None
     self.regression_models = None
+    self.model_extra_name = ""
     self.parameters = None
     self.model_input = "data/"
     self.data_output = "data/"
@@ -34,6 +35,8 @@ class MakeAsimov():
     self.val_info = {}
     self.val_ind = None
     self.only_density = False
+    self.Y = None
+    self.add_truth = False
     self.verbose = True
 
   def _WriteDataset(self, df, file_name):
@@ -65,8 +68,7 @@ class MakeAsimov():
 
     # Import costly packages
     import tensorflow as tf
-    from bayes_flow_network import BayesFlowNetwork
-
+    
     # Open cfg
     if self.verbose:
       print("- Loading in config")
@@ -116,13 +118,16 @@ class MakeAsimov():
   
     # Loading density model
     if self.verbose:
-      print(f"- Loading the density model {density_model_name}")
-    network.Load(name=f"{density_model_name}.h5")
+      print(f"- Loading the density model {density_model_name}{self.model_extra_name}")
+    network.Load(name=f"{density_model_name}{self.model_extra_name}.h5")
 
     # Sample from density model
     if self.verbose:
       print(f"- Sampling from density network")
-    Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
+    if self.Y is not None:
+      Y = self.Y
+    else:
+      Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
     asimov_writer = DataProcessor(
       [[partial(network.Sample, Y)]],
       "generator",
@@ -133,6 +138,17 @@ class MakeAsimov():
         "scale" : total_yield,
       }
     )
+    def add_truth(df, Y):
+      for k,v in Y.items():
+        df.loc[:,k] = v
+      return df
+
+    functions_to_apply = []
+    if self.add_truth:
+      functions_to_apply += [partial(add_truth, Y=model_parameters)]
+    functions_to_apply += [partial(self._WriteDataset,file_name="asimov.parquet")]
+
+
     asimov_file_name = f"{self.data_output}/asimov.parquet"
     MakeDirectories(asimov_file_name)
     if os.path.isfile(asimov_file_name): os.system(f"rm {asimov_file_name}")
@@ -140,9 +156,7 @@ class MakeAsimov():
     tf.keras.utils.set_random_seed(self.seed)
     asimov_writer.GetFull(
       method = None,
-      functions_to_apply = [
-        partial(self._WriteDataset,file_name="asimov.parquet")
-      ]
+      functions_to_apply = functions_to_apply
     )
 
     if not self.only_density:
