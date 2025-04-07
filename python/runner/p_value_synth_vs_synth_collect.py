@@ -12,7 +12,6 @@ class PValueSynthVsSynthCollect():
     self.data_input = "data/"
     self.data_output = "data/"
     self.number_of_toys = None
-    self.sim_type = "val"
     self.verbose = True
 
   def Configure(self, options):
@@ -36,7 +35,7 @@ class PValueSynthVsSynthCollect():
 
     first = True
     for i in range(self.number_of_toys):
-      with open(f"{self.data_input}/p_value_dataset_comparison_{self.sim_type}_{i}.yaml", 'r') as yaml_file:
+      with open(f"{self.data_input}/metrics_toy_{i}.yaml", 'r') as yaml_file:
         metrics = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       if first:
@@ -54,7 +53,7 @@ class PValueSynthVsSynthCollect():
     if self.verbose:
       print("- Writing the results to yaml")
     MakeDirectories(self.data_output)
-    with open(f"{self.data_output}/p_value_dataset_comparison_{self.sim_type}.yaml", 'w') as file:
+    with open(f"{self.data_output}/metrics.yaml", 'w') as file:
       yaml.dump(out, file)
 
   def Outputs(self):
@@ -62,7 +61,7 @@ class PValueSynthVsSynthCollect():
     Return a list of outputs given by class
     """
     #outputs = []
-    outputs = [f"{self.data_output}/p_value_dataset_comparison_{self.sim_type}.yaml"]
+    outputs = [f"{self.data_output}/metrics.yaml"]
     return outputs
 
   def Inputs(self):
@@ -71,7 +70,7 @@ class PValueSynthVsSynthCollect():
     """
     inputs = []
     for i in range(self.number_of_toys):
-      inputs.append(f"{self.data_input}/p_value_dataset_comparison_{self.sim_type}_{i}.yaml")
+      inputs.append(f"{self.data_input}/metrics_toy_{i}.yaml")
     return inputs
 
         

@@ -35,7 +35,8 @@ def parse_args():
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
-  parser.add_argument('--density-performance-metrics', help='Comma separated list of sensity performance metrics', type=str, default='loss,histogram,multidim')
+  parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
+  parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
@@ -407,10 +408,14 @@ def main(args, default_args):
             "do_loss": "loss" in args.density_performance_metrics,
             "do_histogram_metrics": "histogram" in args.density_performance_metrics,
             "do_multidimensional_dataset_metrics": "multidim" in args.density_performance_metrics,
+            "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
+            "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+            "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+            "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
             "save_extra_name": extra_name,
             "n_asimov_events" : args.number_of_asimov_events,
             "seed" : args.asimov_seed,
-            "verbose" : not  args.quiet,     
+            "verbose" : not args.quiet,     
           },
           loop = {"model_name" : model_info['name'], "extra_name" : extra_name}
         )
@@ -434,79 +439,104 @@ def main(args, default_args):
       )
 
 
-  ## Perform a p-value dataset comparison test for sim vs synth
-  #if args.step == "PValueSimVsSynth":
-  #  print("<< Getting the metrics for Sim Vs Synth comparison >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    module.Run(
-  #      module_name = "p_value_dataset_comparison",
-  #      class_name = "PValueDatasetComparison",
-  #      config = {
-  #        "comparison_type" : "SimVsSynth",
-  #        "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
-  #        "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-  #        "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #        "data_output" : f"data/{cfg['name']}/{file_name}/PValueSimVsSynth",
-  #        "sim_type" : args.sim_type,
-  #        "verbose" : not args.quiet,  
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+  # Perform a p-value dataset comparison test for sim vs synth
+  if args.step == "PValueSimVsSynth":
+    print("<< Getting the metrics for Sim Vs Synth comparison >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "density_performance_metrics",
+        class_name = "DensityPerformanceMetrics",
+        config = {
+          "cfg" : args.cfg,
+          "file_name" : model_info["file_name"],
+          "parameters" : model_info["parameters"],
+          "model_input" : f"models/{cfg['name']}/{model_info['name']}",
+          "data_input" : f"data/{cfg['name']}/PreProcess",
+          "data_output" : f"data/{cfg['name']}/PValueSimVsSynth/{model_info['name']}",
+          "do_inference": False,
+          "do_loss": False,
+          "do_histogram_metrics": False,
+          "do_multidimensional_dataset_metrics": True,
+          "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
+          "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+          "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+          "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
+          "n_asimov_events" : args.number_of_asimov_events,
+          "seed" : args.asimov_seed,
+          "verbose" : not args.quiet,     
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
-  ## Perform a p-value dataset comparison test bootstrapping synth vs synth
-  #if args.step == "PValueSynthVsSynth":
-  #  print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    for seed in range(args.number_of_toys):
-  #      module.Run(
-  #        module_name = "p_value_dataset_comparison",
-  #        class_name = "PValueDatasetComparison",
-  #        config = {
-  #          "comparison_type" : "SynthVsSynth",
-  #          "model" : f"models/{cfg['name']}/{file_name}/{file_name}.h5",
-  #          "architecture" : f"models/{cfg['name']}/{file_name}/{file_name}_architecture.yaml",
-  #          "parameters" : f"data/{cfg['name']}/{file_name}/PreProcess/parameters.yaml",
-  #          "data_output" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynth",
-  #          "seed" : seed,
-  #          "sim_type" : args.sim_type,
-  #          "verbose" : not args.quiet,  
-  #        },
-  #        loop = {"file_name" : file_name, "seed" : seed}
-  #      )
 
-  ## Collect the synth vs synth tests
-  #if args.step == "PValueSynthVsSynthCollect":
-  #  print("<< Collecting the classifier 2 sample test >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    module.Run(
-  #      module_name = "p_value_synth_vs_synth_collect",
-  #      class_name = "PValueSynthVsSynthCollect",
-  #      config = {
-  #        "data_input" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynth",
-  #        "data_output" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynthCollect",
-  #        "number_of_toys" : args.number_of_toys,
-  #        "sim_type" : args.sim_type,
-  #        "verbose" : not args.quiet,  
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+  # Perform a p-value dataset comparison test bootstrapping synth vs synth
+  if args.step == "PValueSynthVsSynth":
+    print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      for toy in range(args.number_of_toys):
+        module.Run(
+          module_name = "density_performance_metrics",
+          class_name = "DensityPerformanceMetrics",
+          config = {
+            "cfg" : args.cfg,
+            "file_name" : model_info["file_name"],
+            "parameters" : model_info["parameters"],
+            "model_input" : f"models/{cfg['name']}/{model_info['name']}",
+            "data_input" : f"data/{cfg['name']}/PreProcess",
+            "data_output" : f"data/{cfg['name']}/PValueSynthVsSynth/{model_info['name']}",
+            "do_inference": False,
+            "do_loss": False,
+            "do_histogram_metrics": False,
+            "do_multidimensional_dataset_metrics": True,
+            "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
+            "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+            "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+            "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
+            "n_asimov_events" : args.number_of_asimov_events,
+            "seed" : args.asimov_seed,
+            "synth_vs_synth" : True,
+            "alternative_asimov_seed_shift" : toy,
+            "metrics_save_extra_name" : f"_toy_{toy}",
+            "asimov_input" : f"data/{cfg['name']}/PValueSimVsSynth/{model_info['name']}",
+            "verbose" : not args.quiet,
+          },
+          loop = {"model_name" : model_info['name'], "toy" : toy}
+        )
 
-  ## Plot the p values dataset comparisons
-  #if args.step == "PValueDatasetComparisonPlot":
-  #  print("<< Plotting p-value dataset comparisons >>")
-  #  for file_name in GetFileLoop(cfg):
-  #    module.Run(
-  #      module_name = "p_value_dataset_comparison_plot",
-  #      class_name = "PValueDatasetComparisonPlot",
-  #      config = {
-  #        "synth_vs_synth_input" : f"data/{cfg['name']}/{file_name}/PValueSynthVsSynthCollect",
-  #        "sim_vs_synth_input" : f"data/{cfg['name']}/{file_name}/PValueSimVsSynth",
-  #        "plots_output" : f"plots/{cfg['name']}/{file_name}/PValueDatasetComparisonPlot",
-  #        "sim_type" : args.sim_type,
-  #        "verbose" : not args.quiet,  
-  #      },
-  #      loop = {"file_name" : file_name}
-  #    )
+
+  # Collect the synth vs synth tests
+  if args.step == "PValueSynthVsSynthCollect":
+    print("<< Collecting the classifier 2 sample test >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "p_value_synth_vs_synth_collect",
+        class_name = "PValueSynthVsSynthCollect",
+        config = {
+          "data_input" : f"data/{cfg['name']}/PValueSynthVsSynth/{model_info['name']}",
+          "data_output" : f"data/{cfg['name']}/PValueSynthVsSynthCollect/{model_info['name']}",
+          "number_of_toys" : args.number_of_toys,
+          "verbose" : not args.quiet,  
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
+  # Plot the p values dataset comparisons
+  if args.step == "PValueDatasetComparisonPlot":
+    print("<< Plotting p-value dataset comparisons >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "p_value_dataset_comparison_plot",
+        class_name = "PValueDatasetComparisonPlot",
+        config = {
+          "synth_vs_synth_input" : f"data/{cfg['name']}/PValueSynthVsSynthCollect/{model_info['name']}",
+          "sim_vs_synth_input" : f"data/{cfg['name']}/PValueSimVsSynth/{model_info['name']}",
+          "plots_output" : f"plots/{cfg['name']}/PValueDatasetComparisonPlot/{model_info['name']}",
+          "verbose" : not args.quiet,  
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
 
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":

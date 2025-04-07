@@ -1,13 +1,11 @@
-import copy
 import os
 import yaml
 
 import numpy as np
 import pandas as pd
 
-from functools import partial
-
 from histogram_metrics import HistogramMetrics
+from make_asimov import MakeAsimov
 from multidim_metrics import MultiDimMetrics
 
 from useful_functions import (
@@ -50,13 +48,20 @@ class DensityPerformanceMetrics():
     self.do_bdt_separation = True
     self.do_wasserstein = True
     self.do_sliced_wasserstein = True
+    self.do_kmeans_chi_squared = False
     self.multidimensional_datasets = ["test_inf","val"]
 
     self.do_inference = True
     self.inference_datasets = ["test_inf","val"]
 
     self.save_extra_name = ""
-    self.tidy_up_asimov = True
+    self.metrics_save_extra_name = ""
+    self.tidy_up_asimov = False
+    self.asimov_input = None
+    self.synth_vs_synth = False
+    self.alternative_asimov_seed_shift = 0
+    self.alternative_asimov_seed = 1
+
 
   def Configure(self, options):
     """
@@ -67,6 +72,7 @@ class DensityPerformanceMetrics():
     """
     for key, value in options.items():
       setattr(self, key, value)
+
 
   def Run(self):
     """
@@ -84,7 +90,6 @@ class DensityPerformanceMetrics():
       self.open_parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     if self.do_inference or self.do_loss:
-
 
       density_model_name = f"{self.model_input}/{self.file_name}{self.save_extra_name}"
 
@@ -123,32 +128,62 @@ class DensityPerformanceMetrics():
 
     # Make asimov datasets
     if self.do_histogram_metrics or self.do_multidimensional_dataset_metrics:
+
       if self.verbose:
         print("- Making asimov datasets")
-      from make_asimov import MakeAsimov
+
       ma = MakeAsimov()
-      # Make validation asimov
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-        ma = MakeAsimov()
-        ma.Configure({
-            "cfg" : self.cfg,
-            "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
-            "model_input" : f"models/{self.open_cfg['name']}",
-            "model_extra_name" : self.save_extra_name,
-            "parameters" : self.parameters,
-            "data_output" : f"{self.data_output}/val_ind_{val_ind}",
-            "n_asimov_events" : self.n_asimov_events,
-            "seed" : self.asimov_seed,
-            "val_info" : val_info,
-            "val_ind" : val_ind,
-            "only_density" : True,
-            "add_truth" : True,
-            "verbose" : False,
-          }
-        )
-        ma.Run()
-      
+        if self.asimov_input is None:
+          ma = MakeAsimov()
+          ma.Configure({
+              "cfg" : self.cfg,
+              "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
+              "model_input" : f"models/{self.open_cfg['name']}",
+              "model_extra_name" : self.save_extra_name,
+              "parameters" : self.parameters,
+              "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}",
+              "n_asimov_events" : self.n_asimov_events,
+              "seed" : self.asimov_seed,
+              "val_info" : val_info,
+              "val_ind" : val_ind,
+              "only_density" : True,
+              "add_truth" : True,
+              "verbose" : False,
+            }
+          )
+          ma.Run()
+
+        if self.synth_vs_synth:
+
+          if self.alternative_asimov_seed_shift < 0: 
+            self.alternative_asimov_seed = 1
+          else:
+            self.alternative_asimov_seed = self.asimov_seed + self.alternative_asimov_seed_shift + 1
+
+          for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+
+            ma2 = MakeAsimov()
+            ma2.Configure({
+                "cfg" : self.cfg,
+                "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
+                "model_input" : f"models/{self.open_cfg['name']}",
+                "model_extra_name" : self.save_extra_name,
+                "parameters" : self.parameters,
+                "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}",
+                #"n_asimov_events" : self.n_asimov_events,
+                "n_asimov_events" : int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind])),
+                "seed" : self.alternative_asimov_seed,
+                "val_info" : val_info,
+                "val_ind" : val_ind,
+                "only_density" : True,
+                "add_truth" : True,
+                "verbose" : False,
+              }
+            )
+            ma2.Run()        
+
     # Get histogram metrics
     if self.do_histogram_metrics:
       if self.verbose:
@@ -170,7 +205,7 @@ class DensityPerformanceMetrics():
     # Write to yaml
     if self.verbose:
       print("- Writing metrics yaml")
-    output_name = f"{self.data_output}/metrics{self.save_extra_name}.yaml"
+    output_name = f"{self.data_output}/metrics{self.save_extra_name}{self.metrics_save_extra_name}.yaml"
     MakeDirectories(output_name)
     with open(output_name, 'w') as yaml_file:
       yaml.dump(self.metrics, yaml_file, default_flow_style=False) 
@@ -190,14 +225,31 @@ class DensityPerformanceMetrics():
               print(f"    {k2} : {self.metrics[metric][k1][k2]}")          
 
     # Tidy up asimov
-    if self.tidy_up_asimov:
-      if self.verbose:
-        print("- Tidying up asimov datasets")
-      for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-        if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-        os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}")
+    if self.verbose:
+      print("- Tidying up asimov datasets")
+    for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+      if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+      if self.tidy_up_asimov:
+        os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}")
+      if self.synth_vs_synth:
+        for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+          os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}")
 
-              
+
+  def _GetFiles(self, val_ind, data_type):
+
+    if not self.synth_vs_synth:
+      sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
+    else:
+      sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
+    if self.asimov_input is None:
+      synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}/asimov.parquet"]
+    else:
+      synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}/asimov.parquet"]
+
+    return sim_file, synth_file
+
+
   def DoLoss(self):
 
     # Get loss values
@@ -210,6 +262,7 @@ class DensityPerformanceMetrics():
         f"{self.open_parameters['density']['file_loc']}/wt_{data_type}.parquet"
       )
 
+
   def DoHistogramMetrics(self):
 
     # Loop through validation indices
@@ -217,16 +270,12 @@ class DensityPerformanceMetrics():
       if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
       for data_type in self.histogram_datasets:
 
-        sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
-        synth_file = f"{self.data_output}/val_ind_{val_ind}/asimov.parquet"
-
-        # if a sim_file or a synth_file is not a file, skip
-        if not all([os.path.isfile(f) for f in sim_file]) or not os.path.isfile(synth_file):
-          continue
+        sim_file, synth_file = self._GetFiles(val_ind, data_type)
+        if not all([os.path.isfile(f) for f in sim_file]) or not all([os.path.isfile(f) for f in synth_file]): continue
 
         hm = HistogramMetrics(
           [sim_file], 
-          [[synth_file]],
+          [synth_file],
           self.open_cfg["variables"]
         )
 
@@ -287,11 +336,11 @@ class DensityPerformanceMetrics():
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): 
           continue
-        sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
-        synth_file = f"{self.data_output}/val_ind_{val_ind}/asimov.parquet"
-        if not all([os.path.isfile(f) for f in sim_file]) or not os.path.isfile(synth_file): continue
+
+        sim_file, synth_file = self._GetFiles(val_ind, data_type)
+        if not all([os.path.isfile(f) for f in sim_file]) or not all([os.path.isfile(f) for f in synth_file]): continue
         sim_files.append(sim_file)
-        synth_files.append([synth_file])
+        synth_files.append(synth_file)
 
       # Initialise multi metrics
       mm = MultiDimMetrics(
@@ -318,6 +367,11 @@ class DensityPerformanceMetrics():
         if self.verbose:
           print(" - Adding sliced Wasserstein")
         mm.AddWassersteinSliced()
+
+      if self.do_kmeans_chi_squared:
+        if self.verbose:
+          print(" - Adding kmeans chi squared")
+        mm.AddKMeansChiSquared()
 
       # Run metrics
       multidim_metrics = mm.Run()
@@ -410,7 +464,15 @@ class DensityPerformanceMetrics():
     """
     Return a list of outputs given by class
     """
-    outputs = [f"{self.data_output}/metrics{self.save_extra_name}.yaml"]
+    # Add metrics
+    outputs = [f"{self.data_output}/metrics{self.save_extra_name}{self.metrics_save_extra_name}.yaml"]
+
+    # Add asimov
+    if not self.tidy_up_asimov and not self.asimov_input is not None:
+      for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+        outputs += [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}/asimov.parquet"]
+
     return outputs
 
 
@@ -442,5 +504,11 @@ class DensityPerformanceMetrics():
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
         if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
         inputs += [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
+
+    # Add premade asimov
+    if self.asimov_input is not None:
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
+        if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
+        inputs += [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}/asimov.parquet"]
 
     return inputs

@@ -113,6 +113,9 @@ class MultiDimMetrics():
 
   def DoBDTSeparation(self, remove_neg_weights=False, no_conditions=False):
 
+    if self.verbose:
+      print(f" - Doing BDT separation")
+
     import xgboost as xgb
 
     # Make training and testing datasets
@@ -422,7 +425,8 @@ class MultiDimMetrics():
         wt_name = "wt",
         options = {}
       )
-      self.sim_dataset = sim_dp.GetFull(method="sampled_dataset", sampling_fraction=self.sim_fraction)      
+      if self.metrics != ["BDT Separation"]:
+        self.sim_dataset = sim_dp.GetFull(method="sampled_dataset", sampling_fraction=self.sim_fraction)      
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.sim_train, self.sim_test = sim_dp.GetFull(method="train_test_split", test_fraction=0.5)
 
@@ -438,10 +442,12 @@ class MultiDimMetrics():
         wt_name = "wt",
         options = {}
       )
-      self.synth_dataset = synth_dp.GetFull("sampled_dataset", sampling_fraction=self.synth_fraction) 
+      if self.metrics != ["BDT Separation"]:
+        self.synth_dataset = synth_dp.GetFull("sampled_dataset", sampling_fraction=self.synth_fraction) 
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.synth_train, self.synth_test = synth_dp.GetFull(method="train_test_split", test_fraction=0.5)
       
+
   def Run(self, seed=42, make_datasets=True):
 
     print("WARNING: MultiDim metrics involves loading a lot of data into memory. This option should preferably be run on a GPU. If you are struggling with memory usage, reduce the fraction of events.")
