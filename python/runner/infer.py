@@ -470,8 +470,13 @@ class Infer():
     # Add data inputs and parameters
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       for k, v in self.parameters.items():
-        inputs += self.data_input[k]
+        if "data" not in self.data_input.keys():
+          inputs += self.data_input[k]
         inputs += [v]
+
+    # Add data inputs
+    if "data" in self.data_input.keys():
+      inputs += self.data_input["data"]
 
     # Add density model inputs
     for k, v in self.density_models.items():
@@ -641,7 +646,7 @@ class Infer():
 
     # Patch for memory use of gradients
     batch_size = None
-    if self.method in ["InitialFit","Scan"] and self.minimisation_method in ["scipy_with_gradients","custom"]:
+    if self.method in ["InitialFit","Scan"] and self.minimisation_method in ["minuit_with_gradients","scipy_with_gradients","custom"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
     elif self.method in ["Hessian","HessianParallel","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
@@ -652,27 +657,39 @@ class Infer():
 
     # Build dataprocessors
     dps = {}
-    for k, v in self.parameters.items():
 
-      # Open data parameters
-      with open(v, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    if "data" not in self.data_input.keys():
 
-      if self.scale_to_eff_events:
-        scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
-      else:
-        scale = None
+      for k, v in self.parameters.items():
 
-      dps[k] = DataProcessor(
-        self.data_input[k],
+        # Open data parameters
+        with open(v, 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        if self.scale_to_eff_events:
+          scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
+        else:
+          scale = None
+
+        dps[k] = DataProcessor(
+          self.data_input[k],
+          "parquet",
+          wt_name = "wt",
+          batch_size = batch_size,
+          options = {
+            "parameters" : parameters,
+            "scale" : scale,
+          }
+        )
+
+    else:
+        
+      dps["data"] = DataProcessor(
+        self.data_input["data"],
         "parquet",
-        wt_name = "wt",
         batch_size = batch_size,
-        options = {
-          "parameters" : parameters,
-          "scale" : scale,
-        }
-      )
+        options = {}
+      )      
 
     return dps
 

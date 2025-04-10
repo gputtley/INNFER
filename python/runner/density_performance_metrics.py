@@ -4,9 +4,13 @@ import yaml
 import numpy as np
 import pandas as pd
 
+from functools import partial
+
+from data_processor import DataProcessor
 from histogram_metrics import HistogramMetrics
 from make_asimov import MakeAsimov
 from multidim_metrics import MultiDimMetrics
+from yields import Yields
 
 from useful_functions import (
   GetDefaultsInModel,
@@ -61,6 +65,7 @@ class DensityPerformanceMetrics():
     self.synth_vs_synth = False
     self.alternative_asimov_seed_shift = 0
     self.alternative_asimov_seed = 1
+    self.use_eff_events = False
 
 
   def Configure(self, options):
@@ -96,7 +101,6 @@ class DensityPerformanceMetrics():
       # Load the architecture in
       if self.verbose:
         print("- Loading in the architecture")
-      print(f"{density_model_name}_architecture.yaml")
       with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
         architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
       
@@ -132,49 +136,47 @@ class DensityPerformanceMetrics():
       if self.verbose:
         print("- Making asimov datasets")
 
-      ma = MakeAsimov()
-      for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-        if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-        if self.asimov_input is None:
-          ma = MakeAsimov()
-          ma.Configure({
-              "cfg" : self.cfg,
-              "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
-              "model_input" : f"models/{self.open_cfg['name']}",
-              "model_extra_name" : self.save_extra_name,
-              "parameters" : self.parameters,
-              "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}",
-              "n_asimov_events" : self.n_asimov_events,
-              "seed" : self.asimov_seed,
-              "val_info" : val_info,
-              "val_ind" : val_ind,
-              "only_density" : True,
-              "add_truth" : True,
-              "verbose" : False,
-            }
-          )
-          ma.Run()
+      for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
 
-        if self.synth_vs_synth:
+        #if self.use_eff_events:
+        #  sim_files = []
+        #  count = 0
+        #  for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        #    if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+        #    sim_file, _ = self._GetFiles(val_ind, data_type, force_sim=True)
+        #    if not all([os.path.isfile(f) for f in sim_file]): continue
+        #    sim_files.append(sim_file)
+        #    count += 1
+        #  dp = DataProcessor(
+        #    sim_files,
+        #    "parquet",
+        #    wt_name = "wt",
+        #  )
+        #  n_events = int(np.ceil(dp.GetFull(method="n_eff") / count))
+        #else:
+        #  n_events = self.n_asimov_events
 
-          if self.alternative_asimov_seed_shift < 0: 
-            self.alternative_asimov_seed = 1
+        ma = MakeAsimov()
+        for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+          if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+
+          if self.use_eff_events:
+            n_events = int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind]))
           else:
-            self.alternative_asimov_seed = self.asimov_seed + self.alternative_asimov_seed_shift + 1
+            n_events = self.n_asimov_events
+ 
 
-          for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
-
-            ma2 = MakeAsimov()
-            ma2.Configure({
+          if self.asimov_input is None:
+            ma = MakeAsimov()
+            ma.Configure({
                 "cfg" : self.cfg,
                 "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
                 "model_input" : f"models/{self.open_cfg['name']}",
                 "model_extra_name" : self.save_extra_name,
                 "parameters" : self.parameters,
-                "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}",
-                #"n_asimov_events" : self.n_asimov_events,
-                "n_asimov_events" : int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind])),
-                "seed" : self.alternative_asimov_seed,
+                "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}",
+                "n_asimov_events" : n_events,
+                "seed" : self.asimov_seed,
                 "val_info" : val_info,
                 "val_ind" : val_ind,
                 "only_density" : True,
@@ -182,7 +184,33 @@ class DensityPerformanceMetrics():
                 "verbose" : False,
               }
             )
-            ma2.Run()        
+            ma.Run()
+
+          if self.synth_vs_synth:
+
+            if self.alternative_asimov_seed_shift < 0: 
+              self.alternative_asimov_seed = 1
+            else:
+              self.alternative_asimov_seed = self.asimov_seed + self.alternative_asimov_seed_shift + 1
+
+              ma2 = MakeAsimov()
+              ma2.Configure({
+                  "cfg" : self.cfg,
+                  "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
+                  "model_input" : f"models/{self.open_cfg['name']}",
+                  "model_extra_name" : self.save_extra_name,
+                  "parameters" : self.parameters,
+                  "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}",
+                  "n_asimov_events" : n_events,
+                  "seed" : self.alternative_asimov_seed,
+                  "val_info" : val_info,
+                  "val_ind" : val_ind,
+                  "only_density" : True,
+                  "add_truth" : True,
+                  "verbose" : False,
+                }
+              )
+              ma2.Run()        
 
     # Get histogram metrics
     if self.do_histogram_metrics:
@@ -227,25 +255,25 @@ class DensityPerformanceMetrics():
     # Tidy up asimov
     if self.verbose:
       print("- Tidying up asimov datasets")
-    for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-      if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-      if self.tidy_up_asimov:
-        os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}")
-      if self.synth_vs_synth:
-        for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+    for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+      for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+        if self.tidy_up_asimov:
+          os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}")
+        if self.synth_vs_synth:
           os.system(f"rm -rf {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}")
 
 
-  def _GetFiles(self, val_ind, data_type):
+  def _GetFiles(self, val_ind, data_type, force_sim=False):
 
-    if not self.synth_vs_synth:
+    if not self.synth_vs_synth or force_sim:
       sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
     else:
       sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
     if self.asimov_input is None:
-      synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}/asimov.parquet"]
+      synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
     else:
-      synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}/asimov.parquet"]
+      synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
 
     return sim_file, synth_file
 
@@ -326,9 +354,23 @@ class DensityPerformanceMetrics():
 
   def DoMultiDimensionalDatasetMetrics(self):
 
+    # Make yields for scaling down
+    yield_class = Yields(
+      self.open_parameters["yields"]["nominal"],
+      lnN = self.open_parameters["yields"]["lnN"],
+      physics_model = None,
+      rate_param = f"mu_{self.file_name}" if f"mu_{self.file_name}" in self.open_cfg["inference"]["rate_parameters"] else None,
+    )
+
+    def scale_down(df, func, scale):
+      df.loc[:,"wt"] /= scale/func(df).loc[:,"yield"]
+      return df
+
+
     for data_type in self.multidimensional_datasets:
       if self.verbose:
         print(f"  - Getting multidimensional dataset metrics for {data_type}")
+
 
       # Get all files
       sim_files = []
@@ -336,6 +378,8 @@ class DensityPerformanceMetrics():
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): 
           continue
+
+        partial_scale_down = partial(scale_down, func=yield_class.GetYield, scale=self.open_parameters["eff_events"][data_type][val_ind])
 
         sim_file, synth_file = self._GetFiles(val_ind, data_type)
         if not all([os.path.isfile(f) for f in sim_file]) or not all([os.path.isfile(f) for f in synth_file]): continue
@@ -346,7 +390,8 @@ class DensityPerformanceMetrics():
       mm = MultiDimMetrics(
         sim_files,
         synth_files,
-        self.open_parameters['density']
+        self.open_parameters['density'],
+        functions_to_apply = [partial_scale_down]
       )
       mm.verbose = self.verbose
 
@@ -409,7 +454,6 @@ class DensityPerformanceMetrics():
 
         # Build test data loader
         sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
-        from data_processor import DataProcessor
         scale = self.open_parameters["eff_events"][data_type][val_ind] / self.open_parameters["yields"]["nominal"]
         dps = DataProcessor(
           [sim_file],

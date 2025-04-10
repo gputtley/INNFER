@@ -37,6 +37,7 @@ class MakeAsimov():
     self.only_density = False
     self.Y = None
     self.add_truth = False
+    self.scale_to_one = False
     self.verbose = True
 
   def _WriteDataset(self, df, file_name):
@@ -98,7 +99,10 @@ class MakeAsimov():
       physics_model = None,
       rate_param = f"mu_{parameters['file_name']}" if f"mu_{parameters['file_name']}" in model_parameters.keys() else None,
     )
-    total_yield = yield_class.GetYield(pd.DataFrame({k:[v] for k,v in model_parameters.items()}))
+    if self.scale_to_one:
+      total_yield = 1.0
+    else:
+      total_yield = yield_class.GetYield(pd.DataFrame({k:[v] for k,v in model_parameters.items()}))
 
     # Build the density model
     if self.verbose:
@@ -152,6 +156,7 @@ class MakeAsimov():
     asimov_file_name = f"{self.data_output}/asimov.parquet"
     MakeDirectories(asimov_file_name)
     if os.path.isfile(asimov_file_name): os.system(f"rm {asimov_file_name}")
+
     tf.random.set_seed(self.seed)
     tf.keras.utils.set_random_seed(self.seed)
     asimov_writer.GetFull(

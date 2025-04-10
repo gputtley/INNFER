@@ -123,7 +123,7 @@ class DataProcessor():
       if self.dataset_type == "dataset":
         tmp = self.datasets[self.file_ind][column_ind]
       elif self.dataset_type == "generator":
-        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind]) # Need to evolve the seed, should be able to set seeds in list and sample through them each time
+        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind])
       elif self.dataset_type == "parquet":
         tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
 

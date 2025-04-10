@@ -80,7 +80,8 @@ class PreProcess():
       df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)          
 
     # Apply post selection
-    df = df.loc[df.eval(post_calculate_selection),:]
+    if post_calculate_selection is not None:
+      df = df.loc[df.eval(post_calculate_selection),:]
 
     # store old weight before doing weight shift
     df.loc[:,"old_wt"] = df.eval(nominal_weight)

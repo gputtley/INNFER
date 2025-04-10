@@ -463,6 +463,7 @@ def main(args, default_args):
           "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
           "n_asimov_events" : args.number_of_asimov_events,
           "seed" : args.asimov_seed,
+          "use_eff_events" : True,
           "verbose" : not args.quiet,     
         },
         loop = {"model_name" : model_info['name']}
@@ -498,6 +499,7 @@ def main(args, default_args):
             "alternative_asimov_seed_shift" : toy,
             "metrics_save_extra_name" : f"_toy_{toy}",
             "asimov_input" : f"data/{cfg['name']}/PValueSimVsSynth/{model_info['name']}",
+            "use_eff_events" : True,
             "verbose" : not args.quiet,
           },
           loop = {"model_name" : model_info['name'], "toy" : toy}

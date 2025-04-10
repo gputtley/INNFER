@@ -40,6 +40,7 @@ class Dim5():
       173.5,174.0,174.5,175.0,      
     ]
     self.data_value = 172.345
+    self.default_value = 172.5
     self.signal_resolution = 0.01
     self.chi = 3.5
     self.exponential_factor = 20
@@ -70,12 +71,6 @@ class Dim5():
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
-      "files" : {
-        "Signal" : {
-          "inputs" : [f"{self.dir_name}/Signal.parquet"],
-          "weight" : "wt"
-        }
-      },
       "variables" : [
         "X1",
         "X2",
@@ -85,16 +80,42 @@ class Dim5():
       ],
       "pois" : ["Y1"],
       "nuisances" : [],
-      "preprocess" : {
-        "standardise" : "all",
-        "train_test_val_split" : self.train_test_val_split,
-        "equalise_y_wts" : True,
-        "train_test_y_vals" : {"Y1" : self.train_test_y_vals},
-        "validation_y_vals" : {"Y1" : self.validation_y_vals}
+      "data_file" : f"{self.dir_name}/{self.name}_data.parquet",
+      "inference" : {
+        "nuisance_constraints" : [],
+        "rate_parameters" : [],
+        "lnN" : {},
       },
-      "inference" : {},
-      "validation" : {},
-      "data_file" : f"{self.dir_name}/{self.name}_data.parquet"
+      "default_values" : {
+        "Y1" : self.default_value,
+      },
+      "models" : {
+        "Signal" : {
+          "density_models" : [
+            {
+              "parameters" : ["Y1"],
+              "file" : "base",
+              "shifts" : {}
+            },
+          ],
+          "yields" : {"file" : "base"}
+        }
+      },
+      "validation": {
+        "loop" : [{"Y1" : i} for i in self.validation_y_vals],
+        "files" : {"Signal" : "base"}
+      },
+      "preprocess" : {
+        "train_test_val_split" : self.train_test_val_split,
+        "drop_from_training" : {"Signal" : {"Y1" : [k for k in self.true_values if k not in self.train_test_y_vals]}},
+      },
+      "files" : {
+        "base" : {
+          "inputs" : [f"{self.dir_name}/Signal.parquet"],
+          "weight" : "wt",
+          "parameters" : ["Y1"],
+        }
+      }
     }
 
     if return_cfg:

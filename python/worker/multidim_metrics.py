@@ -16,7 +16,7 @@ from useful_functions import Resample
 
 class MultiDimMetrics():
 
-  def __init__(self, sim_files, synth_files, parameters, sim_fraction=1.0, synth_fraction=1.0):
+  def __init__(self, sim_files, synth_files, parameters, sim_fraction=1.0, synth_fraction=1.0, functions_to_apply=[]):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.sim_fraction = sim_fraction
@@ -26,6 +26,7 @@ class MultiDimMetrics():
     self.wasserstein_slices = 100
     self.resample_sim = False
     self.parameters = parameters
+    self.functions_to_apply = functions_to_apply
 
     self.sim_dataset = None
     self.synth_dataset = None
@@ -111,7 +112,7 @@ class MultiDimMetrics():
   def AddWassersteinUnbinned(self):
     self.metrics.append("Wasserstein Unbinned")
 
-  def DoBDTSeparation(self, remove_neg_weights=False, no_conditions=False):
+  def DoBDTSeparation(self, remove_neg_weights=False, no_conditions=True, only_conditions=False):
 
     if self.verbose:
       print(f" - Doing BDT separation")
@@ -121,6 +122,8 @@ class MultiDimMetrics():
     # Make training and testing datasets
     if no_conditions:
       train_columns = self.parameters["X_columns"]
+    elif only_conditions:
+      train_columns = self.parameters["Y_columns"]
     else:
       train_columns = self.parameters["X_columns"] + self.parameters["Y_columns"]
 
@@ -423,12 +426,20 @@ class MultiDimMetrics():
         self.sim_files,
         "parquet",
         wt_name = "wt",
-        options = {}
+        options = {
+          "functions" : self.functions_to_apply,
+        }
       )
+
       if self.metrics != ["BDT Separation"]:
         self.sim_dataset = sim_dp.GetFull(method="sampled_dataset", sampling_fraction=self.sim_fraction)      
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.sim_train, self.sim_test = sim_dp.GetFull(method="train_test_split", test_fraction=0.5)
+
+      ## Search for duplicates of sub123_mass_rec in train and test
+      #if "sub123_mass_rec" in self.parameters["X_columns"]:
+      #  duplicates = np.intersect1d(self.sim_train.loc[:, "sub123_mass_rec"].unique(), self.sim_test.loc[:, "sub123_mass_rec"].unique())
+      #  print(len(duplicates)/len(self.sim_train.loc[:, "sub123_mass_rec"].unique()))
 
     if not only_sim:
 
@@ -440,13 +451,17 @@ class MultiDimMetrics():
         self.synth_files,
         "parquet",
         wt_name = "wt",
-        options = {}
+        options = {
+          "functions" : self.functions_to_apply,
+        }
       )
       if self.metrics != ["BDT Separation"]:
         self.synth_dataset = synth_dp.GetFull("sampled_dataset", sampling_fraction=self.synth_fraction) 
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.synth_train, self.synth_test = synth_dp.GetFull(method="train_test_split", test_fraction=0.5)
       
+
+    print(sim_dp.GetFull(method="n_eff"), synth_dp.GetFull(method="n_eff"))
 
   def Run(self, seed=42, make_datasets=True):
 

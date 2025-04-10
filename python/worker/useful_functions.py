@@ -62,7 +62,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     data_input = {k:[f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
   elif args.data_type == "asimov":
     data_input = {k:[f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
-
+  elif args.data_type == "data":
+    data_input = {"data" : cfg["data_file"]}
 
   if args.likelihood_type == "binned":
     print("Not implemented yet")
@@ -1054,14 +1055,46 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
 
 
 def LoadConfig(config_name):
+
   with open(config_name, 'r') as yaml_file:
     cfg_before = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
   if "export_string" in cfg_before.keys():
     for k,v in cfg_before["export_string"].items():
       os.environ[k] = v
   with open(config_name, 'r') as yaml_file:
     content = os.path.expandvars(yaml_file.read())  # Replace ${VAR} with environment value
     cfg = yaml.safe_load(content)
+
+  # if missing set some defaults
+  if "inference" not in cfg.keys():
+    cfg["inference"] = {}
+  if "rate_parameters" not in cfg["inference"].keys():
+    cfg["inference"]["rate_parameters"] = []
+  if "lnN" not in cfg["inference"].keys():
+    cfg["inference"]["lnN"] = {}
+  if "nuisance_constraints" not in cfg.keys():
+    cfg["nuisance_constraints"] = []
+  for k, v in cfg["models"].items():
+    if "regression_models" not in v.keys():
+      cfg["models"][k]["regression_models"] = []
+    if "density_models" not in v.keys():
+      cfg["models"][k]["density_models"] = []
+    for val_ind, val in enumerate(cfg["models"][k]["regression_models"]):
+      if "n_copies" not in val.keys():
+        cfg["models"][k]["regression_models"][val_ind]["n_copies"] = 1
+    for val_ind, val in enumerate(cfg["models"][k]["density_models"]):
+      if "n_copies" not in val.keys():
+        cfg["models"][k]["density_models"][val_ind]["n_copies"] = 1
+  for k, v in cfg["files"].items():
+    if "pre_calculate" not in v.keys():
+      cfg["files"][k]["pre_calculate"] = {}
+    if "post_calculate_selection" not in v.keys():
+      cfg["files"][k]["post_calculate_selection"] = None
+    if "weight_shifts" not in v.keys():
+      cfg["files"][k]["weight_shifts"] = {}
+
+
   return cfg
 
 

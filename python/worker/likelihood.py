@@ -516,15 +516,13 @@ class Likelihood():
           return self._HelperNumericalGradientFromSpline(inner_func, Y, column_2, file_name, gradient=1)[0]
 
 
-  def _HelperFreeze(self, freeze, initial_guess, func, jac=None):
+  def _HelperFreeze(self, freeze, initial_guess, func, jac=None, non_list_input=False):
 
     if len(list(freeze.keys())) > 0:
       initial_guess_before = copy.deepcopy(initial_guess)
       initial_guess = [initial_guess_before[ind] for ind, col in enumerate(self.Y_columns) if col not in freeze.keys()]
-      old_func = func
-      old_jac = jac
 
-      def func(x):
+      def updated_func(x, unpack=False):
         extended_x = []
         x_ind = 0
         for col in self.Y_columns:
@@ -533,11 +531,14 @@ class Likelihood():
           else:
             extended_x.append(x[x_ind])
             x_ind += 1
-        return old_func(extended_x)
+        if unpack:
+          return func(*extended_x)
+        else:
+          return func(extended_x)
 
       if jac is not None:
 
-        def jac(x):
+        def updated_jac(x, unpack=False):
           extended_x = []
           return_indices = []
           x_ind = 0
@@ -548,7 +549,30 @@ class Likelihood():
               extended_x.append(x[x_ind])
               x_ind += 1
               return_indices.append(col_ind)
-          return old_jac(extended_x)[return_indices]
+          if unpack:
+            return jac(*extended_x)[return_indices]
+          else:
+            return jac(extended_x)[return_indices]
+          
+      if non_list_input:
+
+        inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess))])
+        func_non_list = eval(f"lambda {inputs}: updated_func(np.array([{inputs}]), unpack=True)", {"updated_func": updated_func, 'np': np})
+        if jac is not None:
+          jac_non_list = eval(f"lambda {inputs}: updated_jac(np.array([{inputs}]), unpack=True)", {"updated_jac": updated_jac, 'np': np})
+
+        if jac is None:
+          return func_non_list, initial_guess
+        else:
+          return func_non_list, jac_non_list, initial_guess
+
+      else:
+
+        if jac is None:
+          return updated_func, initial_guess
+        else:
+          return updated_func, updated_jac, initial_guess
+
 
     if jac is None:
       return func, initial_guess
@@ -937,21 +961,24 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
+
     if method in ["scipy"]:
 
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=0)
-      result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method=method)
+      func, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), func_to_minimise)
+      result = self.Minimise(func, initial_guess, initial_step_size=initial_step_size, method=method)
       
     elif method in ["minuit"]:
 
       inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
       func_to_minimise = eval(f"lambda {inputs}: self.Run(X_dps, np.array([{inputs}]), multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'np': np})
-
-      result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, method=method, initial_step_size=initial_step_size)
+      func, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), func_to_minimise, non_list_input=True)
+      result = self.Minimise(func, initial_guess, method=method, initial_step_size=initial_step_size)
 
     elif method in ["scipy_with_gradients","minuit_with_gradients","custom"]:
 
       func_val_and_jac = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=[0,1])
+
       class NLLAndGradient():
         def __init__(self):
           self.jac = 0.0
@@ -972,11 +999,14 @@ class Likelihood():
       nllgrad = NLLAndGradient()
 
       if method in ["scipy_with_gradients","custom"]:
-        result = self.Minimise(nllgrad.GetNLL, initial_guess.to_numpy().flatten(), freeze=freeze, initial_step_size=initial_step_size, method=method, jac=nllgrad.GetJac)
+        func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nllgrad.GetNLL, jac=nllgrad.GetJac)
+        result = self.Minimise(func, initial_guess, initial_step_size=initial_step_size, method=method, jac=jac)
       elif method in ["minuit_with_gradients"]:
         inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
-        func_to_minimise = eval(f"lambda {inputs}: nllgrad.GetNLL(np.array([{inputs}))", {"nllgrad": nllgrad, 'np': np})
-        result = self.Minimise(func_to_minimise, initial_guess.to_numpy().flatten(), freeze=freeze, method=method, jac=nllgrad.GetJac)
+        nll_func = eval(f"lambda {inputs}: nllgrad.GetNLL(np.array([{inputs}]))", {"nllgrad": nllgrad, 'np': np})
+        nll_jac = eval(f"lambda {inputs}: nllgrad.GetJac(np.array([{inputs}]))", {"nllgrad": nllgrad, 'np': np})
+        func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nll_func, jac=nll_jac, non_list_input=True)
+        result = self.Minimise(func, initial_guess, method=method, jac=jac)
 
     if save_best_fit:
       self.best_fit = result[0]
@@ -1122,7 +1152,7 @@ class Likelihood():
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
-  def Minimise(self, func, initial_guess, method="scipy", func_low_stat=None, freeze={}, initial_step_size=0.02, jac=None):
+  def Minimise(self, func, initial_guess, method="scipy", initial_step_size=0.02, jac=None):
     """
     Minimizes the given function using numerical optimization.
 
@@ -1137,12 +1167,6 @@ class Likelihood():
 
     # Set minimisation_step
     self.minimisation_step = 0
-
-    # freeze
-    if jac is not None:
-      func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess, func, jac=jac)
-    else:
-      func, initial_guess = self._HelperFreeze(freeze, initial_guess, func)
 
     # scipy
     if method == "scipy":
@@ -1177,14 +1201,31 @@ class Likelihood():
     # minuit with gradients
     elif method == "minuit_with_gradients":
       minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
-      m = Minuit(func, **minuit_initial_guess)
+      inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess))])
+      class_code = f"""
+class NLLAndGradient():
+    def __init__(self, func, jac):
+        self.func = func
+        self.jac = jac
+    def __call__(self, {inputs}):
+        print('Here 1')
+        return self.func({inputs})
+    def grad(self,{inputs}):
+        print('Here 2')
+        return self.jac({inputs})
+      """
+      namespace = {}
+      exec(class_code, globals(), namespace)
+      NLLAndGradient = namespace["NLLAndGradient"]
+      cost = NLLAndGradient(func, jac)
+
+      m = Minuit(cost, **minuit_initial_guess)
       for params in range(len(initial_guess)):
         m.errors[f"p{params}"] *= 10
       m.errordef = Minuit.LIKELIHOOD
       m.strategy = 2
       m.tol = 0.01
-      m.grad = jac
-      m.migrid()
+      m.migrad()
       res = m.values, m.fval
 
     # custom
@@ -1195,6 +1236,7 @@ class Likelihood():
     self.minimisation_step = None
 
     return res
+
 
   def GetAndWriteApproximateUncertaintyToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True):  
 
@@ -1306,6 +1348,7 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
         yaml.dump(dump, yaml_file, default_flow_style=False)
 
+
   def GetAndWriteDMatrixToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="dmatrix.yaml"):
     """
     Finds the best-fit parameters and writes them to a YAML file.
@@ -1386,6 +1429,7 @@ class Likelihood():
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
+
   def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate"):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
@@ -1412,6 +1456,7 @@ class Likelihood():
     MakeDirectories(filename)
     with open(filename, 'w') as yaml_file:
       yaml.dump(dump, yaml_file, default_flow_style=False)
+
 
   def GetAndWriteScanToYaml(self, X_dps, col, col_val, row=None, freeze={}, filename="scan.yaml", minimisation_method="nominal"):
 
