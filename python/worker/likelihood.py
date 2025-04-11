@@ -1223,7 +1223,7 @@ class NLLAndGradient():
       for params in range(len(initial_guess)):
         m.errors[f"p{params}"] *= 10
       m.errordef = Minuit.LIKELIHOOD
-      m.strategy = 2
+      m.strategy = 0
       m.tol = 0.01
       m.migrad()
       res = m.values, m.fval
