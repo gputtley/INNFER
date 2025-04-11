@@ -761,7 +761,7 @@ class Likelihood():
     return log_probs
 
 
-  def Run(self, inputs, Y, multiply_by=1, gradient=0, column_1=None, column_2=None):
+  def Run(self, inputs, Y, multiply_by=1, gradient=0, column_1=None, column_2=None, numerical_gradient=False):
     """
     Evaluates the likelihood for given data.
 
@@ -794,6 +794,10 @@ class Likelihood():
       column_1 = [column_1]
     if isinstance(column_2, str):
       column_2 = [column_2]  
+
+    # Do numerical gradients
+    if numerical_gradient and gradient != [0]:
+      raise NotImplementedError("Numerical gradients are not implemented yet for this class. Please use analytical gradients or scans.")
 
     # Run likelihood
     if self.type == "unbinned":

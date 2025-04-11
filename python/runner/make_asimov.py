@@ -38,6 +38,7 @@ class MakeAsimov():
     self.Y = None
     self.add_truth = False
     self.scale_to_one = False
+    self.extra_density_model_name = ""
     self.verbose = True
 
   def _WriteDataset(self, df, file_name):
@@ -108,7 +109,7 @@ class MakeAsimov():
     if self.verbose:
       print("- Building density network")
 
-    density_model_name = f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}"
+    density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{parameters['file_name']}"
     with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -117,6 +118,7 @@ class MakeAsimov():
       self.density_model['file_loc'],
       options = {
         "data_parameters" : parameters["density"],
+        "file_name" : self.file_name,
       }
     )
   

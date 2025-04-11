@@ -15,6 +15,10 @@ from data_processor import DataProcessor
 from plotting import plot_histograms
 from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop
 
+data_dir = str(os.getenv("DATA_DIR"))
+plots_dir = str(os.getenv("PLOTS_DIR"))
+models_dir = str(os.getenv("MODELS_DIR"))
+
 class top_bw_fractioning():
 
   def __init__(self):
@@ -28,6 +32,7 @@ class top_bw_fractioning():
     self.options = {}
     self.batch_size = 10**7
 
+
   def _ApplyBWReweight(self, df, m=172.5, l=1.32):
     """
     Apply the BW reweighting to the dataframe.
@@ -40,6 +45,7 @@ class top_bw_fractioning():
     df.loc[:,"wt"] *= self._BW(df.loc[:,"mass_had_top"]**2,l=l, m=m)/self._BW(df.loc[:,"mass_had_top"]**2,l=self._TopQuarkWidth(df.loc[:,"mass"]), m=df.loc[:,"mass"]) 
     return df
 
+
   def _ApplyFractions(self, df, fractions={}):
     """
     Apply the fractions to the dataframe.
@@ -50,6 +56,7 @@ class top_bw_fractioning():
     # Apply the fractions
     df.loc[:,"wt"] *= df.loc[:,"mass"].map(fractions)
     return df  
+
 
   def _BW(self, s, l=1.32, m=172.5):
     """
@@ -64,6 +71,7 @@ class top_bw_fractioning():
     # Calculate the Breit-Wigner distribution
     k = 1
     return k/((s-(m**2))**2 + (m*l)**2)
+
 
   def _CalculateOptimalFractions(self, base_file, wt_func):
     """
@@ -164,6 +172,7 @@ class top_bw_fractioning():
 
     return normalised_fractions, splines
 
+
   def _DoReweighting(self, splines, files, parameters, file_type, shift_file, shift_column):
     """
     Apply the reweighting to the given files.
@@ -222,6 +231,7 @@ class top_bw_fractioning():
 
     if self.write:
       os.system(f"mv {wt_alt} {wt_file}")
+
 
   def _FlattenTraining(self, file_loc, file_split):
     """
@@ -292,38 +302,39 @@ class top_bw_fractioning():
     for data_split in ["train","test"]:
       tmp_files = []
       for k in density_loop:
-        outfile = f"data/{cfg['name']}/PreProcess/ttbar/density/{k}_{data_split}.parquet"
+        outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/{k}_{data_split}.parquet"
         tmp_files.append(outfile)
         os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["density"].append(tmp_files)
-        shift_files["density"].append(f"data/{cfg['name']}/PreProcess/ttbar/density/wt_{data_split}.parquet")
+        shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/wt_{data_split}.parquet")
         shift_columns["density"].append("wt")
 
       tmp_files = []
       for k in regression_loop:
         for value in cfg["models"]["ttbar"]["regression_models"]:
-          outfile = f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
           os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["regression"].append(tmp_files)
-        shift_files["regression"].append(f"data/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
+        shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
         shift_columns["regression"].append("wt")
 
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
         tmp_files = []
         for k in density_loop:
-          outfile = f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet"
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
           os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
         if len(tmp_files) > 0:
           files["validation"].append(tmp_files)
-          shift_files["validation"].append(f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet")
+          shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet")
           shift_columns["validation"].append("wt")
 
     return files, shift_files, shift_columns
+
 
   def _PlotReweighting(self, normalised_fractions, base_file, wt_func, cfg):
     """
@@ -430,6 +441,7 @@ class top_bw_fractioning():
         y_label="Density"
       )
 
+
   def _TopQuarkWidth(self, m):
     """
     Calculate the width of the top quark.
@@ -461,6 +473,7 @@ class top_bw_fractioning():
 
     return df
 
+
   def Configure(self, options):
     """
     Configure the class settings.
@@ -478,10 +491,11 @@ class top_bw_fractioning():
     self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
 
     cfg = LoadConfig(self.cfg)
-    self.parameters_name = f"data/{cfg['name']}/PreProcess/ttbar/parameters.yaml"
-    self.base_file = f"data/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
+    self.parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/parameters.yaml"
+    self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
     self.plot_columns = ["mass_had_top"]
-    self.plot_dir = f"plots/{cfg['name']}/top_bw_fractioning"
+    self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractioning"
+
 
   def Run(self):
     """
@@ -521,7 +535,7 @@ class top_bw_fractioning():
     # Get effective events of validation files
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
-        outfile = [f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet" for k in ["X","Y","wt"]]
+        outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet" for k in ["X","Y","wt"]]
         dp = DataProcessor(
           [outfile],
           "parquet",
@@ -533,7 +547,7 @@ class top_bw_fractioning():
         parameters["eff_events"][data_split][ind] = dp.GetFull(method="n_eff")
 
         # normalise in validation file
-        copy_outfile = [f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}_copy.parquet" for k in ["X","Y","wt"]]
+        copy_outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}_copy.parquet" for k in ["X","Y","wt"]]
         copy_dp = DataProcessor(
           [copy_outfile],
           "parquet",
@@ -544,7 +558,7 @@ class top_bw_fractioning():
         )
         prev_sum_wt = copy_dp.GetFull(method="sum")
         sum_wt = dp.GetFull(method="sum")
-        infile = f"data/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet"
+        infile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet"
         outfile = infile.replace('.parquet','_normalised.parquet')
         if os.path.isfile(outfile): os.system(f"rm {outfile}")
         def normalise(df, sum_wt):
@@ -567,15 +581,16 @@ class top_bw_fractioning():
       if "bw_mass" in model["parameters"]:
         do_density = True
     if do_density:
-      self._FlattenTraining(f"data/{cfg['name']}/PreProcess/ttbar/density/", ["X","Y","wt","Extra"])
+      self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/", ["X","Y","wt","Extra"])
     for model in cfg["models"]["ttbar"]["regression_models"]:
       if model["parameter"] == "bw_mass":
-        self._FlattenTraining(f"data/{cfg['name']}/PreProcess/ttbar/regression/bw_mass", ["X","y","wt","Extra"])
+        self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/bw_mass", ["X","y","wt","Extra"])
 
     # Change parameters
     if self.write:
       with open(self.parameters_name, 'w') as yaml_file:
         yaml.dump(parameters, yaml_file)
+
 
   def Outputs(self):
     """
@@ -601,6 +616,7 @@ class top_bw_fractioning():
       outputs += [f"{self.plot_dir}/bw_reweighted_{col}.pdf"]
 
     return outputs
+
 
   def Inputs(self):
     """

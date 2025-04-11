@@ -58,12 +58,16 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
 
+  data_dir = str(os.getenv("DATA_DIR"))
+  plots_dir = str(os.getenv("PLOTS_DIR"))
+  models_dir = str(os.getenv("MODELS_DIR"))
+
   if args.data_type == "sim":
-    data_input = {k:[f"data/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
+    data_input = {k:[f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
   elif args.data_type == "asimov":
-    data_input = {k:[f"data/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
+    data_input = {k:[f"{data_dir}/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
   elif args.data_type == "data":
-    data_input = {"data" : cfg["data_file"]}
+    data_input = {"data" : [cfg["data_file"]] if isinstance(cfg["data_file"], str) else cfg["data_file"]}
 
   if args.likelihood_type == "binned":
     print("Not implemented yet")
@@ -71,8 +75,9 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   common_config = {
     "density_models" : {k:GetModelLoop(cfg, model_file_name=k, only_density=True)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "regression_models" : {k:GetModelLoop(cfg, model_file_name=k, only_regression=True) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
-    "model_input" : f"models/{cfg['name']}",
-    "parameters" : {k:f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()},
+    "model_input" : f"{models_dir}/{cfg['name']}",
+    "extra_density_model_name" : args.extra_density_model_name,
+    "parameters" : {k:f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()},
     "data_input" : data_input,
     "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
     "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
@@ -93,6 +98,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   }
 
   return common_config
+
 
 def CustomHistogram(
     data, 
@@ -170,6 +176,7 @@ def CustomHistogram(
       hist /= np.sum(hist)
     return hist, hist_uncert, bins   
 
+
 def DiscreteTransform(df, splines={}, thresholds={}, n_integral_bins=100000, X_columns=[], Y_columns=[], wt_name="wt", unique_y_vals={}):
 
   unique_combinations = list(product(*unique_y_vals.values()))
@@ -220,24 +227,11 @@ def DiscreteTransform(df, splines={}, thresholds={}, n_integral_bins=100000, X_c
         # Normalise the CDF
         cdf_vals /= cdf_vals[-1]
 
-        # Generate random numbers
-        #sampled = np.random.RandomState().rand(n_samples)
-        #sampled = np.linspace(0,1,num=n_samples) + ((np.random.RandomState().rand(n_samples)-0.5)/(n_samples))
-        #np.random.shuffle(sampled)
-        #print(sampled)
-        #print(np.interp(sampled, cdf_vals, param_values))
-
         # Inverse transform sampling
         df.loc[indices,col] = np.interp(sampled, cdf_vals, param_values)
 
-        #print("----------------")
-        #print(np.histogram(sampled, bins=20))
-        #print(np.histogram(sampled, weights=df.loc[indices,wt_name], bins=20))
-        #print(np.histogram(df.loc[indices,col], bins=20))
-        #print(np.histogram(df.loc[indices,col], weights=df.loc[indices,wt_name], bins=20))
-        #print(np.histogram(df.loc[:,col], weights=df.loc[:,wt_name], bins=20))
-
   return df.loc[:,X_columns]
+
 
 def FindEqualStatBins(data, bins=5, sf_diff=2):
   """
@@ -283,6 +277,7 @@ def FindEqualStatBins(data, bins=5, sf_diff=2):
 
   return equal_bins
 
+
 def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
   """
   Find keys and values in dictionaries.
@@ -313,93 +308,6 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
       results_vals.append(v)
   return results_keys, results_vals
 
-def GetCombinedValidateLoop(cfg, parameters):
-  """
-  Generate a list of dictionaries representing parameter combinations for combined validation loops.
-
-  Parameters
-  ----------
-  cfg : dict
-      Configuration dictionary containing "pois", "nuisances", "inference", and "validation".
-  parameters : dict
-      Dictionary containing parameter information.
-
-  Returns
-  -------
-  list
-      List of dictionaries representing parameter combinations for combined validation loops.
-  """
-
-  val_loop = []
-
-  pois = []
-  unique_values_for_pois = []
-  nuisances = []
-  unique_values_for_nuisances = []
-  initial_poi_guess = []
-  initial_best_fit_guess = []
-
-  if "rate_parameters" in cfg["inference"]:
-    pois += [f"mu_{rp}" for rp in cfg["inference"]["rate_parameters"]]
-    unique_values_for_pois += [cfg["validation"]["rate_parameter_vals"][rp] for rp in cfg["inference"]["rate_parameters"]]
-    average_pois = [sum(uv)/len(uv) for uv in unique_values_for_pois]
-    initial_poi_guess += [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(average_pois))]
-
-  for poi in cfg["pois"]:
-    pois.append(poi)
-    unique_values_for_pois.append([])
-    for file in GetFileLoop(cfg):
-      if poi not in parameters[file]["unique_Y_values"]: continue
-      for val in parameters[file]["unique_Y_values"][poi]:
-        if val not in unique_values_for_pois[-1]:
-          unique_values_for_pois[-1].append(val)
-
-    average_poi = sum(unique_values_for_pois[-1])/len(unique_values_for_pois[-1])
-    initial_poi_guess.append(min(unique_values_for_pois[-1], key=lambda x: abs(x - average_poi)))
-
-  for nuisance in cfg["nuisances"]:
-    nuisances.append(nuisance)
-    #unique_values_for_nuisances.append([0.0])
-    unique_values_for_nuisances.append([])
-    for file in GetFileLoop(cfg):
-      if nuisance not in parameters[file]["Y_columns"]: continue
-      for nuisance in parameters[file]["unique_Y_values"][nuisance]:
-        if val not in unique_values_for_nuisances[-1]:
-          unique_values_for_nuisances[-1].append(nuisance)
-
-  initial_best_fit_guess = np.array(initial_poi_guess+[0]*(len(nuisances)))
-
-  for poi_values in list(product(*unique_values_for_pois)): 
-    if not cfg.get("validation", {}).get("off_diagonal_nuisances", False):
-      nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
-      for ind, nuisance in enumerate(nuisances_loop):
-        nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
-        for nuisance_value in nuisance_value_loop:
-          other_nuisances = [v for v in cfg["nuisances"] if v != nuisance]
-          nuisance_in_row = [] if nuisance is None else [nuisance]
-          nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-          row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-          columns = pois+nuisance_in_row+other_nuisances
-          sorted_columns = sorted(columns)
-          sorted_row = [row[columns.index(col)] for col in sorted_columns]
-          sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
-          val_loop.append({
-            "row" : pd.DataFrame([sorted_row], columns=sorted_columns),
-            "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns),
-          })
-    else:
-      for nuisance_values in list(product(*unique_values_for_nuisances)):
-        row = np.array(list(poi_values)+list(nuisance_values))
-        columns = pois+nuisances
-        sorted_columns = sorted(columns)
-        sorted_row = [row[columns.index(col)] for col in sorted_columns]
-        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
-        val_loop.append({
-          "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
-          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
-        })
-
-  return val_loop
 
 def GetDictionaryEntry(entry, keys):
   """
@@ -428,6 +336,7 @@ def GetDictionaryEntry(entry, keys):
         return None    
     entry = entry[key]
   return entry
+
 
 def GetDictionaryEntryFromYaml(file_name, keys):
   """
@@ -463,6 +372,7 @@ def GetDictionaryEntryFromYaml(file_name, keys):
     entry = entry[key]
   return entry
 
+
 def GetBestFitFromYaml(file_name):
 
   if not os.path.isfile(file_name):
@@ -473,20 +383,24 @@ def GetBestFitFromYaml(file_name):
 
   return {entry["columns"][ind]: entry["best_fit"][ind] for ind in range(len(entry["columns"]))}
 
+
 def GetBaseFileLoop(cfg):
   return list(cfg["files"].keys())
 
-def GetFileLoop(cfg):
-  return list(cfg["files"].keys())
 
 def GetModelFileLoop(cfg, with_combined=False):
   model_files = list(cfg["models"].keys())
-  if with_combined: 
+  if with_combined and len(model_files) > 1: 
     model_files += ["combined"]
   return model_files
 
 
 def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None):
+
+  data_dir = str(os.getenv("DATA_DIR"))
+  plots_dir = str(os.getenv("PLOTS_DIR"))
+  models_dir = str(os.getenv("MODELS_DIR"))
+
   models = []
   for k, v in cfg["models"].items():
 
@@ -498,9 +412,9 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
       models.append(
         {
           "type" : "density",
-          "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/density",
+          "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/density",
           "name" : f"density_{k}",
-          "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
+          "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml",
           "parameter" : None,
           "file_name" : k,
         }
@@ -510,14 +424,15 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
         models.append(
           {
             "type" : "regression",
-            "file_loc" : f"data/{cfg['name']}/PreProcess/{k}/regression/{value['parameter']}",
+            "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/regression/{value['parameter']}",
             "name" : f"regression_{k}_{value['parameter']}",
-            "parameters" : f"data/{cfg['name']}/PreProcess/{k}/parameters.yaml",
+            "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml",
             "parameter" : value['parameter'],
             "file_name" : k,
           }
         )
   return models
+
 
 def GetDefaults(cfg):
   defaults = {}
@@ -613,9 +528,18 @@ def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
         **{k:v for k,v in architecture.items() if k!="type"},
         **options
       }
-    )  
+    )
+
+  elif architecture["type"] == "Benchmark":
+
+    import importlib
+    module = importlib.import_module(architecture["benchmark"])
+    module_class = getattr(module, architecture["benchmark"])
+    network = module_class()
+    network.file_name = options["file_name"]
 
   return network
+
 
 def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
 
@@ -637,6 +561,18 @@ def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
 
   return network
 
+
+def SkipNonData(cfg, file_name, data_type, val_ind):
+
+  if data_type != "data":
+    return False
+
+  if (file_name == "combined" or len(list(cfg["models"].keys())) == 1) and val_ind == 0:
+    return False
+
+  return True
+
+  
 def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
   if not skip_non_density:
     return False
@@ -654,6 +590,7 @@ def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
       break
 
   return not default
+
 
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
 
@@ -675,7 +612,6 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
 
   else:
 
-    #val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
     for k, v in val_info.items():
       val_info_with_defaults[k] = v
     for col in GetParameterLoop(file_name, cfg, include_nuisances=loop_over_nuisances, include_rate=loop_over_rates, include_lnN=loop_over_lnN):
@@ -689,96 +625,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
 
   return freeze_loop
 
-#def GetFreezeLoop(freeze, val_info, column=None):
-#  freeze_loop = []
-#  if not (freeze == "all-but-one"):
-#    freeze_loop += [{
-#      "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
-#      "extra_name" : "",
-#    }]
-#  elif len(val_info['row'].columns) < 2:
-#    freeze_loop += [{
-#      "freeze" : {},
-#      "extra_name" : "",
-#    }]  
-#  else:
-#    for col in val_info['row'].columns:
-#      if column is not None:
-#        if col != column:
-#          continue
-#      freeze_loop += [{
-#        "freeze" : {c:float(val_info['row'].loc[:,c].iloc[0]) for c in val_info['row'].columns if c != col},
-#        "extra_name" : f"_floating_only_{col}",
-#      }]
-#  return freeze_loop
-
-#def GetFileLoop(cfg):
-#  
-#  split_nuisances = False
-#  if "split_nuisance_models" in cfg.keys():
-#    split_nuisances = cfg["split_nuisance_models"]  
-#
-#  if not split_nuisances:
-#    return list(cfg["files"].keys())
-#  else:
-#    split_nuisance_list = []
-#    for key in cfg["files"].keys():
-#      split_nuisance_list.append(key)
-#      for nuisance in cfg["nuisances"]:
-#        split_nuisance_list.append(f"{key}_{nuisance}")
-#    return split_nuisance_list
     
-def GetNuisanceLoop(cfg, parameters):
-  """
-  Generate a list of dictionaries representing parameter combinations for nuisance loops.
-
-  Parameters
-  ----------
-  cfg : dict
-      Configuration dictionary containing "pois" and "nuisances".
-  parameters : dict
-      Dictionary containing parameter information.
-
-  Returns
-  -------
-  list
-      List of dictionaries representing parameter combinations for nuisance loops.
-  """
-
-  nuisance_loop = []
-
-  for nuisance in cfg["nuisances"]:
-    if nuisance not in parameters["Y_columns"]: continue
-    nuisance_freeze={k:0.0 for k in cfg["nuisances"] if k != nuisance and k in parameters["Y_columns"]}
-    pois = [v for v in cfg["pois"] if v in parameters["unique_Y_values"]]
-    unique_values_for_pois = [parameters["unique_Y_values"][poi] for poi in pois]
-    for poi_values in list(product(*unique_values_for_pois)):
-      poi_freeze = {pois[ind]: val for ind, val in enumerate(poi_values)}
-      if len(poi_freeze.keys())>0:
-        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
-      else:
-        poi_freeze_name = ""
-      nuisance_loop.append({
-        "nuisance" : nuisance, 
-        "freeze" : {**nuisance_freeze, **poi_freeze}, 
-        "extra_name" : poi_freeze_name
-      })
-
-  return nuisance_loop
-
-"""
-def GetParameterLoop(val_info, cfg, args):
-
-  par_loop = []
-  for i in val_info["initial_best_fit_guess"].columns:
-    cor_par = cfg["pois"]
-    if args.loop_over_rates:
-      cor_par += ["mu_"+rp for rp in cfg["inference"]["rate_parameters"]]
-    if args.loop_over_nuisances:
-      cor_par += cfg["nuisances"]
-  return [i for i in val_info["initial_best_fit_guess"].columns if i in cor_par]
-"""
-
 def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False):
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)  
@@ -788,44 +635,6 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
   return par_loop
 
-
-
-def GetPOILoop(cfg, parameters):
-  """
-  Generate a list of dictionaries representing parameter combinations for POI loops.
-
-  Parameters
-  ----------
-  cfg : dict
-      Configuration dictionary containing "pois" and "nuisances".
-  parameters : dict
-      Dictionary containing parameter information.
-
-  Returns
-  -------
-  list
-      List of dictionaries representing parameter combinations for POI loops.
-  """
-
-  poi_loop = []
-
-  for poi in cfg["pois"]:
-    nuisance_freeze = {k:0 for k in cfg["nuisances"] if k in parameters["Y_columns"]}
-    other_pois = [v for v in cfg["pois"] if v != poi and v in parameters["unique_Y_values"]]
-    unique_values_for_other_pois = [parameters["unique_Y_values"][other_poi] for other_poi in other_pois]
-    for other_poi_values in list(product(*unique_values_for_other_pois)):
-      poi_freeze = {other_pois[ind]: val for ind, val in enumerate(other_poi_values)}
-      if len(poi_freeze.keys())>0:
-        poi_freeze_name = "_for_" + "_".join([f"{k}_eq_{str(v).replace('.','p')}" for k, v in poi_freeze.items()])
-      else:
-        poi_freeze_name = ""
-      poi_loop.append({
-        "poi" : poi, 
-        "freeze" : {**nuisance_freeze, **poi_freeze}, 
-        "extra_name" : poi_freeze_name
-      })
-
-  return poi_loop
 
 def GetScanArchitectures(cfg, data_output="data/", write=True):
   """
@@ -879,135 +688,6 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
     count += 1
 
   return outputs
-
-def GetValidateInfo(
-    preprocess_loc, 
-    models_loc, 
-    cfg, 
-    data_type = "sim", 
-    skip_empty_Y = False
-  ):
-  """
-  Generate validation information based on configuration and data type.
-
-  Parameters
-  ----------
-  preprocess_loc : str
-      Location of the preprocessed data.
-  models_loc : str
-      Location of the trained models.
-  cfg : dict
-      Configuration dictionary containing file names and parameters.
-  data_type : str, optional
-      Type of data ('sim', 'asimov', 'data'). Defaults to "sim".
-  skip_empty_Y : bool, optional
-      Whether to skip validation loops with empty target data. Defaults to False.
-
-  Returns
-  -------
-  dict
-      Dictionary containing validation information structured based on data_type.
-  """
-
-  parameters = {file_name: f"{preprocess_loc}/{file_name}/PreProcess/parameters.yaml" for file_name in GetFileLoop(cfg)}
-  loaded_parameters = {file_name: yaml.load(open(file_loc), Loader=yaml.FullLoader) for file_name, file_loc in parameters.items()}
-  if "val_loop" not in cfg["validation"].keys():
-    val_loops = {file_name: GetValidateLoop(cfg, loaded_parameters[file_name]) for file_name in GetFileLoop(cfg)}
-  else:
-    val_loops = {file_name: [{"row": pd.DataFrame(val_loop["row"], columns=val_loop["columns"]),"initial_best_fit_guess": pd.DataFrame(val_loop["initial_best_fit_guess"], columns=val_loop["columns"])} for val_loop in cfg["validation"]["val_loop"][file_name]] for file_name in GetFileLoop(cfg)}
-
-  models = {file_name: f"{models_loc}/{file_name}/{file_name}.h5" for file_name in GetFileLoop(cfg)}
-  architectures = {file_name: f"{models_loc}/{file_name}/{file_name}_architecture.yaml" for file_name in GetFileLoop(cfg)}
-  if len(GetFileLoop(cfg)) > 1:
-    if "val_loop" not in cfg["validation"].keys():
-      val_loops["combined"] = GetCombinedValidateLoop(cfg, loaded_parameters)
-    else:
-      val_loops["combined"] = [{"row": pd.DataFrame(val_loop["row"], columns=val_loop["columns"]),"initial_best_fit_guess": pd.DataFrame(val_loop["initial_best_fit_guess"], columns=val_loop["columns"])} for val_loop in cfg["validation"]["val_loop"]["combined"]]
-    parameters["combined"] = copy.deepcopy(parameters)
-    models["combined"] = copy.deepcopy(models)
-    architectures["combined"] = copy.deepcopy(architectures)
-
-
-  if skip_empty_Y and data_type != "data":
-    val_loops = {k : v for k, v in val_loops.items() if len(list(v[0]["row"].columns)) > 0}
-
-  if data_type in ["sim", "asimov"]:
-    info = {
-      "val_loops" : val_loops,
-      "parameters" : parameters,
-      "models" : models,
-      "architectures" : architectures,
-    }
-  elif data_type in ["data"]:
-    key = "combined" if len(list(val_loops.keys())) > 1 else list(val_loops.keys())[0]
-    info = {
-      "val_loops" : {key: [{"row" : None, "initial_best_fit_guess" : val_loops[key][0]["initial_best_fit_guess"]}]},
-      "parameters" : {key : parameters[key]},
-      "models" : {key : models[key]},
-      "architectures" : {key : architectures[key]},
-    }
-
-  return info
-
-
-def GetValidateLoop(cfg, parameters_file):
-  """
-  Generate a list of dictionaries representing parameter combinations for validation loops.
-
-  Parameters
-  ----------
-  cfg : dict
-      Configuration dictionary containing "pois" and "nuisances".
-  parameters_file : dict
-      Dictionary containing parameter information.
-
-  Returns
-  -------
-  list
-      List of dictionaries representing parameter combinations for validation loops.
-  """
-
-  val_loop = []
-
-  pois = [poi for poi in cfg["pois"] if poi in parameters_file["Y_columns"]]
-  unique_values_for_pois = [parameters_file["unique_Y_values"][poi] for poi in pois]
-  nuisances = [nuisance for nuisance in cfg["nuisances"] if nuisance in parameters_file["Y_columns"]]
-  unique_values_for_nuisances = [parameters_file["unique_Y_values"][nuisance] for nuisance in nuisances]
-  average_pois = [sum(parameters_file["unique_Y_values"][poi])/len(parameters_file["unique_Y_values"][poi]) for poi in pois]
-  initial_poi_guess = [min(unique_values_for_pois[ind], key=lambda x: abs(x - average_pois[ind])) for ind in range(len(pois))]
-  initial_best_fit_guess = np.array(initial_poi_guess+[0.0]*(len(nuisances)))        
-
-  for poi_values in list(product(*unique_values_for_pois)):
-    if not cfg.get("validation", {}).get("off_diagonal_nuisances", False):
-      nuisances_loop = [None] if len(nuisances) == 0 else copy.deepcopy(nuisances)
-      for ind, nuisance in enumerate(nuisances_loop):
-        nuisance_value_loop = [None] if len(nuisances) == 0 else unique_values_for_nuisances[ind]
-        for nuisance_value in nuisance_value_loop:
-          other_nuisances = [v for v in cfg["nuisances"] if v != nuisance and v in parameters_file["Y_columns"]]
-          nuisance_in_row = [] if nuisance is None else [nuisance]
-          nuisance_value_in_row = [] if nuisance_value is None else [nuisance_value]
-          row = np.array(list(poi_values)+nuisance_value_in_row+[0]*len(other_nuisances))
-          columns = pois+nuisance_in_row+other_nuisances
-          sorted_columns = sorted(columns)
-          sorted_row = [row[columns.index(col)] for col in sorted_columns]
-          sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
-          val_loop.append({
-            "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
-            "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
-          })
-    else:
-      for nuisance_values in list(product(*unique_values_for_nuisances)):
-        row = np.array(list(poi_values)+list(nuisance_values))
-        columns = pois+nuisances
-        sorted_columns = sorted(columns)
-        sorted_row = [row[columns.index(col)] for col in sorted_columns]
-        sorted_initial_best_fit_guess = [initial_best_fit_guess[columns.index(col)] for col in sorted_columns]
-        val_loop.append({
-          "row" : pd.DataFrame([sorted_row], columns=sorted_columns, dtype=np.float64),
-          "initial_best_fit_guess" : pd.DataFrame([sorted_initial_best_fit_guess], columns=sorted_columns, dtype=np.float64),
-        })
-
-  return val_loop
 
 
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
@@ -1093,7 +773,6 @@ def LoadConfig(config_name):
       cfg["files"][k]["post_calculate_selection"] = None
     if "weight_shifts" not in v.keys():
       cfg["files"][k]["weight_shifts"] = {}
-
 
   return cfg
 
@@ -1408,6 +1087,7 @@ def StringToFile(string):
   if string.count(".") > 1:
     string = f'{"p".join(string.split(".")[:-1])}.{string.split(".")[-1]}'
   return string
+
 
 def Translate(key, translation_file="configs/translate/translate.yaml"):
   val = GetDictionaryEntryFromYaml(translation_file, [key])

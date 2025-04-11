@@ -67,6 +67,7 @@ class Infer():
     self.d_matrix_input = None
     self.hessian_parallel_column_1 = None
     self.hessian_parallel_column_2 = None
+    self.extra_density_model_name = ""
     self.non_nn_columns = []
 
   def Configure(self, options):
@@ -462,7 +463,7 @@ class Infer():
 
     # Initiate inputs
     inputs = []
-
+  
     # Add parameters
     for k, v in self.parameters.items():
       inputs += [v]
@@ -472,7 +473,6 @@ class Infer():
       for k, v in self.parameters.items():
         if "data" not in self.data_input.keys():
           inputs += self.data_input[k]
-        inputs += [v]
 
     # Add data inputs
     if "data" in self.data_input.keys():
@@ -481,8 +481,8 @@ class Infer():
     # Add density model inputs
     for k, v in self.density_models.items():
       inputs += [
-        f"{self.model_input}/{v['name']}/{k}_architecture.yaml",
-        f"{self.model_input}/{v['name']}/{k}.h5",
+        f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
+        f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
       ]
 
     # Add regression model inputs
@@ -742,7 +742,7 @@ class Infer():
         parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Open architecture
-      density_model_name = f"{self.model_input}/{v['name']}/{parameters[k]['file_name']}"
+      density_model_name = f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{parameters[k]['file_name']}"
       with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
         architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -752,6 +752,7 @@ class Infer():
         v['file_loc'],
         options = {
           "data_parameters" : parameters[k]["density"],
+          "file_name" : k,
         }
       )
 
