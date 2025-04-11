@@ -34,6 +34,7 @@ class DensityPerformanceMetrics():
   
     self.file_name = None
     self.model_input = "models/"
+    self.extra_model_dir = ""
     self.data_input = "data/"
     self.data_output = "data/"
     self.verbose = True
@@ -96,7 +97,7 @@ class DensityPerformanceMetrics():
 
     if self.do_inference or self.do_loss:
 
-      density_model_name = f"{self.model_input}/{self.file_name}{self.save_extra_name}"
+      density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
 
       # Load the architecture in
       if self.verbose:
@@ -113,6 +114,7 @@ class DensityPerformanceMetrics():
         test_name = "test",
         options = {
           "data_parameters" : self.open_parameters["density"],
+          "file_name" : self.file_name,
         }
       )
 
@@ -138,24 +140,6 @@ class DensityPerformanceMetrics():
 
       for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
 
-        #if self.use_eff_events:
-        #  sim_files = []
-        #  count = 0
-        #  for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-        #    if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-        #    sim_file, _ = self._GetFiles(val_ind, data_type, force_sim=True)
-        #    if not all([os.path.isfile(f) for f in sim_file]): continue
-        #    sim_files.append(sim_file)
-        #    count += 1
-        #  dp = DataProcessor(
-        #    sim_files,
-        #    "parquet",
-        #    wt_name = "wt",
-        #  )
-        #  n_events = int(np.ceil(dp.GetFull(method="n_eff") / count))
-        #else:
-        #  n_events = self.n_asimov_events
-
         ma = MakeAsimov()
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
           if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
@@ -171,7 +155,7 @@ class DensityPerformanceMetrics():
             ma.Configure({
                 "cfg" : self.cfg,
                 "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
-                "model_input" : f"models/{self.open_cfg['name']}",
+                "model_input" : self.model_input,
                 "model_extra_name" : self.save_extra_name,
                 "parameters" : self.parameters,
                 "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}",
@@ -197,7 +181,7 @@ class DensityPerformanceMetrics():
               ma2.Configure({
                   "cfg" : self.cfg,
                   "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
-                  "model_input" : f"models/{self.open_cfg['name']}",
+                  "model_input" : self.model_input,
                   "model_extra_name" : self.save_extra_name,
                   "parameters" : self.parameters,
                   "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}",

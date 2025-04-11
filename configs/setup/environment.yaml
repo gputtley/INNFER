@@ -110,6 +110,7 @@ dependencies:
       - hep-ml==0.7.2
       - humanfriendly==10.0
       - idna==3.7
+      - iminuit==2.31.1
       - immutables==0.20
       - importlib-metadata==7.1.0
       - iniconfig==2.0.0

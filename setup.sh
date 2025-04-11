@@ -12,7 +12,6 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   rm ./Miniconda3-latest-Linux-x86\_64.sh
   popd
   source miniconda/files/etc/profile.d/conda.sh
-  conda activate miniconda/files/envs/innfer_env
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then

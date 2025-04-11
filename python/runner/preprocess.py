@@ -337,7 +337,7 @@ class PreProcess():
       do_split = False
 
     # get validation loop and their selections
-    validation_loop = GetValidationLoop(cfg, file_name)
+    validation_loop = GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)
     parameters_in_file = cfg["files"][cfg["validation"]["files"][file_name]]["parameters"]
     selection_loop = [{k:v for k,v in values.items() if k in parameters_in_file} for values in validation_loop]
     selections = [" & ".join([f"({k}=={v})" for k,v in values.items()]) for values in selection_loop]
@@ -519,7 +519,7 @@ class PreProcess():
               os.system(f"rm {outfile}")
     for data_split in ["val","train_inf","test_inf","full"]:
       for k in ["X","Y","wt","Extra"]:
-        for ind in range(len(GetValidationLoop(cfg, file_name))):
+        for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
           outfile = f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"
           if os.path.isfile(outfile):
             os.system(f"rm {outfile}")      
@@ -547,7 +547,8 @@ class PreProcess():
 
     # Loop through validation files
     for data_split in ["val","train_inf","test_inf","full"]:
-      for ind, val in enumerate(GetValidationLoop(cfg, file_name)):
+      for ind, val in enumerate(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)):
+
         base_file_name = cfg["validation"]["files"][file_name]
         parameters_in_file = cfg["files"][base_file_name]["parameters"]
         shift_parameters = [k for k in val.keys() if k not in parameters_in_file]
@@ -569,7 +570,7 @@ class PreProcess():
         if os.path.isfile(outfile):
           os.system(f"rm {outfile}")
       for data_split in ["val","train_inf","test_inf","full"]:
-        for ind in range(len(GetValidationLoop(cfg, file_name))):
+        for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
           outfile = f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"
           if os.path.isfile(outfile):
             os.system(f"rm {outfile}")    
@@ -648,7 +649,7 @@ class PreProcess():
     eff_events = {}
     for data_split in ["val","train_inf","test_inf","full"]:
       eff_events[data_split] = {}
-      for ind in range(len(GetValidationLoop(cfg, file_name))):
+      for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
 
         nomfile = f"val_ind_{ind}/wt_{data_split}.parquet"
 
@@ -1135,7 +1136,7 @@ class PreProcess():
     # Add validation files
     for data_split in ["val","train_inf","test_inf","full"]:
       for k in density_loop:
-        for ind in range(len(GetValidationLoop(cfg, self.file_name))):
+        for ind in range(len(GetValidationLoop(cfg, self.file_name, include_rate=True, include_lnN=True))):
           outputs += [f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"]   
 
     return outputs

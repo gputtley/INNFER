@@ -1,4 +1,5 @@
 import copy
+import os
 import yaml
 
 import numpy as np
@@ -10,6 +11,10 @@ from math import gamma
 from scipy.stats import beta
 
 from useful_functions import MakeDirectories
+
+data_dir = str(os.getenv("DATA_DIR"))
+plots_dir = str(os.getenv("PLOTS_DIR"))
+models_dir = str(os.getenv("MODELS_DIR"))
 
 class Dim5():
 
@@ -51,8 +56,12 @@ class Dim5():
     self.signal_yield = 1000.0
     self.train_test_val_split = "0.8:0.1:0.1"
     self.array_size = int(3e6)
-    self.dir_name = f"data/Benchmark_{self.name}/Inputs"
+    self.dir_name = f"{data_dir}/Benchmark_{self.name}/Inputs"
     
+
+  def Load(self, name=None):
+    pass
+
 
   def MakeConfig(self, return_cfg=False):
     """
@@ -124,6 +133,7 @@ class Dim5():
     with open(f"configs/run/Benchmark_{self.name}.yaml", 'w') as file:
       yaml.dump(cfg, file)
 
+
   def MakeDataset(self):
     """
     Creates a simulated dataset and saves it as a Parquet file.
@@ -159,6 +169,7 @@ class Dim5():
     data_parquet_file_path = f"{self.dir_name}/{self.name}_data.parquet"
     pq.write_table(data_table, data_parquet_file_path)
 
+
   def Probability(self, X, Y, return_log_prob=True, order=0, column_1=None, column_2=None):
     """
     Computes the probability density function for a Gaussian distribution.
@@ -173,13 +184,16 @@ class Dim5():
         If True, the log probability is returned (default is True).
 
     Returns
-    -------
+    ------- 
     numpy.ndarray
         The (log) probability values.
     """
 
     if order != 0 and order != [0]:
-      raise ValueError("Derivatives are not setup for the benchmark")
+      raise ValueError("Analytical derivatives are not setup for the benchmark")
+
+    if Y.loc[0,"Y1"] < min(self.train_test_y_vals) or Y.loc[0,"Y1"] > max(self.train_test_y_vals):
+      return np.full((len(X), 1), np.nan)
 
     if self.file_name == "Signal":
 
@@ -212,6 +226,7 @@ class Dim5():
       return [np.log(pdf.to_numpy()).reshape(-1,1)]
     else:
       return [pdf.to_numpy().reshape(-1,1)]
+
 
   def Sample(self, Y, n_events):
     """
