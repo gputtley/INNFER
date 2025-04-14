@@ -1,0 +1,86 @@
+## PreProces 
+#- workflow: configs/snakemake/preprocess_condor_ic.yaml
+#
+## Train 
+#- workflow: configs/snakemake/train_density_condor_ic.yaml
+#- workflow: configs/snakemake/train_regression_condor_ic.yaml
+#
+# Make asimov
+- workflow: configs/snakemake/make_asimov_condor_ic.yaml
+
+# Make generation plots
+- workflow: configs/snakemake/generator_condor_ic.yaml
+#
+## Closure tests
+#- workflow: configs/snakemake/inference_closure_test_condor_ic.yaml
+#- workflow: configs/snakemake/inference_closure_test_frozen_condor_ic.yaml
+
+# Asimov
+- workflow: configs/snakemake/inference_asimov_0_only_condor_ic.yaml
+
+# Get full summary
+- step: "Summary"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    extra_infer_dir_name: "ClosureTest"
+    extra_infer_plot_name: "with_frozen"
+    summary_from: "CovarianceWithDMatrix"
+    summary_nominal_name: "Closure Test"
+    summary_show_2sigma: True
+    summary_subtract: True
+    loop_over_nuisances: True
+    other_input : "Closure Test (Others Frozen):CovarianceWithDMatrixClosureTestFrozen:covariancewithdmatrix_results"
+
+# Get summary per val
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    summary_from: "CovarianceWithDMatrix"
+    extra_infer_dir_name: "ClosureTest"
+    summary_nominal_name: "Closure Test"
+    summary_show_2sigma: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    summary_from: "CovarianceWithDMatrix"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    summary_nominal_name: "Closure Test (Others Frozen)"
+    summary_show_2sigma: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    summary_from: "CovarianceWithDMatrix"
+    extra_infer_dir_name: "ClosureTest"
+    extra_infer_plot_name: "with_frozen"
+    summary_from: "CovarianceWithDMatrix"
+    summary_nominal_name: "Closure Test"
+    summary_show_2sigma: True
+    other_input : "Closure Test (Others Frozen):CovarianceWithDMatrixClosureTestFrozen:covariancewithdmatrix_results"
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific: "file_name=combined;val_ind=0"
+    extra_infer_dir_name: "Asimov"
+    summary_from: "Covariance"
+    summary_nominal_name: "Asimov"
+    summary_show_2sigma: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific: "file_name=combined;val_ind=0"
+    extra_infer_dir_name: "Asimov"
+    extra_infer_plot_name: "with_frozen"
+    summary_from: "Covariance"
+    summary_nominal_name: "Asimov"
+    summary_show_2sigma: True
+    other_input : "Closure Test:CovarianceWithDMatrixClosureTest:covariancewithdmatrix_results,Closure Test (Others Frozen):CovarianceWithDMatrixClosureTestFrozen:covariancewithdmatrix_results"
+    loop_over_rates: True
+    loop_over_lnN: True

@@ -65,7 +65,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   if args.data_type == "sim":
     data_input = {k:[f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
   elif args.data_type == "asimov":
-    data_input = {k:[f"{data_dir}/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
+    data_input = {k:[f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
   elif args.data_type == "data":
     data_input = {"data" : [cfg["data_file"]] if isinstance(cfg["data_file"], str) else cfg["data_file"]}
 
@@ -626,13 +626,20 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
   return freeze_loop
 
     
-def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False):
+def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False, include_per_model_rate=False, include_per_model_lnN=False):
+
+  if not (file_name == "combined" or len(list(cfg["models"].keys())) == 1):
+    if include_rate and not include_per_model_rate:
+      include_rate = False
+    if include_lnN and not include_per_model_lnN:
+      include_lnN = False
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)  
   par_loop = [i for i in cfg["pois"] if i in defaults_in_model.keys()]
   par_loop += [f"mu_{i}" for i in cfg["inference"]["rate_parameters"] if f"mu_{i}" in defaults_in_model.keys()]
   if include_nuisances:
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
+
   return par_loop
 
 
@@ -688,6 +695,21 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
     count += 1
 
   return outputs
+
+
+def GetSnakeMakeStepLoop(input_cfg, output_cfg=[]):
+
+  for step in input_cfg:
+
+    if "step" in step.keys():
+      output_cfg.append(step)
+
+    elif "workflow" in step.keys():
+      with open(step["workflow"], 'r') as yaml_file:
+        workflow = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg)
+
+  return output_cfg
 
 
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
@@ -982,9 +1004,11 @@ def SetupSnakeMakeFile(args, default_args, main):
   with open(args.snakemake_cfg, 'r') as yaml_file:
     snakemake_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+  snakemake_loop = GetSnakeMakeStepLoop(snakemake_cfg)
+
   # Make snakemake file
   args.make_snakemake_inputs = True
-  for step_info in snakemake_cfg:
+  for step_info in snakemake_loop:
     args_copy = copy.deepcopy(args)
     args_copy.step = step_info["step"]
     if "submit" in step_info.keys():

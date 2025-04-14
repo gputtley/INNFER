@@ -279,7 +279,7 @@ class top_bw_fractioning():
       if self.write:
         if os.path.isfile(wt_flat_file): os.system(f"mv {wt_flat_file} {wt_file}") 
 
-  def _GetFiles(self, cfg):
+  def _GetFiles(self, cfg, skip_copy=False):
     """
     Get the files to be used for the reweighting.
     Args:
@@ -304,7 +304,7 @@ class top_bw_fractioning():
       for k in density_loop:
         outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/{k}_{data_split}.parquet"
         tmp_files.append(outfile)
-        os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+        if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["density"].append(tmp_files)
         shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/wt_{data_split}.parquet")
@@ -315,7 +315,7 @@ class top_bw_fractioning():
         for value in cfg["models"]["ttbar"]["regression_models"]:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
-          os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+          if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["regression"].append(tmp_files)
         shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
@@ -327,7 +327,7 @@ class top_bw_fractioning():
         for k in density_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
-          os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+          if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
         if len(tmp_files) > 0:
           files["validation"].append(tmp_files)
           shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet")
@@ -606,7 +606,7 @@ class top_bw_fractioning():
     outputs += [self.parameters_name]
 
     # Get files
-    _, shift_files, _ = self._GetFiles(cfg)
+    _, shift_files, _ = self._GetFiles(cfg, skip_copy=True)
     for k in shift_files.keys():
       for file in shift_files[k]:
         outputs += [file]
@@ -633,7 +633,7 @@ class top_bw_fractioning():
     cfg = LoadConfig(self.cfg)
 
     # Get files
-    files, _, _ = self._GetFiles(cfg)
+    files, _, _ = self._GetFiles(cfg, skip_copy=True)
     for k in files.keys():
       for ind, splits_per_file in enumerate(files[k]):
         for file in splits_per_file:

@@ -25,6 +25,7 @@ class PlotRegression():
 
     # other
     self.data_input = "data/"
+    self.evaluate_input = "data/"
     self.plots_output = "plots/"
     self.model_name = None
     self.parameter = None
@@ -68,7 +69,7 @@ class PlotRegression():
           del parameters_removed_standardisation["standardisation"]["wt_shift"]
 
       pred_df = DataProcessor(
-        [f"{self.data_input}/pred_{data_split}.parquet"] + [f"{parameters['regression'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","wt"]],
+        [f"{self.evaluate_input}/pred_{data_split}.parquet"] + [f"{self.data_input}/{i}_{data_split}.parquet" for i in ["X","wt"]],
         "parquet",
         wt_name = "wt",
         options = {
@@ -79,7 +80,7 @@ class PlotRegression():
 
 
       y_df = DataProcessor(
-        [[f"{parameters['regression'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","y","wt"]]],
+        [[f"{self.data_input}/{i}_{data_split}.parquet" for i in ["X","y","wt"]]],
         "parquet",
         wt_name = "wt",
         options = {
@@ -151,8 +152,8 @@ class PlotRegression():
 
     # Add pred input
     inputs += [
-      f"{self.data_input}/pred_train.parquet", 
-      f"{self.data_input}/pred_{self.test_name}.parquet",
+      f"{self.evaluate_input}/pred_train.parquet", 
+      f"{self.evaluate_input}/pred_{self.test_name}.parquet",
     ]
   
     # Add data input

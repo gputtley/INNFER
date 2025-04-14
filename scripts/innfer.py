@@ -90,6 +90,7 @@ def parse_args():
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
   parser.add_argument('--summary-subtract', help='Use subtraction instead of division in summary', action='store_true')
+  parser.add_argument('--use-asimov-scaling', help='Generate asimov with this scaling up of the predicted yield', type=int, default=None)
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
@@ -382,7 +383,7 @@ def main(args, default_args):
           "model_name" : model_info["name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
-          "data_input" : f"{data_dir}/{cfg['name']}/EvaluateRegression/{model_info['name']}",
+          "evaluate_input" : f"{data_dir}/{cfg['name']}/EvaluateRegression/{model_info['name']}",
           "plots_output" : f"{plots_dir}/{cfg['name']}/PlotRegression/{model_info['name']}",
           "verbose" : not args.quiet,        
         },
@@ -407,7 +408,7 @@ def main(args, default_args):
             "model_input" : f"{models_dir}/{cfg['name']}",
             "extra_density_model_name" : args.extra_density_model_name,
             "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
-            "data_output" : f"{data_dir}/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{file_name}/val_ind_{val_ind}",
+            "data_output" : f"{data_dir}/{cfg['name']}/MakeAsimov/{file_name}/val_ind_{val_ind}",
             "n_asimov_events" : args.number_of_asimov_events,
             "seed" : args.asimov_seed,
             "val_info" : val_info,
@@ -415,6 +416,7 @@ def main(args, default_args):
             "only_density" : args.only_density,
             "verbose" : not args.quiet,
             "file_name" : file_name,
+            "use_asimov_scaling" : args.use_asimov_scaling,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -678,8 +680,8 @@ def main(args, default_args):
           config = {
             "cfg" : args.cfg,
             "data_input" : {k:f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
-            "asimov_input": {k:f"{data_dir}/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
-            "plots_output" : f"{plots_dir}/{cfg['name']}/Generator{args.extra_infer_dir_name}/{file_name}/",
+            "asimov_input": {k:f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+            "plots_output" : f"{plots_dir}/{cfg['name']}/Generator{args.extra_infer_dir_name}/{file_name}",
             "do_2d_unrolled" : args.plot_2d_unrolled,
             "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
             "sim_type" : args.sim_type,
@@ -702,9 +704,9 @@ def main(args, default_args):
           "cfg" : args.cfg,
           "val_loop" : validation_loop,
           "data_input" : [{k:f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
-          "asimov_input": [{k:f"{data_dir}/{cfg['name']}/MakeAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+          "asimov_input": [{k:f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
           "sim_type" : args.sim_type,
-          "plots_output" : f"{plots_dir}/{cfg['name']}/GeneratorSummary{args.extra_infer_dir_name}/{file_name}/",
+          "plots_output" : f"{plots_dir}/{cfg['name']}/GeneratorSummary{args.extra_infer_dir_name}/{file_name}",
           "extra_plot_name" : args.extra_infer_plot_name,
           "file_name" : file_name,
           "val_inds" : args.val_inds,
@@ -1061,7 +1063,7 @@ def main(args, default_args):
             "cfg" : args.cfg,
             "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True)[0],
             "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True),
-            "regression_spline_input" : f"{data_dir}/{cfg['name']}/EvaluateRegression/",
+            "regression_spline_input" : f"{data_dir}/{cfg['name']}/EvaluateRegression",
             "model_input" : f"{models_dir}/{cfg['name']}",
             "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{file_name}/parameters.yaml",
             "data_output" : f"{data_dir}/{cfg['name']}/MakePostFitAsimov{args.extra_infer_dir_name}/{file_name}/val_ind_{val_ind}",
@@ -1091,7 +1093,7 @@ def main(args, default_args):
               "cfg" : args.cfg,
               "data_input" : {k:f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
               "asimov_input": {k:f"{data_dir}/{cfg['name']}/MakePostFitAsimov{args.extra_infer_dir_name}/{k}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
-              "plots_output" : f"{plots_dir}/{cfg['name']}/PostFitPlot{args.extra_infer_dir_name}/{file_name}/",
+              "plots_output" : f"{plots_dir}/{cfg['name']}/PostFitPlot{args.extra_infer_dir_name}/{file_name}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
               "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
               "sim_type" : args.sim_type,
@@ -1109,6 +1111,8 @@ def main(args, default_args):
     print(f"<< Getting the chi squared of the summary >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
+      column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
+      if len(column_loop) == 0: continue
       validation_loop = GetValidationLoop(cfg, file_name)
       module.Run(
         module_name = "summary_chi_squared",
@@ -1116,10 +1120,10 @@ def main(args, default_args):
         config = {
           "val_loop" : validation_loop,
           "data_input" : f"{data_dir}/{cfg['name']}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
-          "data_output" : f"{data_dir}/{cfg['name']}//SummaryChiSquared{summary_from}{args.extra_infer_dir_name}/{file_name}",
+          "data_output" : f"{data_dir}/{cfg['name']}/SummaryChiSquared{summary_from}{args.extra_infer_dir_name}/{file_name}",
           "file_name" : f"{summary_from}_results".lower(),
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
-          "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
+          "column_loop" : column_loop,
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
@@ -1132,6 +1136,8 @@ def main(args, default_args):
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
+        column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
+        if len(column_loop) <= 1: continue
         module.Run(
           module_name = "summary_all_but_one_collect",
           class_name = "SummaryAllButOneCollect",
@@ -1139,10 +1145,10 @@ def main(args, default_args):
             "file_name" : file_name,
             "val_ind" : val_ind,
             "data_input" : f"{data_dir}/{cfg['name']}/{args.summary_from}{args.extra_infer_dir_name}",
-            "data_output" : f"{data_dir}/{cfg['name']}/{args.summary_from}{args.extra_infer_dir_name}/{file_name}/",
+            "data_output" : f"{data_dir}/{cfg['name']}/{args.summary_from}{args.extra_infer_dir_name}/{file_name}",
             "verbose" : not args.quiet,
             "summary_from" : summary_from,
-            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
+            "column_loop" : column_loop,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
         )
@@ -1153,6 +1159,8 @@ def main(args, default_args):
     print(f"<< Plot the summary of results >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
+      column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
+      if len(column_loop) == 0: continue
       validation_loop = GetValidationLoop(cfg, file_name)
       module.Run(
         module_name = "summary",
@@ -1162,13 +1170,13 @@ def main(args, default_args):
           "data_input" : f"{data_dir}/{cfg['name']}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
           "plots_output" : f"{plots_dir}/{cfg['name']}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}/{file_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
-          "other_input" : {other_input.split(':')[0] : [f"{data_dir}/{cfg['name']}/{file_name}/{other_input.split(':')[1]}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+          "other_input" : {other_input.split(':')[0] : [f"{data_dir}/{cfg['name']}/{other_input.split(':')[1]}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
           "extra_plot_name" : args.extra_infer_plot_name,
           "show2sigma" : args.summary_show_2sigma,
           "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"{data_dir}/{cfg['name']}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/{file_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
-          "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN),
+          "column_loop" : column_loop,
           "subtract" : args.summary_subtract,
           "verbose" : not args.quiet,
         },
@@ -1182,6 +1190,8 @@ def main(args, default_args):
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        column_loop = GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
+        if len(column_loop) == 0: continue
         module.Run(
           module_name = "summary_per_val",
           class_name = "SummaryPerVal",
@@ -1196,7 +1206,7 @@ def main(args, default_args):
             "show2sigma" : args.summary_show_2sigma,
             "nominal_name" : args.summary_nominal_name,
             "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
-            "column_loop" : GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN),
+            "column_loop" : column_loop,
             "verbose" : not args.quiet,
             "constraints" : cfg["inference"]["nuisance_constraints"],
           },

@@ -22,137 +22,6 @@ hep.style.use("CMS")
 cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
 lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
-'''
-
-def plot_histograms(
-    bins,
-    hists,
-    hist_names,
-    colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
-    linestyles = ["-"]*100,
-    title_right = "",
-    name = "hists",
-    x_label = "",
-    y_label = "",
-    error_bar_hists = [],
-    error_bar_hist_errs = [],
-    error_bar_names = [],
-    anchor_y_at_0 = False,
-    drawstyle = "default",
-    smooth_func = None,
-    smooth_func_name = "",
-    smooth_func_color = "green",
-    vertical_lines = [],
-    vertical_line_names = [],
-    vertical_line_colors = [i['color'] for i in plt.rcParams['axes.prop_cycle']]*100,
-    discrete=False,
-    hist_errs = None,
-    fill_between_bins = None,
-    fill_between_hist = None,
-    fill_between_step = "mid",
-    fill_between_color = 'red',
-    fill_between_alpha = 0.7,
-  ):
-  """
-  Plot histograms with optional error bars.
-
-  Parameters
-  ----------
-  bins : array-like
-      Bin edges.
-  hists : list of array-like
-      List of histogram values.
-  hist_names : list of str
-      Names for each histogram.
-  colors : list of str, optional
-      Colors for each histogram. Defaults to Matplotlib color cycle.
-  linestyles : list of str, optional
-      Linestyles for each histogram. Defaults to solid line.
-  title_right : str, optional
-      Text to be displayed at the top-right corner of the plot.
-  name : str, optional
-      Name of the output file (without extension). Defaults to "hists.pdf".
-  x_label : str, optional
-      Label for the x-axis.
-  y_label : str, optional
-      Label for the y-axis.
-  error_bar_hists : list of array-like, optional
-      List of histograms for error bars.
-  error_bar_hist_errs : list of array-like, optional
-      List of errors for each error bar histogram.
-  error_bar_names : list of str, optional
-      Names for each error bar histogram.
-  anchor_y_at_0 : bool, optional
-      If True, anchor the y-axis at 0. Defaults to False.
-  drawstyle : str, optional
-      Drawstyle for the histograms. Defaults to "default".
-  """
-
-  fig, ax = plt.subplots()
-  hep.cms.text(cms_label,ax=ax)
-
-  if isinstance(drawstyle,str):
-    drawstyle = [drawstyle]*100
-
-  if isinstance(bins, list):
-    bins = np.array(bins)
-
-  for ind, hist in enumerate(error_bar_hists):
-    non_empty_bins =(hist != 0)
-    plt.errorbar(bins[non_empty_bins],hist[non_empty_bins], yerr=error_bar_hist_errs[ind][non_empty_bins], label=error_bar_names[ind], markerfacecolor='none', linestyle='None', fmt='+', color=colors[ind])
-
-  if discrete:
-    for i in range(len(bins)):
-      hist_val = sorted([hist[i] for hist in hists])[::-1]
-      for ind, hist in enumerate(hist_val):
-        plt.vlines(bins[i], ymin=0, ymax=hist, color=colors[ind], lw=2, label=hist_names[ind] if i ==0 else None)
-  else:
-    for ind, hist in enumerate(hists):
-      plt.plot(bins, hist, label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind], drawstyle=drawstyle[ind])
-  
-  if fill_between_hist is not None:
-    plt.fill_between(fill_between_bins, fill_between_hist, step=fill_between_step, alpha=fill_between_alpha, color=fill_between_color)
-
-  if hist_errs is not None:
-    for ind, uncerts in enumerate(hist_errs):
-      plt.fill_between(
-        bins,
-        hists[ind]-uncerts,
-        hists[ind]+uncerts,
-        color=colors[ind],
-        alpha=0.5,
-        step='mid'
-      )
-      
-  ax.text(1.0, 1.0, title_right,
-      verticalalignment='bottom', horizontalalignment='right',
-      transform=ax.transAxes)
-
-  if anchor_y_at_0:
-    ax.set_ylim(bottom=0, top=1.2*max(np.max(hist) for hist in hists))
-
-  if smooth_func is not None:
-    x_func = np.linspace(min(bins),max(bins),num=200)
-    y_func = [smooth_func(x) for x in x_func] 
-    plt.plot(x_func, y_func, label=smooth_func_name, color=smooth_func_color)
-
-  for ind, vertical_line in enumerate(vertical_lines):
-    ax.axvline(x=vertical_line, color=vertical_line_colors[ind], linestyle='--', linewidth=2, label=vertical_line_names[ind])
-
-  ax.xaxis.get_major_formatter().set_useOffset(False)
-
-  plt.xlabel(x_label)
-  plt.ylabel(y_label)
-  if not all(item is None for item in error_bar_names+hist_names):
-    plt.legend()
-  plt.tight_layout()
-  MakeDirectories(name+".pdf")
-  plt.savefig(name+".pdf")
-  print("Created {}.pdf".format(name))
-  plt.close()
-
-'''
-
 def plot_histograms(
     bins,
     hists,
@@ -1377,8 +1246,17 @@ def plot_summary_per_val(
   # Draw vertical lines on constraint pad around the truth value 0
   ax[constraint_pad].axvline(x=0, color='black', linestyle='--')
 
+  # Find the deepest vals length
+  max_len = 0
+  for ind, (col, vals) in enumerate(results_without_constraints.items()):
+    if len(vals) > max_len:
+      max_len = len(vals)
+  for ind, (col, vals) in enumerate(results_with_constraints.items()):
+    if len(vals) > max_len:
+      max_len = len(vals)
+
   # Define colours, black first
-  colors = sns.color_palette("bright", 8)
+  colors = sns.color_palette("bright", max_len)[::-1]
 
   # Draw results without constraints 
   for ind, (col, vals) in enumerate(results_without_constraints.items()):
@@ -1389,7 +1267,7 @@ def plot_summary_per_val(
     if show2sigma:
       x_2err_lower = []
       x_2err_higher = []
-    for val_ind, val in enumerate(vals):
+    for val_ind, val in enumerate(vals[::-1]):
       x.append(val[0])
       x_err_lower.append(val[0]-val[-1] if -1 in val.keys() else 0.0)
       x_err_higher.append(val[1]-val[0] if 1 in val.keys() else 0.0)
@@ -1399,9 +1277,9 @@ def plot_summary_per_val(
       y.append((val_ind + 1)*(1/(len(vals)+1)))
       if show2sigma:
         ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_2err_lower[-1]], [x_2err_higher[-1]]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colors[val_ind], alpha=0.5))
-        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][val_ind]}")
+        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][::-1][val_ind]}")
       else:
-        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][val_ind]}")
+        ax[ind+1].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][::-1][val_ind]}")
     if truth_without_constraints[col] is not None:
       if show2sigma:
         up_cap = [abs(x[i] + x_2err_higher[i] - truth_without_constraints[col]) for i in range(len(x))]
@@ -1413,6 +1291,8 @@ def plot_summary_per_val(
       ax[ind+1].set_xlim(truth_without_constraints[col] - max_crossing, truth_without_constraints[col] + max_crossing)
 
   # Draw results with constraints
+  up_cap = []
+  low_cap = []
   for ind, (col, vals) in enumerate(results_with_constraints.items()):
     x = []
     y = []
@@ -1421,7 +1301,7 @@ def plot_summary_per_val(
     if show2sigma:
       x_2err_lower = []
       x_2err_higher = []
-    for val_ind, val in enumerate(vals):
+    for val_ind, val in enumerate(vals[::-1]):
       x.append(val[0])
       x_err_lower.append(val[0]-val[-1] if -1 in val.keys() else 0.0)
       x_err_higher.append(val[1]-val[0] if 1 in val.keys() else 0.0)
@@ -1431,15 +1311,16 @@ def plot_summary_per_val(
       y.append(ind + ((val_ind + 1)/(len(vals)+1)))
       if show2sigma:
         ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_2err_lower[-1]], [x_2err_higher[-1]]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colors[val_ind], alpha=0.5))
-        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][val_ind]}")
+        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[val_ind], alpha=0.5), label=rf"{names[col][::-1][val_ind]}")
       else:
-        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][val_ind]}")
+        ax[constraint_pad].errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[val_ind], alpha=1.0), label=rf"{names[col][::-1][val_ind]}")
     if show2sigma:
-      up_cap = [abs(x[i] + x_2err_higher[i]) for i in range(len(x))]
-      low_cap = [abs(x[i] - x_2err_lower[i]) for i in range(len(x))]
+      up_cap += [abs(x[i] + x_2err_higher[i]) for i in range(len(x))]
+      low_cap += [abs(x[i] - x_2err_lower[i]) for i in range(len(x))]
     else:
-      up_cap = [abs(x[i] + x_err_higher[i]) for i in range(len(x))]
-      low_cap = [abs(x[i] - x_err_lower[i]) for i in range(len(x))]
+      up_cap += [abs(x[i] + x_err_higher[i]) for i in range(len(x))]
+      low_cap += [abs(x[i] - x_err_lower[i]) for i in range(len(x))]
+  if len(up_cap) > 0 and len(low_cap) > 0:
     max_crossing = 1.2*max(max(up_cap), max(low_cap))
     ax[constraint_pad].set_xlim(-max_crossing, max_crossing)
 

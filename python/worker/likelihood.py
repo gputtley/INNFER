@@ -51,9 +51,39 @@ class Likelihood():
     self.yield_splines_value = None
     self.yield_splines = None
     self.hessian = None
+    self.hessian_columns = None
     self.D_matrix = None
     self.D_matrix_columns = None
     self.covariance = None
+
+
+  def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
+
+    # Find nans and infs
+    for k, v_arr in log_probs.items():
+      for v_ind, v in enumerate(v_arr):
+
+        if np.isnan(v.flatten()).any():
+          nan_indices = [i[0] for i in np.where(np.isnan(v.flatten()))]
+
+          for ind in nan_indices:
+
+            zero_everywhere = True
+            for _, v_c_arr in log_probs.items():
+              if v_c_arr[v_ind].flatten()[ind] != 0:
+                zero_everywhere = False
+                break 
+
+            if zero_everywhere:
+              raise ValueError(f"NaN found in model for {k}. This is likely due to a zero probability density function. Please check your model.")
+            else:
+              if gradient[v_ind] == 0:
+                log_probs[k][v_ind][nan_indices,:] = -np.inf
+              else:
+                log_probs[k][v_ind][nan_indices,:] = np.inf
+
+    return log_probs
+  
 
   def _ConstraintGaussian(self, x, derivative=0):
     """
@@ -256,6 +286,9 @@ class Likelihood():
         column_1=column_1, 
         column_2=column_2        
       )
+
+    # check for nans
+    log_probs = self._CheckLogProbsForNaNs(log_probs, gradient=gradient)
 
     return log_probs
 
@@ -854,6 +887,7 @@ class Likelihood():
 
     return lkld_val
 
+
   def LikelihoodBinned(self, bin_values, Y, gradient=[0], column_1=None, column_2=None):
 
     ln_lkld = []
@@ -1026,12 +1060,14 @@ class Likelihood():
     if self.D_matrix is None:
       covariance = inverse_hessian
     else:
-      D_matrix_columns_inds = [self.Y_columns.index(i) for i in self.D_matrix_columns]
+
+      hessian_columns = self.hessian_columns if self.hessian_columns is not None else self.Y_columns
+      D_matrix_columns_inds = [hessian_columns.index(i) for i in self.D_matrix_columns]
       inverse_hessian_D_matrix_columns = inverse_hessian[:,D_matrix_columns_inds][D_matrix_columns_inds,:]
       covariance_D_matrix_columns = inverse_hessian_D_matrix_columns @ self.D_matrix @ inverse_hessian_D_matrix_columns
-      covariance = np.zeros((len(self.Y_columns), len(self.Y_columns)))
-      for ind_1, col_1 in enumerate(self.Y_columns):
-        for ind_2, col_2 in enumerate(self.Y_columns):
+      covariance = np.zeros((len(hessian_columns), len(hessian_columns)))
+      for ind_1, col_1 in enumerate(hessian_columns):
+        for ind_2, col_2 in enumerate(hessian_columns):
           if col_1 in self.D_matrix_columns and col_2 in self.D_matrix_columns:
             covariance[ind_1][ind_2] = covariance_D_matrix_columns[self.D_matrix_columns.index(col_1)][self.D_matrix_columns.index(col_2)]
           else:
@@ -1212,10 +1248,8 @@ class NLLAndGradient():
         self.func = func
         self.jac = jac
     def __call__(self, {inputs}):
-        print('Here 1')
         return self.func({inputs})
     def grad(self,{inputs}):
-        print('Here 2')
         return self.jac({inputs})
       """
       namespace = {}

@@ -1,0 +1,29 @@
+# Get validation results
+- step: "InitialFit"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTest"
+    points_per_job: 6
+- step: "HessianParallel"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTest"
+    points_per_job: 12
+- step: "HessianCollect"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTest"
+- step: "DMatrix"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTest"
+    points_per_job: 6
+- step: "CovarianceWithDMatrix"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTest"

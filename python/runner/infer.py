@@ -257,6 +257,7 @@ class Infer():
 
       self.lkld.best_fit = np.array(hessian["best_fit"])
       self.lkld.hessian = hessian["hessian"]
+      self.lkld.hessian_columns = hessian["matrix_columns"]
 
       # Get covariance
       self.lkld.GetAndWriteCovarianceToYaml(
@@ -286,6 +287,7 @@ class Infer():
       # Save to class
       self.lkld.best_fit = np.array(hessian["best_fit"])
       self.lkld.hessian = hessian["hessian"]
+      self.lkld.hessian_columns = hessian["matrix_columns"]
       self.lkld.D_matrix = Dmatrix["D_matrix"]
       self.lkld.D_matrix_columns = Dmatrix["matrix_columns"]
 

@@ -1,0 +1,12 @@
+# Train density models
+- step: "TrainDensity"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+
+# Density performance metrics
+- step: "DensityPerformance"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+    points_per_job: 2

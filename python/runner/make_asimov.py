@@ -39,6 +39,7 @@ class MakeAsimov():
     self.add_truth = False
     self.scale_to_one = False
     self.extra_density_model_name = ""
+    self.use_asimov_scaling = None
     self.verbose = True
 
   def _WriteDataset(self, df, file_name):
@@ -127,6 +128,12 @@ class MakeAsimov():
       print(f"- Loading the density model {density_model_name}{self.model_extra_name}")
     network.Load(name=f"{density_model_name}{self.model_extra_name}.h5")
 
+
+    if self.use_asimov_scaling is None:
+      n_events = self.n_asimov_events
+    else:
+      n_events = int(np.ceil(total_yield*self.use_asimov_scaling))
+
     # Sample from density model
     if self.verbose:
       print(f"- Sampling from density network")
@@ -137,7 +144,7 @@ class MakeAsimov():
     asimov_writer = DataProcessor(
       [[partial(network.Sample, Y)]],
       "generator",
-      n_events = self.n_asimov_events,
+      n_events = n_events,
       wt_name = "wt",
       options = {
         "parameters" : parameters["density"],
