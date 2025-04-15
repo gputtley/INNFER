@@ -1,19 +1,25 @@
-## PreProces 
-#- workflow: configs/snakemake/preprocess_condor_ic.yaml
-#
-## Train 
-#- workflow: configs/snakemake/train_density_condor_ic.yaml
-#- workflow: configs/snakemake/train_regression_condor_ic.yaml
-#
+# PreProces 
+- workflow: configs/snakemake/preprocess_condor_ic.yaml
+
+# Custom BW reweighting
+- step: "Custom"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    custom_module: "top_bw_fractioning"
+
+# Train 
+- workflow: configs/snakemake/train_density_condor_ic.yaml
+- workflow: configs/snakemake/train_regression_condor_ic.yaml
+
 # Make asimov
 - workflow: configs/snakemake/make_asimov_condor_ic.yaml
 
 # Make generation plots
 - workflow: configs/snakemake/generator_condor_ic.yaml
-#
-## Closure tests
-#- workflow: configs/snakemake/inference_closure_test_condor_ic.yaml
-#- workflow: configs/snakemake/inference_closure_test_frozen_condor_ic.yaml
+
+# Closure tests
+- workflow: configs/snakemake/inference_closure_test_condor_ic.yaml
+- workflow: configs/snakemake/inference_closure_test_frozen_condor_ic.yaml
 
 # Asimov
 - workflow: configs/snakemake/inference_asimov_0_only_condor_ic.yaml

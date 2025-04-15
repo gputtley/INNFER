@@ -48,7 +48,7 @@ class PreProcess():
     self.data_input = "data/"
     self.data_output = "data/"
     self.seed = 2
-    self.batch_size = 10**7
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
     self.binned_fit_input = None
 
     # Stores
@@ -95,6 +95,7 @@ class PreProcess():
     df.loc[:,"wt_shift"] = df.loc[:,"wt"]/df.loc[:,"old_wt"]
 
     return df
+
 
   def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None):
 
@@ -314,6 +315,7 @@ class PreProcess():
 
     return df
     
+
   def _WriteDataset(self, df, file_name):
 
     file_path = f"{self.data_output}/{file_name}"
@@ -326,6 +328,7 @@ class PreProcess():
       pq.write_table(table, file_path, compression='snappy')
 
     return df
+
 
   def _DoTrainTestValSplit(self, file_name, cfg):
 
@@ -422,6 +425,7 @@ class PreProcess():
         ]
       )
 
+
   def _WriteSplitDataset(self, df, extra_dir, extra_name, split_dict):
 
     file_path = f"{self.data_output}/{extra_dir}/"
@@ -444,13 +448,16 @@ class PreProcess():
 
   def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict):
 
+      print(self.batch_size, value["n_copies"])
+      print(int(np.ceil(self.batch_size/value["n_copies"])))
+
       dp = DataProcessor(
         [f"{directory}/{file_name}.parquet"],
         "parquet",
         options = {
           "wt_name" : "wt",
         },
-        batch_size=self.batch_size,
+        batch_size=int(np.ceil(self.batch_size/value["n_copies"])),
       )
 
       if np.sum(dp.num_batches) == 0:
@@ -490,6 +497,7 @@ class PreProcess():
             )
           ]
         )
+
 
   def _DoModelVariations(self, file_name, cfg):
 
@@ -672,6 +680,7 @@ class PreProcess():
 
     return eff_events
 
+
   def _GetStandardisationParameters(self, file_name, cfg):
 
     standardisation_parameters = {}
@@ -819,6 +828,7 @@ class PreProcess():
       if os.path.isfile(shuffle_name):
         os.system(f"mv {shuffle_name} {name}")
 
+
   def _DoShuffleIteration(self, df, iteration=0, total_iterations=10, seed=42, dataset_name="dataset.parquet"):
 
     # Select indices
@@ -833,6 +843,7 @@ class PreProcess():
       pq.write_table(table, dataset_name, compression='snappy')
 
     return df
+
 
   def _DoShuffleBatch(self, df, seed=42, dataset_name="dataset.parquet"):
 
@@ -882,6 +893,7 @@ class PreProcess():
     # write parameters file
     with open(self.data_output+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
+
 
   def _DoFlattenByYields(self, file_name, cfg, yields):
 
@@ -1026,6 +1038,7 @@ class PreProcess():
     for key, value in options.items():
       setattr(self, key, value)
 
+
   def Run(self):
     """
     Run the code utilising the worker classes
@@ -1140,6 +1153,7 @@ class PreProcess():
           outputs += [f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"]   
 
     return outputs
+
 
   def Inputs(self):
     """

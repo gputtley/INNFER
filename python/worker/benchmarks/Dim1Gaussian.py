@@ -176,8 +176,11 @@ class Dim1Gaussian():
       raise ValueError("Analytical derivatives are not setup for the benchmark")
 
     if Y.loc[0,"Y1"] < min(self.train_test_y_vals) or Y.loc[0,"Y1"] > max(self.train_test_y_vals):
-      return np.full((len(X), 1), np.nan)
-
+      if order == 0:
+        return np.full((len(X), 1), np.nan)
+      else:
+        return [np.full((len(X), 1), np.nan)]
+      
     if self.file_name == "Gaussian":
 
       # Get PDF
@@ -185,11 +188,17 @@ class Dim1Gaussian():
       mean = float(Y.loc[0,"Y1"])
       pdf = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(X.loc[:,"X1"] - mean)**2 / (2 * std_dev**2))
 
-      # Return correct value
-      if return_log_prob:
+    # Return correct value
+    if return_log_prob:
+      if order == 0:
         return np.log(pdf.to_numpy()).reshape(-1,1)
       else:
+        return [np.log(pdf.to_numpy()).reshape(-1,1)]
+    else:
+      if order == 0:
         return pdf.to_numpy().reshape(-1,1)
+      else:
+        return [pdf.to_numpy().reshape(-1,1)]
 
 
   def Sample(self, Y, n_events):

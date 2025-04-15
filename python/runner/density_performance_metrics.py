@@ -492,13 +492,17 @@ class DensityPerformanceMetrics():
     """
     Return a list of outputs given by class
     """
+
+    # Load config
+    cfg = LoadConfig(self.cfg)
+
     # Add metrics
     outputs = [f"{self.data_output}/metrics{self.save_extra_name}{self.metrics_save_extra_name}.yaml"]
 
     # Add asimov
     if not self.tidy_up_asimov and not self.asimov_input is not None:
-      for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-        if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
+        if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
         outputs += [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}/asimov.parquet"]
 
     return outputs

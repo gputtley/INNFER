@@ -128,7 +128,6 @@ def parse_args():
 
   # Check if the density architecture is benchamr
   if args.density_architecture == "Benchmark" or args.step == "SetupDensityFromBenchmark":
-    args.extra_density_model_name += f"_Benchmark"
     if args.step != "SetupDensityFromBenchmark":
       print("WARNING: Make sure you run SetupDensityFromBenchmark before running the other steps when using density_architecture=Benchmark.")
 
@@ -855,6 +854,29 @@ def main(args, default_args):
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "HessianCollect",
               "hessian_input" : f"{data_dir}/{cfg['name']}/HessianParallel{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "extra_file_name" : str(val_ind),
+              "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+          )
+
+  # Get the Hessian matrix numerically
+  if args.step == "HessianNumerical":
+    print(f"<< Calculating the Hessian matrix numerically >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
+              "method" : "HessianNumerical",
+              "best_fit_input" : f"{data_dir}/{cfg['name']}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "data_output" : f"{data_dir}/{cfg['name']}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],

@@ -36,7 +36,6 @@ class SetupDensityFromBenchmark():
     architecture = {"type" : "Benchmark", "benchmark" : self.benchmark}
     MakeDirectories(model_output_name)
 
-
     # dump architecture
     architecture_file = f"{model_output_name}_architecture.yaml"
     with open(architecture_file, 'w') as file:

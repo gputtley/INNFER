@@ -193,7 +193,10 @@ class Dim5():
       raise ValueError("Analytical derivatives are not setup for the benchmark")
 
     if Y.loc[0,"Y1"] < min(self.train_test_y_vals) or Y.loc[0,"Y1"] > max(self.train_test_y_vals):
-      return np.full((len(X), 1), np.nan)
+      if order == 0:
+        return np.full((len(X), 1), np.nan)
+      else:
+        return [np.full((len(X), 1), np.nan)]
 
     if self.file_name == "Signal":
 
@@ -223,9 +226,15 @@ class Dim5():
 
     # Return correct value
     if return_log_prob:
-      return [np.log(pdf.to_numpy()).reshape(-1,1)]
+      if order == 0:
+        return np.log(pdf.to_numpy()).reshape(-1,1)
+      else:
+        return [np.log(pdf.to_numpy()).reshape(-1,1)]
     else:
-      return [pdf.to_numpy().reshape(-1,1)]
+      if order == 0:
+        return pdf.to_numpy().reshape(-1,1)
+      else:
+        return [pdf.to_numpy().reshape(-1,1)]
 
 
   def Sample(self, Y, n_events):

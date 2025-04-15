@@ -165,7 +165,7 @@ class Infer():
         filename=f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"
       )
 
-    elif self.method in ["Hessian","HessianParallel"]:
+    elif self.method in ["Hessian","HessianParallel","HessianNumerical"]:
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -193,6 +193,7 @@ class Infer():
         freeze=self.freeze,
         specific_column_1=self.hessian_parallel_column_1,
         specific_column_2=self.hessian_parallel_column_2,
+        numerical = (self.method == "HessianNumerical"),
       )    
 
     elif self.method == "HessianCollect":
@@ -419,7 +420,7 @@ class Infer():
       outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian
-    if self.method in ["Hessian","HessianCollect"]:
+    if self.method in ["Hessian","HessianCollect","HessianNumerical"]:
       outputs += [f"{self.data_output}/hessian{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
@@ -497,7 +498,7 @@ class Infer():
         ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","DMatrix","ApproximateUncertainty"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian parallel

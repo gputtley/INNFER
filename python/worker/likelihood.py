@@ -1418,7 +1418,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml", specific_column_1=None, specific_column_2=None):
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml", specific_column_1=None, specific_column_2=None, numerical=False):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -1434,20 +1434,37 @@ class NLLAndGradient():
     scan_over = [col for col in scan_over if col not in freeze.keys()]
 
     # Get hessian entries
-    hessian = np.zeros((len(scan_over),len(scan_over)))
-    for index_1, column_1 in enumerate(scan_over):
-      for index_2, column_2 in enumerate(scan_over):
-        if index_1 <= index_2:
-          if not (specific_column_1 is None or specific_column_2 is None):
-            if not(column_1 == specific_column_1 and column_2 == specific_column_2):
-              continue
-          hessian[index_1, index_2] = self.Run(X_dps, self.best_fit, multiply_by=-1, gradient=2, column_1=column_1, column_2=column_2)
+    if numerical:
 
-    # Make it into a full square
-    for index_1, column_1 in enumerate(scan_over):
-      for index_2, column_2 in enumerate(scan_over):
-        if index_1 > index_2:
-          hessian[index_1, index_2] = hessian[index_2, index_1]
+      minuit_func_input = ",".join(['p'+str(ind) for ind in range(len(scan_over))])
+      pd_func_input = ",".join([minuit_func_input] + list(freeze.values()))
+      pd_func_cols = ",".join([f'"{k}"' for k in scan_over + list(freeze.keys())])
+      run_func_input = f"pd.DataFrame([[{pd_func_input}]], columns=[{pd_func_cols}])"
+      best_fit_input = ",".join([f"p{ind}={self.best_fit[ind]}" for ind in range(len(self.Y_columns))])
+      minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-1, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
+      minuit_class = eval(f"Minuit(minuit_func, {best_fit_input})", {"Minuit": Minuit, "minuit_func": minuit_func, "self": self, 'pd': pd})
+      for params in range(len(self.Y_columns)):
+        minuit_class.values[f"p{params}"] = self.best_fit[params]
+      minuit_class.hesse()
+      cov = minuit_class.covariance
+      hessian = np.linalg.inv(cov)
+
+    else:
+
+      hessian = np.zeros((len(scan_over),len(scan_over)))
+      for index_1, column_1 in enumerate(scan_over):
+        for index_2, column_2 in enumerate(scan_over):
+          if index_1 <= index_2:
+            if not (specific_column_1 is None or specific_column_2 is None):
+              if not(column_1 == specific_column_1 and column_2 == specific_column_2):
+                continue
+            hessian[index_1, index_2] = self.Run(X_dps, self.best_fit, multiply_by=-1, gradient=2, column_1=column_1, column_2=column_2)
+
+      # Make it into a full square
+      for index_1, column_1 in enumerate(scan_over):
+        for index_2, column_2 in enumerate(scan_over):
+          if index_1 > index_2:
+            hessian[index_1, index_2] = hessian[index_2, index_1]
 
     # Make into list
     hessian = hessian.tolist()
