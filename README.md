@@ -3,31 +3,31 @@
 ## Installing Repository and Packages
 
 To import the github repository, clone with the following command.
-```
+```bash
 git clone https://github.com/gputtley/INNFER.git
 ```
 
 Then to install conda run this command. You will need to click `enter` and `yes` through all prompts. If you already have a conda installed, this is not needed. 
-```
+```bash
 source setup.sh conda
 ```
 
 To set up the environment, you will need to run this command.
-```
+```bash
 source setup.sh env
 ```
 
 ## Setup Environment
 
 At the beginning of every session you will need to run the following command to start the environment.
-```
+```bash
 source env.sh
 ```
 
 ## Running INNFER
 
 Running INNFER happens though the `scripts/innfer.py` script with an accompanying yaml config file parsed with the `--cfg` option (or a benchmark name with the `--benchmark` option). You also need to specify the step you want to run with the `--step` option. More information about these two options are detailed further below. An example command for this is shown below.
-```
+```python
 python3 scripts/innfer.py --cfg="boosted_top_mass.yaml" --step="PreProcess"
 ```
 
@@ -41,7 +41,7 @@ The input configuration file is how you give key information to INNFER about the
 
 The structure of the config should be as noted below.
 
-```
+```yaml
 name: example_config # Name for all data, plot and model folders
 
 variables: # Variables, parameters of interest (shape only - rates parameters added later) and nuisance parameters
@@ -105,16 +105,16 @@ models: # Define information about the models needed - this is split by process
 validation: # This is the options for the validation files
   loop: # Loop of sets of parameters to validate. This is done for all processes individually and combined. For an individual file with a subset of the parameters, a unique subset of the loop is formed.
     - {"poi_1" : 125.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 124.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 125.0, "nui_1" : -1.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 125.0, "nui_1" : 1.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : -1.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 1.0, "nui_3" : 0.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : -1.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 1.0 "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 0.8}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0 "mu_signal" : 1.2}
+    - {"poi_1" : 124.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 125.0, "nui_1" : -1.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 125.0, "nui_1" : 1.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : -1.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 1.0, "nui_3" : 0.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : -1.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 1.0, "mu_signal" : 1.0}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 0.8}
+    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.2}
   files: # Base files to generate the validation datasets from
     ttbar: base_signal
     other: base_background
@@ -165,7 +165,7 @@ files: # Base dataset inputs
 
 The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
 
-```
+```bash
 source setup.sh snakemake_condor
 ```
 
@@ -176,7 +176,7 @@ To use condor workflows you can set the required steps and submission options in
 Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. Examples of this are in the `configs/snakemake` directory. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. 
 
 The snakemake chain can then be run with the following command:
-```
+```python
 python3 scripts/innfer.py --cfg="config.yaml" --step="SnakeMake" --snakemake-cfg="condor_core_quick.yaml"
 ```
 
