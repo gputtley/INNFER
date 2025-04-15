@@ -27,7 +27,7 @@ source env.sh
 ## Running INNFER
 
 Running INNFER happens though the `scripts/innfer.py` script with an accompanying yaml config file parsed with the `--cfg` option (or a benchmark name with the `--benchmark` option). You also need to specify the step you want to run with the `--step` option. More information about these two options are detailed further below. An example command for this is shown below.
-```python
+```bash
 python3 scripts/innfer.py --cfg="boosted_top_mass.yaml" --step="PreProcess"
 ```
 
@@ -176,7 +176,7 @@ To use condor workflows you can set the required steps and submission options in
 Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. Examples of this are in the `configs/snakemake` directory. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. 
 
 The snakemake chain can then be run with the following command:
-```python
+```bash
 python3 scripts/innfer.py --cfg="config.yaml" --step="SnakeMake" --snakemake-cfg="condor_core_quick.yaml"
 ```
 
