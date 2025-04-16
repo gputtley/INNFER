@@ -83,7 +83,7 @@
   run_options: 
     specific: "file_name=combined;val_ind=0"
     extra_infer_dir_name: "Asimov"
-    extra_infer_plot_name: "with_frozen"
+    extra_infer_plot_name: "with_closure"
     summary_from: "Covariance"
     summary_nominal_name: "Asimov"
     summary_show_2sigma: True

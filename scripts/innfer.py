@@ -81,7 +81,6 @@ def parse_args():
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
-  parser.add_argument('--split-validation-files', help='Split the validation files.', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
@@ -215,7 +214,6 @@ def main(args, default_args):
           "data_input" : f"{data_dir}/{cfg['name']}/LoadData",
           "data_output" : f"{data_dir}/{cfg['name']}/PreProcess/{file_name}",
           "number_of_shuffles" : args.number_of_shuffles,
-          "binned_fit_input" : args.binned_fit_input,
           "verbose" : not args.quiet,
         },
         loop = {"file_name" : file_name},
@@ -483,7 +481,8 @@ def main(args, default_args):
           "cfg" : args.cfg,
           "file_name" : model_info["file_name"],
           "parameters" : model_info["parameters"],
-          "model_input" : f"{models_dir}/{cfg['name']}/{model_info['name']}{args.extra_density_model_name}",
+          "model_input" : f"{models_dir}/{cfg['name']}",
+          "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
           "data_input" : f"{data_dir}/{cfg['name']}/PreProcess",
           "data_output" : f"{data_dir}/{cfg['name']}/PValueSimVsSynth/{model_info['name']}{args.extra_density_model_name}",
           "do_inference": False,
@@ -515,7 +514,8 @@ def main(args, default_args):
             "cfg" : args.cfg,
             "file_name" : model_info["file_name"],
             "parameters" : model_info["parameters"],
-            "model_input" : f"{models_dir}/{cfg['name']}/{model_info['name']}{args.extra_density_model_name}",
+            "model_input" : f"{models_dir}/{cfg['name']}",
+            "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
             "data_input" : f"{data_dir}/{cfg['name']}/PreProcess",
             "data_output" : f"{data_dir}/{cfg['name']}/PValueSynthVsSynth/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": False,

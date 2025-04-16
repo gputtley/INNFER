@@ -8,6 +8,7 @@
   submit: "configs/submit/condor_gpu.yaml"
   run_options:
     number_of_toys: 100
+    points_per_job: 20
 
 
 # Collect synth vs synth

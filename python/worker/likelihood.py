@@ -1441,7 +1441,7 @@ class NLLAndGradient():
       pd_func_cols = ",".join([f'"{k}"' for k in scan_over + list(freeze.keys())])
       run_func_input = f"pd.DataFrame([[{pd_func_input}]], columns=[{pd_func_cols}])"
       best_fit_input = ",".join([f"p{ind}={self.best_fit[ind]}" for ind in range(len(self.Y_columns))])
-      minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-1, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
+      minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
       minuit_class = eval(f"Minuit(minuit_func, {best_fit_input})", {"Minuit": Minuit, "minuit_func": minuit_func, "self": self, 'pd': pd})
       for params in range(len(self.Y_columns)):
         minuit_class.values[f"p{params}"] = self.best_fit[params]

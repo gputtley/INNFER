@@ -524,8 +524,9 @@ class DensityPerformanceMetrics():
     cfg = LoadConfig(self.cfg)
 
     # Add density model
-    inputs += [f"{self.model_input}/{self.file_name}.h5"]
-    inputs += [f"{self.model_input}/{self.file_name}_architecture.yaml"]
+    density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+    inputs += [f"{density_model_name}.h5"]
+    inputs += [f"{density_model_name}_architecture.yaml"]
 
     # Add data
     for data_type in self.loss_datasets:

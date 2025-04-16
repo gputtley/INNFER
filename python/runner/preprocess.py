@@ -13,7 +13,6 @@ from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
 from useful_functions import (
-    BuildBinnedCategories,
     GetDefaults,
     GetDefaultsInModel,
     GetFilesInModel,
@@ -97,16 +96,19 @@ class PreProcess():
     return df
 
 
-  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None):
+  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None, base_file_name=None, change_defaults={}):
 
     # initiate dictionary
     yields = {}
 
     # Get defaults
-    defaults = GetDefaults(cfg)
+    defaults = GetDefaultsInModel(file_name, cfg, include_lnN=True, include_rate=True)
+    for k, v in change_defaults.items():
+      defaults[k] = v
 
     # Defaults that are not in the dataset
-    base_file_name = cfg["models"][file_name]["yields"]["file"]
+    if base_file_name is None:
+      base_file_name = cfg["models"][file_name]["yields"]["file"]
     parameters_of_file = cfg["files"][base_file_name]["parameters"]
     nominal_shifts = {k: {"type":"fixed","value":v} for k,v in defaults.items() if k not in parameters_of_file}
     if len(parameters_of_file) > 0:
@@ -114,22 +116,27 @@ class PreProcess():
     else:
       selection = None
 
-    # Add extra selection
-    if extra_sel is not None:
-      if selection is None:
-        selection = extra_sel
-      else:
-        selection = f"(({extra_sel}) & ({selection}))"
+    ## Add extra selection
+    #if extra_sel is not None:
+    #  if selection is None:
+    #    selection = extra_sel
+    #  else:
+    #    selection = f"(({extra_sel}) & ({selection}))"
 
     # Build dataprocessor
     dp = DataProcessor(
-      [f"{self.data_input}/{cfg['models'][file_name]['yields']['file']}.parquet"],
+      [f"{self.data_input}/{base_file_name}.parquet"],
       "parquet",
       options = {
         "wt_name" : "wt",
       },
       batch_size=self.batch_size,
     )
+
+    if extra_sel is not None:
+      post_calculate_selection = f'(({cfg["files"][base_file_name]["post_calculate_selection"]}) & ({extra_sel}))'
+    else:
+      post_calculate_selection = cfg["files"][base_file_name]["post_calculate_selection"]
 
     # Get nominal
     yields["nominal"] = dp.GetFull(
@@ -139,7 +146,8 @@ class PreProcess():
           self._CalculateDatasetWithVariations, 
           shifts=nominal_shifts, 
           pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-          post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+          #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"],
+          post_calculate_selection=post_calculate_selection,
           weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
           n_copies=1,
           nominal_weight=cfg["files"][base_file_name]["weight"],
@@ -153,6 +161,10 @@ class PreProcess():
 
     # Loop through nuisances
     for nui in cfg["nuisances"]:
+
+      # If yield is 0 then skip
+      if yields["nominal"] == 0:
+        continue
 
       # if nuisance in model
       if nui in nominal_shifts.keys():
@@ -179,7 +191,8 @@ class PreProcess():
               self._CalculateDatasetWithVariations, 
               shifts=up_shifts, 
               pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-              post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+              #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+              post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
               nominal_weight=cfg["files"][base_file_name]["weight"],
@@ -195,7 +208,8 @@ class PreProcess():
               self._CalculateDatasetWithVariations, 
               shifts=down_shifts, 
               pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-              post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+              #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+              post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
               nominal_weight=cfg["files"][base_file_name]["weight"],
@@ -448,9 +462,6 @@ class PreProcess():
 
   def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict):
 
-      print(self.batch_size, value["n_copies"])
-      print(int(np.ceil(self.batch_size/value["n_copies"])))
-
       dp = DataProcessor(
         [f"{directory}/{file_name}.parquet"],
         "parquet",
@@ -647,9 +658,57 @@ class PreProcess():
 
   def _GetBinnedFitInputs(self, file_name, cfg):
 
-    categories = BuildBinnedCategories(self.binned_fit_input)
-    print(categories)
-    exit()
+    # Check if binned fit is needed
+    if "binned_fit" not in cfg["inference"].keys():
+      return None
+    
+    # Check that there are not too many shape POIs
+    if len(cfg["pois"]) > 1:
+      raise ValueError("Binned fits are not setup to work for more the one shape POI.")
+
+    # Get the parameters in the model
+    parameters_in_model = GetParametersInModel(file_name, cfg)
+
+
+    # Loop through bins
+    inputs_for_binned_fit = []
+    for cat_ind, cat in enumerate(cfg["inference"]["binned_fit"]["input"]):
+      for bin_ind in range(len(cat["binning"])-1):
+
+        # Get selection
+        bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
+        total_sel = f"(({bin_sel}) & ({cat['selection']}))"
+
+        # Setup bins
+        inputs_for_binned_fit.append({
+          "cat_ind" : cat_ind,
+          "bin_ind" : bin_ind,
+          "selection" : total_sel,
+          "yields" : {}
+        })
+
+        # Make histograms
+        if len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model:
+          
+          inputs_for_binned_fit[-1]["yields"]["all"] = self._GetYields(
+            file_name,
+            cfg,
+            extra_sel=total_sel,
+            base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+          )
+
+        else:
+
+          for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
+            inputs_for_binned_fit[-1]["yields"][poi_val] = self._GetYields(
+              file_name,
+              cfg,
+              extra_sel=total_sel,
+              base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+              change_defaults={cfg["pois"][0]: poi_val},
+            )
+
+    self.binned_fit_input = inputs_for_binned_fit
 
 
   def _GetValidationEffEvents(self, file_name, cfg):
@@ -890,6 +949,9 @@ class PreProcess():
       parameters_file["regression"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
       parameters_file["regression"][name]["y_columns"] = ["wt_shift"]
 
+    if self.binned_fit_input is not None:
+      parameters_file["binned_fit_input"] = self.binned_fit_input
+
     # write parameters file
     with open(self.data_output+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
@@ -1057,15 +1119,10 @@ class PreProcess():
       print("- Calculating yields")
     yields = self._GetYields(self.file_name, cfg)
 
-    # Get binned fit input
-    #if self.binned_fit_input is not None:
-    #  if len(cfg["pois"]) > 1:
-    #    raise ValueError("Binned fits do not work for more the one POIs.")
-    #  if self.verbose:
-    #    print("- Getting inputs for binned fit")
-    #  binned_fit_inputs = self._GetBinnedFitInputs(self.file_name, cfg)
-    #else:
-    #  binned_fit_inputs = None
+    # Get binned fit inputs
+    if self.verbose:
+      print("- Get binned fit inputs")
+    self._GetBinnedFitInputs(self.file_name, cfg)
 
     # Train/Val split the dataset
     if self.verbose:

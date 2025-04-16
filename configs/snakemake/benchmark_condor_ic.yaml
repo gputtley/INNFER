@@ -33,4 +33,4 @@
     summary_show_2sigma: True
     summary_subtract: True
     loop_over_nuisances: True
-    other_input : "Closure Test:CovarianceWithDMatrixClosureTest:covariancewithdmatrix_results, Closure Test True Density:CovarianceClosureTestFromBenchmark:covariance_results"
+    other_input : "Closure Test:CovarianceWithDMatrixClosureTest:covariancewithdmatrix_results,Closure Test True Density:CovarianceClosureTestFromBenchmark:covariance_results"
