@@ -401,7 +401,7 @@ def GetBaseFileLoop(cfg):
   return list(cfg["files"].keys())
 
 
-def BuildYieldFunctions(entry):
+def BuildYieldFunctions(entry, rate_param=None):
 
   from yields import Yields
 
@@ -409,6 +409,7 @@ def BuildYieldFunctions(entry):
     yields = Yields(
       entry["all"]["nominal"],
       lnN = entry["all"]["lnN"],
+      rate_param=rate_param,
     )
     return yields.GetYield
 
@@ -419,15 +420,16 @@ def BuildYieldFunctions(entry):
       yield_funcs[k] = Yields(
         v["nominal"],
         lnN = v["lnN"],
+        rate_param=rate_param,
       ).GetYield
     return yield_funcs
 
 
-def BuildBinYieldFunctions(binned_fit_input):
+def BuildBinYieldFunctions(binned_fit_input, rate_param=None):
 
   bin_funcs = []
   for entry in binned_fit_input:
-    bin_funcs.append(BuildYieldFunctions(entry["yields"]))
+    bin_funcs.append(BuildYieldFunctions(entry["yields"], rate_param=rate_param))
 
   return bin_funcs
 
@@ -449,9 +451,9 @@ def GetBinValue(df, func_entry, col):
         return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
 
 
-def GetBinValues(binned_fit_input, col):
+def GetBinValues(binned_fit_input, col, rate_param=None):
 
-  binned_funcs = BuildBinYieldFunctions(binned_fit_input)
+  binned_funcs = BuildBinYieldFunctions(binned_fit_input, rate_param=rate_param)
   
   bin_vals = []
   for func_entry in binned_funcs:

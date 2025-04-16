@@ -556,7 +556,9 @@ class Infer():
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      bin_yields[file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col)
+      # Make binned inputs
+      rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
+      bin_yields[file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
 
     return bin_yields
 

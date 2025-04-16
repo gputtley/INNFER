@@ -28,7 +28,7 @@ source env.sh
 
 Running INNFER happens though the `scripts/innfer.py` script with an accompanying yaml config file parsed with the `--cfg` option (or a benchmark name with the `--benchmark` option). You also need to specify the step you want to run with the `--step` option. More information about these two options are detailed further below. An example command for this is shown below.
 ```bash
-python3 scripts/innfer.py --cfg="boosted_top_mass.yaml" --step="PreProcess"
+python3 scripts/innfer.py --cfg="example_cfg.yaml" --step="PreProcess"
 ```
 
 As some commands may take some time, jobs can be parallelised and submitted to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a configuration file for submission to the batch. Running INNFER on a batch is highly recommended in all cases.
@@ -171,13 +171,13 @@ source setup.sh snakemake_condor
 
 You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible.
 
-To use condor workflows you can set the required steps and submission options in the snakemake configuration file. An example file is `configs/snakemake/condor_core.yaml`. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step="SnakeMake" --snakemake-cfg="condor_core.yaml"`. Other snakemake submission options are not set up. Please contact us if you wish for this to be setup.
+To use condor workflows you can set the required steps and submission options in the snakemake configuration file. Example files are in the `configs/snakemake` directory. This contains the core steps of the innfer package. You can then run with snakemake by parsing `--step="SnakeMake" --snakemake-cfg="example_snakemake_cfg.yaml"`. Other snakemake submission options are not set up. Please contact us if you wish for this to be setup.
 
 Snakemake workflows are defined by a yaml file detailing the steps to run, the options to parse for each step and the submission options. Examples of this are in the `configs/snakemake` directory. It is recommended that your run infer command to use snakemake in a `tmux` terminal, so your terminal cannot be disconnected. 
 
 The snakemake chain can then be run with the following command:
 ```bash
-python3 scripts/innfer.py --cfg="config.yaml" --step="SnakeMake" --snakemake-cfg="condor_core_quick.yaml"
+python3 scripts/innfer.py --cfg="example_cfg.yaml" --step="SnakeMake" --snakemake-cfg="example_snakemake_cfg.yaml"
 ```
 
 ## Description of Steps
