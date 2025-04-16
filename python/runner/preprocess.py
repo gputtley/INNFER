@@ -49,6 +49,7 @@ class PreProcess():
     self.seed = 2
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
     self.binned_fit_input = None
+    self.validation_binned = None
 
     # Stores
     self.parameters = {}
@@ -656,7 +657,7 @@ class PreProcess():
         os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
     
 
-  def _GetBinnedFitInputs(self, file_name, cfg):
+  def _GetBinnedFitInputs(self, file_name, cfg, yields):
 
     # Check if binned fit is needed
     if "binned_fit" not in cfg["inference"].keys():
@@ -669,6 +670,18 @@ class PreProcess():
     # Get the parameters in the model
     parameters_in_model = GetParametersInModel(file_name, cfg)
 
+    # Need to scale to the nominal yield function
+    if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model):
+      total_scales = {}
+      for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
+        poi_yields = self._GetYields(
+          file_name,
+          cfg,
+          extra_sel=None,
+          base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+          change_defaults={cfg["pois"][0]: poi_val},
+        )
+        total_scales[poi_val] = yields["nominal"]/poi_yields["nominal"]
 
     # Loop through bins
     inputs_for_binned_fit = []
@@ -707,8 +720,55 @@ class PreProcess():
               base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
               change_defaults={cfg["pois"][0]: poi_val},
             )
+            inputs_for_binned_fit[-1]["yields"][poi_val]["nominal"] *= total_scales[poi_val]
 
     self.binned_fit_input = inputs_for_binned_fit
+
+
+  def _GetValidationBinned(self, file_name, cfg):
+
+    # Check if binned fit is needed
+    if "binned_fit" not in cfg["inference"].keys():
+      return None
+
+    self.validation_binned = {}
+    for data_split in ["val","train_inf","test_inf","full"]:
+      self.validation_binned[data_split] = {}
+      for ind, _ in enumerate(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)):
+
+        loop = ["X","Y","wt"]
+        if "save_extra_columns" in cfg["preprocess"]:
+          if self.file_name in cfg["preprocess"]["save_extra_columns"]:
+            loop += ["Extra"]
+
+        # Build dataprocessor
+        dp = DataProcessor(
+          [[f"{self.data_output}/val_ind_{ind}/{i}_{data_split}.parquet" for i in loop]],
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+
+        # Get normalisation
+        if np.sum(dp.num_batches) == 0:
+          continue
+
+        self.validation_binned[data_split][ind] = []
+        for cat_ind, cat in enumerate(cfg["inference"]["binned_fit"]["input"]):
+          for bin_ind in range(len(cat["binning"])-1):
+
+            # Get selection
+            bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
+            total_sel = f"(({bin_sel}) & ({cat['selection']}))"
+
+            self.validation_binned[data_split][ind].append(
+              dp.GetFull(
+                method="sum",
+                extra_sel=total_sel,
+              )
+            )
 
 
   def _GetValidationEffEvents(self, file_name, cfg):
@@ -952,6 +1012,9 @@ class PreProcess():
     if self.binned_fit_input is not None:
       parameters_file["binned_fit_input"] = self.binned_fit_input
 
+    if self.validation_binned is not None:
+      parameters_file["validation_binned_fit"] = self.validation_binned
+
     # write parameters file
     with open(self.data_output+"/parameters.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
@@ -1122,7 +1185,7 @@ class PreProcess():
     # Get binned fit inputs
     if self.verbose:
       print("- Get binned fit inputs")
-    self._GetBinnedFitInputs(self.file_name, cfg)
+    self._GetBinnedFitInputs(self.file_name, cfg, yields)
 
     # Train/Val split the dataset
     if self.verbose:
@@ -1134,15 +1197,20 @@ class PreProcess():
       print("- Calculating variations for each dataset")
     self._DoModelVariations(self.file_name, cfg)
 
-    # Normalise validations datasets to 1
+    # Normalise validations datasets to correct yield
     if self.verbose:
-      print("- Normalising validation datasets to 1")
+      print("- Normalising validation datasets to correct yield")
     self._DoValidationNormalisation(self.file_name, cfg, yields)
 
     # Get effective events of validation datasets
     if self.verbose:
       print("- Getting effective events in each validation dataset")
     eff_events = self._GetValidationEffEvents(self.file_name, cfg)
+
+    # Get validation binned fit inputs
+    if self.verbose:
+      print("- Get validation binned fit inputs")
+    self._GetValidationBinned(self.file_name, cfg)
 
     # Flatten train/test with from yields
     if self.verbose:

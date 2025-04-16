@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from itertools import product
+from functools import partial
 
 def BuildBinnedCategories(var_input):
 
@@ -69,8 +70,20 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   elif args.data_type == "data":
     data_input = {"data" : [cfg["data_file"]] if isinstance(cfg["data_file"], str) else cfg["data_file"]}
 
-  if args.likelihood_type == "binned":
-    print("Not implemented yet")
+  binned_data_input = None
+  if args.likelihood_type in ["binned","binned_extended"]:
+    if args.data_type in ["asimov","sim"]:
+      first = True
+      for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
+        with open(f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml", 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        if first:
+          binned_data_input = np.array(parameters["validation_binned_fit"]["full"][v])
+          first = False
+        else:
+          binned_data_input += np.array(parameters["validation_binned_fit"]["full"][v])
+    else:
+      raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {args.data_type}")
 
   common_config = {
     "density_models" : {k:GetModelLoop(cfg, model_file_name=k, only_density=True)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
@@ -86,7 +99,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "scale_to_eff_events": args.scale_to_eff_events,
     "verbose": not args.quiet,
     "data_file": cfg["data_file"],
-    "binned_fit_input" : args.binned_fit_input,
     "minimisation_method" : args.minimisation_method,
     "sim_type" : args.sim_type,
     "X_columns" : cfg["variables"],
@@ -94,7 +106,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "only_density" : args.only_density,
     "non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
-    #"binned_fit_data_input" : 
+    "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
+    "binned_data_input" : binned_data_input,
   }
 
   return common_config
@@ -388,6 +401,64 @@ def GetBaseFileLoop(cfg):
   return list(cfg["files"].keys())
 
 
+def BuildYieldFunctions(entry):
+
+  from yields import Yields
+
+  if "all" in entry.keys():
+    yields = Yields(
+      entry["all"]["nominal"],
+      lnN = entry["all"]["lnN"],
+    )
+    return yields.GetYield
+
+  else:
+
+    yield_funcs = {}
+    for k, v in entry.items():
+      yield_funcs[k] = Yields(
+        v["nominal"],
+        lnN = v["lnN"],
+      ).GetYield
+    return yield_funcs
+
+
+def BuildBinYieldFunctions(binned_fit_input):
+
+  bin_funcs = []
+  for entry in binned_fit_input:
+    bin_funcs.append(BuildYieldFunctions(entry["yields"]))
+
+  return bin_funcs
+
+
+def GetBinValue(df, func_entry, col):
+
+    if not isinstance(func_entry, dict):
+      return func_entry(df)
+    
+    else:
+
+      column_val = df[col].to_numpy().flatten()[0]
+      func_keys = list(func_entry.keys())
+      if column_val < min(func_keys) or column_val > max(func_keys):
+        return np.nan
+      else:
+        closest_up = min([i for i in func_keys if i >= column_val])
+        closest_down = max([i for i in func_keys if i < column_val])      
+        return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
+
+
+def GetBinValues(binned_fit_input, col):
+
+  binned_funcs = BuildBinYieldFunctions(binned_fit_input)
+  
+  bin_vals = []
+  for func_entry in binned_funcs:
+    bin_vals.append(partial(GetBinValue, func_entry=func_entry, col=col))
+
+  return bin_vals
+
 def GetModelFileLoop(cfg, with_combined=False):
   model_files = list(cfg["models"].keys())
   if with_combined and len(model_files) > 1: 
@@ -590,6 +661,25 @@ def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
       break
 
   return not default
+
+
+def SkipEmptyDataset(cfg, file_name, val_type, val_info):
+
+  if "drop_from_training" not in cfg["preprocess"].keys():
+    return False
+
+  if file_name not in cfg["preprocess"]["drop_from_training"].keys():
+    return False
+
+  skip = False
+  if val_type in ["train_inf", "test_inf"]:
+    for k, v in val_info.items():
+      if k in cfg["preprocess"]["drop_from_training"][file_name].keys():
+        if v in cfg["preprocess"]["drop_from_training"][file_name][k]:
+          skip = True
+          break
+
+  return skip
 
 
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):

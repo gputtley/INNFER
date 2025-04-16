@@ -193,6 +193,10 @@ class Likelihood():
     non_zero_indices = np.array(predicted_bin_values) > 0
     predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
     bin_values = list(np.array(bin_values)[non_zero_indices])
+
+    print(predicted_bin_values)
+    print(bin_values)
+
     ln_lkld = np.sum([(bin_value*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index, bin_value in enumerate(bin_values)])
     return ln_lkld
 

@@ -126,7 +126,7 @@ python3 scripts/innfer.py --step="PValueSynthVsSynth" --cfg="${cfg}" --number-of
 These results will need to be collected into one file.
 
 ```
-python3 scripts/innfer.py --step="PValueSynthVsSynthCollect" --cfg="${cfg}"
+python3 scripts/innfer.py --step="PValueSynthVsSynthCollect" --cfg="${cfg}" --number-of-toys=100
 ```
 
 Finally, we can plot where the simulated verses synthetic metrics fall in the synthetic versus synthetic distribution and calculate a p-value.
@@ -165,7 +165,7 @@ The D Matrix corrected covariance matrix and the intervals are then calculated w
 python3 scripts/innfer.py --step="CovarianceWithDMatrix" --cfg="${cfg}" --data-type="sim" --extra-infer-dir-name="ClosureTest"
 ```
 
-### Inference closure test with others frozen
+### Inference closure test with others frozen
 
 The previous inference closure test instructions involve floating all available parameters simultaneous. This set of instructions details the closure test when performing stat. only fits for each parameter, i.e. freezing all but the one parameter. By default all shape POIs will be looped over, but if you want the shape nuisances (--loop-over-nuisances), rate parameters (--loop-over-rates) and lnN parameters (--loop-over-lnN) these options are available.  
 

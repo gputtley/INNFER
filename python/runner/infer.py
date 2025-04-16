@@ -1,4 +1,3 @@
-import copy
 import os
 import pickle
 import yaml
@@ -7,9 +6,11 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from functools import partial
 from pprint import pprint
 
 from useful_functions import (
+  GetBinValues,
   InitiateDensityModel, 
   InitiateRegressionModel, 
   MakeDirectories
@@ -58,6 +59,7 @@ class Infer():
     self.lkld = None
     self.lkld_input = None
     self.sim_type = "val"
+    self.binned_sim_type = "full"
     self.X_columns = None
     self.Y_columns = None
     self.Y_columns_per_model = {}
@@ -69,6 +71,8 @@ class Infer():
     self.hessian_parallel_column_2 = None
     self.extra_density_model_name = ""
     self.non_nn_columns = []
+    self.binned_fit_morph_col = None
+    self.binned_data_input = None
 
   def Configure(self, options):
     """
@@ -106,21 +110,8 @@ class Infer():
     if self.lkld_input is None:
       if self.likelihood_type in ["unbinned", "unbinned_extended"]:
         self.lkld_input = self.dps.values()
-      #elif self.likelihood_type in ["binned", "binned_extended"]:
-      #  categories = self._BuildCategories()
-      #  self.lkld_input = [0.0 for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
-      #  for file_name in self.parameters.keys():
-      #    bin_cat_num = 0        
-      #    for cat_num, cat_info in categories.items():
-      #      hist, _ = self.dps[file_name].GetFull(
-      #        method = "histogram",
-      #        extra_sel = cat_info[0],
-      #        column = cat_info[1],
-      #        bins = cat_info[2],
-      #      )
-      #      for b in hist:
-      #        self.lkld_input[bin_cat_num] += b
-      #        bin_cat_num += 1
+      elif self.likelihood_type in ["binned", "binned_extended"]:
+        self.lkld_input = self.binned_data_input
 
     if self.verbose:
       if self.freeze != {}:
@@ -481,21 +472,23 @@ class Infer():
     if "data" in self.data_input.keys():
       inputs += self.data_input["data"]
 
-    # Add density model inputs
-    for k, v in self.density_models.items():
-      inputs += [
-        f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
-        f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
-      ]
+    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
 
-    # Add regression model inputs
-    for k, v in self.regression_models.items():
-      for vi in v:
+      # Add density model inputs
+      for k, v in self.density_models.items():
         inputs += [
-          f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-          f"{self.model_input}/{vi['name']}/{k}.h5",
-          f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
+          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
         ]
+
+      # Add regression model inputs
+      for k, v in self.regression_models.items():
+        for vi in v:
+          inputs += [
+            f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+            f"{self.model_input}/{vi['name']}/{k}.h5",
+            f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+          ]
 
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
@@ -551,24 +544,7 @@ class Infer():
 
   def _BuildBinYields(self):
 
-    from data_processor import DataProcessor
-    from yields import Yields
-
-    # Make selection, variable and bins
-    categories = self._BuildCategories()
-
-    # Define bin_yields dictionary
-    bin_yields = {}
-
-
-  """
-  def _BuildBinYields(self):
-
-    from data_processor import DataProcessor
-    from yields import Yields
-
-    # Make selection, variable and bins
-    categories = self._BuildCategories()
+    import pandas as pd
 
     # Define bin_yields dictionary
     bin_yields = {}
@@ -576,71 +552,13 @@ class Infer():
     # Loop through files
     for file_name, v in self.parameters.items():
 
-      # Define bin_yields list per file
-      bin_yields[file_name] = []
-
       # Open data parameters
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Get original yields function
-      yields_df = pd.read_parquet(parameters['yield_loc'])
-      Y_columns = [i for i in self.pois+self.nuisances if i in yields_df.columns]
-      yields_df = yields_df.loc[:,Y_columns]
-
-      # Define bin yields dataframe
-      bin_yields_dataframes = [copy.deepcopy(yields_df) for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
-
-      # Loop through Y values
-      for index, row in yields_df.iterrows():
-        y_selection = " & ".join([f"({k}=={row.iloc[ind]})" for ind, k in enumerate(row.keys())])
-        if y_selection == "": y_selection = None
-
-        # Loop through categories
-        bin_cat_num = 0
-        for cat_num, cat_info in categories.items():
-
-          # Make data processor
-          asimov_dps = DataProcessor(
-            [f"{parameters['file_loc']}/X_full.parquet", f"{parameters['file_loc']}/Y_full.parquet", f"{parameters['file_loc']}/wt_full.parquet"],
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "selection" : y_selection,
-            }
-          )
-
-          hist, _ = asimov_dps.GetFull(
-            method = "histogram",
-            extra_sel = cat_info[0],
-            column = cat_info[1],
-            bins = cat_info[2],
-          )          
-
-          # Loop through histogram bins
-          for bin_num, hist_val in enumerate(hist):
-
-            # Fill yield dataframes
-            if "yield" not in bin_yields_dataframes[bin_cat_num].columns:
-              bin_yields_dataframes[bin_cat_num].loc[:,"yield"] = 0.0
-            bin_yields_dataframes[bin_cat_num].loc[index, "yield"] = hist_val
-            bin_cat_num += 1
-
-      # Make yield functions
-      bin_yields[file_name] = []
-      for b_ind, b in enumerate(bin_yields_dataframes):
-        bin_yield_class = Yields(
-          b, 
-          self.pois, 
-          self.nuisances, 
-          file_name,
-          method=self.yield_function, 
-          column_name="yield"
-        )
-        bin_yields[file_name].append(bin_yield_class.GetYield)
+      bin_yields[file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col)
 
     return bin_yields
-  """
 
     
   def _BuildDataProcessors(self):

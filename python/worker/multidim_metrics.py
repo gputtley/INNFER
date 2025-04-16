@@ -460,9 +460,7 @@ class MultiDimMetrics():
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.synth_train, self.synth_test = synth_dp.GetFull(method="train_test_split", test_fraction=0.5)
       
-
-    print(sim_dp.GetFull(method="n_eff"), synth_dp.GetFull(method="n_eff"))
-
+      
   def Run(self, seed=42, make_datasets=True):
 
     print("WARNING: MultiDim metrics involves loading a lot of data into memory. This option should preferably be run on a GPU. If you are struggling with memory usage, reduce the fraction of events.")

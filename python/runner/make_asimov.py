@@ -111,6 +111,7 @@ class MakeAsimov():
       print("- Building density network")
 
     density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{parameters['file_name']}"
+
     with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -128,7 +129,6 @@ class MakeAsimov():
       print(f"- Loading the density model {density_model_name}{self.model_extra_name}")
     network.Load(name=f"{density_model_name}{self.model_extra_name}.h5")
 
-
     if self.use_asimov_scaling is None:
       n_events = self.n_asimov_events
     else:
@@ -141,6 +141,7 @@ class MakeAsimov():
       Y = self.Y
     else:
       Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
+
     asimov_writer = DataProcessor(
       [[partial(network.Sample, Y)]],
       "generator",
