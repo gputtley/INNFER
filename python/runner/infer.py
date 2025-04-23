@@ -1,31 +1,33 @@
-import copy
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import pickle
 import yaml
 
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from functools import partial
 from pprint import pprint
 
-from plotting import plot_stacked_histogram_with_ratio
-from useful_functions import MakeDirectories
+from useful_functions import (
+  GetBinValues,
+  InitiateDensityModel, 
+  InitiateRegressionModel, 
+  MakeDirectories
+)
 
 class Infer():
 
   def __init__(self):
 
-    self.parameters =  None
-    self.model = None
-    self.architecture = None
+    self.parameters = None
+    self.model_input = None
+    self.density_models = {}
+    self.regression_models = {}
 
     self.true_Y = None
+    self.val_ind = None
     self.initial_best_fit_guess = None
-    self.pois = None
-    self.nuisances = None
     self.method = "InitialFit"
 
     self.inference_options = {}
@@ -38,7 +40,6 @@ class Infer():
     self.resample = False
     self.resampling_seed = 1
     self.verbose = True
-    self.n_asimov_events = 10**6
     self.minimisation_method = "nominal"
     self.freeze = {}
     self.extra_file_name = ""
@@ -52,17 +53,26 @@ class Infer():
     self.other_input_files = []
     self.other_output_files = []
     self.model_type = "BayesFlow"
-    self.data_file = None
-    self.write_asimov = True
-    self.asimov_input = None
-    self.plot_resampling = True
     self.binned_fit_input = None
     self.yields = None
     self.dps = None
-    self.test_name = "test"
     self.lkld = None
     self.lkld_input = None
-    self.scan_over_nuisances = False
+    self.sim_type = "val"
+    self.binned_sim_type = "full"
+    self.X_columns = None
+    self.Y_columns = None
+    self.Y_columns_per_model = {}
+    self.only_density = False
+    self.best_fit_input = None
+    self.hessian_input = None
+    self.d_matrix_input = None
+    self.hessian_parallel_column_1 = None
+    self.hessian_parallel_column_2 = None
+    self.extra_density_model_name = ""
+    self.non_nn_columns = []
+    self.binned_fit_morph_col = None
+    self.binned_data_input = None
 
   def Configure(self, options):
     """
@@ -73,16 +83,6 @@ class Infer():
     """
     for key, value in options.items():
       setattr(self, key, value)
-
-    # Make singular inputs as dictionaries
-    combined_model = True
-    if isinstance(self.model, str):
-      combined_model = False
-      with open(self.parameters, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      self.model = {parameters['file_name'] : self.model}
-      self.parameters = {parameters['file_name'] : self.parameters}
-      self.architecture = {parameters['file_name'] : self.architecture}
 
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
@@ -96,79 +96,26 @@ class Infer():
     # Make yields or use existing
     if self.yields is None:
       self.yields = self._BuildYieldFunctions()
-  
+
+    # Make data processors or use existing
+    if self.dps is None:
+      self.dps = self._BuildDataProcessors()
+
     # Make likelihood or use exisiting
     if self.lkld is None:
       self.lkld = self._BuildLikelihood()
 
-    if self.method != "MakeAsimov":
 
-      # Make data processors or use existing
-      if self.dps is None:
-        self.dps = self._BuildDataProcessors()
-
-      # Make likelihood inputs
-      if self.lkld_input is None:
-        if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-          self.lkld_input = self.dps.values()
-        elif self.likelihood_type in ["binned", "binned_extended"]:
-          categories = self._BuildCategories()
-          self.lkld_input = [0.0 for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
-          for file_name in self.parameters.keys():
-            bin_cat_num = 0        
-            for cat_num, cat_info in categories.items():
-              hist, _ = self.dps[file_name].GetFull(
-                method = "histogram",
-                extra_sel = cat_info[0],
-                column = cat_info[1],
-                bins = cat_info[2],
-              )
-              for b in hist:
-                self.lkld_input[bin_cat_num] += b
-                bin_cat_num += 1
-
-    # Method to make the asimov datasets
-    if self.method == "MakeAsimov" and self.likelihood_type in ["unbinned", "unbinned_extended"]:
-
-      import tensorflow as tf
-      from data_processor import DataProcessor
-
-      sum_yields = np.sum([self.lkld.models["yields"][fn](self.true_Y) for fn in self.parameters.keys()])
-
-      for file_name in self.parameters.keys():
-        if self.lkld.models["yields"][file_name](self.true_Y) == 0: continue
-        frac_yields = self.lkld.models["yields"][file_name](self.true_Y)/sum_yields
-        asimov_writer = DataProcessor(
-          [[partial(self.lkld.models["pdfs"][file_name].Sample, self.true_Y)]],
-          "generator",
-          n_events = int(self.n_asimov_events*frac_yields),
-          wt_name = "wt",
-          options = {
-            "parameters" : self.lkld.data_parameters[file_name],
-            "scale" : self.lkld.models["yields"][file_name](self.true_Y),
-          }
-        )
-        if self.verbose:
-          print(f"- Making asimov dataset for {file_name} and writing it to file")
-        asimov_file_name = f"{self.data_output}/asimov_{file_name}{self.extra_file_name}.parquet"
-        MakeDirectories(asimov_file_name)
-        if os.path.isfile(asimov_file_name): os.system(f"rm {asimov_file_name}")
-        tf.random.set_seed(self.lkld.seed)
-        tf.keras.utils.set_random_seed(self.lkld.seed)
-        asimov_writer.GetFull(
-          method = None,
-          functions_to_apply = [
-            partial(self._WriteDatasets,file_path=asimov_file_name)
-          ]
-        )
-      return None
+    # Make likelihood inputs
+    if self.lkld_input is None:
+      if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+        self.lkld_input = self.dps.values()
+      elif self.likelihood_type in ["binned", "binned_extended"]:
+        self.lkld_input = self.binned_data_input
 
     if self.verbose:
-      if self.data_type != "data":
-        print(f"- Performing actions on the likelihood for the dataframe on data type {self.data_type}:")
-        print(self.true_Y)
-      else:
-        print(f"- Performing actions on the likelihood on data")
+      if self.freeze != {}:
+        print(f"- Freezing parameters: {self.freeze}")
 
     if self.method == "InitialFit":
 
@@ -190,7 +137,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -209,13 +156,13 @@ class Infer():
         filename=f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"
       )
 
-    elif self.method == "HessianAndCovariance":
+    elif self.method in ["Hessian","HessianParallel","HessianNumerical"]:
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -225,80 +172,61 @@ class Infer():
       if self.verbose:
         print(f"- Calculating the Hessian matrix")
 
+      extra_col_name = ""
+      if self.method == "HessianParallel":
+        extra_col_name = f"_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}"
+
       # Get Hessian
       self.lkld.GetAndWriteHessianToYaml(
         self.lkld_input, 
         row=self.true_Y, 
-        filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
+        filename=f"{self.data_output}/hessian{self.extra_file_name}{extra_col_name}.yaml", 
         freeze=self.freeze,
-        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
-      )      
-
-      if self.verbose:
-        print(f"- Calculating the covariance matrix")
-      
-      with open(f"{self.data_output}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
-        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-      # Get covariance
-      self.lkld.GetAndWriteCovarianceToYaml(
-        hessian["hessian"], 
-        row=self.true_Y, 
-        filename=f"{self.data_output}/covariance{self.extra_file_name}.yaml", 
-        scan_over=hessian["matrix_columns"],
+        specific_column_1=self.hessian_parallel_column_1,
+        specific_column_2=self.hessian_parallel_column_2,
+        numerical = (self.method == "HessianNumerical"),
       )    
 
-      with open(f"{self.data_output}/covariance{self.extra_file_name}.yaml", 'r') as yaml_file:
-        covariance = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    elif self.method == "HessianCollect":
 
-      # Get uncertainties from covariance
-      for col in covariance["matrix_columns"]:
-        col_index = covariance["matrix_columns"].index(col)
-        best_fit_col = best_fit_info["best_fit"][best_fit_info["columns"].index(col)]
-        dump = {
-          "columns" : covariance["columns"],
-          "row" : covariance["row"],
-          "varied_column" : col,
-          "crossings" : {
-            -2 : best_fit_col - 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            -1 : best_fit_col - float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            0 : best_fit_col,
-            1 : best_fit_col + float(np.sqrt(covariance["covariance"][col_index][col_index])),
-            2 : best_fit_col + 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
-          }
-        }
-        filename = f"{self.data_output}/hessianandcovariance_results_{col}{self.extra_file_name}.yaml"
-        if self.verbose:
-          pprint(dump)
-        print(f"Created {filename}")
-        MakeDirectories(filename)
-        with open(filename, 'w') as yaml_file:
-          yaml.dump(dump, yaml_file, default_flow_style=False)
+      first = True
+      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      for column_1_ind, column_1 in enumerate(columns):
+        for column_2_ind, column_2 in enumerate(columns):
+          if column_1_ind > column_2_ind: continue
+          # load in the hessian
+          if self.verbose:
+            print(f"- Loading hessian for {column_1} and {column_2}")
+          with open(f"{self.hessian_input}/hessian{self.extra_file_name}_{column_1}_{column_2}.yaml", 'r') as yaml_file:
+            hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if first:
+            hessian_metadata = hessian
+            total_hessian = np.array(hessian["hessian"])
+            first = False
+          else:
+            total_hessian = np.add(total_hessian, np.array(hessian["hessian"]))
+      hessian_metadata["hessian"] = total_hessian.tolist()
 
-    elif self.method == "HessianDMatrixAndCovariance":
+      # write out the hessian
+      if self.verbose:
+        print(f"- Writing out the hessian")
+      hess_out_name = f"{self.data_output}/hessian{self.extra_file_name}.yaml"
+      MakeDirectories(hess_out_name)
+      with open(hess_out_name, 'w') as yaml_file: 
+        yaml.dump(hessian_metadata, yaml_file, default_flow_style=False)
+
+    elif self.method == "DMatrix":
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
       self.lkld.best_fit = np.array(best_fit_info["best_fit"])
       self.lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
-
-      if self.verbose:
-        print(f"- Calculating the Hessian matrix")
-
-      # Get Hessian
-      self.lkld.GetAndWriteHessianToYaml(
-        self.lkld_input, 
-        row=self.true_Y, 
-        filename=f"{self.data_output}/hessian{self.extra_file_name}.yaml", 
-        freeze=self.freeze,
-        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
-      )  
 
       if self.verbose:
         print(f"- Calculating the D matrix")
@@ -307,34 +235,68 @@ class Infer():
       self.lkld.GetAndWriteDMatrixToYaml(
         self.lkld_input, 
         row=self.true_Y, 
-        filename=f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 
+        filename=f"{self.data_output}/dmatrix{self.extra_file_name}.yaml", 
         freeze=self.freeze,
-        scan_over=self.pois+self.nuisances if self.scan_over_nuisances else self.pois,
-      )  
+      )
 
-      # Open hessian yaml
-      with open(f"{self.data_output}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+    elif self.method == "Covariance":
+
+      if self.verbose:
+        print(f"- Calculating the covariance matrix")
+      
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
         hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      # Open D matrix yaml
-      with open(f"{self.data_output}/Dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
-        Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      self.lkld.best_fit = np.array(hessian["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
+      self.lkld.hessian_columns = hessian["matrix_columns"]
 
       # Get covariance
       self.lkld.GetAndWriteCovarianceToYaml(
-        hessian["hessian"], 
         row=self.true_Y, 
         filename=f"{self.data_output}/covariance{self.extra_file_name}.yaml", 
         scan_over=hessian["matrix_columns"],
-        D_matrix=Dmatrix["D_matrix"],
       )    
 
-      with open(f"{self.data_output}/covariance{self.extra_file_name}.yaml", 'r') as yaml_file:
+      # Get uncertainties from covariance
+      for col in hessian["matrix_columns"]:
+        self.lkld.GetAndWriteCovarianceIntervalsToYaml(
+          col,
+          row=self.true_Y, 
+          filename=f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml", 
+          scan_over=hessian["matrix_columns"],
+        )    
+
+    elif self.method == "CovarianceWithDMatrix":
+
+      # Open hessian yaml
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Open D matrix yaml
+      with open(f"{self.d_matrix_input}/dmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
+        Dmatrix = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Save to class
+      self.lkld.best_fit = np.array(hessian["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
+      self.lkld.hessian_columns = hessian["matrix_columns"]
+      self.lkld.D_matrix = Dmatrix["D_matrix"]
+      self.lkld.D_matrix_columns = Dmatrix["matrix_columns"]
+
+      # Get covariance
+      self.lkld.GetAndWriteCovarianceToYaml(
+        row=self.true_Y, 
+        filename=f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml", 
+        scan_over=hessian["matrix_columns"],
+      )    
+
+      with open(f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml", 'r') as yaml_file:
         covariance = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Get uncertainties from covariance
       for col in covariance["matrix_columns"]:
         col_index = covariance["matrix_columns"].index(col)
-        best_fit_col = best_fit_info["best_fit"][best_fit_info["columns"].index(col)]
+        best_fit_col = hessian["best_fit"][hessian["columns"].index(col)]
         dump = {
           "columns" : covariance["columns"],
           "row" : covariance["row"],
@@ -347,7 +309,7 @@ class Infer():
             2 : best_fit_col + 2*float(np.sqrt(covariance["covariance"][col_index][col_index])),
           }
         }
-        filename = f"{self.data_output}/hessiandmatrixandcovariance_results_{col}{self.extra_file_name}.yaml"
+        filename = f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"
         if self.verbose:
           pprint(dump)
         print(f"Created {filename}")
@@ -355,15 +317,13 @@ class Infer():
         with open(filename, 'w') as yaml_file:
           yaml.dump(dump, yaml_file, default_flow_style=False)
 
-      # Get uncertainties from covariance
-
-    elif self.method == "ScanPoints":
+    elif self.method == "ScanPointsFromApproximate":
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -381,7 +341,29 @@ class Infer():
         row=self.true_Y,
         estimated_sigmas_shown=((self.number_of_scan_points-1)/2)*self.sigma_between_scan_points, 
         estimated_sigma_step=self.sigma_between_scan_points,
-        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml"
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
+        method="approximate",
+      )
+
+    elif self.method == "ScanPointsFromHessian":
+
+      # Open hessian
+      with open(f"{self.hessian_input}/hessian{self.extra_file_name}.yaml", 'r') as yaml_file:
+        hessian = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      self.lkld.best_fit = np.array(hessian["best_fit"])
+      self.lkld.hessian = hessian["hessian"]
+
+      # Make scan ranges
+      self.lkld.GetAndWriteScanRangesToYaml(
+        self.lkld_input, 
+        self.column,
+        row=self.true_Y,
+        estimated_sigmas_shown=((self.number_of_scan_points-1)/2)*self.sigma_between_scan_points, 
+        estimated_sigma_step=self.sigma_between_scan_points,
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
+        method="hessian",
       )
 
     elif self.method == "Scan":
@@ -390,7 +372,7 @@ class Infer():
         print(f"- Loading best fit into likelihood")
 
       # Open best fit yaml
-      with open(f"{self.data_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
         best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Put best fit in class
@@ -417,31 +399,54 @@ class Infer():
         print(f"- Likelihood output:")
 
       for j in self.other_input.split(":"):
-        self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')], Y_columns=list(self.initial_best_fit_guess.columns))
+        self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')])
 
   def Outputs(self):
 
     # Initiate outputs
     outputs = []
 
-    # Add asimov files
-    if self.method == "MakeAsimov":
-      yields = self._BuildYieldFunctions()
-      for file_name in self.parameters.keys():
-        if yields[file_name](self.true_Y) == 0: continue
-        outputs += [f"{self.data_output}/asimov_{file_name}{self.extra_file_name}.parquet"]
-
     # Add best fit
     if self.method == "InitialFit":
       outputs += [f"{self.data_output}/best_fit{self.extra_file_name}.yaml"]
 
+    # Add hessian
+    if self.method in ["Hessian","HessianCollect","HessianNumerical"]:
+      outputs += [f"{self.data_output}/hessian{self.extra_file_name}.yaml"]
+
+    # Add hessian parallel
+    if self.method == "HessianParallel":
+      outputs += [f"{self.data_output}/hessian{self.extra_file_name}_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}.yaml"]
+
+    # Add dmatrix
+    if self.method == "DMatrix":
+      outputs += [f"{self.data_output}/dmatrix{self.extra_file_name}.yaml"]
+
+    columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+
+    # Add covariance
+    if self.method == "Covariance":
+      outputs += [f"{self.data_output}/covariance{self.extra_file_name}.yaml"]
+      for col in columns:      
+        outputs += [f"{self.data_output}/covariance_results_{col}{self.extra_file_name}.yaml"]
+
+    # Add covariancewithdmatrix
+    if self.method == "CovarianceWithDMatrix":
+      outputs += [f"{self.data_output}/covariancewithdmatrix{self.extra_file_name}.yaml"]
+      for col in columns:      
+        outputs += [f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"]
+
     # Add scan ranges
-    if self.method == "ScanPoints":
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
       outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",]
 
     # Add scan values
     if self.method == "Scan":
       outputs += [f"{self.data_output}/scan_values_{self.column}{self.extra_file_name}_{self.scan_ind}.yaml",]
+
+    # Add approximate uncertainty
+    if self.method == "ApproximateUncertainty":
+      outputs += [f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"]
 
     # Add other outputs
     outputs += self.other_output_files
@@ -452,40 +457,64 @@ class Infer():
 
     # Initiate inputs
     inputs = []
+  
+    # Add parameters
+    for k, v in self.parameters.items():
+      inputs += [v]
 
-    # Add parameters and model inputs
-    print(self.parameters)
-    for k in self.parameters.keys():
-      inputs += [
-        self.model[k], # remove this if not needed
-        self.architecture[k],
-        self.parameters[k],
-      ]
-
-    # Add input datasets
-    if self.data_type == "sim" or (args.data_type == "asimov" and args.likelihood_type in ["binned", "binned_extended"]):
+    # Add data inputs and parameters
+    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       for k, v in self.parameters.items():
-        with open(v, 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        if "data" not in self.data_input.keys():
+          inputs += self.data_input[k]
+
+    # Add data inputs
+    if "data" in self.data_input.keys():
+      inputs += self.data_input["data"]
+
+    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+
+      # Add density model inputs
+      for k, v in self.density_models.items():
         inputs += [
-          f"{parameters['file_loc']}/X_val.parquet",
-          f"{parameters['file_loc']}/Y_val.parquet",
-          f"{parameters['file_loc']}/wt_val.parquet",
+          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
+          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
         ]
-    elif self.data_type == "data":
-      inputs += [self.data_file]      
-    elif self.data_type == "asimov" and self.write_asimov and self.method != "MakeAsimov" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
-      for file_name in self.parameters.keys():
-        inputs += [f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"]
+
+      # Add regression model inputs
+      for k, v in self.regression_models.items():
+        for vi in v:
+          inputs += [
+            f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+            f"{self.model_input}/{vi['name']}/{k}.h5",
+            f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+          ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPoints","Scan"]:
-      inputs += [f"{self.data_input}/best_fit{self.extra_file_name}.yaml"]
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
+      inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
+
+    # Add hessian parallel
+    if self.method == "HessianCollect":
+      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      for column_1_ind, column_1 in enumerate(columns):
+        for column_2_ind, column_2 in enumerate(columns):
+          if column_1_ind > column_2_ind: continue
+          inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}_{column_1}_{column_2}.yaml"]
+
+    # Add hessian 
+    if self.method in ["Covariance","CovarianceWithDMatrix","ScanPointsFromHessian"]:
+      inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}.yaml"]
+
+    # Add d matrix
+    if self.method in ["CovarianceWithDMatrix"]:
+      inputs += [f"{self.d_matrix_input}/dmatrix{self.extra_file_name}.yaml"]
 
     # Add other inputs
     inputs += self.other_input_files
 
     return inputs
+
 
   def _BuildCategories(self):
 
@@ -500,19 +529,22 @@ class Infer():
       else:
         sel = None
         var_and_bins = category
-      var = var_and_bins.split("[")[0]
-      bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
+
+      if "[" in var_and_bins:
+        var = var_and_bins.split("[")[0]
+        bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
+      elif "(" in var_and_bins:
+        var = var_and_bins.split("(")[0]
+        start_stop_step = [float(i) for i in list(var_and_bins.split("(")[1].split(")")[0].split(","))]
+        bins = [float(i) for i in np.arange(start_stop_step[0], start_stop_step[1], start_stop_step[2])]
       categories[category_ind] = [sel, var, bins]
     
     return categories
 
+
   def _BuildBinYields(self):
 
-    from data_processor import DataProcessor
-    from yields import Yields
-
-    # Make selection, variable and bins
-    categories = self._BuildCategories()
+    import pandas as pd
 
     # Define bin_yields dictionary
     bin_yields = {}
@@ -520,348 +552,178 @@ class Infer():
     # Loop through files
     for file_name, v in self.parameters.items():
 
-      # Define bin_yields list per file
-      bin_yields[file_name] = []
-
       # Open data parameters
       with open(v, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Get original yields function
-      yields_df = pd.read_parquet(parameters['yield_loc'])
-      Y_columns = [i for i in self.pois+self.nuisances if i in yields_df.columns]
-      yields_df = yields_df.loc[:,Y_columns]
-
-      # Define bin yields dataframe
-      bin_yields_dataframes = [copy.deepcopy(yields_df) for _, cat_info in categories.items() for _ in cat_info[2][:-1]]
-
-      # Loop through Y values
-      for index, row in yields_df.iterrows():
-        y_selection = " & ".join([f"({k}=={row.iloc[ind]})" for ind, k in enumerate(row.keys())])
-        if y_selection == "": y_selection = None
-
-        # Loop through categories
-        bin_cat_num = 0
-        for cat_num, cat_info in categories.items():
-
-          datasets = [
-            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
-          ]
-          scalers = [
-            self._BuildYieldFunctions(column_name=f"yields_train")[file_name](yields_df.iloc[[index]]),
-            self._BuildYieldFunctions(column_name=f"yields_val")[file_name](yields_df.iloc[[index]]),
-          ]
-          if self.test_name == "test":
-            datasets += [f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]
-            scalers += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](yields_df.iloc[[index]])]
-
-          # Make data processor
-          asimov_dps = DataProcessor(
-            datasets,
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "parameters" : parameters,
-              "selection" : y_selection,
-              "scale" : scalers,
-              "functions" : ["untransform"]
-            }
-          )
-
-          hist, _ = asimov_dps.GetFull(
-            method = "histogram",
-            extra_sel = cat_info[0],
-            column = cat_info[1],
-            bins = cat_info[2],
-          )
-
-          # Loop through histogram bins
-          for bin_num, hist_val in enumerate(hist):
-
-            # Fill yield dataframes
-            if "yield" not in bin_yields_dataframes[bin_cat_num].columns:
-              bin_yields_dataframes[bin_cat_num].loc[:,"yield"] = 0.0
-            bin_yields_dataframes[bin_cat_num].loc[index, "yield"] = hist_val
-            bin_cat_num += 1
-
-      # Make yield functions
-      bin_yields[file_name] = []
-      for b_ind, b in enumerate(bin_yields_dataframes):
-        bin_yield_class = Yields(
-          b, 
-          self.pois, 
-          self.nuisances, 
-          file_name,
-          method=self.yield_function, 
-          column_name="yield"
-        )
-        bin_yields[file_name].append(bin_yield_class.GetYield)
+      # Make binned inputs
+      rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
+      bin_yields[file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
 
     return bin_yields
 
+    
   def _BuildDataProcessors(self):
 
     from data_processor import DataProcessor
 
     # Patch for memory use of gradients
     batch_size = None
-    if self.method in ["HessianAndCovariance","HessianDMatrixAndCovariance"] or (self.method in ["InitialFit","Scan"] and self.minimisation_method == "scipy_with_gradients"):
+    if self.method in ["InitialFit","Scan"] and self.minimisation_method in ["minuit_with_gradients","scipy_with_gradients","custom"]:
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
+    elif self.method in ["Hessian","HessianParallel","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
+    if self.method == "HessianParallel" and self.hessian_parallel_column_1 in self.non_nn_columns and self.hessian_parallel_column_2 in self.non_nn_columns:
+      batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+    elif self.method == "HessianParallel" and (self.hessian_parallel_column_2 in self.non_nn_columns or self.hessian_parallel_column_1 in self.non_nn_columns):
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
 
+    # Build dataprocessors
     dps = {}
-    for file_name, v in self.parameters.items():
 
-      # Open data parameters
-      with open(v, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    if "data" not in self.data_input.keys():
 
-      # Generate simulated data processor
-      if self.data_type == "sim":
+      for k, v in self.parameters.items():
 
-        if self.yields is not None:
-          scale = self.yields[file_name](self.true_Y)
-          if scale == 0: continue
+        # Open data parameters
+        with open(v, 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        if self.scale_to_eff_events:
+          scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
         else:
           scale = None
 
-        if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-          sim_inputs = [[f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"]]
-          if self.yields is not None:
-            scale = self.yields[file_name](self.true_Y)
-            if scale == 0: continue
-          else:
-            scale = None
-        else:
-          sim_inputs = [
-            [f"{parameters['file_loc']}/X_train.parquet", f"{parameters['file_loc']}/Y_train.parquet", f"{parameters['file_loc']}/wt_train.parquet"],
-            [f"{parameters['file_loc']}/X_val.parquet", f"{parameters['file_loc']}/Y_val.parquet", f"{parameters['file_loc']}/wt_val.parquet"],
-          ]
-          scale = [
-            self._BuildYieldFunctions(column_name=f"yields_train")[file_name](self.true_Y),
-            self._BuildYieldFunctions(column_name=f"yields_val")[file_name](self.true_Y),
-          ]
-          if self.test_name == "test":
-            sim_inputs += [[f"{parameters['file_loc']}/X_test.parquet", f"{parameters['file_loc']}/Y_test.parquet", f"{parameters['file_loc']}/wt_test.parquet"]]
-            scale += [self._BuildYieldFunctions(column_name=f"yields_test")[file_name](self.true_Y)]
-
-        shape_Y_cols = [col for col in self.true_Y.columns if "mu_" not in col and col in parameters["Y_columns"]]
-        dps[file_name] = DataProcessor(
-          sim_inputs,
+        dps[k] = DataProcessor(
+          self.data_input[k],
           "parquet",
           wt_name = "wt",
           batch_size = batch_size,
           options = {
             "parameters" : parameters,
-            "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
             "scale" : scale,
-            "resample" : self.resample,
-            "resampling_seed" : self.resampling_seed,
-            "functions" : ["untransform"], 
           }
         )
 
-        # plot resampling
-        if self.plot_resampling and self.resample:
-          non_resampling_dp = DataProcessor(
-            sim_inputs,
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "parameters" : parameters,
-              "selection" : " & ".join([f"({col}=={self.true_Y.loc[:,col].iloc[0]})" for col in shape_Y_cols]) if len(shape_Y_cols) > 0 else None,
-              "scale" : scale,
-              "functions" : ["untransform"]
-            }
-          )
-          for col in parameters["X_columns"]:
-            # Get binning
-            bins = non_resampling_dp.GetFull(
-              method = "bins_with_equal_spacing", 
-              bins = 40,
-              column = col,
-            )      
-            # Get histograms
-            non_resampled_hist, non_resampled_hist_hist_uncert, bins = non_resampling_dp.GetFull(
-              method = "histogram_and_uncert",
-              bins = bins,
-              column = col,
-            )
-            resampled_hist, resampled_hist_hist_uncert, bins =  dps[file_name].GetFull(
-              methoƒd = "histogram_and_uncert",
-              bins = bins,
-              column = col,
-            )
-            plot_stacked_histogram_with_ratio(
-              resampled_hist, 
-              {"Full Dataset" : non_resampled_hist}, 
-              bins, 
-              data_name = f"Resampled with Seed {self.resampling_seed}", 
-              xlabel=col,
-              ylabel="Events",
-              name=f"{self.plots_output}/resampling_{col}_seed_{self.resampling_seed}", 
-              data_errors=resampled_hist_hist_uncert, 
-              stack_hist_errors=non_resampled_hist_hist_uncert, 
-              use_stat_err=False,
-              axis_text="",
-              )
-
-      elif self.data_type == "asimov":
-
-        # Generate asimov as you go
-        if not self.write_asimov:
-
-          if self.yields is not None:
-            sum_yields = np.sum([self.yields[fn](self.true_Y) for fn in self.parameters.keys()])
-            scale = self.yields[file_name](self.true_Y)
-            if scale == 0.0: continue
-            frac_yields = scale/sum_yields
-          else:
-            frac_yields = 1.0
-            scale = None
-
-          dps[file_name] = DataProcessor(
-            [[partial(self.models[file_name].Sample, self.true_Y)]],
-            "generator",
-            n_events = int(self.n_asimov_events*frac_yields), # multiply by yield fractions
-            wt_name = "wt",
-            batch_size = batch_size,
-            options = {
-              "parameters" : parameters,
-              "scale" : scale,
-            }
-          )
-
-        # Use asimov that has been written to file file first 
-        else:
-
-          asimov_file_name = f"{self.asimov_input}/asimov_{file_name}{self.extra_file_name}.parquet"
-          dps[file_name] = DataProcessor(
-            [[asimov_file_name]],
-            "parquet",
-            wt_name = "wt",
-            batch_size = batch_size,
-          )
-
-    if self.data_type == "data":
-
-      dps["Data"] = DataProcessor(
-        [[self.data_file]],
+    else:
+        
+      dps["data"] = DataProcessor(
+        self.data_input["data"],
         "parquet",
         batch_size = batch_size,
-      )
+        options = {}
+      )      
 
     return dps
 
-  def _BuildYieldFunctions(self, column_name="yield"):
+
+  def _BuildYieldFunctions(self):
 
     from yields import Yields
 
-    # Load parameters
+    # Load parameters in
     parameters = {}
     for k, v in self.parameters.items():
       with open(v, 'r') as yaml_file:
         parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    # Build yield function
+    # If scale to effective events, recalculate effective events for combined models
+    if self.scale_to_eff_events:
+      sum_wt = 0.0
+      sum_wt_squared = 0.0
+      for k, v in parameters.items():
+        sum_wt += v["yields"]["nominal"]
+        sum_wt_squared += (v["yields"]["nominal"]**2) / v["eff_events"][self.sim_type][self.val_ind]
+      eff_events = (sum_wt**2) / sum_wt_squared
+      scale_to = {k: v["yields"]["nominal"]*eff_events/sum_wt for k, v in parameters.items()}
+    else:
+      scale_to = {k: v["yields"]["nominal"] for k, v in parameters.items()}
+
+    # build yield functions
     yields = {}
     yields_class = {}
-    eff_events_class = {}
-    sum_wts_squared = 0.0
-    sum_wts = 0.0
-
-    for ind, (k, v) in enumerate(self.parameters.items()):
-    
+    for k, v in parameters.items():
       yields_class[k] = Yields(
-        pd.read_parquet(parameters[k]['yield_loc']), 
-        self.pois, 
-        self.nuisances, 
-        k,
-        method=self.yield_function, 
-        column_name=column_name
+        scale_to[k],
+        lnN = v["yields"]["lnN"],
+        physics_model = None,
+        rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
       )
-
-      if not self.scale_to_eff_events:
-        yields[k] = yields_class[k].GetYield
-
-      else:
-        eff_events_class[k] = Yields(
-          pd.read_parquet(parameters[k]['yield_loc']), 
-          self.pois, 
-          self.nuisances, 
-          k,
-          method=self.yield_function, 
-          column_name="effective_events_val"
-        )
-        sum_wts_squared += (yields_class[k].GetYield(self.true_Y)**2)/eff_events_class[k].GetYield(self.true_Y)
-        sum_wts += yields_class[k].GetYield(self.true_Y)
-
-    if self.scale_to_eff_events:
-      eff_events = (sum_wts**2)/sum_wts_squared
-      for k in self.parameters.keys():
-        yields[k] = partial(lambda Y, k, eff_events, sum_wts: yields_class[k].GetYield(Y) * (eff_events/sum_wts), k=k, eff_events=eff_events, sum_wts=sum_wts)
+      yields[k] = yields_class[k].GetYield
 
     return yields
 
-  def _BuildModels(self):
 
-    if self.model_type == "BayesFlow":
+  def _BuildDensityModels(self):
 
-      from network import Network
+    networks = {}
+    parameters = {}
+    for k, v in self.density_models.items():
 
-      networks = {}
-      parameters = {}
-      for file_name in self.parameters.keys():
+      # Open parameters
+      with open(v["parameters"], 'r') as yaml_file:
+        parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        # Open parameters
-        if self.verbose:
-          print(f"- Loading in the parameters for model {file_name}")
-        with open(self.parameters[file_name], 'r') as yaml_file:
-          parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Open architecture
+      density_model_name = f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{parameters[k]['file_name']}"
+      with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
+        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        # Load the architecture in
-        if self.verbose:
-          print(f"- Loading in the architecture for model {file_name}")
-        with open(self.architecture[file_name], 'r') as yaml_file:
-          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      # Make model
+      networks[k] = InitiateDensityModel(
+        architecture,
+        v['file_loc'],
+        options = {
+          "data_parameters" : parameters[k]["density"],
+          "file_name" : k,
+        }
+      )
 
-        # Build model
-        if self.verbose:
-          print(f"- Building the model for {file_name}")
-        networks[file_name] = Network(
-          f"{parameters[file_name]['file_loc']}/X_val.parquet",
-          f"{parameters[file_name]['file_loc']}/Y_val.parquet", 
-          f"{parameters[file_name]['file_loc']}/wt_val.parquet", 
-          options = {
-            **architecture,
-            **{
-              "data_parameters" : parameters[file_name]
-            }
-          }
-        )  
-        
-        # Loading model
-        if self.verbose:
-          print(f"- Loading the model for {file_name}")
-        networks[file_name].Load(name=self.model[file_name])
-
-    elif self.model_type.startswith("Benchmark"):
-
-      if not "Dim1CfgToBenchmark" in self.model_type:
-        import importlib
-        module_name = self.model_type.split("Benchmark_")[1]
-        module = importlib.import_module(module_name)
-        module_class = getattr(module, module_name)
-        networks = {}
-        for file_name in self.parameters.keys():
-          networks[file_name] = module_class(file_name=file_name)
-      else:
-        from Dim1CfgToBenchmark import Dim1CfgToBenchmark
-        cfg_name = self.model_type.split("Dim1CfgToBenchmark_")[-1]
-        for file_name, params in self.parameters.items():
-          networks[file_name] = module_class(cfg_name, params, file_name=file_name)                  
+      networks[k].Load(name=f"{density_model_name}.h5")
 
     return networks
+
+
+  def _BuildRegressionModels(self):
+
+    networks = {}
+    splines = {}
+    parameters = {}
+    for k, v in self.regression_models.items():
+
+      networks[k] = {}
+      splines[k] = {}
+
+      for vi in v:
+
+        # Open parameters
+        with open(vi["parameters"], 'r') as yaml_file:
+          parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Open architecture
+        regression_model_name = f"{self.model_input}/{vi['name']}/{parameters[k]['file_name']}"
+        with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Make model
+        networks[k][vi["parameter"]] = InitiateRegressionModel(
+          architecture,
+          vi['file_loc'],
+          options = {
+            "data_parameters" : parameters[k]["regression"][vi["parameter"]],
+          }
+        )
+
+        networks[k][vi["parameter"]].Load(name=f"{regression_model_name}.h5")
+
+        # Make normalising spline
+        spline_name = f"{regression_model_name}_norm_spline.pkl"
+        if os.path.isfile(spline_name):
+          with open(spline_name, 'rb') as f:
+            splines[k][vi["parameter"]] = pickle.load(f)
+
+    return networks, splines
+
 
   def _BuildLikelihood(self):
 
@@ -869,6 +731,7 @@ class Infer():
 
     if self.verbose:
       print(f"- Building likelihood")
+      print(f"- Y_columns={self.Y_columns}")
 
     parameters = {}
     for file_name in self.parameters.keys():
@@ -877,19 +740,35 @@ class Infer():
 
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       likelihood_inputs = {
-        "pdfs" : self._BuildModels(),
+        "pdfs" : self._BuildDensityModels(),
         "yields" : self.yields,
       }
+      if not self.only_density:
+        likelihood_inputs["pdf_shifts_with_regression"], likelihood_inputs["pdf_shifts_with_regression_norm_spline"] = self._BuildRegressionModels()
+
     elif self.likelihood_type in ["binned", "binned_extended"]:
       likelihood_inputs = {
         "bin_yields" : self._BuildBinYields(),
       }
 
+    if "nuisance_constraints" in self.inference_options.keys():
+      constraints = [i for i in self.inference_options["nuisance_constraints"] if i in self.Y_columns]
+    else:
+      constraints = []
+
+    if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
+      constraint_center = self.true_Y.loc[:,constraints]
+    else:
+      constraint_center = None
+
     lkld = Likelihood(
       likelihood_inputs, 
       likelihood_type = self.likelihood_type, 
-      data_parameters = parameters,
-      parameters = self.inference_options,
+      constraint_center = constraint_center,
+      constraints = constraints,
+      X_columns = self.X_columns,
+      Y_columns = self.Y_columns,
+      Y_columns_per_model = self.Y_columns_per_model
     )
 
     return lkld
