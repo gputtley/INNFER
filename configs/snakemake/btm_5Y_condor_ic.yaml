@@ -1,11 +1,11 @@
-# PreProces 
-- workflow: configs/snakemake/preprocess_condor_ic.yaml
-
-# Custom BW reweighting
-- step: "Custom"
-  submit: "configs/submit/condor_4_cpus.yaml"
-  run_options: 
-    custom_module: "top_bw_fractioning"
+## PreProces 
+#- workflow: configs/snakemake/preprocess_condor_ic.yaml
+#
+## Custom BW reweighting
+#- step: "Custom"
+#  submit: "configs/submit/condor_4_cpus.yaml"
+#  run_options: 
+#    custom_module: "top_bw_fractioning"
 
 # Train 
 - workflow: configs/snakemake/train_density_condor_ic.yaml

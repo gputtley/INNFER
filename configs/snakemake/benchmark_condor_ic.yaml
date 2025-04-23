@@ -1,11 +1,11 @@
-## Make benchamrk
-#- step: "MakeBenchmark"
-#
-## PreProces 
-#- workflow: configs/snakemake/preprocess_condor_ic.yaml
-#
-## Train 
-#- workflow: configs/snakemake/train_density_condor_ic.yaml
+# Make benchamrk
+- step: "MakeBenchmark"
+
+# PreProces 
+- workflow: configs/snakemake/preprocess_condor_ic.yaml
+
+# Train 
+- workflow: configs/snakemake/train_density_condor_ic.yaml
 
 # Make asimov
 - workflow: configs/snakemake/make_asimov_condor_ic.yaml

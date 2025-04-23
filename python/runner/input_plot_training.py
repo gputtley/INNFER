@@ -139,7 +139,7 @@ class InputPlotTraining():
         for col in columns:
 
           bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
-          bins = [(2*bins[0])-bins[1]] + bins + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
+          bins = [(2*bins[0])-bins[1]] + list(bins) + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
           
           hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
 

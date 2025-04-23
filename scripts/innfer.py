@@ -355,6 +355,7 @@ def main(args, default_args):
         class_name = "EvaluateRegression",
         config = {
           "data_input" : f"{data_dir}/{cfg['name']}/PreProcess/{model_info['file_name']}/regression/{model_info['parameter']}",
+          "plots_output" : f"{plots_dir}/{cfg['name']}/EvaluateRegression/{model_info['file_name']}",
           "model_input" : f"{models_dir}/{cfg['name']}",
           "model_name" : model_info["name"],
           "file_name" : model_info["file_name"],

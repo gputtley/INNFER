@@ -12,6 +12,7 @@ from functools import partial
 from scipy.interpolate import CubicSpline
 
 from data_processor import DataProcessor
+from plotting import plot_histograms
 from useful_functions import InitiateRegressionModel, MakeDirectories
 
 class EvaluateRegression():
@@ -25,6 +26,7 @@ class EvaluateRegression():
 
     # other
     self.data_input = "data/"
+    self.plots_output = "plots/"
     self.file_name = None
     self.data_output = None
     self.model_input = None
@@ -145,10 +147,20 @@ class EvaluateRegression():
           }
         )
 
+        # Get number of effective events
+        eff_events = regress_df.GetFull(
+          method = "n_eff"
+        )
+        events_per_bin = 100000
+        bins = int(np.ceil(eff_events/events_per_bin))
+
+        if self.verbose:
+          print(f"- Number of bins: {bins}")
+
         nom_hist, bins = regress_df.GetFull(
           method = "histogram",
           column = self.parameter,
-          bins = 40,
+          bins = bins,
         )
 
         def shift(df):
@@ -168,6 +180,23 @@ class EvaluateRegression():
         spline_name = f"{regression_model_name}_norm_spline.pkl"
         with open(spline_name, 'wb') as f:
           pickle.dump(spline, f)
+
+        # plot spline and points
+        if self.verbose:
+          print("- Plotting normalisation spline")
+        plot_histograms(
+          bin_centers,
+          [],
+          [],
+          error_bar_hists = [ratio],
+          error_bar_hist_errs = [np.zeros(len(ratio))],
+          error_bar_names = ["Points"],
+          smooth_func = spline,
+          smooth_func_name = "Spline",
+          name=f"{self.plots_output}/norm_spline_{self.parameter}",
+          x_label=self.parameter,
+          y_label="Yield ratio to before",
+        )
 
 
   def Outputs(self):
