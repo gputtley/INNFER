@@ -1,9 +1,12 @@
 import copy
 import os
 import pickle
+import re
 
 import numpy as np
 import pandas as pd
+
+from sklearn.model_selection import train_test_split
 
 from data_loader import DataLoader
 from useful_functions import CustomHistogram, Resample
@@ -19,8 +22,6 @@ class DataProcessor():
       batch_size = None,
       options = {}
     ):
-
-    # Check inputs are correct
     if dataset_type not in ["dataset","parquet","generator"]:
       raise ValueError("dataset_type given is incorrect.")
     else:
@@ -48,6 +49,7 @@ class DataProcessor():
     self.resample = False
     self.resampling_seed = 1
     self.functions = []
+    self.decimals = 16
 
     # Transform options
     self.parameters = {}
@@ -70,6 +72,10 @@ class DataProcessor():
     elif dataset_type == "parquet":
       self.data_loaders = [[DataLoader(d, batch_size=self.batch_size) for d in ds] for ds in self.datasets]
       self.num_batches = [self.data_loaders[ind][0].num_batches for ind in range(len(self.datasets))]
+
+    #if np.sum(self.num_batches) == 0:
+    #  print("WARNING: No batches found!")
+
     if not isinstance(self.scale, list):
       self.scale = [self.scale]*len(self.datasets)
 
@@ -85,6 +91,14 @@ class DataProcessor():
 
     for key, value in options.items():
       setattr(self, key, value)
+
+  def _ReplaceEqualsWithIsClose(self, selection):
+    pattern = r'(\w+)\s*==\s*([-+]?\d*\.?\d+)'      
+    replacement = r'np.isclose(\1, \2)'   
+    shift = 1e-7
+    replacement = rf'((\1 > (\2 - {shift})) & (\1 < (\2 + {shift})))'   
+    modified_selection = re.sub(pattern, replacement, selection)
+    return modified_selection
 
   def Restart(
       self
@@ -102,14 +116,14 @@ class DataProcessor():
     functions_to_apply = self.functions + functions_to_apply
 
     self.finished = False
-
+    df = None
     for column_ind in range(len(self.datasets[self.file_ind])):
 
       # Get dataset
       if self.dataset_type == "dataset":
         tmp = self.datasets[self.file_ind][column_ind]
       elif self.dataset_type == "generator":
-        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind]) # Need to evolve the seed, should be able to set seeds in list and sample through them each time
+        tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind])
       elif self.dataset_type == "parquet":
         tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
 
@@ -117,14 +131,26 @@ class DataProcessor():
       if len(tmp.columns) == 0: continue
 
       # Combine columns into a full batch
-      if column_ind == 0:
+      if df is None:
         df = copy.deepcopy(tmp)
       else:
+        
+        # remove non unique columns
+        for col in tmp.columns:
+          if col in df.columns:
+            tmp = tmp.drop(columns=[col])
+            
         df = pd.concat([df, tmp], axis=1)
+
       del tmp
 
+    if df is None: 
+      self.finished = True
+      return None
+
     # Set data type
-    df = df.astype(float)
+    if len(df) > 0 and len(df.columns) > 0:
+      df = df.astype(float)
 
     # Scale weights
     if self.scale[self.file_ind] is not None:
@@ -136,6 +162,8 @@ class DataProcessor():
         df.loc[:, self.wt_name] = scale
 
     # Apply functions
+    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
+      df = self.ApplySelection(df, extra_sel=extra_sel)
     for f in functions_to_apply:
       if isinstance(f, str):
         if f == "untransform":
@@ -146,8 +174,6 @@ class DataProcessor():
           df = self.TransformData(df)
       else:
         df = f(df)
-    if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
-      df = self.ApplySelection(df, extra_sel=extra_sel)
 
     # Select the columns
     if self.columns is not None:
@@ -163,8 +189,8 @@ class DataProcessor():
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
       
-    # Fix any floating-point arithmetic error
-    df = df.round(decimals=15)
+    ## Fix any floating-point arithmetic error
+    #df = df.round(decimals=self.decimals)
       
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
@@ -193,13 +219,18 @@ class DataProcessor():
       quantile = 0.01,
       ignore_quantile = 0.005,
       unique_combinations = None,
+      sampling_fraction = 1.0,
+      means = None,
       custom = None,
+      test_fraction = 0.2,
       custom_options = {},
+      print_dataset = False,
     ):
 
     if method == "std": # Get the mean for standard deviation calculation
-      sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
-      means = {k : v/sum_wts for k, v in sum_cols.items()}
+      if means is None:
+        sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+        means = {k : v/sum_wts for k, v in sum_cols.items()}
     elif method == "n_eff": # Get the number of effective events
       sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
@@ -219,16 +250,16 @@ class DataProcessor():
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
-        return unique + [2*unique[-1] - unique[-2]]
+        return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
-        return list(np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1))
+        return np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1)
     elif method == "bins_with_equal_stats": # Get equal stat bins
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
-        return unique + [2*unique[-1] - unique[-2]]
+        return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
-        return [self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)]
+        return np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -242,9 +273,16 @@ class DataProcessor():
         functions_to_apply = functions_to_apply,
       )
 
+      if print_dataset:
+        print(tmp)
+
       # Run method
       if method in ["dataset"]: # get full dataset
         out = self._method_dataset(tmp, out)
+      elif method in ["sampled_dataset"]: # get sampled dataset
+        out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
+      elif method in ["train_test_split"]: # get train and test dataset
+        out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
       elif method in ["histogram"]: # make a histogram from the dataset
         out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
       elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
@@ -259,18 +297,24 @@ class DataProcessor():
         out = self._method_sum_w_unique_columns(tmp, out, unique_combinations)
       elif method in ["count"]: # count events
         out = self._method_sum(tmp, out, count=True)
+      elif method in ["count_unique_columns"]: # sum up the weights for unique values of columns
+        out = self._method_count_unique_columns(tmp, out, unique_combinations)
       elif method in ["sum_w2"]: # sum up the weights or count events
         out = self._method_sum_w2(tmp, out)
       elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
         out = self._method_sum_w2_unique_columns(tmp, out, unique_combinations)
       elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
         out = self._method_sum_columns(tmp, out)
+      elif method in ["sum_formula"]:
+        out = self._method_sum_formula(tmp, out, column)
       elif method in ["std"]: # find partial information for std of columns
         out = self._method_part_std(tmp, out, means)
       elif method in ["unique"]: # find unique values of a column
         out = self._method_unique(tmp, out, unique_threshold)
       elif method in ["quantile"]: # find a quantile of the dataset
         out = self._method_part_quantile(tmp, out, column, quantile)
+      elif method in ["min_max"]: # find min and max of columns
+        out = self._method_min_max(tmp, out)
       elif method in ["custom"]: # custom function
         out = custom(tmp, out, options=custom_options)
       else: 
@@ -315,19 +359,10 @@ class DataProcessor():
     """
     for column_name in data.columns:
 
-      # Apply discrete to continuous transformation
-      #if "discrete_thresholds" in self.parameters.keys():
-      #  if column_name in self.parameters["discrete_thresholds"].keys():
-      #    data[column_name] = self.DiscreteToContinuous(data.loc[:,column_name], column_name).astype(np.float64)
-
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
         data.loc[:,column_name] = self.Standardise(data.loc[:,column_name], column_name)
         
-      # Fix any python floating point arithmetic problems
-      if column_name != self.wt_name:
-        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
-
     return data
 
   def UnTransformData(
@@ -349,32 +384,49 @@ class DataProcessor():
       if column_name == "prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] /= self.parameters["standardisation"][col]["std"]
+        if "discrete_integral_differences" in self.parameters.keys():
+          for col in self.parameters["discrete_integral_differences"]:
+            data.loc[:,column_name] /= self.parameters["discrete_integral_differences"][col]
 
       # Unstandardise the log probabilities
       if column_name == "log_prob":
         for col in self.parameters["X_columns"]:
           data.loc[:,column_name] -= np.log(self.parameters["standardisation"][col]["std"])
-        
+        if "discrete_integral_differences" in self.parameters.keys():
+          for col in self.parameters["discrete_integral_differences"]:
+            data.loc[:,column_name] -= self.parameters["discrete_integral_differences"][col]
+
       # Unstandardise the first derivative of the log probabilities
       if column_name.startswith("d_log_prob_by_d_"):
-        data.loc[:,column_name] /= self.parameters["standardisation"][column_name.split("d_log_prob_by_d_")[1]]["std"]
+        col_1 = column_name.split("d_log_prob_by_d_")[1]
+        if col_1 in self.parameters["standardisation"].keys():
+          data.loc[:,column_name] /= self.parameters["standardisation"][col_1]["std"]
 
       # Unstandardise the second derivative of the log probabilities
       if column_name.startswith("d2_log_prob_by_d_"):
-        data.loc[:,column_name] /= (self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[0]]["std"] * self.parameters["standardisation"][column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]]["std"])
+        col_1 = column_name.split("d2_log_prob_by_d_")[1].split("_and_")[0]
+        col_2 = column_name.split("d2_log_prob_by_d_")[1].split("_and_")[1]
+        if col_1 in self.parameters["standardisation"].keys() and col_2 in self.parameters["standardisation"].keys():
+          data.loc[:,column_name] /= (self.parameters["standardisation"][col_1]["std"] * self.parameters["standardisation"][col_2]["std"])
+
+      # Unstandardise the first derivative of the one standardised paramater with respect to another
+      for col_1 in self.parameters["standardisation"].keys():
+        if column_name.startswith(f"d_{col_1}_by_d_"):
+          for col_2 in self.parameters["standardisation"].keys():
+            if column_name == f"d_{col_1}_by_d_{col_2}":
+              data.loc[:,column_name] *= self.parameters["standardisation"][col_1]["std"] / self.parameters["standardisation"][col_2]["std"]
+
+      # Unstandardise the second derivative of the one standardised paramater with respect to another
+      for col_1 in self.parameters["standardisation"].keys():
+        if column_name.startswith(f"d2_{col_1}_by_d_"):
+          for col_2 in self.parameters["standardisation"].keys():
+            for col_3 in self.parameters["standardisation"].keys():
+              if column_name == f"d2_{col_1}_by_d_{col_2}_and_{col_3}":
+                data.loc[:,column_name] *= self.parameters["standardisation"][col_1]["std"] / (self.parameters["standardisation"][col_2]["std"] * self.parameters["standardisation"][col_3]["std"])
 
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
         data.loc[:,column_name] = self.UnStandardise(data.loc[:,column_name], column_name)
-
-      # Convert previously discrete columns back to discrete
-      if "discrete_thresholds" in self.parameters.keys():
-        if column_name in self.parameters["discrete_thresholds"].keys():
-          data.loc[:,column_name] = self.UnDiscreteToContinuous(data.loc[:,column_name], column_name)
-
-      # Fix any python floating point arithmetic problems
-      if column_name != self.wt_name:
-        data.loc[:,column_name] = data.loc[:,column_name].round(decimals=15)
 
     return data
 
@@ -480,8 +532,26 @@ class DataProcessor():
         selection = extra_sel
       else:
         selection = f"({self.selection}) & {extra_sel}"
+      selection = self._ReplaceEqualsWithIsClose(selection)
       data = data.loc[data.eval(selection),:]
     return data
+
+  def _method_count_unique_columns(self, tmp, out, unique_combinations, count=False):
+
+    for ind, uc in unique_combinations.iterrows():
+
+      selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
+      tmp_tmp = tmp.loc[tmp.eval(selection),:]
+      tmp_total = len(tmp_tmp)
+
+      if out is None:
+        out = copy.deepcopy(unique_combinations)
+        out.loc[:, "count"] = 0.0
+
+      out.loc[ind, "count"] = float(out.loc[ind, "count"]) + tmp_total
+
+    return out
 
   def _method_dataset(self, tmp, out):
     if out is None:
@@ -543,6 +613,28 @@ class DataProcessor():
       out[1] = np.sqrt(out[1]**2 + tmp_hist_uncert**2)
     return out
 
+  def _method_min_max(self, tmp, out):
+
+    tmp_min_max = {col: [np.min(tmp.loc[:,col]), np.max(tmp.loc[:,col])] for col in tmp.columns}
+
+    if out is None:
+      out = copy.deepcopy(tmp_min_max)
+    else:
+      out = {col : [min(out[col][0], tmp_min_max[col][0]), max(out[col][1], tmp_min_max[col][1])] for col in tmp.columns}
+    return out
+
+  def _method_sampled_dataset(self, tmp, out, sampling_fraction=1.0):
+
+    if sampling_fraction != 1.0:
+      indices = np.random.choice(tmp.index, int(len(tmp)*sampling_fraction), replace=False)
+      tmp = tmp.loc[indices,:]
+
+    if out is None:
+      out = copy.deepcopy(tmp)
+    else:
+      out = pd.concat([out, tmp], axis=0, ignore_index=True)
+    return out
+
   def _method_sum(self, tmp, out, count=False):
     if self.wt_name is None or count:
       tmp_total = len(tmp)
@@ -555,11 +647,21 @@ class DataProcessor():
       out += tmp_total
     return out
 
+  def _method_sum_formula(self, tmp, out, column):
+    tmp.loc[:,"tmp_for_sum_formula"] = tmp.eval(column)
+    tmp_total = float(np.sum(tmp.loc[:,"tmp_for_sum_formula"]))
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out += tmp_total
+    return out
+
   def _method_sum_w_unique_columns(self, tmp, out, unique_combinations, count=False):
 
     for ind, uc in unique_combinations.iterrows():
 
       selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
       tmp_tmp = tmp.loc[tmp.eval(selection),:]
 
       if self.wt_name is None or count:
@@ -593,6 +695,7 @@ class DataProcessor():
     for ind, uc in unique_combinations.iterrows():
 
       selection = " & ".join([f"({column}=={float(unique_combinations.loc[ind,column])})" for column in list(unique_combinations.columns)])
+      selection = self._ReplaceEqualsWithIsClose(selection)
       tmp_tmp = tmp.loc[tmp.eval(selection),:]
 
       if self.wt_name is None:
@@ -643,6 +746,17 @@ class DataProcessor():
       ]
     return out
 
+  def _method_train_test_split(self, tmp, out, column, test_fraction=0.2):
+
+    train, test = train_test_split(tmp, test_size=test_fraction, random_state=42)
+    if out is None:
+      out = [copy.deepcopy(train), copy.deepcopy(test)]
+    else:
+      out[0] = pd.concat([out[0], train], axis=0, ignore_index=True)
+      out[1] = pd.concat([out[1], test], axis=0, ignore_index=True)
+    return out
+
+
   def _method_unique(self, tmp, out, unique_threshold=20):
     tmp_unique = {}
     for col in tmp.columns:
@@ -672,30 +786,51 @@ class DataProcessor():
 
   def _method_part_quantile(self, tmp, out, column, quantile):
 
-    # Find quantile of batch
-    tmp = tmp.reset_index(drop=True)
-    sorter = np.argsort(tmp.loc[:,column].to_numpy())
-    tmp = tmp.loc[sorter,:]
-    tmp_wt_name = False
-    if self.wt_name is None:
-      tmp_wt_name = True
-      self.wt_name = "wt"
-      tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
-    total = float(np.sum(tmp.loc[:,self.wt_name]))
-    cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
-    if len(cum_sum) == 0: 
-      return out
-    closest_index = (cum_sum - quantile).abs().idxmin()
-    interval = float(tmp.loc[closest_index, column])
-    if tmp_wt_name:
-      self.wt_name = None
+    if quantile not in [0,1]:
 
-    # do some averaging
-    if out is None:
-      out = [interval, total]
-    else:
-      out = [
-        (out[0]*out[1] + interval*total)/ (out[1]+total),
-        out[1]+total
-      ]
+      # Find quantile of batch
+      tmp = tmp.reset_index(drop=True)
+      sorter = np.argsort(tmp.loc[:,column].to_numpy())
+      tmp = tmp.loc[sorter,:]
+      tmp_wt_name = False
+      if self.wt_name is None:
+        tmp_wt_name = True
+        self.wt_name = "wt"
+        tmp.loc[:,self.wt_name] = np.array(range(1,len(tmp)+1))
+      total = float(np.sum(tmp.loc[:,self.wt_name]))
+      cum_sum = np.cumsum(tmp.loc[:,self.wt_name])/float(np.sum(tmp.loc[:,self.wt_name]))
+      if len(cum_sum) == 0: 
+        return out
+      closest_index = (cum_sum - quantile).abs().idxmin()
+      interval = float(tmp.loc[closest_index, column])
+      if tmp_wt_name:
+        self.wt_name = None
+
+      # do some averaging
+      if out is None:
+        out = [interval, total]
+      else:
+        out = [
+          (out[0]*out[1] + interval*total)/ (out[1]+total),
+          out[1]+total
+        ]
+  
+    elif quantile == 0:
+
+      min_out = min(tmp.loc[:,column].to_numpy().flatten())
+
+      if out is None:
+        out = [min_out]
+      else:
+        out = [min(min_out,out[0])]
+
+    elif quantile == 1:
+
+      max_out = max(tmp.loc[:,column].to_numpy().flatten())
+
+      if out is None:
+        out = [max_out]
+      else:
+        out = [max(max_out,out[0])]
+
     return out

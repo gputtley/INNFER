@@ -1,0 +1,7 @@
+# Make generation plots
+- step: "Generator"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+
+# Make generation summary plots
+- step: "GeneratorSummary"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"

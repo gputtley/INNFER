@@ -9,32 +9,18 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   ./Miniconda3-latest-Linux-x86\_64.sh -b -p ./files
   source files/etc/profile.d/conda.sh
   conda update conda
-  conda create --name innfer_env python=3.11
   rm ./Miniconda3-latest-Linux-x86\_64.sh
   popd
   source miniconda/files/etc/profile.d/conda.sh
-  conda activate miniconda/files/envs/innfer_env
 fi
 
-if [ $# -eq 0 ] || [ "$1" == "packages" ]; then
-  echo "Installing packages"
+if [ $# -eq 0 ] || [ "$1" == "env" ]; then
+  echo "Creating enviroment"
   source miniconda/files/etc/profile.d/conda.sh
+  conda env create --file=configs/setup/environment.yaml
+  pip3 install tensorflow==2.15.1 wrapt==1.14.1 --no-deps
+  pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
   conda activate miniconda/files/envs/innfer_env
-  pip3 install snakemake
-  pip3 install mplhep
-  pip3 install PyYAML
-  pip3 install pyarrow
-  pip3 install uproot
-  pip3 install scipy
-  pip3 install seaborn
-  pip3 install scikit-learn
-  pip3 install wandb
-  pip3 install pyfiglet
-  pip3 install xgboost
-  pip3 install random-word
-  pip3 install optuna
-  pip3 install bayesflow
-  #conda env create -f configs/setup/environment.yaml
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then

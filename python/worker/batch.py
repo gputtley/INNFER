@@ -70,6 +70,7 @@ class Batch():
         sub_cmd = f'qsub -e {error_log} -o {output_log} -V -q {self.options["sge_queue"]} -l h_rt={self.options["running_hours"]}:0:0 -l h_vmem={self.options["self.memory"]}G -cwd {self.job_name}'
       os.system(sub_cmd)
 
+
   def RunCondor(self, cern=False):
     """
     Run the batch job using the condor submission system.
@@ -92,7 +93,7 @@ class Batch():
       extra_lines = self.options["extra_lines"]
 
     sub_options = []
-    if cern and "running_hours" in options.keys():
+    if cern and "running_hours" in self.options.keys():
       if self.options["running_hours"] < 1/3:
         queue = "espresso"
       elif self.options["running_hours"] < 1:

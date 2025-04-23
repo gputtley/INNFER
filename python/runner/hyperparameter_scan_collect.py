@@ -10,10 +10,10 @@ class HyperparameterScanCollect():
     """
     # Required input which is the location of a file
     self.save_extra_names = []
-    self.parameters = None
 
     # Required input which can just be parsed
     self.metric = ""
+    self.file_name = None
 
     # other
     self.data_input = "data/"
@@ -34,8 +34,6 @@ class HyperparameterScanCollect():
     """
     Run the code utilising the worker classes
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     if self.verbose:
       print("- Finding best performing model")
@@ -61,23 +59,21 @@ class HyperparameterScanCollect():
         best_metric_extra_name = copy.deepcopy(save_extra_name)
 
     if self.verbose:
-      print(f"- Best model architecture is {self.data_input}/{parameters['file_name']}{best_metric_extra_name}_architecture.yaml")
+      print(f"- Best model architecture is {self.data_input}/{self.file_name}{best_metric_extra_name}_architecture.yaml")
       print("- Copying over best performing model")
 
     # Copy over best model
-    os.system(f"cp {self.data_input}/{parameters['file_name']}{save_extra_name}.h5 {self.data_output}/{parameters['file_name']}.h5")
-    os.system(f"cp {self.data_input}/{parameters['file_name']}{save_extra_name}_architecture.yaml {self.data_output}/{parameters['file_name']}_architecture.yaml")
+    os.system(f"cp {self.data_input}/{self.file_name}{save_extra_name}.h5 {self.data_output}/{self.file_name}.h5")
+    os.system(f"cp {self.data_input}/{self.file_name}{save_extra_name}_architecture.yaml {self.data_output}/{self.file_name}_architecture.yaml")
 
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
 
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
     outputs = [
-      f"{self.data_output}/{parameters['file_name']}.h5",
-      f"{self.data_output}/{parameters['file_name']}_architecture.yaml",
+      f"{self.data_output}/{self.file_name}.h5",
+      f"{self.data_output}/{self.file_name}_architecture.yaml",
     ]
     return outputs
 
@@ -85,12 +81,8 @@ class HyperparameterScanCollect():
     """
     Return a list of inputs required by class
     """
-    with open(self.parameters, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    inputs = [
-      self.parameters
-    ]
-    inputs += [f"{self.data_input}/metrics{save_extra_name}" for save_extra_name in self.save_extra_names]
-    inputs += [f"{self.data_input}/{parameters['file_name']}{save_extra_name}.h5" for save_extra_name in self.save_extra_names]
-    inputs += [f"{self.data_input}/{parameters['file_name']}{save_extra_name}_architecture.yaml" for save_extra_name in self.save_extra_names]
+    inputs = []
+    inputs += [f"{self.data_input}/metrics{save_extra_name}.yaml" for save_extra_name in self.save_extra_names]
+    inputs += [f"{self.data_input}/{self.file_name}{save_extra_name}.h5" for save_extra_name in self.save_extra_names]
+    inputs += [f"{self.data_input}/{self.file_name}{save_extra_name}_architecture.yaml" for save_extra_name in self.save_extra_names]
     return inputs

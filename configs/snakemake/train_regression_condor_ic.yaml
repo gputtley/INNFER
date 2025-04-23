@@ -1,0 +1,13 @@
+# Train regression models
+- step: "TrainRegression"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+
+# Evaluate regression models
+- step: "EvaluateRegression"
+  submit: "configs/submit/condor_gpu.yaml"
+
+# Plot regression models
+- step: "PlotRegression"
+  submit: "configs/submit/condor_2_cpus.yaml"

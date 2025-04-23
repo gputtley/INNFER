@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 
 from plotting import plot_summary
-from useful_functions import MakeDirectories, GetYName
+from useful_functions import Translate
 
 class Summary():
 
@@ -51,8 +51,13 @@ class Summary():
     results = {}
     other_results = {}
     for ind, info in enumerate(self.val_loop):
-      info_name = GetYName(info["row"],purpose="plot",prefix="y=")
+
+      # Find rows that are changing
       for col in self.column_loop:
+
+        name = ", ".join([f"{Translate(k)}={v}" for k, v in info.items()])
+
+        translated_col = Translate(col)
         if col in self.freeze.keys():
           continue
         with open(f"{self.data_input}/{self.file_name}_{col}_{ind}.yaml", 'r') as yaml_file:
@@ -61,10 +66,10 @@ class Summary():
           crossings = {k:v/scan_results_info["row"][scan_results_info["columns"].index(col)] for k,v in scan_results_info["crossings"].items()}
         else:
           crossings = {k:v-scan_results_info["row"][scan_results_info["columns"].index(col)] for k,v in scan_results_info["crossings"].items()}
-        if col not in results.keys():
-          results[col] = {info_name:crossings}
+        if translated_col not in results.keys():
+          results[translated_col] = {name:crossings}
         else:
-          results[col][info_name] = crossings
+          results[translated_col][name] = crossings
 
         for other_key, other_val in self.other_input.items():
           if other_key not in other_results.keys():
@@ -75,10 +80,10 @@ class Summary():
             other_crossings = {k:v/other_results_info["row"][other_results_info["columns"].index(col)] for k,v in other_results_info["crossings"].items()}
           else:
             other_crossings = {k:v-other_results_info["row"][other_results_info["columns"].index(col)] for k,v in other_results_info["crossings"].items()}
-          if col not in other_results[other_key].keys():
-            other_results[other_key][col] = {info_name:other_crossings}
+          if translated_col not in other_results[other_key].keys():
+            other_results[other_key][translated_col] = {name:other_crossings}
           else:
-            other_results[other_key][col][info_name] = other_crossings
+            other_results[other_key][translated_col][name] = other_crossings
 
     if self.verbose:
       print("- Plotting the summary")
@@ -90,7 +95,9 @@ class Summary():
       show2sigma = self.show2sigma,
       subtract = self.subtract,
       nominal_name = "" if len(list(other_results.keys())) == 0 else self.nominal_name,
-      text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)}
+      text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)},
+      #y_label = f"Truth ({', '.join([Translate(i) for i in non_repeated_columns])})",
+      y_label = "",
     )
 
   def Outputs(self):
@@ -109,7 +116,6 @@ class Summary():
     inputs = []
 
     for ind, info in enumerate(self.val_loop):
-      info_name = GetYName(info["row"],purpose="plot",prefix="y=")
       for col in self.column_loop:
         if col in self.freeze.keys():
           continue

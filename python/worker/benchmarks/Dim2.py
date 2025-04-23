@@ -1,4 +1,5 @@
 import copy
+import os
 import yaml
 
 import numpy as np
@@ -9,6 +10,10 @@ import pyarrow.parquet as pq
 from math import gamma
 
 from useful_functions import MakeDirectories
+
+data_dir = str(os.getenv("DATA_DIR"))
+plots_dir = str(os.getenv("PLOTS_DIR"))
+models_dir = str(os.getenv("MODELS_DIR"))
 
 class Dim2():
 
@@ -39,13 +44,18 @@ class Dim2():
       173.5,174.0,174.5,175.0,      
     ]
     self.data_value = 172.345
+    self.default_value = 172.5
     self.signal_resolution = 0.01
     self.chi = 3.5
     self.signal_yield = 1000.0
     self.train_test_val_split = "0.4:0.3:0.3"
     self.array_size = int(3e6)
-    self.dir_name = f"data/Benchmark_{self.name}/Inputs"
+    self.dir_name = f"{data_dir}/Benchmark_{self.name}/Inputs"
     
+
+  def Load(self, name=None):
+    pass
+
 
   def MakeConfig(self, return_cfg=False):
     """
@@ -64,23 +74,48 @@ class Dim2():
 
     cfg = {
       "name" : f"Benchmark_{self.name}",
-      "files" : {"Signal" : f"{self.dir_name}/Signal.parquet"},
       "variables" : [
         "X1",
-        "X2"
+        "X2",
       ],
       "pois" : ["Y1"],
       "nuisances" : [],
-      "preprocess" : {
-        "standardise" : "all",
-        "train_test_val_split" : self.train_test_val_split,
-        "equalise_y_wts" : True,
-        "train_test_y_vals" : {"Y1" : self.train_test_y_vals},
-        "validation_y_vals" : {"Y1" : self.validation_y_vals}
+      "data_file" : f"{self.dir_name}/{self.name}_data.parquet",
+      "inference" : {
+        "nuisance_constraints" : [],
+        "rate_parameters" : [],
+        "lnN" : {},
       },
-      "inference" : {},
-      "validation" : {},
-      "data_file" : f"{self.dir_name}/{self.name}_data.parquet"
+      "default_values" : {
+        "Y1" : self.default_value,
+      },
+      "models" : {
+        "Signal" : {
+          "density_models" : [
+            {
+              "parameters" : ["Y1"],
+              "file" : "base",
+              "shifts" : {}
+            },
+          ],
+          "yields" : {"file" : "base"}
+        }
+      },
+      "validation": {
+        "loop" : [{"Y1" : i} for i in self.validation_y_vals],
+        "files" : {"Signal" : "base"}
+      },
+      "preprocess" : {
+        "train_test_val_split" : self.train_test_val_split,
+        "drop_from_training" : {"Signal" : {"Y1" : [k for k in self.true_values if k not in self.train_test_y_vals]}},
+      },
+      "files" : {
+        "base" : {
+          "inputs" : [f"{self.dir_name}/Signal.parquet"],
+          "weight" : "wt",
+          "parameters" : ["Y1"],
+        }
+      }
     }
 
     if return_cfg:
@@ -88,6 +123,7 @@ class Dim2():
 
     with open(f"configs/run/Benchmark_{self.name}.yaml", 'w') as file:
       yaml.dump(cfg, file)
+
 
   def MakeDataset(self):
     """
@@ -124,7 +160,8 @@ class Dim2():
     data_parquet_file_path = f"{self.dir_name}/{self.name}_data.parquet"
     pq.write_table(data_table, data_parquet_file_path)
 
-  def Probability(self, X, Y, return_log_prob=True):
+
+  def Probability(self, X, Y, return_log_prob=True, order=0, column_1=None, column_2=None):
     """
     Computes the probability density function for a Gaussian distribution.
 
@@ -143,6 +180,15 @@ class Dim2():
         The (log) probability values.
     """
 
+    if order != 0 and order != [0]:
+      raise ValueError("Analytical derivatives are not setup for the benchmark")
+
+    if Y.loc[0,"Y1"] < min(self.train_test_y_vals) or Y.loc[0,"Y1"] > max(self.train_test_y_vals):
+      if order == 0:
+        return np.full((len(X), 1), np.nan)
+      else:
+        return [np.full((len(X), 1), np.nan)]
+
     if self.file_name == "Signal":
 
       # Get X1 pdf
@@ -158,9 +204,16 @@ class Dim2():
 
     # Return correct value
     if return_log_prob:
-      return np.log(pdf.to_numpy()).reshape(-1,1)
+      if order == 0:
+        return np.log(pdf.to_numpy()).reshape(-1,1)
+      else:
+        return [np.log(pdf.to_numpy()).reshape(-1,1)]
     else:
-      return pdf.to_numpy().reshape(-1,1)
+      if order == 0:
+        return pdf.to_numpy().reshape(-1,1)
+      else:
+        return [pdf.to_numpy().reshape(-1,1)]
+
 
   def Sample(self, Y, n_events):
     """

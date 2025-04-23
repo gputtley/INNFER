@@ -1,0 +1,8 @@
+# Load data
+- step: "LoadData"
+  submit: "configs/submit/condor_2_cpus.yaml"
+
+# Preprocess data
+- step: "PreProcess"
+  submit: "configs/submit/condor_2_cpus.yaml"
+

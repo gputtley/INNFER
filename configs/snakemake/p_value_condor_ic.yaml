@@ -1,0 +1,23 @@
+# Do sim vs synth
+- step: "PValueSimVsSynth"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: {}
+
+# Do synth vs synth
+- step: "PValueSynthVsSynth"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options:
+    number_of_toys: 100
+    points_per_job: 20
+
+
+# Collect synth vs synth
+- step: "PValueSynthVsSynthCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    number_of_toys: 100
+
+# Plot p value
+- step: "PValueDatasetComparisonPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: {}

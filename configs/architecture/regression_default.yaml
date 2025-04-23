@@ -1,0 +1,19 @@
+# Type
+type: "FCNN"
+# training
+epochs: 10
+batch_size: 4096
+early_stopping: False
+learning_rate: 0.001
+optimizer_name: "AdamW"
+lr_scheduler_name: CosineDecay
+lr_scheduler_options: {}
+gradient_clipping_norm: null
+# architecture
+dropout: 0.2
+dense_layers:
+  - 256
+  - 256
+  - 256
+activation: relu
+l2_lambda: 0.05

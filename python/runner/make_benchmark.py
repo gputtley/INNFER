@@ -60,12 +60,6 @@ class MakeBenchmark():
 
     outputs.append(f"configs/run/Benchmark_{core_name}.yaml")
 
-    from benchmarks import Benchmarks
-    benchmark = Benchmarks(name=self.name)
-    cfg = benchmark.MakeConfig(return_cfg=True)
-    for _, file_name in cfg["files"].items():
-      outputs.append(file_name)
-
     return outputs
 
   def Inputs(self):

@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 
 from plotting import plot_likelihood
-from useful_functions import MakeDirectories, GetYName
+from useful_functions import MakeDirectories, GetYName, Translate
 
 class ScanPlot():
 
@@ -73,7 +73,7 @@ class ScanPlot():
       y, 
       crossings, 
       name = f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}", 
-      xlabel = self.column, 
+      xlabel = Translate(self.column), 
       true_value = row[ind] if row is not None else None,
       under_result = f"Truth: y={plot_extra_name}" if plot_extra_name != "" else "",
       cap_at = 9,

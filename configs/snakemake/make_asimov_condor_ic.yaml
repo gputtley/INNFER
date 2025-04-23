@@ -1,0 +1,6 @@
+# Make asimov
+- step: "MakeAsimov"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    points_per_job: 18
+    use_asimov_scaling: 10

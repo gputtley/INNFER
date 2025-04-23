@@ -1,0 +1,57 @@
+# Get validation results from freezing all other parameters
+- step: "InitialFit"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    points_per_job: 6
+    freeze: "all-but-one"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "HessianParallel"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    points_per_job: 12
+    freeze: "all-but-one"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "HessianCollect"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    freeze: "all-but-one"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "DMatrix"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    points_per_job: 6
+    freeze: "all-but-one"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "CovarianceWithDMatrix"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_infer_dir_name: "ClosureTestFrozen"
+    freeze: "all-but-one"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+- step: "SummaryAllButOneCollect"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    extra_infer_dir_name: "ClosureTestFrozen"
+    summary_from: "CovarianceWithDMatrix"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
