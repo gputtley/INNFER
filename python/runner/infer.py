@@ -37,8 +37,6 @@ class Infer():
     self.data_output = "data"
     self.plot_output = "plots"
     self.likelihood_type = "unbinned_extended"
-    self.resample = False
-    self.resampling_seed = 1
     self.verbose = True
     self.minimisation_method = "nominal"
     self.freeze = {}
@@ -109,7 +107,7 @@ class Infer():
     # Make likelihood inputs
     if self.lkld_input is None:
       if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-        self.lkld_input = self.dps.values()
+        self.lkld_input = {k: v.values() for k, v in self.dps.items()}
       elif self.likelihood_type in ["binned", "binned_extended"]:
         self.lkld_input = self.binned_data_input
 
@@ -459,36 +457,41 @@ class Infer():
     inputs = []
   
     # Add parameters
-    for k, v in self.parameters.items():
-      inputs += [v]
+    for cat, par in self.parameters.items():
+      for k, v in par.items():
+        inputs += [v]
 
     # Add data inputs and parameters
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
-      for k, v in self.parameters.items():
-        if "data" not in self.data_input.keys():
-          inputs += self.data_input[k]
+      for cat, par in self.parameters.items():
+        for k, v in par.items():
+          if "data" not in self.data_input[cat].keys():
+            inputs += self.data_input[cat][k]
 
     # Add data inputs
-    if "data" in self.data_input.keys():
-      inputs += self.data_input["data"]
+    for cat, par in self.parameters.items():
+      if "data" in self.data_input[cat].keys():
+        inputs += self.data_input[cat]["data"]
 
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
 
       # Add density model inputs
-      for k, v in self.density_models.items():
-        inputs += [
-          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
-          f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
-        ]
+      for cat, models in self.density_models.items():
+        for k, v in models.items():
+          inputs += [
+            f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
+            f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
+          ]
 
       # Add regression model inputs
-      for k, v in self.regression_models.items():
-        for vi in v:
-          inputs += [
-            f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-            f"{self.model_input}/{vi['name']}/{k}.h5",
-            f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
-          ]
+      for cat, models in self.regression_models.items():
+        for k, v in models.items():
+          for vi in v:
+            inputs += [
+              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+              f"{self.model_input}/{vi['name']}/{k}.h5",
+              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+            ]
 
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
@@ -516,32 +519,6 @@ class Infer():
     return inputs
 
 
-  def _BuildCategories(self):
-
-    # Make selection, variable and bins
-    categories = {}
-    for category_ind, category in enumerate(self.binned_fit_input.split(";")):
-
-      # Make selection, variable and bins
-      if ":" in category:
-        sel = category.split(":")[0]
-        var_and_bins = category.split(":")[1]
-      else:
-        sel = None
-        var_and_bins = category
-
-      if "[" in var_and_bins:
-        var = var_and_bins.split("[")[0]
-        bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
-      elif "(" in var_and_bins:
-        var = var_and_bins.split("(")[0]
-        start_stop_step = [float(i) for i in list(var_and_bins.split("(")[1].split(")")[0].split(","))]
-        bins = [float(i) for i in np.arange(start_stop_step[0], start_stop_step[1], start_stop_step[2])]
-      categories[category_ind] = [sel, var, bins]
-    
-    return categories
-
-
   def _BuildBinYields(self):
 
     import pandas as pd
@@ -550,15 +527,18 @@ class Infer():
     bin_yields = {}
 
     # Loop through files
-    for file_name, v in self.parameters.items():
+    for cat, par in self.parameters.items():
 
-      # Open data parameters
-      with open(v, 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      bin_yields[cat] = {}
+      for file_name, v in par.items():
 
-      # Make binned inputs
-      rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
-      bin_yields[file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
+        # Open data parameters
+        with open(v, 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Make binned inputs
+        rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
+        bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
 
     return bin_yields
 
@@ -581,38 +561,43 @@ class Infer():
     # Build dataprocessors
     dps = {}
 
-    if "data" not in self.data_input.keys():
+    for cat, par in self.parameters.items():
 
-      for k, v in self.parameters.items():
+      dps[cat] = {}
 
-        # Open data parameters
-        with open(v, 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      if "data" not in self.data_input[cat].keys():
 
-        if self.scale_to_eff_events:
-          scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
-        else:
-          scale = None
+        # Loop through each parameter file
+        for k, v in par.items():
 
-        dps[k] = DataProcessor(
-          self.data_input[k],
+          # Open data parameters
+          with open(v, 'r') as yaml_file:
+            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+          if self.scale_to_eff_events:
+            scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
+          else:
+            scale = None
+
+          dps[cat][k] = DataProcessor(
+            self.data_input[cat][k],
+            "parquet",
+            wt_name = "wt",
+            batch_size = batch_size,
+            options = {
+              "parameters" : parameters,
+              "scale" : scale,
+            }
+          )
+
+      else:
+          
+        dps[cat]["data"] = DataProcessor(
+          self.data_input[cat]["data"],
           "parquet",
-          wt_name = "wt",
           batch_size = batch_size,
-          options = {
-            "parameters" : parameters,
-            "scale" : scale,
-          }
-        )
-
-    else:
-        
-      dps["data"] = DataProcessor(
-        self.data_input["data"],
-        "parquet",
-        batch_size = batch_size,
-        options = {}
-      )      
+          options = {}
+        )      
 
     return dps
 
@@ -623,33 +608,40 @@ class Infer():
 
     # Load parameters in
     parameters = {}
-    for k, v in self.parameters.items():
-      with open(v, 'r') as yaml_file:
-        parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-    # If scale to effective events, recalculate effective events for combined models
-    if self.scale_to_eff_events:
-      sum_wt = 0.0
-      sum_wt_squared = 0.0
-      for k, v in parameters.items():
-        sum_wt += v["yields"]["nominal"]
-        sum_wt_squared += (v["yields"]["nominal"]**2) / v["eff_events"][self.sim_type][self.val_ind]
-      eff_events = (sum_wt**2) / sum_wt_squared
-      scale_to = {k: v["yields"]["nominal"]*eff_events/sum_wt for k, v in parameters.items()}
-    else:
-      scale_to = {k: v["yields"]["nominal"] for k, v in parameters.items()}
-
-    # build yield functions
     yields = {}
     yields_class = {}
-    for k, v in parameters.items():
-      yields_class[k] = Yields(
-        scale_to[k],
-        lnN = v["yields"]["lnN"],
-        physics_model = None,
-        rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
-      )
-      yields[k] = yields_class[k].GetYield
+
+    for cat, par in self.parameters.items():
+
+      parameters[cat] = {}
+
+      for k, v in par.items():
+        with open(v, 'r') as yaml_file:
+          parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # If scale to effective events, recalculate effective events for combined models
+      if self.scale_to_eff_events:
+        sum_wt = 0.0
+        sum_wt_squared = 0.0
+        for k, v in parameters[cat].items():
+          sum_wt += v["yields"]["nominal"]
+          sum_wt_squared += (v["yields"]["nominal"]**2) / v["eff_events"][self.sim_type][self.val_ind]
+        eff_events = (sum_wt**2) / sum_wt_squared
+        scale_to = {k: v["yields"]["nominal"]*eff_events/sum_wt for k, v in parameters[cat].items()}
+      else:
+        scale_to = {k: v["yields"]["nominal"] for k, v in parameters[cat].items()}
+
+      # build yield functions
+      yields[cat] = {}
+      yields_class[cat] = {}
+      for k, v in parameters[cat].items():
+        yields_class[cat][k] = Yields(
+          scale_to[k],
+          lnN = v["yields"]["lnN"],
+          physics_model = None,
+          rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
+        )
+        yields[cat][k] = yields_class[cat][k].GetYield
 
     return yields
 
@@ -658,28 +650,34 @@ class Infer():
 
     networks = {}
     parameters = {}
-    for k, v in self.density_models.items():
 
-      # Open parameters
-      with open(v["parameters"], 'r') as yaml_file:
-        parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    for cat, models in self.density_models.items():
 
-      # Open architecture
-      density_model_name = f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{parameters[k]['file_name']}"
-      with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
-        architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      networks[cat] = {}
+      parameters[cat] = {}
 
-      # Make model
-      networks[k] = InitiateDensityModel(
-        architecture,
-        v['file_loc'],
-        options = {
-          "data_parameters" : parameters[k]["density"],
-          "file_name" : k,
-        }
-      )
+      for k, v in models.items():
 
-      networks[k].Load(name=f"{density_model_name}.h5")
+        # Open parameters
+        with open(v["parameters"], 'r') as yaml_file:
+          parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Open architecture
+        density_model_name = f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{parameters[cat][k]['file_name']}"
+        with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        # Make model
+        networks[cat][k] = InitiateDensityModel(
+          architecture,
+          v['file_loc'],
+          options = {
+            "data_parameters" : parameters[cat][k]["density"],
+            "file_name" : k,
+          }
+        )
+
+        networks[cat][k].Load(name=f"{density_model_name}.h5")
 
     return networks
 
@@ -689,38 +687,46 @@ class Infer():
     networks = {}
     splines = {}
     parameters = {}
-    for k, v in self.regression_models.items():
 
-      networks[k] = {}
-      splines[k] = {}
+    for cat, models in self.regression_models.items():
 
-      for vi in v:
+      networks[cat] = {}
+      splines[cat] = {}
+      parameters[cat] = {}
 
-        # Open parameters
-        with open(vi["parameters"], 'r') as yaml_file:
-          parameters[k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      for k, v in models.items():
 
-        # Open architecture
-        regression_model_name = f"{self.model_input}/{vi['name']}/{parameters[k]['file_name']}"
-        with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
-          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        networks[cat][k] = {}
+        splines[cat][k] = {}
+        parameters[cat][k] = {}
 
-        # Make model
-        networks[k][vi["parameter"]] = InitiateRegressionModel(
-          architecture,
-          vi['file_loc'],
-          options = {
-            "data_parameters" : parameters[k]["regression"][vi["parameter"]],
-          }
-        )
+        for vi in v:
 
-        networks[k][vi["parameter"]].Load(name=f"{regression_model_name}.h5")
+          # Open parameters
+          with open(vi["parameters"], 'r') as yaml_file:
+            parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        # Make normalising spline
-        spline_name = f"{regression_model_name}_norm_spline.pkl"
-        if os.path.isfile(spline_name):
-          with open(spline_name, 'rb') as f:
-            splines[k][vi["parameter"]] = pickle.load(f)
+          # Open architecture
+          regression_model_name = f"{self.model_input}/{vi['name']}/{parameters[cat][k]['file_name']}"
+          with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
+            architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+          # Make model
+          networks[cat][k][vi["parameter"]] = InitiateRegressionModel(
+            architecture,
+            vi['file_loc'],
+            options = {
+              "data_parameters" : parameters[cat][k]["regression"][vi["parameter"]],
+            }
+          )
+
+          networks[cat][k][vi["parameter"]].Load(name=f"{regression_model_name}.h5")
+
+          # Make normalising spline
+          spline_name = f"{regression_model_name}_norm_spline.pkl"
+          if os.path.isfile(spline_name):
+            with open(spline_name, 'rb') as f:
+              splines[cat][k][vi["parameter"]] = pickle.load(f)
 
     return networks, splines
 
@@ -733,10 +739,10 @@ class Infer():
       print(f"- Building likelihood")
       print(f"- Y_columns={self.Y_columns}")
 
-    parameters = {}
-    for file_name in self.parameters.keys():
-      with open(self.parameters[file_name], 'r') as yaml_file:
-        parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    #parameters = {}
+    #for file_name in self.parameters.keys():
+    #  with open(self.parameters[file_name], 'r') as yaml_file:
+    #    parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       likelihood_inputs = {
@@ -768,7 +774,8 @@ class Infer():
       constraints = constraints,
       X_columns = self.X_columns,
       Y_columns = self.Y_columns,
-      Y_columns_per_model = self.Y_columns_per_model
+      Y_columns_per_model = self.Y_columns_per_model,
+      categories = list(self.parameters.keys())
     )
 
     return lkld

@@ -13,7 +13,7 @@ from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
 from plotting import plot_histograms
-from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop
+from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop
 
 data_dir = str(os.getenv("DATA_DIR"))
 plots_dir = str(os.getenv("PLOTS_DIR"))
@@ -42,7 +42,9 @@ class top_bw_fractioning():
         l (float): The width of the top quark. 
     """
     # Apply the BW reweighting
-    df.loc[:,"wt"] *= self._BW(df.loc[:,"mass_had_top"]**2,l=l, m=m)/self._BW(df.loc[:,"mass_had_top"]**2,l=self._TopQuarkWidth(df.loc[:,"mass"]), m=df.loc[:,"mass"]) 
+    df.loc[:,"wt"] *= self._BW(df.loc[:,self.gen_mass]**2,l=l, m=m)/self._BW(df.loc[:,self.gen_mass]**2,l=self._TopQuarkWidth(df.loc[:,"mass"]), m=df.loc[:,"mass"]) 
+    if self.gen_mass_other is not None:
+      df.loc[:,"wt"] *= self._BW(df.loc[:,self.gen_mass_other]**2,l=l, m=m)/self._BW(df.loc[:,self.gen_mass_other]**2,l=self._TopQuarkWidth(df.loc[:,"mass"]), m=df.loc[:,"mass"])
     return df
 
 
@@ -279,7 +281,8 @@ class top_bw_fractioning():
       if self.write:
         if os.path.isfile(wt_flat_file): os.system(f"mv {wt_flat_file} {wt_file}") 
 
-  def _GetFiles(self, cfg, skip_copy=False):
+
+  def _GetFiles(self, cfg, category, skip_copy=False):
     """
     Get the files to be used for the reweighting.
     Args:
@@ -302,41 +305,41 @@ class top_bw_fractioning():
     for data_split in ["train","test"]:
       tmp_files = []
       for k in density_loop:
-        outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/{k}_{data_split}.parquet"
+        outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/{k}_{data_split}.parquet"
         tmp_files.append(outfile)
         if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["density"].append(tmp_files)
-        shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/wt_{data_split}.parquet")
+        shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/wt_{data_split}.parquet")
         shift_columns["density"].append("wt")
 
       tmp_files = []
       for k in regression_loop:
         for value in cfg["models"]["ttbar"]["regression_models"]:
-          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/{k}_{data_split}.parquet"
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
           if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
       if len(tmp_files) > 0:
         files["regression"].append(tmp_files)
-        shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/{value['parameter']}/wt_{data_split}.parquet")
+        shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
         shift_columns["regression"].append("wt")
 
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
         tmp_files = []
         for k in density_loop:
-          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet"
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/val_ind_{ind}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
           if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
         if len(tmp_files) > 0:
           files["validation"].append(tmp_files)
-          shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet")
+          shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/val_ind_{ind}/wt_{data_split}.parquet")
           shift_columns["validation"].append("wt")
 
     return files, shift_files, shift_columns
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, cfg):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, category):
     """
     Plot the reweighting of the samples.
     Args:
@@ -436,7 +439,7 @@ class top_bw_fractioning():
         error_bar_names = error_bar_hist_names,
         drawstyle=drawstyles, 
         colors=colours, 
-        name=f"{self.plot_dir}/bw_reweighted_{col}", 
+        name=f"{self.plot_dir}/bw_reweighted_{col}_{category}", 
         x_label=col, 
         y_label="Density"
       )
@@ -489,11 +492,12 @@ class top_bw_fractioning():
     #self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
     self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
+    self.gen_mass = "mass_had_top" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
+    self.gen_mass_other = None if "other_gen_mass" not in self.options else self.options["other_gen_mass"].strip()
 
     cfg = LoadConfig(self.cfg)
-    self.parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/parameters.yaml"
     self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
-    self.plot_columns = ["mass_had_top"]
+    self.plot_columns = [self.gen_mass]
     self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractioning"
 
 
@@ -504,92 +508,95 @@ class top_bw_fractioning():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
-    # Open parameters
-    with open(self.parameters_name, 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    for category in GetCategoryLoop(cfg):
 
-    # Calculate optimal fractions
-    normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
+      # Open parameters
+      parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/parameters.yaml"
+      with open(parameters_name, 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    # Plot reweighting
-    self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], cfg)
+      # Calculate optimal fractions
+      normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
 
-    # Get files
-    files, shift_files, shift_columns = self._GetFiles(cfg)
+      # Plot reweighting
+      self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], category)
 
-    for k in files.keys():
+      # Get files
+      files, shift_files, shift_columns = self._GetFiles(cfg, category)
 
-      for ind, splits_per_file in enumerate(files[k]):
+      for k in files.keys():
 
-        # Use copies or make copies
-        for file in splits_per_file:
-          copy_name = file.replace(".parquet", "_copy.parquet")
-          if self.use_copies:
-            os.system(f"cp {copy_name} {file}")
-          else:
-            os.system(f"cp {file} {copy_name}")
+        for ind, splits_per_file in enumerate(files[k]):
 
-        # Apply weights
-        self._DoReweighting(splines, splits_per_file, parameters, k, shift_files[k][ind], shift_columns[k][ind])
+          # Use copies or make copies
+          for file in splits_per_file:
+            copy_name = file.replace(".parquet", "_copy.parquet")
+            if self.use_copies:
+              os.system(f"cp {copy_name} {file}")
+            else:
+              os.system(f"cp {file} {copy_name}")
 
-    # Get effective events of validation files
-    for data_split in ["val","train_inf","test_inf","full"]:
-      for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
-        outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}.parquet" for k in ["X","Y","wt"]]
-        dp = DataProcessor(
-          [outfile],
-          "parquet",
-          batch_size=self.batch_size,
-          options = {
-            "wt_name" : "wt"
-          }
-        )
-        parameters["eff_events"][data_split][ind] = dp.GetFull(method="n_eff")
+          # Apply weights
+          self._DoReweighting(splines, splits_per_file, parameters, k, shift_files[k][ind], shift_columns[k][ind])
 
-        # normalise in validation file
-        copy_outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/{k}_{data_split}_copy.parquet" for k in ["X","Y","wt"]]
-        copy_dp = DataProcessor(
-          [copy_outfile],
-          "parquet",
-          batch_size=self.batch_size,
-          options = {
-            "wt_name" : "wt"
-          }
-        )
-        prev_sum_wt = copy_dp.GetFull(method="sum")
-        sum_wt = dp.GetFull(method="sum")
-        infile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/val_ind_{ind}/wt_{data_split}.parquet"
-        outfile = infile.replace('.parquet','_normalised.parquet')
-        if os.path.isfile(outfile): os.system(f"rm {outfile}")
-        def normalise(df, sum_wt):
-          if "bw_mass" not in df.columns:
-            df.loc[:,"bw_mass"] = 172.5
-          df.loc[:,"wt"] /= sum_wt
-          return df.loc[:,["wt"]]
-        dp.GetFull(
-          method = None,
-          functions_to_apply = [
-            partial(normalise, sum_wt=sum_wt/prev_sum_wt),
-            partial(self._WriteDataset, file_name=outfile)
-          ]
-        )
-        if os.path.isfile(outfile): os.system(f"mv {outfile} {infile}")    
+      # Get effective events of validation files
+      for data_split in ["val","train_inf","test_inf","full"]:
+        for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
+          outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/val_ind_{ind}/{k}_{data_split}.parquet" for k in ["X","Y","wt"]]
+          dp = DataProcessor(
+            [outfile],
+            "parquet",
+            batch_size=self.batch_size,
+            options = {
+              "wt_name" : "wt"
+            }
+          )
+          parameters["eff_events"][data_split][ind] = dp.GetFull(method="n_eff")
 
-    # flatten training bw shapes
-    do_density = False
-    for model in cfg["models"]["ttbar"]["density_models"]:
-      if "bw_mass" in model["parameters"]:
-        do_density = True
-    if do_density:
-      self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/density/", ["X","Y","wt","Extra"])
-    for model in cfg["models"]["ttbar"]["regression_models"]:
-      if model["parameter"] == "bw_mass":
-        self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/regression/bw_mass", ["X","y","wt","Extra"])
+          # normalise in validation file
+          copy_outfile = [f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/val_ind_{ind}/{k}_{data_split}_copy.parquet" for k in ["X","Y","wt"]]
+          copy_dp = DataProcessor(
+            [copy_outfile],
+            "parquet",
+            batch_size=self.batch_size,
+            options = {
+              "wt_name" : "wt"
+            }
+          )
+          prev_sum_wt = copy_dp.GetFull(method="sum")
+          sum_wt = dp.GetFull(method="sum")
+          infile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/val_ind_{ind}/wt_{data_split}.parquet"
+          outfile = infile.replace('.parquet','_normalised.parquet')
+          if os.path.isfile(outfile): os.system(f"rm {outfile}")
+          def normalise(df, sum_wt):
+            if "bw_mass" not in df.columns:
+              df.loc[:,"bw_mass"] = 172.5
+            df.loc[:,"wt"] /= sum_wt
+            return df.loc[:,["wt"]]
+          dp.GetFull(
+            method = None,
+            functions_to_apply = [
+              partial(normalise, sum_wt=sum_wt/prev_sum_wt),
+              partial(self._WriteDataset, file_name=outfile)
+            ]
+          )
+          if os.path.isfile(outfile): os.system(f"mv {outfile} {infile}")    
 
-    # Change parameters
-    if self.write:
-      with open(self.parameters_name, 'w') as yaml_file:
-        yaml.dump(parameters, yaml_file)
+      # flatten training bw shapes
+      do_density = False
+      for model in cfg["models"]["ttbar"]["density_models"]:
+        if "bw_mass" in model["parameters"]:
+          do_density = True
+      if do_density:
+        self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/", ["X","Y","wt","Extra"])
+      for model in cfg["models"]["ttbar"]["regression_models"]:
+        if model["parameter"] == "bw_mass":
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/bw_mass", ["X","y","wt","Extra"])
+
+      # Change parameters
+      if self.write:
+        with open(parameters_name, 'w') as yaml_file:
+          yaml.dump(parameters, yaml_file)
 
 
   def Outputs(self):
@@ -602,18 +609,22 @@ class top_bw_fractioning():
     # Load config
     cfg = LoadConfig(self.cfg)
 
-    # Add parameters
-    outputs += [self.parameters_name]
+    for category in GetCategoryLoop(cfg):
 
-    # Get files
-    _, shift_files, _ = self._GetFiles(cfg, skip_copy=True)
-    for k in shift_files.keys():
-      for file in shift_files[k]:
-        outputs += [file]
+      parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/parameters.yaml"
 
-    # Add plots
-    for col in self.plot_columns:
-      outputs += [f"{self.plot_dir}/bw_reweighted_{col}.pdf"]
+      # Add parameters
+      outputs += [parameters_name]
+
+      # Get files
+      _, shift_files, _ = self._GetFiles(cfg, category, skip_copy=True)
+      for k in shift_files.keys():
+        for file in shift_files[k]:
+          outputs += [file]
+
+      # Add plots
+      for col in self.plot_columns:
+        outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{category}.pdf"]
 
     return outputs
 
@@ -625,18 +636,23 @@ class top_bw_fractioning():
     # Add config
     inputs = [
       self.cfg,
-      self.parameters_name,
       self.base_file,        
       ]
 
     # Load config
     cfg = LoadConfig(self.cfg)
 
-    # Get files
-    files, _, _ = self._GetFiles(cfg, skip_copy=True)
-    for k in files.keys():
-      for ind, splits_per_file in enumerate(files[k]):
-        for file in splits_per_file:
-          inputs += [file]
+    for category in GetCategoryLoop(cfg):
+
+      parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/parameters.yaml"
+
+      inputs += [parameters_name]
+
+      # Get files
+      files, _, _ = self._GetFiles(cfg, category, skip_copy=True)
+      for k in files.keys():
+        for ind, splits_per_file in enumerate(files[k]):
+          for file in splits_per_file:
+            inputs += [file]
 
     return inputs

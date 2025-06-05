@@ -51,6 +51,7 @@ def plot_histograms(
     fill_between_color = 'red',
     fill_between_alpha = 0.7,
     legend_right=False,  # New option to move legend to the right
+    y_lim = None,
 ):
   """
   Plot histograms with optional error bars and an optional right-side legend.
@@ -111,7 +112,7 @@ def plot_histograms(
               hists[ind] - uncerts,
               hists[ind] + uncerts,
               color=colors[ind],
-              alpha=0.5,
+              alpha=0.2,
               step='mid'
           )
 
@@ -119,8 +120,11 @@ def plot_histograms(
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax.transAxes)
 
-  if anchor_y_at_0:
-      ax.set_ylim(bottom=0, top=1.2 * max(np.max(hist) for hist in hists))
+  if y_lim is None:
+    if anchor_y_at_0:
+        ax.set_ylim(bottom=0, top=1.2 * max(np.max(hist) for hist in hists))
+  else:
+    ax.set_ylim(bottom=y_lim[0], top=y_lim[1])  
 
   if smooth_func is not None:
       x_func = np.linspace(min(bins), max(bins), num=200)

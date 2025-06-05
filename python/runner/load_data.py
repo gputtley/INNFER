@@ -1,6 +1,5 @@
 import os
 import uproot
-import yaml
 
 import numpy as np
 import pandas as pd
@@ -12,6 +11,8 @@ from functools import partial
 from data_loader import DataLoader
 from data_processor import DataProcessor
 from useful_functions import MakeDirectories, LoadConfig
+
+pd.options.mode.chained_assignment = None
 
 class LoadData():
 

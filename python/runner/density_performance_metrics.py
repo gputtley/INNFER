@@ -36,11 +36,12 @@ class DensityPerformanceMetrics():
     self.file_name = None
     self.model_input = "models/"
     self.extra_model_dir = ""
-    self.data_input = "data/"
     self.data_output = "data/"
     self.verbose = True
     self.n_asimov_events = 10**6
     self.asimov_seed = 0
+    self.file_loc = None
+    self.val_file_loc = None
     
     self.do_loss = True
     self.loss_datasets = ["train","test"]
@@ -257,7 +258,7 @@ class DensityPerformanceMetrics():
   def _GetFiles(self, val_ind, data_type, force_sim=False):
 
     if not self.synth_vs_synth or force_sim:
-      sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
+      sim_file = [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
     else:
       sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
     if self.asimov_input is None:
@@ -286,9 +287,9 @@ class DensityPerformanceMetrics():
     # Loop through validation indices
     for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
       if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-      if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
       for data_type in self.histogram_datasets:
+        if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
         sim_file, synth_file = self._GetFiles(val_ind, data_type)
         if not all([os.path.isfile(f) for f in sim_file]) or not all([os.path.isfile(f) for f in synth_file]): continue
@@ -446,7 +447,7 @@ class DensityPerformanceMetrics():
           print({k:v for k, v in val_info.items() if k in params_in_model})
 
         # Build test data loader
-        sim_file = [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
+        sim_file = [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
         scale = self.open_parameters["eff_events"][data_type][val_ind] / self.open_parameters["yields"]["nominal"]
         dps = DataProcessor(
           [sim_file],
@@ -511,8 +512,6 @@ class DensityPerformanceMetrics():
     # Add asimov
     if not self.tidy_up_asimov and not self.asimov_input is not None:
       dataset = []
-      if self.do_loss:
-        dataset += self.loss_datasets
       if self.do_histogram_metrics:
         dataset += self.histogram_datasets
       if self.do_multidimensional_dataset_metrics:
@@ -553,9 +552,9 @@ class DensityPerformanceMetrics():
     # Add data
     if self.do_loss:
       for data_type in self.loss_datasets:
-        inputs += [f"{self.data_input}/{self.file_name}/density/X_{data_type}.parquet"]
-        inputs += [f"{self.data_input}/{self.file_name}/density/Y_{data_type}.parquet"]
-        inputs += [f"{self.data_input}/{self.file_name}/density/wt_{data_type}.parquet"]
+        inputs += [f"{self.file_loc}/X_{data_type}.parquet"]
+        inputs += [f"{self.file_loc}/Y_{data_type}.parquet"]
+        inputs += [f"{self.file_loc}/wt_{data_type}.parquet"]
 
     datasets = []
     if self.do_histogram_metrics:
@@ -572,7 +571,7 @@ class DensityPerformanceMetrics():
         if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
 
         # Add input files
-        inputs += [f"{self.data_input}/{self.file_name}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
+        inputs += [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
 
       # Add premade asimov
       if self.asimov_input is not None:

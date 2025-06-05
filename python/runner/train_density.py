@@ -3,7 +3,7 @@ import yaml
 
 from random_word import RandomWords
 
-from useful_functions import InitiateDensityModel
+from useful_functions import InitiateDensityModel, MakeDirectories
 
 class TrainDensity():
 
@@ -97,7 +97,9 @@ class TrainDensity():
     # Saving model architecture
     if self.verbose:
       print("- Saving the model and its architecture")
-    with open(f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml", 'w') as file:
+    architecture_name = f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml"
+    MakeDirectories(architecture_name)
+    with open(architecture_name, 'w') as file:
       yaml.dump(architecture, file)
 
   def Outputs(self):

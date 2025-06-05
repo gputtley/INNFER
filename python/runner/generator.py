@@ -20,6 +20,10 @@ class Generator():
     self.sim_type = "val"
     self.val_info = {}
     self.verbose = True
+    self.plot_styles = [1]
+    self.no_text = True
+    self.data_label = "Simulated"
+    self.stack_label = "Synthetic"
 
   def Configure(self, options):
     """
@@ -43,7 +47,10 @@ class Generator():
     sim_dps = {}
     synth_dps = {}
 
-    val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+    if self.no_text:
+      val_ind_text = ""
+    else:
+      val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
 
     for k in self.data_input.keys():
 
@@ -68,8 +75,10 @@ class Generator():
       )
 
     # Get names for plot
-    sim_plot_name = "Simulated"
-    sample_plot_name = "Synthetic"
+    sim_plot_name = self.data_label
+    sample_plot_name = self.stack_label
+    if sample_plot_name != "":
+      sample_plot_name = f" ({sample_plot_name})"
 
 
     # Running plotting functions
@@ -142,9 +151,9 @@ class Generator():
 
     # Loop through columns
     for col in cfg["variables"]:
-      outputs += [f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in [1,2,3]]
+      outputs += [f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in self.plot_styles]
       if self.do_transformed:
-        outputs += [f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in [1,2,3]]
+        outputs += [f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in self.plot_styles]
       if self.do_2d_unrolled:
         for plot_col in cfg["variables"]:
           if col == plot_col: continue
@@ -219,8 +228,8 @@ class Generator():
           bins = bins,
           column = col,
         )
-        synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
-        synth_hist_uncerts[f"{file_name} {synth_plot_name}"] = synth_hist_uncert
+        synth_hists[f"{file_name}{synth_plot_name}"] = synth_hist
+        synth_hist_uncerts[f"{file_name}{synth_plot_name}"] = synth_hist_uncert
 
         if ind == 0:
           synth_hist_uncert_squared = synth_hist_uncert**2
@@ -261,49 +270,34 @@ class Generator():
         sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
         synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)       
 
-      plot_stacked_histogram_with_ratio(
-        sim_hist_total, 
-        synth_hists, 
-        bins, 
-        data_name = sim_plot_name, 
-        xlabel=Translate(col),
-        ylabel="Events" if not density else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_1", 
-        data_errors=sim_hist_uncert, 
-        stack_hist_errors=synth_hist_uncert, 
-        use_stat_err=False,
-        axis_text=axis_text,
+
+      if 1 in self.plot_styles:
+        plot_stacked_histogram_with_ratio(
+          sim_hist_total, 
+          synth_hists, 
+          bins, 
+          data_name = sim_plot_name, 
+          xlabel=Translate(col),
+          ylabel="Events" if not density else "Density",
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_1", 
+          data_errors=sim_hist_uncert, 
+          stack_hist_errors=synth_hist_uncert, 
+          use_stat_err=False,
+          axis_text=axis_text,
+          )
+
+      if 2 in self.plot_styles:
+        plot_histograms_with_ratio(
+          [[sim_hists[list(sim_hists.keys())[ind]], synth_hists[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+          [[sim_hist_uncerts[list(sim_hists.keys())[ind]], synth_hist_uncerts[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+          [[list(sim_hists.keys())[ind], list(synth_hists.keys())[ind]] for ind in range(len(sim_hists.keys()))],
+          bins,
+          xlabel = Translate(col),
+          ylabel="Events" if not density else "Density",
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_2",    
         )
 
-      plot_histograms_with_ratio(
-        [[sim_hists[list(sim_hists.keys())[ind]], synth_hists[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
-        [[sim_hist_uncerts[list(sim_hists.keys())[ind]], synth_hist_uncerts[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
-        [[list(sim_hists.keys())[ind], list(synth_hists.keys())[ind]] for ind in range(len(sim_hists.keys()))],
-        bins,
-        xlabel = Translate(col),
-        ylabel="Events" if not density else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_2",    
-      )
-
-      plot_many_comparisons(
-        sim_hists,
-        synth_hists,
-        sim_hist_uncerts,
-        synth_hist_uncerts,
-        bins,
-        xlabel = Translate(col),
-        ylabel="Events" if not density else "Density",
-        name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",       
-        )
-
-
-      if len(sim_hists.keys()) > 1:
-
-        sim_hists[f"Total {sim_plot_name}"] = sim_hist_total
-        sim_hist_uncerts[f"Total {sim_plot_name}"] = sim_hist_uncert
-        synth_hists[f"Total {synth_plot_name}"] = synth_hist_total
-        synth_hist_uncerts[f"Total {synth_plot_name}"] = synth_hist_uncert
-
+      if 3 in self.plot_styles:
         plot_many_comparisons(
           sim_hists,
           synth_hists,
@@ -312,8 +306,28 @@ class Generator():
           bins,
           xlabel = Translate(col),
           ylabel="Events" if not density else "Density",
-          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",       
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",       
           )
+
+
+      if 4 in self.plot_styles:
+        if len(sim_hists.keys()) > 1:
+
+          sim_hists[f"Total {sim_plot_name}"] = sim_hist_total
+          sim_hist_uncerts[f"Total {sim_plot_name}"] = sim_hist_uncert
+          synth_hists[f"Total {synth_plot_name}"] = synth_hist_total
+          synth_hist_uncerts[f"Total {synth_plot_name}"] = synth_hist_uncert
+
+          plot_many_comparisons(
+            sim_hists,
+            synth_hists,
+            sim_hist_uncerts,
+            synth_hist_uncerts,
+            bins,
+            xlabel = Translate(col),
+            ylabel="Events" if not density else "Density",
+            name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",       
+            )
 
   def _Plot2DUnrolledGeneration(
     self, 
@@ -389,7 +403,7 @@ class Generator():
             sim_hist_uncert_squared += (sim_hist_uncert**2)
             sim_hist_total += sim_hist
 
-          synth_hists[f"{file_name} {synth_plot_name}"] = synth_hist
+          synth_hists[f"{file_name}{synth_plot_name}"] = synth_hist
 
         plot_stacked_unrolled_2d_histogram_with_ratio(
           sim_hist_total, 
