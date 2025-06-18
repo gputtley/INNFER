@@ -45,12 +45,12 @@ def parse_args():
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
-  parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory. TO BE IMPLEMENTED', type=str, default='')
-  parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory. TO BE IMPLEMENTED', type=str, default='')
-  parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory. TO BE IMPLEMENTED', type=str, default='')
-  parser.add_argument('--extra-infer-dir-name', help='Add extra name to infer step data output directory', type=str, default='')
-  parser.add_argument('--extra-infer-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
+  parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory', type=str, default='')
+  parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
+  parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
+  parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
+  parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
@@ -200,7 +200,7 @@ def main(args, default_args):
         config = {
           "cfg" : args.cfg,
           "file_name" : base_file_name,
-          "data_output" : f"{data_dir}/LoadData",
+          "data_output" : f"{data_dir}/LoadData{args.extra_output_dir_name}",
           "number_of_shuffles" : args.number_of_shuffles,
           "verbose" : not args.quiet,
         },
@@ -286,7 +286,7 @@ def main(args, default_args):
           "cfg" : args.cfg,
           "parameters" : model_info["parameters"],
           "data_input" : model_info['file_loc'],
-          "plots_output" : f"{plots_dir}/InputPlotTraining/{model_info['name']}",
+          "plots_output" : f"{plots_dir}/InputPlotTraining{args.extra_output_dir_name}/{model_info['name']}",
           "model_type" : model_info['type'],
           "file_name" : model_info['file_name'],
           "parameter" : model_info["parameter"],
@@ -309,7 +309,7 @@ def main(args, default_args):
             "file_name" : file_name,
             "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
             "data_input" : f"{data_dir}/PreProcess/{file_name}/{category}",
-            "plots_output" : f"{plots_dir}/InputPlotValidation/{file_name}/{category}",
+            "plots_output" : f"{plots_dir}/InputPlotValidation{args.extra_input_dir_name}/{file_name}/{category}",
             "val_loop" : GetValidationLoop(cfg, file_name),
             "verbose" : not args.quiet,
           },
@@ -374,8 +374,8 @@ def main(args, default_args):
           "file_name" : model_info["file_name"],
           "data_input" : model_info['file_loc'],
           "parameter" : model_info["parameter"],
-          "data_output" : f"{models_dir}/{model_info['name']}",
-          "plots_output" : f"{plots_dir}/TrainRegression/{model_info['name']}",
+          "data_output" : f"{models_dir}/{model_info['name']}{args.extra_regression_model_name}",
+          "plots_output" : f"{plots_dir}/TrainRegression/{model_info['name']}{args.extra_regression_model_name}",
           "disable_tqdm" : args.disable_tqdm,
           "use_wandb" : args.use_wandb,
           "initiate_wandb" : args.use_wandb,
@@ -397,13 +397,13 @@ def main(args, default_args):
         class_name = "EvaluateRegression",
         config = {
           "data_input" : model_info['file_loc'],
-          "plots_output" : f"{plots_dir}/EvaluateRegression/{model_info['file_name']}",
+          "plots_output" : f"{plots_dir}/EvaluateRegression/{model_info['file_name']}{args.extra_regression_model_name}",
           "model_input" : f"{models_dir}",
-          "model_name" : model_info["name"],
+          "model_name" : f"{model_info['name']}{args.extra_regression_model_name}",
           "file_name" : model_info["file_name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
-          "data_output" : f"{data_dir}/EvaluateRegression/{model_info['name']}",
+          "data_output" : f"{data_dir}/EvaluateRegression/{model_info['name']}{args.extra_regression_model_name}",
           "verbose" : not args.quiet,        
         },
         loop = {"model_name" : model_info['name']}
@@ -420,11 +420,11 @@ def main(args, default_args):
         config = {
           "cfg" : args.cfg,
           "data_input" : model_info['file_loc'],
-          "model_name" : model_info["name"],
+          "model_name" : f"{model_info['name']}{args.extra_regression_model_name}",
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
-          "evaluate_input" : f"{data_dir}/EvaluateRegression/{model_info['name']}",
-          "plots_output" : f"{plots_dir}/PlotRegression/{model_info['name']}",
+          "evaluate_input" : f"{data_dir}/EvaluateRegression/{model_info['name']}{args.extra_regression_model_name}",
+          "plots_output" : f"{plots_dir}/PlotRegression/{model_info['name']}{args.extra_regression_model_name}",
           "verbose" : not args.quiet,        
         },
         loop = {"model_name" : model_info['name']}
@@ -448,8 +448,9 @@ def main(args, default_args):
               "regression_spline_input" : f"{data_dir}/EvaluateRegression",
               "model_input" : f"{models_dir}",
               "extra_density_model_name" : args.extra_density_model_name,
+              "extra_regression_model_name" : args.extra_regression_model_name,
               "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
-              "data_output" : f"{data_dir}/MakeAsimov/{file_name}/{category}/val_ind_{val_ind}",
+              "data_output" : f"{data_dir}/MakeAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}",
               "n_asimov_events" : args.number_of_asimov_events,
               "seed" : args.asimov_seed,
               "val_info" : val_info,
@@ -467,7 +468,7 @@ def main(args, default_args):
   if args.step == "DensityPerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
     for model_info in GetModelLoop(cfg, only_density=True):
-      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
+      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_density_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
@@ -479,7 +480,7 @@ def main(args, default_args):
             "val_file_loc" : model_info['val_file_loc'],
             "model_input" : f"{models_dir}",
             "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
-            "data_output" : f"{data_dir}/DensityPerformanceMetrics/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{data_dir}/DensityPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": "inference" in args.density_performance_metrics,
             "do_loss": "loss" in args.density_performance_metrics,
             "do_histogram_metrics": "histogram" in args.density_performance_metrics,
@@ -506,8 +507,8 @@ def main(args, default_args):
         class_name = "EpochPerformanceMetricsPlot",
         config = {
           "architecture": f"{models_dir}/{model_info['name']}{args.extra_density_model_name}/{model_info['file_name']}_architecture.yaml",
-          "data_input" : f"{data_dir}/DensityPerformanceMetrics/{model_info['name']}{args.extra_density_model_name}",
-          "plots_output" : f"{plots_dir}/EpochPerformanceMetricsPlot/{model_info['name']}{args.extra_density_model_name}",
+          "data_input" : f"{data_dir}/DensityPerformanceMetrics{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "plots_output" : f"{plots_dir}/EpochPerformanceMetricsPlot{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "merged_plot" : args.other_input.split(",") if args.other_input is not None else None,
           "verbose" : not args.quiet,  
         },
@@ -530,7 +531,7 @@ def main(args, default_args):
           "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
           "file_loc" : model_info['file_loc'],
           "val_file_loc" : model_info['val_file_loc'],
-          "data_output" : f"{data_dir}/PValueSimVsSynth/{model_info['name']}{args.extra_density_model_name}",
+          "data_output" : f"{data_dir}/PValueSimVsSynth{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "do_inference": False,
           "do_loss": False,
           "do_histogram_metrics": False,
@@ -564,7 +565,7 @@ def main(args, default_args):
             "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
             "file_loc" : model_info['file_loc'],
             "val_file_loc" : model_info['val_file_loc'],
-            "data_output" : f"{data_dir}/PValueSynthVsSynth/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{data_dir}/PValueSynthVsSynth{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": False,
             "do_loss": False,
             "do_histogram_metrics": False,
@@ -578,7 +579,7 @@ def main(args, default_args):
             "synth_vs_synth" : True,
             "alternative_asimov_seed_shift" : toy,
             "metrics_save_extra_name" : f"_toy_{toy}",
-            "asimov_input" : f"{data_dir}/PValueSimVsSynth/{model_info['name']}{args.extra_density_model_name}",
+            "asimov_input" : f"{data_dir}/PValueSimVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "use_eff_events" : True,
             "verbose" : not args.quiet,
           },
@@ -594,8 +595,8 @@ def main(args, default_args):
         module_name = "p_value_synth_vs_synth_collect",
         class_name = "PValueSynthVsSynthCollect",
         config = {
-          "data_input" : f"{data_dir}/PValueSynthVsSynth/{model_info['name']}{args.extra_density_model_name}",
-          "data_output" : f"{data_dir}/PValueSynthVsSynthCollect/{model_info['name']}{args.extra_density_model_name}",
+          "data_input" : f"{data_dir}/PValueSynthVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "data_output" : f"{data_dir}/PValueSynthVsSynthCollect{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "number_of_toys" : args.number_of_toys,
           "verbose" : not args.quiet,  
         },
@@ -611,9 +612,9 @@ def main(args, default_args):
         module_name = "p_value_dataset_comparison_plot",
         class_name = "PValueDatasetComparisonPlot",
         config = {
-          "synth_vs_synth_input" : f"{data_dir}/PValueSynthVsSynthCollect/{model_info['name']}{args.extra_density_model_name}",
-          "sim_vs_synth_input" : f"{data_dir}/PValueSimVsSynth/{model_info['name']}{args.extra_density_model_name}",
-          "plots_output" : f"{plots_dir}/PValueDatasetComparisonPlot/{model_info['name']}{args.extra_density_model_name}",
+          "synth_vs_synth_input" : f"{data_dir}/PValueSynthVsSynthCollect{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "sim_vs_synth_input" : f"{data_dir}/PValueSimVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "plots_output" : f"{plots_dir}/PValueDatasetComparisonPlot{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "verbose" : not args.quiet,  
         },
         loop = {"model_name" : model_info['name']}
@@ -630,11 +631,11 @@ def main(args, default_args):
           class_name = "HyperparameterScan",
           config = {
             "cfg" : args.cfg,
-            "data_input" : f"{data_dir}/PreProcess",
+            "data_input" : f"{data_dir}/PreProcess{args.extra_input_dir_name}",
             "parameters" : model_info["parameters"],
             "architecture" : architecture,
             "file_name" : model_info["file_name"],
-            "data_output" : f"{data_dir}/HyperparameterScan/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{data_dir}/HyperparameterScan{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "use_wandb" : args.use_wandb,
             "wandb_project_name" : args.wandb_project_name,
             "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
@@ -656,7 +657,7 @@ def main(args, default_args):
         class_name = "HyperparameterScanCollect",
         config = {
           "file_name" : model_info["file_name"],
-          "data_input" : f"{data_dir}/HyperparameterScan/{model_info['name']}{args.extra_density_model_name}",
+          "data_input" : f"{data_dir}/HyperparameterScan{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "data_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
           "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.density_architecture, write=False)))],
           "metric" : args.hyperparameter_metric,
@@ -680,7 +681,7 @@ def main(args, default_args):
             "tune_architecture" : args.density_architecture,
             "file_name" : model_info["file_name"],
             "best_model_output" : f"{models_dir}/{model_info['file_name']}{args.extra_density_model_name}",
-            "data_output" : f"{data_dir}/BayesianHyperparameterTuning/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "use_wandb" : args.use_wandb,
             "wandb_project_name" : args.wandb_project_name,
             "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
@@ -708,8 +709,8 @@ def main(args, default_args):
               "model_input" : f"{models_dir}",
               "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
               "data_input" : f"{data_dir}/PreProcess/{file_name}/{category}/val_ind_{val_ind}",
-              "plots_output" : f"{plots_dir}/Flow{args.extra_infer_dir_name}/{file_name}/{category}",
-              "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+              "plots_output" : f"{plots_dir}/Flow{args.extra_output_dir_name}/{file_name}/{category}",
+              "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "sim_type" : args.sim_type,
               "verbose" : not args.quiet,
             },
@@ -730,10 +731,10 @@ def main(args, default_args):
             config = {
               "cfg" : args.cfg,
               "data_input" : GetDataInput("sim", cfg, file_name, val_ind, data_dir, sim_type=args.sim_type)[category],
-              "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir)[category],
-              "plots_output" : f"{plots_dir}/Generator{args.extra_infer_dir_name}/{file_name}/{category}",
+              "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
+              "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
-              "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+              "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "sim_type" : args.sim_type,
               "val_info" : val_info,
               "plot_styles" : [2],
@@ -759,10 +760,10 @@ def main(args, default_args):
             "cfg" : args.cfg,
             "val_loop" : validation_loop,
             "data_input" : [{k:f"{data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
-            "asimov_input": [{k:f"{data_dir}/MakeAsimov/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+            "asimov_input": [{k:f"{data_dir}/MakeAsimov{args.extra_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
             "sim_type" : args.sim_type,
-            "plots_output" : f"{plots_dir}/GeneratorSummary{args.extra_infer_dir_name}/{file_name}/{category}",
-            "extra_plot_name" : args.extra_infer_plot_name,
+            "plots_output" : f"{plots_dir}/GeneratorSummary{args.extra_output_dir_name}/{file_name}/{category}",
+            "extra_plot_name" : args.extra_plot_name,
             "file_name" : file_name,
             "val_inds" : args.val_inds,
             "verbose" : not args.quiet,
@@ -807,7 +808,7 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "InitialFit",
-              "data_output" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/InitialFit{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -831,8 +832,8 @@ def main(args, default_args):
               config = {
                 **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                 "method" : "ApproximateUncertainty",
-                "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                "data_output" : f"{data_dir}/ApproximateUncertainty{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"{data_dir}/ApproximateUncertainty{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
                 "column" : column,
                 "extra_file_name" : str(val_ind),
                 "freeze" : freeze["freeze"],
@@ -856,8 +857,8 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "Hessian",
-              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/Hessian{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -884,8 +885,8 @@ def main(args, default_args):
                 config = {
                   **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                   "method" : "HessianParallel",
-                  "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                  "data_output" : f"{data_dir}/HessianParallel{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                  "data_output" : f"{data_dir}/HessianParallel{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
                   "extra_file_name" : str(val_ind),
                   "freeze" : freeze["freeze"],
                   "val_ind" : val_ind,
@@ -910,8 +911,8 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "HessianCollect",
-              "hessian_input" : f"{data_dir}/HessianParallel{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "hessian_input" : f"{data_dir}/HessianParallel{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/Hessian{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -934,8 +935,8 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "HessianNumerical",
-              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/Hessian{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -958,8 +959,8 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "Covariance",
-              "hessian_input" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/Covariance{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "hessian_input" : f"{data_dir}/Hessian{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/Covariance{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -982,8 +983,8 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "DMatrix",
-              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/DMatrix{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -1006,9 +1007,9 @@ def main(args, default_args):
             config = {
               **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
               "method" : "CovarianceWithDMatrix",
-              "hessian_input" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "d_matrix_input" : f"{data_dir}/DMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-              "data_output" : f"{data_dir}/CovarianceWithDMatrix{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+              "hessian_input" : f"{data_dir}/Hessian{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "d_matrix_input" : f"{data_dir}/DMatrix{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{data_dir}/CovarianceWithDMatrix{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
@@ -1032,9 +1033,9 @@ def main(args, default_args):
               config = {
                 **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                 "method" : args.step,
-                "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                "hessian_input" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                "data_output" : f"{data_dir}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "hessian_input" : f"{data_dir}/Hessian{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"{data_dir}/ScanPoints{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
                 "extra_file_name" : str(val_ind),
                 "freeze" : freeze["freeze"],
                 "val_ind" : val_ind,
@@ -1063,18 +1064,18 @@ def main(args, default_args):
                 config = {
                   **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
                   "method" : args.step,
-                  "best_fit_input" : f"{data_dir}/InitialFit{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                  "hessian_input" : f"{data_dir}/Hessian{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                  "data_output" : f"{data_dir}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                  "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                  "hessian_input" : f"{data_dir}/Hessian{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                  "data_output" : f"{data_dir}/Scan{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
                   "extra_file_name" : str(val_ind),
                   "freeze" : freeze["freeze"],
                   "val_ind" : val_ind,
                   "column" : column,
                   "sigma_between_scan_points" : args.sigma_between_scan_points,
                   "number_of_scan_points" : args.number_of_scan_points,
-                  "scan_value" : GetDictionaryEntryFromYaml(f"{data_dir}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
+                  "scan_value" : GetDictionaryEntryFromYaml(f"{data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
                   "scan_ind" : str(scan_ind),
-                  "other_input_files": [f"{data_dir}/ScanPoints{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
+                  "other_input_files": [f"{data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
                 },
                 loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind},
                 save_class = not ((scan_ind + 1 == args.number_of_scan_points))
@@ -1096,8 +1097,8 @@ def main(args, default_args):
               config = {
                 "number_of_scan_points" : args.number_of_scan_points,
                 "column" : column,
-                "data_input" : f"{data_dir}/Scan{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                "data_output" : f"{data_dir}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_input" : f"{data_dir}/Scan{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"{data_dir}/ScanCollect{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
                 "extra_file_name" : str(val_ind),
                 "verbose" : not args.quiet,
               },
@@ -1119,11 +1120,11 @@ def main(args, default_args):
               class_name = "ScanPlot",
               config = {
                 "column" : column,
-                "data_input" : f"{data_dir}/ScanCollect{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}",
-                "plots_output" : f"{plots_dir}/ScanPlot{args.extra_infer_dir_name}{freeze['extra_name']}/{file_name}", 
+                "data_input" : f"{data_dir}/ScanCollect{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "plots_output" : f"{plots_dir}/ScanPlot{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}", 
                 "extra_file_name" : str(val_ind),
                 "other_input" : {other_input.split(':')[0] : f"{data_dir}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")} if args.other_input is not None else {},
-                "extra_plot_name" : args.extra_infer_plot_name,
+                "extra_plot_name" : args.extra_plot_name,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
@@ -1138,7 +1139,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
-        best_fit = GetBestFitFromYaml(f"{data_dir}/InitialFit{args.extra_infer_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
+        best_fit = GetBestFitFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
         for category in GetCategoryLoop(cfg):
           module.Run(
             module_name = "make_asimov",
@@ -1149,8 +1150,10 @@ def main(args, default_args):
               "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
               "regression_spline_input" : f"{data_dir}/EvaluateRegression",
               "model_input" : f"{models_dir}",
+              "extra_density_model_name" : args.extra_density_model_name,
+              "extra_regression_model_name" : args.extra_regression_model_name,
               "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
-              "data_output" : f"{data_dir}/MakePostFitAsimov{args.extra_infer_dir_name}/{file_name}/{category}/val_ind_{val_ind}",
+              "data_output" : f"{data_dir}/MakePostFitAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}",
               "n_asimov_events" : args.number_of_asimov_events,
               "seed" : args.asimov_seed,
               "val_info" : best_fit,
@@ -1176,7 +1179,7 @@ def main(args, default_args):
           for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
             for nuisance_value in ["up","down"]:
               summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-              val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{data_dir}/InitialFit{args.extra_infer_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", f"{data_dir}/{args.summary_from}{args.extra_infer_dir_name}/{bf_file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
+              val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", f"{data_dir}/{args.summary_from}{args.extra_input_dir_name}/{bf_file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
               module.Run(
                 module_name = "make_asimov",
                 class_name = "MakeAsimov",
@@ -1186,8 +1189,10 @@ def main(args, default_args):
                   "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
                   "regression_spline_input" : f"{data_dir}/EvaluateRegression",
                   "model_input" : f"{models_dir}",
+                  "extra_density_model_name" : args.extra_density_model_name,
+                  "extra_regression_model_name" : args.extra_regression_model_name,
                   "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
-                  "data_output" : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_infer_dir_name}/{file_name}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}",
+                  "data_output" : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}",
                   "n_asimov_events" : args.number_of_asimov_events,
                   "seed" : args.asimov_seed,
                   "val_info" : val_info,
@@ -1215,18 +1220,18 @@ def main(args, default_args):
               class_name = "Generator",
               config = {
                 "cfg" : args.cfg,
-                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type)[category],
-                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_infer_dir_name}")[category],
-                "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_infer_dir_name}/{file_name}/{category}",
+                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
+                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}")[category],
+                "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "do_2d_unrolled" : args.plot_2d_unrolled,
-                "extra_plot_name" : f"{val_ind}_{args.extra_infer_plot_name}" if args.extra_infer_plot_name != "" else str(val_ind),
+                "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
                 "sim_type" : args.sim_type,
                 "val_info" : {},
                 "plot_styles" : [1],
                 "data_label" : "Data" if args.data_type == "data" else "Simulated",
                 "stack_label" : "",
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
-                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_infer_dir_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
+                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
                 "verbose" : not args.quiet,
               },
@@ -1249,8 +1254,8 @@ def main(args, default_args):
         class_name = "SummaryChiSquared",
         config = {
           "val_loop" : validation_loop,
-          "data_input" : f"{data_dir}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
-          "data_output" : f"{data_dir}/SummaryChiSquared{summary_from}{args.extra_infer_dir_name}/{file_name}",
+          "data_input" : f"{data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}",
+          "data_output" : f"{data_dir}/SummaryChiSquared{summary_from}{args.extra_output_dir_name}/{file_name}",
           "file_name" : f"{summary_from}_results".lower(),
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
           "column_loop" : column_loop,
@@ -1274,8 +1279,8 @@ def main(args, default_args):
           config = {
             "file_name" : file_name,
             "val_ind" : val_ind,
-            "data_input" : f"{data_dir}/{args.summary_from}{args.extra_infer_dir_name}",
-            "data_output" : f"{data_dir}/{args.summary_from}{args.extra_infer_dir_name}/{file_name}",
+            "data_input" : f"{data_dir}/{args.summary_from}{args.extra_input_dir_name}",
+            "data_output" : f"{data_dir}/{args.summary_from}{args.extra_output_dir_name}/{file_name}",
             "verbose" : not args.quiet,
             "summary_from" : summary_from,
             "column_loop" : column_loop,
@@ -1297,13 +1302,13 @@ def main(args, default_args):
         class_name = "Summary",
         config = {
           "val_loop" : validation_loop,
-          "data_input" : f"{data_dir}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
-          "plots_output" : f"{plots_dir}/Summary{args.summary_from}Plot{args.extra_infer_dir_name}/{file_name}",
+          "data_input" : f"{data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}",
+          "plots_output" : f"{plots_dir}/Summary{args.summary_from}Plot{args.extra_output_dir_name}/{file_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
           "other_input" : {other_input.split(':')[0] : [f"{data_dir}/{other_input.split(':')[1]}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
-          "extra_plot_name" : args.extra_infer_plot_name,
+          "extra_plot_name" : args.extra_plot_name,
           "show2sigma" : args.summary_show_2sigma,
-          "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"{data_dir}/SummaryChiSquared{args.summary_from}{args.extra_infer_dir_name}/{file_name}/summary_chi_squared.yaml", []),
+          "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"{data_dir}/SummaryChiSquared{args.summary_from}{args.extra_input_dir_name}/{file_name}/summary_chi_squared.yaml", []),
           "nominal_name" : args.summary_nominal_name,
           "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
           "column_loop" : column_loop,
@@ -1328,11 +1333,11 @@ def main(args, default_args):
           config = {
             "val_info" : val_info,
             "val_ind" : val_ind,
-            "data_input" : f"{data_dir}/{summary_from}{args.extra_infer_dir_name}/{file_name}",
-            "plots_output" : f"{plots_dir}/SummaryPerVal{args.summary_from}Plot{args.extra_infer_dir_name}/{file_name}",
+            "data_input" : f"{data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}",
+            "plots_output" : f"{plots_dir}/SummaryPerVal{args.summary_from}Plot{args.extra_output_dir_name}/{file_name}",
             "file_name" : f"{args.summary_from}_results".lower(),
             "other_input" : {other_input.split(':')[0] : [f"{data_dir}/{other_input.split(':')[1]}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
-            "extra_plot_name" : args.extra_infer_plot_name,
+            "extra_plot_name" : args.extra_plot_name,
             "show2sigma" : args.summary_show_2sigma,
             "nominal_name" : args.summary_nominal_name,
             "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},

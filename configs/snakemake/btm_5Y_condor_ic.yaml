@@ -28,8 +28,8 @@
 - step: "Summary"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
-    extra_infer_dir_name: "ClosureTest"
-    extra_infer_plot_name: "with_frozen"
+    extra_dir_name: "ClosureTest"
+    extra_plot_name: "with_frozen"
     summary_from: "CovarianceWithDMatrix"
     summary_nominal_name: "Closure Test"
     summary_show_2sigma: True
@@ -42,7 +42,7 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     summary_from: "CovarianceWithDMatrix"
-    extra_infer_dir_name: "ClosureTest"
+    extra_dir_name: "ClosureTest"
     summary_nominal_name: "Closure Test"
     summary_show_2sigma: True
     loop_over_rates: True
@@ -51,7 +51,7 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     summary_from: "CovarianceWithDMatrix"
-    extra_infer_dir_name: "ClosureTestFrozen"
+    extra_dir_name: "ClosureTestFrozen"
     summary_nominal_name: "Closure Test (Others Frozen)"
     summary_show_2sigma: True
     loop_over_rates: True
@@ -60,8 +60,8 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     summary_from: "CovarianceWithDMatrix"
-    extra_infer_dir_name: "ClosureTest"
-    extra_infer_plot_name: "with_frozen"
+    extra_dir_name: "ClosureTest"
+    extra_plot_name: "with_frozen"
     summary_from: "CovarianceWithDMatrix"
     summary_nominal_name: "Closure Test"
     summary_show_2sigma: True
@@ -72,7 +72,7 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific: "file_name=combined;val_ind=0"
-    extra_infer_dir_name: "Asimov"
+    extra_dir_name: "Asimov"
     summary_from: "Covariance"
     summary_nominal_name: "Asimov"
     summary_show_2sigma: True
@@ -82,8 +82,8 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific: "file_name=combined;val_ind=0"
-    extra_infer_dir_name: "Asimov"
-    extra_infer_plot_name: "with_closure"
+    extra_dir_name: "Asimov"
+    extra_plot_name: "with_closure"
     summary_from: "Covariance"
     summary_nominal_name: "Asimov"
     summary_show_2sigma: True
