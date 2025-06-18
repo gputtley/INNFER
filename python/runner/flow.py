@@ -134,10 +134,15 @@ class Flow():
     with open(self.density_model["parameters"], 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+    density_model_name = f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}"
+    with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
+      architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    num_coupling_layers = architecture["num_coupling_layers"]
+
+
     # Add plots
     for col in range(len(parameters["density"]["X_columns"])):
       outputs += [f"{self.plots_output}/flow_{col}_cl0{self.extra_plot_name}.pdf"]
-      num_coupling_layers = parameters["density"]["num_coupling_layers"]
       for ind in range(num_coupling_layers):
         outputs += [f"{self.plots_output}/flow_{col}_cl{ind+1}{self.extra_plot_name}.pdf"]
 

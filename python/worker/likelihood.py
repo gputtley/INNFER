@@ -23,7 +23,7 @@ class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}):
+  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}, categories=None):
     """
     Initializes a Likelihood object.
 
@@ -38,6 +38,7 @@ class Likelihood():
     self.X_columns = X_columns
     self.Y_columns = Y_columns
     self.Y_columns_per_model = Y_columns_per_model
+    self.categories = categories
 
     self.seed = 42
     self.verbose = True
@@ -121,6 +122,7 @@ class Likelihood():
 
   def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
+
     # Get the per event log likelihoods
     if self.type == "unbinned":
       # For unbinned
@@ -130,7 +132,8 @@ class Likelihood():
         wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
         gradient = [1], 
         column_1 = self.Y_columns,
-        before_sum = True
+        before_sum = True,
+        category = options["category"] if "category" in options.keys() else None
       )[0]
     elif self.type == "unbinned_extended":
       # For unbinned extended
@@ -140,11 +143,12 @@ class Likelihood():
         wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
         gradient = [1], 
         column_1 = self.Y_columns,
-        before_sum = True
+        before_sum = True,
+        category = options["category"] if "category" in options.keys() else None
       )[0]
       # Add in the extended part
       for name in self.models["yields"].keys():
-        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=self.Y_columns)/options["sum_wts"]
+        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=self.Y_columns, category=options["category"])/options["sum_wts"]
 
     # Add constraints
     tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=self.Y_columns)/options["sum_wts"]
@@ -176,9 +180,9 @@ class Likelihood():
 
     return out
 
-  def _GetBinned(self, bin_values, Y):
+  def _GetBinned(self, bin_values, Y, category=None):
 
-    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
     non_zero_indices = np.array(predicted_bin_values) > 0
     predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
     bin_values = list(np.array(bin_values)[non_zero_indices])
@@ -187,9 +191,9 @@ class Likelihood():
 
     return ln_lkld
 
-  def _GetBinnedExtended(self, bin_values, Y):
+  def _GetBinnedExtended(self, bin_values, Y, category=None):
 
-    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
     non_zero_indices = np.array(predicted_bin_values) > 0
     predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
     bin_values = list(np.array(bin_values)[non_zero_indices])
@@ -255,16 +259,19 @@ class Likelihood():
     return ln_constraint
 
 
-  def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None):
+  def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None):
 
     # Initiate log probs
     log_probs = {}
 
+    if category is None or category not in self.models["pdfs"].keys():
+      raise ValueError("Category must be specified and must be in the models dictionary.")
+
     # Loop through pdf models
-    for name, pdf in self.models["pdfs"].items():
+    for name, pdf in self.models["pdfs"][category].items():
 
       # Get model scaling
-      rate_param = self._GetYield(name, Y)
+      rate_param = self._GetYield(name, Y, category=category)
       if rate_param == 0: continue
 
       # Get rate times probability, get gradients simultaneously if required
@@ -285,7 +292,8 @@ class Likelihood():
         name,
         gradient=gradient, 
         column_1=column_1, 
-        column_2=column_2        
+        column_2=column_2,
+        category=category        
       )
 
     # check for nans
@@ -294,14 +302,14 @@ class Likelihood():
     return log_probs
 
 
-  def _GetH1(self, log_probs, Y, log=False):
+  def _GetH1(self, log_probs, Y, log=False, category=None):
 
     # Loop through pdf models
     first_loop = True
-    for name, _ in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"][category].items():
 
       # Get model scaling
-      rate_param = self._GetYield(name, Y)
+      rate_param = self._GetYield(name, Y, category=category)
 
       if rate_param == 0: continue
 
@@ -322,14 +330,14 @@ class Likelihood():
     return H1
 
 
-  def _GetH1FirstDerivative(self, log_probs, log_probs_first_derivative, Y, column_1=None):
+  def _GetH1FirstDerivative(self, log_probs, log_probs_first_derivative, Y, column_1=None, category=None):
 
     # Loop through pdf models
     first_loop = True
-    for name, _ in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"][category].items():
 
       # Get rate times probability
-      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) + (self._GetYield(name, Y) * log_probs_first_derivative[name]))
+      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1, category=category) + (self._GetYield(name, Y, category=category) * log_probs_first_derivative[name]))
 
       # Sum together probabilities of different files
       if first_loop:
@@ -341,14 +349,14 @@ class Likelihood():
     return H1FirstDerivative
 
 
-  def _GetH1SecondDerivative(self, log_probs, log_probs_first_derivative_1, log_probs_first_derivative_2, log_probs_second_derivative, Y, column_1=None, column_2=None):
+  def _GetH1SecondDerivative(self, log_probs, log_probs_first_derivative_1, log_probs_first_derivative_2, log_probs_second_derivative, Y, column_1=None, column_2=None, category=None):
 
     # Loop through pdf models
     first_loop = True
-    for name, _ in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"][category].items():
 
       # Get rate times probability
-      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1) * log_probs_first_derivative_2[name]) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_2) * log_probs_first_derivative_1[name]) + (self._GetYield(name, Y) * (log_probs_second_derivative[name] + (log_probs_first_derivative_1[name]*log_probs_first_derivative_2[name]))))
+      ln_lklds_with_rate_params = np.exp(log_probs[name]) * (self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2, category=category) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_1, category=category) * log_probs_first_derivative_2[name]) + (self._GetYieldGradient(name, Y, gradient=1, column_1=column_2, category=category) * log_probs_first_derivative_1[name]) + (self._GetYield(name, Y, category=category) * (log_probs_second_derivative[name] + (log_probs_first_derivative_1[name]*log_probs_first_derivative_2[name]))))
 
       # Sum together probabilities of different files
       if first_loop:
@@ -360,14 +368,14 @@ class Likelihood():
     return H1SecondDerivative
 
 
-  def _GetH2(self, Y, log=False):
+  def _GetH2(self, Y, log=False, category=None):
 
     # Loop through pdf models
     H2 = 0.0
-    for name, _ in self.models["pdfs"].items():
+    for name, _ in self.models["pdfs"][category].items():
 
       # Get model scaling
-      rate_param = self._GetYield(name, Y)
+      rate_param = self._GetYield(name, Y, category=category)
       H2 += rate_param
 
     # Change to log
@@ -377,33 +385,33 @@ class Likelihood():
     return H2
 
 
-  def _GetH2FirstDerivative(self, Y, column_1=None):
+  def _GetH2FirstDerivative(self, Y, column_1=None, category=None):
 
     # Loop through pdf models
     H2FirstDerivative = 0.0
-    for name, pdf in self.models["pdfs"].items():
+    for name, pdf in self.models["pdfs"][category].items():
 
       # Get model scaling
-      rate_param = self._GetYieldGradient(name, Y, gradient=1, column_1=column_1)
+      rate_param = self._GetYieldGradient(name, Y, gradient=1, column_1=column_1, category=category)
       H2FirstDerivative += rate_param
 
     return H2FirstDerivative
 
 
-  def _GetH2SecondDerivative(self, Y, column_1=None, column_2=None):
+  def _GetH2SecondDerivative(self, Y, column_1=None, column_2=None, category=None):
 
     # Loop through pdf models
     H2SecondDerivative = 0.0
-    for name, pdf in self.models["pdfs"].items():
+    for name, pdf in self.models["pdfs"][category].items():
 
       # Get model scaling
-      rate_param = self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2)
+      rate_param = self._GetYieldGradient(name, Y, gradient=2, column_1=column_1, column_2=column_2, category=category)
       H2SecondDerivative += rate_param
 
     return H2SecondDerivative
 
 
-  def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
+  def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
 
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
@@ -412,25 +420,25 @@ class Likelihood():
       get_log_prob_gradients = [0,1]
     else:
       get_log_prob_gradients = [0]
-    log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2)
+    log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
 
     if 2 in gradient:
       if column_1 != column_2:
-        first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
+        first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
       else:
         first_derivative_other = {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}
 
     # Get H1 and H2
-    log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
-    log_H2 = self._GetH2(Y, log=True)
+    log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True, category=category)
+    log_H2 = self._GetH2(Y, log=True, category=category)
     if 1 in get_log_prob_gradients:
-      H1_grad_1_col_1 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_1)
-      H2_grad_1_col_1 = self._GetH2FirstDerivative(Y, column_1=column_1)
+      H1_grad_1_col_1 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_1, category=category)
+      H2_grad_1_col_1 = self._GetH2FirstDerivative(Y, column_1=column_1, category=category)
     if 2 in get_log_prob_gradients:
-      H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2)
-      H2_grad_2 = self._GetH2SecondDerivative(Y, column_1=column_1, column_2=column_2)
-      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2)
-      H2_grad_1_col_2 = self._GetH2FirstDerivative(Y, column_1=column_2)
+      H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2, category=category)
+      H2_grad_2 = self._GetH2SecondDerivative(Y, column_1=column_1, column_2=column_2, category=category)
+      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2, category=category)
+      H2_grad_1_col_2 = self._GetH2FirstDerivative(Y, column_1=column_2, category=category)
     
     # Calculate and weight sum loop terms
     ln_lkld = []
@@ -470,7 +478,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False):
+  def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
 
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
@@ -479,17 +487,17 @@ class Likelihood():
       get_log_prob_gradients = [0,1]
     else:
       get_log_prob_gradients = [0]
-    log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2)
+    log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
     if 2 in gradient:
-      first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2)
+      first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
 
     # Get H1 and H2
-    log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True)
+    log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True, category=category)
     if 1 in get_log_prob_gradients:
-      H1_grad_1_col_1 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_1)
+      H1_grad_1_col_1 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, Y, column_1=column_1, category=category)
     if 2 in get_log_prob_gradients:
-      H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2)
-      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2)
+      H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2, category=category)
+      H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2, category=category)
 
     # Calculate and weight sum loop terms
     ln_lkld = []
@@ -517,36 +525,37 @@ class Likelihood():
     return ln_lkld
 
 
-  def _GetYield(self, file_name, Y):
+  def _GetYield(self, file_name, Y, category=None):
 
+    yd = 1.0
     if "yields" in self.models.keys():
-      yd = self.models["yields"][file_name](Y)
-    else:
-      yd = 1.0
+      if category in self.models["yields"].keys():
+        if file_name in self.models["yields"][category].keys():
+          yd = self.models["yields"][category][file_name](Y)
       
     return yd
 
 
-  def _GetYieldGradient(self, file_name, Y, gradient=0, column_1=None, column_2=None, from_spline=False):
+  def _GetYieldGradient(self, file_name, Y, gradient=0, column_1=None, column_2=None, from_spline=False, category=None):
 
     if gradient == 0: 
-      return self._GetYield(file_name, Y)
+      return self._GetYield(file_name, Y, category=category)
     elif gradient == 1:
       if not from_spline:
-        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name), Y, column_1, file_name, gradient=1)
+        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=1)
       else:
-        return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name), Y, column_1, file_name, gradient=1)
+        return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=1)
     elif gradient == 2:
       if not from_spline:
-        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name), Y, column_1, file_name, gradient=2)[0]
+        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=2)[0]
       else:
         if column_1 is None and column_2 is None:
           raise ValueError("You need to specify column_1 and column_2 to get the second derivative.")
         if column_1 == column_2:
-          return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name), Y, column_1, file_name, gradient=2)[0]
+          return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=2)[0]
         else:
           inner_func = lambda func, column, file_name, val, : self._HelperNumericalGradientFromSpline(func, val, column, file_name, gradient=1)
-          inner_func = partial(inner_func, partial(self._GetYield, file_name), column_1, file_name)
+          inner_func = partial(inner_func, partial(self._GetYield, file_name, category=category), column_1, file_name)
           return self._HelperNumericalGradientFromSpline(inner_func, Y, column_2, file_name, gradient=1)[0]
 
 
@@ -733,7 +742,7 @@ class Likelihood():
     return np.array(grads)
 
 
-  def _ShiftDensityByRegression(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None):
+  def _ShiftDensityByRegression(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None, category=None):
 
     if "pdf_shifts_with_regression" not in self.models.keys():
       return log_probs
@@ -751,8 +760,8 @@ class Likelihood():
     gc.collect()
 
     # Loop through regression models
-    if file_name in self.models["pdf_shifts_with_regression"].keys():
-      for k, v in self.models["pdf_shifts_with_regression"][file_name].items():
+    if file_name in self.models["pdf_shifts_with_regression"][category].keys():
+      for k, v in self.models["pdf_shifts_with_regression"][category][file_name].items():
 
         # Get predictions
         if max(gradient_loop) == 0:
@@ -776,17 +785,17 @@ class Likelihood():
         # Normalise predictions
         for ind, grad in enumerate(gradient_loop):
           if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
-            if file_name in self.models["pdf_shifts_with_regression_norm_spline"].keys():
-              if k in self.models["pdf_shifts_with_regression_norm_spline"][file_name].keys():
-                norm = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k](combined.loc[:,[k]])
+            if file_name in self.models["pdf_shifts_with_regression_norm_spline"][category].keys():
+              if k in self.models["pdf_shifts_with_regression_norm_spline"][category][file_name].keys():
+                norm = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k](combined.loc[:,[k]])
                 if grad == 0:
                   log_probs[ind] += np.log(norm)                
                 elif grad == 1 and k in column_1:
-                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
                   log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
                 elif grad == 2 and column_1 == k and column_2 == k:
-                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][file_name][k].derivative(2)(combined.loc[:,[k]])
+                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
                   log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
         
     if not isinstance(gradient, list):
@@ -834,14 +843,22 @@ class Likelihood():
       raise NotImplementedError("Numerical gradients are not implemented yet for this class. Please use analytical gradients or scans.")
 
     # Run likelihood
-    if self.type == "unbinned":
-      lkld_val = self.LikelihoodUnbinned(inputs, Y, gradient=gradient, column_1=column_1, column_2=column_2)
-    elif self.type == "unbinned_extended":
-      lkld_val = self.LikelihoodUnbinnedExtended(inputs, Y, gradient=gradient, column_1=column_1, column_2=column_2)
-    elif self.type == "binned":
-      lkld_val = self.LikelihoodBinned(inputs, Y, gradient=gradient, column_1=column_1, column_2=column_2)
-    elif self.type == "binned_extended":
-      lkld_val = self.LikelihoodBinnedExtended(inputs, Y, gradient=gradient, column_1=column_1, column_2=column_2)
+    first = True
+    for category in self.categories:
+      if self.type == "unbinned":
+        cat_val = self.LikelihoodUnbinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      elif self.type == "unbinned_extended":
+        cat_val = self.LikelihoodUnbinnedExtended(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      elif self.type == "binned":
+        cat_val = self.LikelihoodBinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      elif self.type == "binned_extended":
+        cat_val = self.LikelihoodBinnedExtended(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      if first:
+        lkld_val = copy.deepcopy(cat_val)
+        first = False
+      else:
+        for grad_ind, grad in enumerate(gradient):
+          lkld_val[grad_ind] += cat_val[grad_ind]
 
     # Add constraint
     for grad_ind, grad in enumerate(gradient):
@@ -889,20 +906,20 @@ class Likelihood():
     return lkld_val
 
 
-  def LikelihoodBinned(self, bin_values, Y, gradient=[0], column_1=None, column_2=None):
+  def LikelihoodBinned(self, bin_values, Y, gradient=[0], column_1=None, column_2=None, category=None):
 
     ln_lkld = []
     for grad in gradient:
       if grad == 0:
-        ln_lkld += [self._GetBinned(bin_values, Y)]
+        ln_lkld += [self._GetBinned(bin_values, Y, category=category)]
       elif grad == 1:
-        ln_lkld_func = partial(self._GetBinned, bin_values)
+        ln_lkld_func = partial(self._GetBinned, bin_values, category=category)
         ln_lkld += [self._HelperNumericalGradientFromLinear(ln_lkld_func, Y, column_1, None, gradient=1)]
       elif grad == 2:
         if column_1 is None or column_2 is None:
           raise ValueError("You must specify column_1 and column_2 to get the second derivative.")
         else:
-          ln_lkld_func = partial(self._GetBinned, bin_values)
+          ln_lkld_func = partial(self._GetBinned, bin_values, category=category)
           grad_func = lambda Y, func, column: self._HelperNumericalGradientFromLinear(func, Y, column, None, gradient=1)
           locked_grad_func = partial(grad_func, func=ln_lkld_func, column=column_1)
           ln_lkld += [self._HelperNumericalGradientFromLinear(locked_grad_func, Y, column_2, None, gradient=1)]
@@ -910,20 +927,20 @@ class Likelihood():
     return ln_lkld
 
 
-  def LikelihoodBinnedExtended(self, bin_values, Y, gradient=[0], column_1=None, column_2=None):
+  def LikelihoodBinnedExtended(self, bin_values, Y, gradient=[0], column_1=None, column_2=None, category=None):
  
     ln_lkld = []
     for grad in gradient:
       if grad == 0:
-        ln_lkld += [self._GetBinnedExtended(bin_values, Y)]
+        ln_lkld += [self._GetBinnedExtended(bin_values, Y, category=category)]
       elif grad == 1:
-        ln_lkld_func = partial(self._GetBinnedExtended, bin_values)
+        ln_lkld_func = partial(self._GetBinnedExtended, bin_values, category=category)
         ln_lkld += [self._HelperNumericalGradientFromLinear(ln_lkld_func, Y, column_1, None, gradient=1)]
       elif grad == 2:
         if column_1 is None or column_2 is None:
           raise ValueError("You must specify column_1 and column_2 to get the second derivative.")
         else:
-          ln_lkld_func = partial(self._GetBinnedExtended, bin_values)
+          ln_lkld_func = partial(self._GetBinnedExtended, bin_values, Y, category=category)
           grad_func = lambda Y, func, column: self._HelperNumericalGradientFromLinear(func, Y, column, None, gradient=1)
           locked_grad_func = partial(grad_func, func=ln_lkld_func, column=column_1)
           ln_lkld += [self._HelperNumericalGradientFromLinear(locked_grad_func, Y, column_2, None, gradient=1)]
@@ -931,7 +948,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def LikelihoodUnbinned(self, X_dps, Y, gradient=[0], column_1=None, column_2=None):
+  def LikelihoodUnbinned(self, X_dps, Y, gradient=[0], column_1=None, column_2=None, category=None):
     """
     Computes the likelihood for unbinned data.
 
@@ -955,7 +972,7 @@ class Likelihood():
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
-        custom_options = {"function": self._GetEventLoopUnbinned, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2}}
+        custom_options = {"function": self._GetEventLoopUnbinned, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2, "category":category}}
       )
       if first_loop:
         ln_lkld = copy.deepcopy(dps_ln_lkld)
@@ -965,7 +982,7 @@ class Likelihood():
 
     return ln_lkld
 
-  def LikelihoodUnbinnedExtended(self, X_dps, Y, gradient=[0], column_1=None, column_2=None):
+  def LikelihoodUnbinnedExtended(self, X_dps, Y, gradient=[0], column_1=None, column_2=None, category=None):
 
     # Get event loop value
     first_loop = True
@@ -974,7 +991,7 @@ class Likelihood():
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
-        custom_options = {"function": self._GetEventLoopUnbinnedExtended, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2}}
+        custom_options = {"function": self._GetEventLoopUnbinnedExtended, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2, "category":category}}
       )
       if first_loop:
         ln_lkld = copy.deepcopy(dps_ln_lkld)
@@ -984,8 +1001,8 @@ class Likelihood():
 
     # Add poisson term
     for grad_ind, grad in enumerate(gradient):
-      for name, _ in self.models["yields"].items():
-        ln_lkld[grad_ind] -= self._GetYieldGradient(name, Y, gradient=grad, column_1=column_1, column_2=column_2)
+      for name, _ in self.models["yields"][category].items():
+        ln_lkld[grad_ind] -= self._GetYieldGradient(name, Y, gradient=grad, column_1=column_1, column_2=column_2, category=category)
 
     return ln_lkld
 
@@ -1087,23 +1104,23 @@ class Likelihood():
 
   def GetDMatrix(self, X_dps, scan_over):
 
-    # Get the sum of weights of the dataset
-    sum_wts = 0.0
-    for X_dp in X_dps:
-      sum_wts += X_dp.GetFull(method="sum")
 
     # Get the D matrix
     if self.type in ["unbinned","unbinned_extended"]:
       d_matrix = 0
       self._HelperSetSeed()
-      for X_dp in X_dps:
-        # Get D matrix
-        dps_d_matrix = X_dp.GetFull(
-          method = "custom",
-          custom = self._CustomDPMethodForDMatrix,
-          custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over, "sum_wts" : sum_wts}
-        )
-        d_matrix += dps_d_matrix
+      for cat in self.categories:
+        sum_wts = 0.0
+        for X_dp in X_dps[cat]:
+          sum_wts += X_dp.GetFull(method="sum")
+        for X_dp in X_dps[cat]:
+          # Get D matrix
+          dps_d_matrix = X_dp.GetFull(
+            method = "custom",
+            custom = self._CustomDPMethodForDMatrix,
+            custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over, "sum_wts" : sum_wts, "category" : cat}
+          )
+          d_matrix += dps_d_matrix
     else:
       raise ValueError("D matrix only valid for unbinned fits.")
 
@@ -1232,12 +1249,12 @@ class Likelihood():
       minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
       m = Minuit(func, **minuit_initial_guess)
       for params in range(len(initial_guess)):
-        m.errors[f"p{params}"] *= 10
+        m.errors[f"p{params}"] *= 1
       m.errordef = Minuit.LIKELIHOOD
       m.strategy = 2
       m.tol = 0.01
       m.simplex()
-      #m.migrad()
+      m.migrad()
       res = m.values, m.fval
 
     # minuit with gradients

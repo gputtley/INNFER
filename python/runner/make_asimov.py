@@ -39,6 +39,7 @@ class MakeAsimov():
     self.add_truth = False
     self.scale_to_one = False
     self.extra_density_model_name = ""
+    self.extra_regression_model_name = ""
     self.use_asimov_scaling = None
     self.verbose = True
 
@@ -182,7 +183,7 @@ class MakeAsimov():
         # Build the regression model
         if self.verbose:
           print(f"- Building regresson network for {regression_model['parameter']}")
-        regression_model_name = f"{self.model_input}/{regression_model['name']}/{parameters['file_name']}"
+        regression_model_name = f"{self.model_input}/{regression_model['name']}{self.extra_regression_model_name}/{parameters['file_name']}"
         with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
           architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 

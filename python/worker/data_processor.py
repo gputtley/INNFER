@@ -45,11 +45,14 @@ class DataProcessor():
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH")) if batch_size is None else batch_size
     self.selection = None
     self.columns = None
+    self.drop_columns = None
     self.scale = None
     self.resample = False
+    self.resample_drop_negative_weights = False
     self.resampling_seed = 1
     self.functions = []
     self.decimals = 16
+    self.check_wt = False
 
     # Transform options
     self.parameters = {}
@@ -161,37 +164,48 @@ class DataProcessor():
       else:
         df.loc[:, self.wt_name] = scale
 
+    # Resample
+    if self.resample and self.wt_name is not None:
+      sum_wts = int(round(np.sum(df.loc[:,self.wt_name].to_numpy()),0))
+      if self.resample_drop_negative_weights:
+        df = df.loc[df.loc[:,self.wt_name] >= 0,:]
+      columns_without_weights = list(df.columns)
+      columns_without_weights.remove(self.wt_name)
+      data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=sum_wts, seed=self.resampling_seed)
+      df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
+
     # Apply functions
     if "transform" not in functions_to_apply and "untransform" not in functions_to_apply:
-      df = self.ApplySelection(df, extra_sel=extra_sel)
+      if "selection" not in functions_to_apply:
+        df = self.ApplySelection(df, extra_sel=extra_sel)
     for f in functions_to_apply:
       if isinstance(f, str):
         if f == "untransform":
           df = self.UnTransformData(df)
-          df = self.ApplySelection(df, extra_sel=extra_sel)
+          if "selection" not in functions_to_apply:
+            df = self.ApplySelection(df, extra_sel=extra_sel)
         elif f == "transform":
-          df = self.ApplySelection(df, extra_sel=extra_sel)
+          if "selection" not in functions_to_apply:
+            df = self.ApplySelection(df, extra_sel=extra_sel)
           df = self.TransformData(df)
+        elif f == "selection":
+          df = self.ApplySelection(df, extra_sel=extra_sel)
       else:
         df = f(df)
+
+    # Check weight exists
+    if self.wt_name not in list(df.columns) and self.check_wt:
+      self.wt_name = None
 
     # Select the columns
     if self.columns is not None:
       df = df.loc[:,[col for col in self.columns if col in df.columns]]
-       
-    # Resample
-    if self.resample and self.wt_name is not None:
-      columns_without_weights = list(df.columns)
-      columns_without_weights.remove(self.wt_name)
-      data, wts = Resample(df.loc[:,columns_without_weights].to_numpy(), df.loc[:,self.wt_name].to_numpy(), n_samples=int(round(np.sum(df.loc[:,self.wt_name].to_numpy()),0)), seed=self.resampling_seed)
-      df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
+    if self.drop_columns is not None:
+      df = df.drop(columns=[col for col in self.drop_columns if col in df.columns])
 
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
-      
-    ## Fix any floating-point arithmetic error
-    #df = df.round(decimals=self.decimals)
-      
+            
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
       self.batch_ind = 0
@@ -260,6 +274,9 @@ class DataProcessor():
         return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
         return np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
+    elif method in ["histogram","histogram_and_uncert"]: # Get histogram bins
+      if type(bins) == int:
+        bins = self.GetFull(method="bins_with_equal_spacing", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, bins=bins, ignore_discrete=ignore_discrete)
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -532,6 +549,7 @@ class DataProcessor():
         selection = extra_sel
       else:
         selection = f"({self.selection}) & {extra_sel}"
+
       selection = self._ReplaceEqualsWithIsClose(selection)
       data = data.loc[data.eval(selection),:]
     return data
