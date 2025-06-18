@@ -50,6 +50,8 @@ class PreProcess():
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
     self.binned_fit_input = None
     self.validation_binned = None
+    self.extra_selection = None
+    self.category = None
 
     # Stores
     self.parameters = {}
@@ -82,6 +84,8 @@ class PreProcess():
     # Apply post selection
     if post_calculate_selection is not None:
       df = df.loc[df.eval(post_calculate_selection),:]
+    if self.extra_selection is not None:
+      df = df.loc[df.eval(self.extra_selection),:]
 
     # store old weight before doing weight shift
     df.loc[:,"old_wt"] = df.eval(nominal_weight)
@@ -116,13 +120,6 @@ class PreProcess():
       selection = " & ".join([f"({k}=={defaults[k]})" for k in parameters_of_file])
     else:
       selection = None
-
-    ## Add extra selection
-    #if extra_sel is not None:
-    #  if selection is None:
-    #    selection = extra_sel
-    #  else:
-    #    selection = f"(({extra_sel}) & ({selection}))"
 
     # Build dataprocessor
     dp = DataProcessor(
@@ -685,42 +682,41 @@ class PreProcess():
 
     # Loop through bins
     inputs_for_binned_fit = []
-    for cat_ind, cat in enumerate(cfg["inference"]["binned_fit"]["input"]):
-      for bin_ind in range(len(cat["binning"])-1):
+    for bin_ind in range(len(cfg["inference"]["binned_fit"]["input"][self.category]["binning"])-1):
 
-        # Get selection
-        bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
-        total_sel = f"(({bin_sel}) & ({cat['selection']}))"
+      cat = cfg["inference"]["binned_fit"]["input"][self.category]
 
-        # Setup bins
-        inputs_for_binned_fit.append({
-          "cat_ind" : cat_ind,
-          "bin_ind" : bin_ind,
-          "selection" : total_sel,
-          "yields" : {}
-        })
+      # Get selection
+      bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
 
-        # Make histograms
-        if len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model:
-          
-          inputs_for_binned_fit[-1]["yields"]["all"] = self._GetYields(
+      # Setup bins
+      inputs_for_binned_fit.append({
+        "bin_ind" : bin_ind,
+        "selection" : bin_sel,
+        "yields" : {}
+      })
+
+      # Make histograms
+      if len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model:
+        
+        inputs_for_binned_fit[-1]["yields"]["all"] = self._GetYields(
+          file_name,
+          cfg,
+          extra_sel=bin_sel,
+          base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+        )
+
+      else:
+
+        for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
+          inputs_for_binned_fit[-1]["yields"][poi_val] = self._GetYields(
             file_name,
             cfg,
-            extra_sel=total_sel,
+            extra_sel=bin_sel,
             base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+            change_defaults={cfg["pois"][0]: poi_val},
           )
-
-        else:
-
-          for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
-            inputs_for_binned_fit[-1]["yields"][poi_val] = self._GetYields(
-              file_name,
-              cfg,
-              extra_sel=total_sel,
-              base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
-              change_defaults={cfg["pois"][0]: poi_val},
-            )
-            inputs_for_binned_fit[-1]["yields"][poi_val]["nominal"] *= total_scales[poi_val]
+          inputs_for_binned_fit[-1]["yields"][poi_val]["nominal"] *= total_scales[poi_val]
 
     self.binned_fit_input = inputs_for_binned_fit
 
@@ -756,19 +752,17 @@ class PreProcess():
           continue
 
         self.validation_binned[data_split][ind] = []
-        for cat_ind, cat in enumerate(cfg["inference"]["binned_fit"]["input"]):
-          for bin_ind in range(len(cat["binning"])-1):
+        for bin_ind in range(len(cfg["inference"]["binned_fit"]["input"][self.category]["binning"])-1):
+          cat = cfg["inference"]["binned_fit"]["input"][self.category]
 
-            # Get selection
-            bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
-            total_sel = f"(({bin_sel}) & ({cat['selection']}))"
-
-            self.validation_binned[data_split][ind].append(
-              dp.GetFull(
-                method="sum",
-                extra_sel=total_sel,
-              )
+          # Get selection
+          bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
+          self.validation_binned[data_split][ind].append(
+            dp.GetFull(
+              method="sum",
+              extra_sel=bin_sel,
             )
+          )
 
 
   def _GetValidationEffEvents(self, file_name, cfg):

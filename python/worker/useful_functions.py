@@ -55,42 +55,58 @@ def CamelToSnake(name):
   return s2.lower()
 
 
+def GetDataInput(data_type, cfg, file_name, val_ind, data_dir, sim_type="val", asimov_dir_name="MakeAsimov"):
+
+  if data_type == "sim":
+    data_input = {category:{k:[f"{data_dir}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+  elif data_type == "asimov":
+    data_input = {category:{k:[f"{data_dir}/{asimov_dir_name}/{k}/{category}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+  elif data_type == "data":
+    data_input = {category:{"data" : [f"{data_dir}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg)}
+
+  return data_input
+
+
 def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
 
-  data_dir = str(os.getenv("DATA_DIR"))
-  plots_dir = str(os.getenv("PLOTS_DIR"))
-  models_dir = str(os.getenv("MODELS_DIR"))
+  data_dir = f'{str(os.getenv("DATA_DIR"))}/{cfg["name"]}'
+  models_dir = f'{str(os.getenv("MODELS_DIR"))}/{cfg["name"]}'
 
-  if args.data_type == "sim":
-    data_input = {k:[f"{data_dir}/{cfg['name']}/PreProcess/{k}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
-  elif args.data_type == "asimov":
-    data_input = {k:[f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()}
-  elif args.data_type == "data":
-    data_input = {"data" : [cfg["data_file"]] if isinstance(cfg["data_file"], str) else cfg["data_file"]}
+  data_input = GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type)
 
-  binned_data_input = None
+  #if args.data_type == "sim":
+  #  data_input = {category:{k:[f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+  #elif args.data_type == "asimov":
+  #  data_input = {category:{k:[f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+  #elif args.data_type == "data":
+  #  data_input = {category:{"data" : [f"{data_dir}/{cfg['name']}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg)}
+
+  binned_data_input = {}
   if args.likelihood_type in ["binned","binned_extended"]:
-    if args.data_type in ["asimov","sim"]:
-      first = True
-      for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-        with open(f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml", 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        if first:
-          binned_data_input = np.array(parameters["validation_binned_fit"]["full"][v])
-          first = False
-        else:
-          binned_data_input += np.array(parameters["validation_binned_fit"]["full"][v])
-    else:
-      raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {args.data_type}")
+
+    for cat in GetCategoryLoop(cfg):
+      binned_data_input[cat] = None
+      if args.data_type in ["asimov","sim"]:
+        first = True
+        for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
+          with open(f"{data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
+            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if first:
+            binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
+            first = False
+          else:
+            binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
+      else:
+        raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {args.data_type}")
 
   common_config = {
-    "density_models" : {k:GetModelLoop(cfg, model_file_name=k, only_density=True)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
-    "regression_models" : {k:GetModelLoop(cfg, model_file_name=k, only_regression=True) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
-    "model_input" : f"{models_dir}/{cfg['name']}",
+    "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
+    "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
+    "model_input" : models_dir,
     "extra_density_model_name" : args.extra_density_model_name,
-    "parameters" : {k:f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()},
+    "parameters" : {category:{k:f"{data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg)},
     "data_input" : data_input,
     "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
     "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
@@ -98,7 +114,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "likelihood_type": args.likelihood_type,
     "scale_to_eff_events": args.scale_to_eff_events,
     "verbose": not args.quiet,
-    "data_file": cfg["data_file"],
     "minimisation_method" : args.minimisation_method,
     "sim_type" : args.sim_type,
     "X_columns" : cfg["variables"],
@@ -386,19 +401,61 @@ def GetDictionaryEntryFromYaml(file_name, keys):
   return entry
 
 
-def GetBestFitFromYaml(file_name):
+def GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_values=False):
 
-  if not os.path.isfile(file_name):
+  if not os.path.isfile(best_fit_file_name):
     return None
 
-  with open(file_name, 'r') as yaml_file:
+  with open(best_fit_file_name, 'r') as yaml_file:
     entry = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-  return {entry["columns"][ind]: entry["best_fit"][ind] for ind in range(len(entry["columns"]))}
+  best_fit = {entry["columns"][ind]: entry["best_fit"][ind] for ind in range(len(entry["columns"]))}
+
+  if prefit_nuisance_values:  
+    nuisances = GetParametersInModel(file_name, cfg, include_rate=False, include_lnN=True, only_nuisances=True)
+    best_fit = {k: v if k not in nuisances else 0.0 for k, v in best_fit.items()}
+
+  return best_fit
+
+
+def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_name, cfg, file_name, nuisance_value, prefit_nuisance_values=False):
+
+  best_fit = GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_values=prefit_nuisance_values)
+
+  if best_fit is None:
+    return None
+
+  if not os.path.isfile(uncertainty_file_name):
+    return None
+
+  with open(uncertainty_file_name, 'r') as yaml_file:
+    intervals = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+  if nuisance_value == "up":
+    if prefit_nuisance_values:
+      shift = 1.0
+    else:
+      shift = intervals['crossings'][1]
+  elif nuisance_value == "down":
+    if prefit_nuisance_values:
+      shift = -1.0
+    else:
+      shift = intervals['crossings'][-1]
+
+  best_fit = {k: v + shift if k == intervals['varied_column'] else v for k, v in best_fit.items()}
+
+  return best_fit
 
 
 def GetBaseFileLoop(cfg):
   return list(cfg["files"].keys())
+
+
+def GetCategoryLoop(cfg):
+  if "categories" not in cfg.keys():
+    return ["inclusive"]
+  else:
+    return list(cfg["categories"].keys())
 
 
 def BuildYieldFunctions(entry, rate_param=None):
@@ -468,7 +525,7 @@ def GetModelFileLoop(cfg, with_combined=False):
   return model_files
 
 
-def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None):
+def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None, specific_category=None):
 
   data_dir = str(os.getenv("DATA_DIR"))
   plots_dir = str(os.getenv("PLOTS_DIR"))
@@ -481,29 +538,39 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
       if model_file_name != k:
         continue
 
-    if not only_regression:
-      models.append(
-        {
-          "type" : "density",
-          "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/density",
-          "name" : f"density_{k}",
-          "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml",
-          "parameter" : None,
-          "file_name" : k,
-        }
-      )
-    for value in v["regression_models"]:
-      if not only_density:
+
+    for category in GetCategoryLoop(cfg):
+
+      if specific_category is not None:
+        if specific_category != category:
+          continue
+
+      if not only_regression:
         models.append(
           {
-            "type" : "regression",
-            "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/regression/{value['parameter']}",
-            "name" : f"regression_{k}_{value['parameter']}",
-            "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/parameters.yaml",
-            "parameter" : value['parameter'],
+            "type" : "density",
+            "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density",
+            "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+            "name" : f"density_{k}_{category}",
+            "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+            "parameter" : None,
             "file_name" : k,
           }
         )
+      for value in v["regression_models"]:
+        if not only_density:
+          models.append(
+            {
+              "type" : "regression",
+              "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/regression/{value['parameter']}",
+              "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+              "name" : f"regression_{k}_{value['parameter']}_{category}",
+              "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+              "parameter" : value['parameter'],
+              "file_name" : k,
+            }
+          )
+
   return models
 
 
@@ -538,7 +605,7 @@ def GetFilesInModel(file_name, cfg):
   return parameters_in_model
 
 
-def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, include_rate=False, include_lnN=False):
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, include_rate=False, include_lnN=False, only_nuisances=False):
   parameters_in_model = []
   if not only_regression:
     for v in cfg["models"][file_name]["density_models"]:
@@ -550,6 +617,8 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
     parameters_in_model.append(f"mu_{file_name}")
   if include_lnN:
     parameters_in_model += list(cfg["inference"]["lnN"].keys())
+  if only_nuisances:
+    parameters_in_model = [i for i in parameters_in_model if i in cfg["nuisances"]]
   return parameters_in_model
 
 
@@ -635,12 +704,12 @@ def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
   return network
 
 
-def SkipNonData(cfg, file_name, data_type, val_ind):
+def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
 
   if data_type != "data":
     return False
 
-  if (file_name == "combined" or len(list(cfg["models"].keys())) == 1) and val_ind == 0:
+  if (file_name == "combined" or allow_split or len(list(cfg["models"].keys())) == 1) and val_ind == 0:
     return False
 
   return True
@@ -952,6 +1021,25 @@ def MakeDirectories(file_loc):
       os.system(f"mkdir {full_dir}")
 
 
+def OverwriteArchitecture(architecture_file, overwrite_architecture):
+
+  with open(architecture_file, 'r') as yaml_file:
+    architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  for key, value in {i.split("=")[0] : i.split("=")[1] for i in overwrite_architecture.split(",")}.items():
+    if "." in value:
+      architecture[key] = float(value)
+    elif value.isdigit():
+      architecture[key] = int(value)
+    else:
+      architecture[key] = value
+  tmp_architecture_name = f"configs/architecture/tmp_architecture.yaml"
+  with open(tmp_architecture_name, 'w') as yaml_file:
+    yaml.dump(architecture, yaml_file)
+    
+  return tmp_architecture_name
+
+
+
 def Resample(datasets, weights, n_samples=None, seed=42):
   """
   Resamples datasets based on provided weights.
@@ -1010,7 +1098,14 @@ def Resample(datasets, weights, n_samples=None, seed=42):
 
   # Loop through datasets
   resampled_datasets = []
-  resampled_weights = np.hstack((np.ones(n_positive_samples),-1*np.ones(n_negative_samples)))
+  if do_positive and do_negative:
+    resampled_weights = np.hstack((np.ones(n_positive_samples),-1*np.ones(n_negative_samples)))
+  elif do_positive:
+    resampled_weights = np.ones(n_positive_samples)
+  elif do_negative:
+    n_positive_samples = 0
+    n_negative_samples = n_samples
+
   for dataset in datasets:
 
     # Skip if empty

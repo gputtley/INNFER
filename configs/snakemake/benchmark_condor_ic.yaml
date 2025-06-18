@@ -26,8 +26,8 @@
 - step: "Summary"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
-    extra_infer_dir_name: "Asimov"
-    extra_infer_plot_name: "with_closure_test"
+    extra_dir_name: "Asimov"
+    extra_plot_name: "with_closure_test"
     summary_from: "Covariance"
     summary_nominal_name: "Asimov"
     summary_show_2sigma: True
