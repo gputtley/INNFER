@@ -32,7 +32,6 @@ class Infer():
 
     self.inference_options = {}
     self.yield_function = "default"
-    self.data_type = "sim"
     self.data_input = "data"
     self.data_output = "data"
     self.plot_output = "plots"
@@ -87,10 +86,6 @@ class Infer():
 
   def Run(self):
 
-    # Change datatype
-    if self.likelihood_type in ["binned", "binned_extended"] and self.data_type == "asimov":
-      self.data_type = "sim"
-
     # Make yields or use existing
     if self.yields is None:
       self.yields = self._BuildYieldFunctions()
@@ -102,7 +97,6 @@ class Infer():
     # Make likelihood or use exisiting
     if self.lkld is None:
       self.lkld = self._BuildLikelihood()
-
 
     # Make likelihood inputs
     if self.lkld_input is None:

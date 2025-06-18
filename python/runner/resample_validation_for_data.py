@@ -12,6 +12,7 @@ class ResampleValidationForData():
     # Default values - these will be set by the configure function
     self.data_output = None
     self.data_inputs = None
+    self.sim_type = "val"
     self.verbose = True
 
   def Configure(self, options):
@@ -43,8 +44,8 @@ class ResampleValidationForData():
         if self.verbose:
           print(f"Processing file: {file_name}, category: {category}")
         
-        files = [f"{v2}/X_val.parquet", f"{v2}/wt_val.parquet"]
-        extra_file = f"{v2}/Extra_val.parquet"
+        files = [f"{v2}/X_{self.sim_type}.parquet", f"{v2}/wt_{self.sim_type}.parquet"]
+        extra_file = f"{v2}/Extra_{self.sim_type}.parquet"
         if os.path.isfile(extra_file):
           files.append(extra_file)
 
@@ -97,7 +98,7 @@ class ResampleValidationForData():
     inputs = []
     for _, v1 in self.data_inputs.items():
       for _, v2 in v1.items():        
-        inputs += [f"{v2}/X_val.parquet", f"{v2}/wt_val.parquet"]
+        inputs += [f"{v2}/X_{self.sim_type}.parquet", f"{v2}/wt_{self.sim_type}.parquet"]
     return inputs
 
         

@@ -24,6 +24,10 @@ class Generator():
     self.no_text = True
     self.data_label = "Simulated"
     self.stack_label = "Synthetic"
+    self.include_postfit_uncertainty = False
+    self.uncertainty_input = None
+    self.use_expected_data_uncertainty = False
+
 
   def Configure(self, options):
     """
@@ -38,6 +42,7 @@ class Generator():
     if self.extra_plot_name != "":
       self.extra_plot_name = f"_{self.extra_plot_name}"
 
+
   def Run(self):
 
     if self.verbose:
@@ -46,39 +51,64 @@ class Generator():
 
     sim_dps = {}
     synth_dps = {}
+    synth_uncert_dps = None
 
     if self.no_text:
       val_ind_text = ""
     else:
       val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
 
+
+    # Make sim data processors
     for k in self.data_input.keys():
-
-      print(f"- Calculating for {k}")
-
-      # Make data processors
       if self.verbose:
-        print(f"- Making data processor for {k}")
-
+        print(f"- Making data processor for sim {k}")
       sim_dps[k] = DataProcessor(
-        [[f"{self.data_input[k]}/X_{self.sim_type}.parquet", f"{self.data_input[k]}/wt_{self.sim_type}.parquet"]],
+        [self.data_input[k]],
         "parquet",
         wt_name = "wt",
-        options = {}
+        options = {
+          "check_wt" : True,
+        }
       )
 
+    # Make synth data processors
+    for k in self.asimov_input.keys():
+      if self.verbose:
+        print(f"- Making data processor for synth {k}")
       synth_dps[k] = DataProcessor(
-        [[f"{self.asimov_input[k]}/asimov.parquet"]],
+        [self.asimov_input[k]],
         "parquet",
         wt_name = "wt",
-        options = {}
+        options = {
+          "check_wt" : True,
+        }
       )
+
+    # Postfit uncertainty synth data processors
+    if self.include_postfit_uncertainty:
+      synth_uncert_dps = {}
+      for k, v in self.uncertainty_input.items():
+        synth_uncert_dps[k] = {}
+        for nuisance, nuisance_values in v.items():
+          synth_uncert_dps[k][nuisance] = {}
+          for nuisance_value, file_name in nuisance_values.items():
+            if self.verbose:
+              print(f"- Making data processor for synth {k} postfit uncertainty {nuisance} {nuisance_value}")
+            synth_uncert_dps[k][nuisance][nuisance_value] = DataProcessor(
+              [file_name],
+              "parquet",
+              wt_name = "wt",
+              options = {
+                "check_wt" : True,
+              }
+            )
 
     # Get names for plot
     sim_plot_name = self.data_label
     sample_plot_name = self.stack_label
     if sample_plot_name != "":
-      sample_plot_name = f" ({sample_plot_name})"
+      sample_plot_name = f" {sample_plot_name}"
 
 
     # Running plotting functions
@@ -96,6 +126,7 @@ class Generator():
         extra_dir="GenerationTrue1D",
         extra_name=self.extra_plot_name,
         axis_text=val_ind_text,
+        synth_uncert_dps=synth_uncert_dps,
       )
       if self.do_transformed:
         self._PlotGeneration(
@@ -108,6 +139,7 @@ class Generator():
           extra_dir="GenerationTrue1DTransformed",
           extra_name=self.extra_plot_name,
           axis_text=val_ind_text,
+          synth_uncert_dps=synth_uncert_dps,
         )
 
     if self.do_2d_unrolled:
@@ -138,6 +170,7 @@ class Generator():
           extra_name=self.extra_plot_name,
           axis_text=val_ind_text,
         )
+
 
   def Outputs(self):
     """
@@ -175,11 +208,10 @@ class Generator():
 
     # Add data files
     for k in self.data_input.keys():
-      inputs += [
-        f"{self.data_input[k]}/X_{self.sim_type}.parquet",
-        f"{self.data_input[k]}/wt_{self.sim_type}.parquet",
-        f"{self.asimov_input[k]}/asimov.parquet",
-      ]
+      inputs += self.data_input[k]
+
+    for k in self.asimov_input.keys():
+      inputs += self.asimov_input[k]
 
     return inputs
 
@@ -196,6 +228,7 @@ class Generator():
     extra_dir="",
     extra_name="",
     axis_text="",
+    synth_uncert_dps=None,
     ):
 
 
@@ -238,6 +271,7 @@ class Generator():
           synth_hist_uncert_squared += (synth_hist_uncert**2)
           synth_hist_total += synth_hist
 
+
       # Make sim hists
       for ind, file_name in enumerate(sim_dps.keys()):
         sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
@@ -246,6 +280,7 @@ class Generator():
           bins = bins,
           column = col,
         )
+
         sim_hists[f"{file_name} {sim_plot_name}"] = sim_hist
         sim_hist_uncerts[f"{file_name} {sim_plot_name}"] = sim_hist_uncert
 
@@ -256,20 +291,71 @@ class Generator():
           sim_hist_uncert_squared += (sim_hist_uncert**2)
           sim_hist_total += sim_hist
 
+      # Change synth hist uncertainties to asymmetric uncertainties
+      sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
+      synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)
+      synth_hist_uncert_up = np.sqrt(synth_hist_uncert_squared)
+      synth_hist_uncert_down = np.sqrt(synth_hist_uncert_squared)
+
+      # Make synth uncertainty hists
+      if synth_uncert_dps is not None:
+        if self.plot_styles != [1]:
+          print("Warning: Systematic uncertainties are only supported for plot style 1. Using plot style 1.")
+        # Make histograms
+        synth_extra_hist_uncerts = {}
+        total_nuisances = []
+        for ind, file_name in enumerate(synth_uncert_dps.keys()):
+          synth_extra_hist_uncerts[file_name] = {}
+          for nuisance, nuisance_values in synth_uncert_dps[file_name].items():
+            if nuisance not in total_nuisances: total_nuisances.append(nuisance)
+            synth_extra_hist_uncerts[file_name][nuisance] = {}
+            for nuisance_value, dp in nuisance_values.items():
+              synth_extra_hist_uncerts[file_name][nuisance][nuisance_value] = dp.GetFull(
+                method = "histogram_and_uncert",
+                functions_to_apply = functions_to_apply,
+                bins = bins,
+                column = col,
+              )[0]
+        # Get the totals
+        synth_extra_hist_uncerts_total = {}
+        for nuisance in total_nuisances:
+          synth_extra_hist_uncerts_total[nuisance] = {}
+          for nuisance_value in ["up", "down"]:
+            for file_name in synth_extra_hist_uncerts.keys():
+              if nuisance not in synth_extra_hist_uncerts[file_name].keys():
+                use_hist = synth_hists[f"{file_name}{synth_plot_name}"] 
+              else:
+                use_hist = synth_extra_hist_uncerts[file_name][nuisance][nuisance_value]
+              if nuisance_value not in synth_extra_hist_uncerts_total[nuisance].keys():
+                synth_extra_hist_uncerts_total[nuisance][nuisance_value] = copy.deepcopy(use_hist)
+              else:
+                synth_extra_hist_uncerts_total[nuisance][nuisance_value] += use_hist
+        # Get difference from the nominal
+        for nuisance in total_nuisances:
+          for nuisance_value in ["up", "down"]:
+            synth_extra_hist_uncerts_total[nuisance][nuisance_value] -= synth_hist_total
+        # Get the sum in quadrature
+        for nuisance in total_nuisances:
+          min_vals = np.minimum.reduce([synth_extra_hist_uncerts_total[nuisance]["up"], synth_extra_hist_uncerts_total[nuisance]["down"], np.zeros_like(synth_extra_hist_uncerts_total[nuisance]["up"])])
+          max_vals = np.maximum.reduce([synth_extra_hist_uncerts_total[nuisance]["up"], synth_extra_hist_uncerts_total[nuisance]["down"], np.zeros_like(synth_extra_hist_uncerts_total[nuisance]["up"])])
+          synth_hist_uncert_up = np.sqrt(synth_hist_uncert_squared + max_vals**2)
+          synth_hist_uncert_down = np.sqrt(synth_hist_uncert_squared + min_vals**2)
+
+
       if density:
         sum_sim_hist_total = np.sum(sim_hist_total)
         sum_synth_hist_total = np.sum(synth_hist_total)
         sim_hist_total /= sum_sim_hist_total
         sim_hists = {k : v/sum_sim_hist_total for k,v in sim_hists.items()}
-        sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)/sum_sim_hist_total
+        sim_hist_uncert = sim_hist_uncert/sum_sim_hist_total
         sim_hist_uncerts = {k : v/sum_sim_hist_total for k,v in sim_hist_uncerts.items()}
-        synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)/sum_synth_hist_total
+        synth_hist_uncert = synth_hist_uncert/sum_synth_hist_total
         synth_hists = {k : v/sum_synth_hist_total for k,v in synth_hists.items()}
-        synth_hist_uncerts = {k : v/sum_synth_hist_total for k,v in synth_hist_uncerts.items()}
-      else:
-        sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
-        synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)       
+        synth_hist_uncerts = {k : v/sum_synth_hist_total for k,v in synth_hist_uncerts.items()}    
 
+
+      if self.use_expected_data_uncertainty:
+        sim_hist_uncert = np.sqrt(sim_hist_total)
 
       if 1 in self.plot_styles:
         plot_stacked_histogram_with_ratio(
@@ -281,7 +367,11 @@ class Generator():
           ylabel="Events" if not density else "Density",
           name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_1", 
           data_errors=sim_hist_uncert, 
-          stack_hist_errors=synth_hist_uncert, 
+          stack_hist_errors=None,
+          stack_hist_errors_asym={
+            "up": synth_hist_uncert_up,
+            "down": synth_hist_uncert_down,
+          },
           use_stat_err=False,
           axis_text=axis_text,
           )

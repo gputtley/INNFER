@@ -482,6 +482,7 @@ def plot_stacked_histogram_with_ratio(
     name="fig", 
     data_errors=None, 
     stack_hist_errors=None, 
+    stack_hist_errors_asym=None,
     use_stat_err=False,
     axis_text="",
     top_space=1.2,
@@ -533,13 +534,14 @@ def plot_stacked_histogram_with_ratio(
   if data_hist is not None:
     if data_errors is None:
       data_errors = 0*data_hist
-  if stack_hist_errors is None:
+  if stack_hist_errors is None and stack_hist_errors_asym is None:
     stack_hist_errors = 0*total_stack_hist   
 
   if use_stat_err:
     if data_hist is not None:
       data_errors = np.sqrt(data_hist)
     stack_hist_errors = np.sqrt(total_stack_hist)
+    stack_hist_errors_asym = None
 
   # Plot the histograms on the top pad
   rgb_palette = sns.color_palette("Set2", 8)
@@ -575,7 +577,11 @@ def plot_stacked_histogram_with_ratio(
     ax1.set_ylim([0.0,top_space*max(total_stack_hist)])
 
 
-  ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+  if stack_hist_errors_asym is None:
+    ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+  else:
+    ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors_asym["down"],stack_hist_errors_asym["down"][-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors_asym["up"],stack_hist_errors_asym["up"][-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
+
 
   if data_hist is not None:
     # Plot the other histogram as markers with error bars
@@ -621,20 +627,32 @@ def plot_stacked_histogram_with_ratio(
       ratio = np.divide(data_hist,total_stack_hist)
       ratio_errors_2 = np.divide(data_errors,total_stack_hist)
 
-    ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
+    if stack_hist_errors_asym is None:
+      ratio_errors_1 = np.divide(stack_hist_errors,total_stack_hist)
+    else:
+      ratio_errors_1_up = np.divide(stack_hist_errors_asym["up"],total_stack_hist)
+      ratio_errors_1_down = np.divide(stack_hist_errors_asym["down"],total_stack_hist)
 
     for i in zero_indices:
       if data_hist is not None:
         ratio[i] = 0.0
         ratio_errors_2[i] = 0.0
-      ratio_errors_1[i] = 0.0
+      if stack_hist_errors_asym is None:
+        ratio_errors_1[i] = 0.0
+      else:
+        ratio_errors_1_up[i] = 0.0
+        ratio_errors_1_down[i] = 0.0
 
     if data_hist is not None:
       # Plot the ratio on the bottom pad
       ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
 
     ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
-    ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+    if stack_hist_errors_asym is None:
+      ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
+    else:
+      ax2.fill_between(bin_edges,1-np.append(ratio_errors_1_down,ratio_errors_1_down[-1]),1+np.append(ratio_errors_1_up,ratio_errors_1_up[-1]),color="gray",alpha=0.3,step='post')
+
     ax2.set_xlabel(xlabel)
     ax2.set_ylabel('Ratio')
     ax2.set_ylim([0.5,1.5])

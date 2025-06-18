@@ -52,6 +52,7 @@ class DataProcessor():
     self.resampling_seed = 1
     self.functions = []
     self.decimals = 16
+    self.check_wt = False
 
     # Transform options
     self.parameters = {}
@@ -192,6 +193,10 @@ class DataProcessor():
       else:
         df = f(df)
 
+    # Check weight exists
+    if self.wt_name not in list(df.columns) and self.check_wt:
+      self.wt_name = None
+
     # Select the columns
     if self.columns is not None:
       df = df.loc[:,[col for col in self.columns if col in df.columns]]
@@ -200,10 +205,7 @@ class DataProcessor():
 
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
-      
-    ## Fix any floating-point arithmetic error
-    #df = df.round(decimals=self.decimals)
-      
+            
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
       self.batch_ind = 0
