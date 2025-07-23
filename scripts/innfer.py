@@ -290,6 +290,7 @@ def main(args, default_args):
           "model_type" : model_info['type'],
           "file_name" : model_info['file_name'],
           "parameter" : model_info["parameter"],
+          "split" : model_info['split'],
           "verbose" : not args.quiet,
         },
         loop = {"model_name" : model_info['name']},

@@ -208,7 +208,7 @@ def plot_histograms_with_ratio(
     legend.get_frame().set_linewidth(0)  # Remove legend box border
     legend.get_frame().set_facecolor('none')  # Make legend background transparent
     legend.get_frame().set_edgecolor('none')  # Make legend edge transparent
-    max_label_length = 15  # Adjust the maximum length of each legend label
+    max_label_length = 20  # Adjust the maximum length of each legend label
     for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
 

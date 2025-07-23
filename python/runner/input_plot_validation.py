@@ -4,7 +4,7 @@ import numpy as np
 
 from data_processor import DataProcessor
 from plotting import plot_histograms
-from useful_functions import LoadConfig, GetDefaultsInModel
+from useful_functions import LoadConfig, GetDefaultsInModel, Translate
 
 class InputPlotValidation():
 
@@ -142,7 +142,7 @@ class InputPlotValidation():
             hist_names[col] = []
 
           hists[col].append(hist)
-          hist_names[col].append(", ".join([f"{k}={v}" for k, v in variation.items()]))
+          hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
 
 
       for col in X_columns:
@@ -154,7 +154,7 @@ class InputPlotValidation():
           hist_names[col],
           title_right = "",
           name = plot_name,
-          x_label = col,
+          x_label = Translate(col),
           y_label = "Density",
           anchor_y_at_0 = True,
           drawstyle = "steps-mid",

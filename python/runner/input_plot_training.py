@@ -2,7 +2,7 @@ import yaml
 
 from data_processor import DataProcessor
 from plotting import plot_histograms
-from useful_functions import GetParametersInModel, LoadConfig
+from useful_functions import GetParametersInModel, LoadConfig, Translate
 
 class InputPlotTraining():
 
@@ -19,6 +19,7 @@ class InputPlotTraining():
     # Other
     self.file_name = None
     self.parameter = None
+    self.split = None
     self.model_type = "density"
     self.verbose = True
     self.data_input = "data/"
@@ -57,7 +58,13 @@ class InputPlotTraining():
     # Run 1D plot of all variables
     if self.verbose:
       print("- Making 1D distributions")
-      self._Plot1D(specific_parameters, specific_parameters["X_columns"]+specific_parameters[f"{self.condition_target}_columns"], data_splits=["train","test"])
+
+    if self.split is None:
+      Y_cols = specific_parameters[f"{self.condition_target}_columns"]
+    else:
+      Y_cols = specific_parameters[f"split_Y_columns"][self.split]
+
+    self._Plot1D(specific_parameters, specific_parameters["X_columns"]+Y_cols, data_splits=["train","test"])
 
 
   def Outputs(self):
@@ -73,7 +80,10 @@ class InputPlotTraining():
     # Find columns
     columns = cfg["variables"]
     if self.model_type == "density":
-      columns += GetParametersInModel(self.file_name, cfg, only_density=True)
+      if self.split is None:
+        columns += GetParametersInModel(self.file_name, cfg, only_density=True)
+      else:
+        columns += cfg["models"][self.file_name]["density_models"][self.split]['parameters']
     elif self.model_type == "regression":
       columns += [self.parameter]
 
@@ -121,6 +131,7 @@ class InputPlotTraining():
   def _Plot1D(self, parameters, columns, n_bins=40, data_splits=["train","test"]):
 
     for data_split in data_splits:
+
       dp = DataProcessor(
         [[f"{self.data_input}/X_{data_split}.parquet", f"{self.data_input}/{self.condition_target}_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]], 
         "parquet",
@@ -130,6 +141,8 @@ class InputPlotTraining():
           "parameters" : parameters
         }
       )
+
+
       if dp.GetFull(method="count") == 0: continue
       for transform in [False, True]:
         functions_to_apply = []
@@ -138,9 +151,10 @@ class InputPlotTraining():
 
         for col in columns:
 
+
           bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
           bins = [(2*bins[0])-bins[1]] + list(bins) + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
-          
+
           hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
 
           extra_name_for_plot = f"{data_split}"
@@ -153,7 +167,7 @@ class InputPlotTraining():
             [None],
             title_right = "",
             name = plot_name,
-            x_label = col,
+            x_label = Translate(col),
             y_label = "Events",
             anchor_y_at_0 = True,
             drawstyle = "steps-mid",

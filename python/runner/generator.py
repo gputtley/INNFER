@@ -360,7 +360,7 @@ class Generator():
       if 1 in self.plot_styles:
         plot_stacked_histogram_with_ratio(
           sim_hist_total, 
-          synth_hists, 
+          {Translate(k):v for k,v in synth_hists.items()}, 
           bins, 
           data_name = sim_plot_name, 
           xlabel=Translate(col),
@@ -377,10 +377,11 @@ class Generator():
           )
 
       if 2 in self.plot_styles:
+
         plot_histograms_with_ratio(
           [[sim_hists[list(sim_hists.keys())[ind]], synth_hists[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
           [[sim_hist_uncerts[list(sim_hists.keys())[ind]], synth_hist_uncerts[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
-          [[list(sim_hists.keys())[ind], list(synth_hists.keys())[ind]] for ind in range(len(sim_hists.keys()))],
+          [[" ".join([Translate(i) for i in list(sim_hists.keys())[ind].split(" ")]), " ".join([Translate(i) for i in list(synth_hists.keys())[ind].split(" ")])] for ind in range(len(sim_hists.keys()))],
           bins,
           xlabel = Translate(col),
           ylabel="Events" if not density else "Density",

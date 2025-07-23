@@ -34,7 +34,12 @@ class LoadData():
     file_path = f"{self.data_output}/{file_name}.parquet"
     table = pa.Table.from_pandas(df, preserve_index=False)
     if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
+      existing_table = pq.read_table(file_path)
+      common_columns = list(set(existing_table.column_names) & set(table.column_names))
+      table = table.select(common_columns)
+      existing_table = existing_table.select(common_columns)
+      combined_table = pa.concat_tables([existing_table, table])
+      #combined_table = pa.concat_tables([pq.read_table(file_path), table])
       pq.write_table(combined_table, file_path, compression='snappy')
     else:
       pq.write_table(table, file_path, compression='snappy')
@@ -88,7 +93,12 @@ class LoadData():
         # Add extra columns
         if "add_columns" in file_info.keys():
           for extra_col_name, extra_col_value in file_info["add_columns"].items():
-            df.loc[:,extra_col_name] = extra_col_value[input_file_ind]
+            if isinstance(extra_col_value, list):
+              df.loc[:,extra_col_name] = extra_col_value[input_file_ind]
+            elif isinstance(extra_col_value, float) or isinstance(extra_col_value, int):
+              df.loc[:,extra_col_name] = extra_col_value
+            else:
+              raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
         """
         # Calculate weight
