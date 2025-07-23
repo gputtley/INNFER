@@ -140,7 +140,7 @@ class GeneratorSummary():
         names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
 
 
-      y_label = f"Ratio to {names[default_val_ind]}"
+      y_label = f"Ratio to Synthetic {names[default_val_ind]}"
       error_bar_names = [f"Simulated ({names[default_val_ind]})"] + [None]*(len(sim_hists.keys())-1)
 
       colours = ["black"] + list(sns.color_palette("Set2", len(list(sim_hists.keys()))-1))

@@ -528,8 +528,6 @@ def GetModelFileLoop(cfg, with_combined=False):
 def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None, specific_category=None):
 
   data_dir = str(os.getenv("DATA_DIR"))
-  plots_dir = str(os.getenv("PLOTS_DIR"))
-  models_dir = str(os.getenv("MODELS_DIR"))
 
   models = []
   for k, v in cfg["models"].items():
@@ -546,17 +544,35 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
           continue
 
       if not only_regression:
-        models.append(
-          {
-            "type" : "density",
-            "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density",
-            "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
-            "name" : f"density_{k}_{category}",
-            "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
-            "parameter" : None,
-            "file_name" : k,
-          }
-        )
+
+        if len(v["density_models"]) == 1:
+          models.append(
+            {
+              "type" : "density",
+              "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density",
+              "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+              "name" : f"density_{k}_{category}",
+              "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+              "parameter" : None,
+              "file_name" : k,
+              "split" : None,
+            }
+          )
+        else:
+          for ind, value in enumerate(v["density_models"]):
+            models.append(
+              {
+                "type" : "density",
+                "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density/split_{ind}",
+                "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+                "name" : f"density_{k}_split{ind}_{category}",
+                "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+                "parameter" : None,
+                "file_name" : k,
+                "split" : ind,
+              }
+            )
+
       for value in v["regression_models"]:
         if not only_density:
           models.append(
@@ -568,6 +584,7 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
               "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
               "parameter" : value['parameter'],
               "file_name" : k,
+              "split" : None,
             }
           )
 
