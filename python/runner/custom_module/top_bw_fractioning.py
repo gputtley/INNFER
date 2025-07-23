@@ -302,27 +302,38 @@ class top_bw_fractioning():
         density_loop += ["Extra"]
         regression_loop += ["Extra"]
 
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"]["ttbar"]["density_models"]) > 1:
+      split_density_model = True
+
+    if not split_density_model:
+      density_dir_loop = ["density"]
+    else:
+      density_dir_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"]["ttbar"]["density_models"]))]
+
     for data_split in ["train","test"]:
-      tmp_files = []
-      for k in density_loop:
-        outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/{k}_{data_split}.parquet"
-        tmp_files.append(outfile)
-        if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
-      if len(tmp_files) > 0:
-        files["density"].append(tmp_files)
-        shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/wt_{data_split}.parquet")
-        shift_columns["density"].append("wt")
+      for density_dir in density_dir_loop:
+        tmp_files = []
+        for k in density_loop:
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/{density_dir}/{k}_{data_split}.parquet"
+          tmp_files.append(outfile)
+          if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+        if len(tmp_files) > 0:
+          files["density"].append(tmp_files)
+          shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/{density_dir}/wt_{data_split}.parquet")
+          shift_columns["density"].append("wt")
 
       tmp_files = []
-      for k in regression_loop:
-        for value in cfg["models"]["ttbar"]["regression_models"]:
+      for value in cfg["models"]["ttbar"]["regression_models"]:
+        for k in regression_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
           if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
-      if len(tmp_files) > 0:
-        files["regression"].append(tmp_files)
-        shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
-        shift_columns["regression"].append("wt")
+        if len(tmp_files) > 0:
+          files["regression"].append(tmp_files)
+          shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
+          shift_columns["regression"].append("wt")
 
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, "ttbar"))):
@@ -339,7 +350,7 @@ class top_bw_fractioning():
     return files, shift_files, shift_columns
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, category):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func):
     """
     Plot the reweighting of the samples.
     Args:
@@ -439,7 +450,7 @@ class top_bw_fractioning():
         error_bar_names = error_bar_hist_names,
         drawstyle=drawstyles, 
         colors=colours, 
-        name=f"{self.plot_dir}/bw_reweighted_{col}_{category}", 
+        name=f"{self.plot_dir}/bw_reweighted_{col}", 
         x_label=col, 
         y_label="Density"
       )
@@ -508,6 +519,12 @@ class top_bw_fractioning():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
+    # Calculate optimal fractions
+    normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
+
+    # Plot reweighting
+    self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"])
+
     for category in GetCategoryLoop(cfg):
 
       # Open parameters
@@ -515,18 +532,12 @@ class top_bw_fractioning():
       with open(parameters_name, 'r') as yaml_file:
         parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-      # Calculate optimal fractions
-      normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
-
-      # Plot reweighting
-      self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], category)
-
       # Get files
       files, shift_files, shift_columns = self._GetFiles(cfg, category)
 
       for k in files.keys():
 
-        for ind, splits_per_file in enumerate(files[k]):
+        for ind, splits_per_file in enumerate(files[k]): # This is the bug
 
           # Use copies or make copies
           for file in splits_per_file:
@@ -588,7 +599,12 @@ class top_bw_fractioning():
         if "bw_mass" in model["parameters"]:
           do_density = True
       if do_density:
-        self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/", ["X","Y","wt","Extra"])
+        if len(cfg["models"]["ttbar"]["density_models"]) == 1:
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/", ["X","Y","wt","Extra"])
+        else:
+          for ind, model in enumerate(cfg["models"]["ttbar"]["density_models"]):
+            if "bw_mass" in model["parameters"]:
+              self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/density/split_{ind}", ["X","Y","wt","Extra"])
       for model in cfg["models"]["ttbar"]["regression_models"]:
         if model["parameter"] == "bw_mass":
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/ttbar/{category}/regression/bw_mass", ["X","y","wt","Extra"])
@@ -624,7 +640,7 @@ class top_bw_fractioning():
 
       # Add plots
       for col in self.plot_columns:
-        outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{category}.pdf"]
+        outputs += [f"{self.plot_dir}/bw_reweighted_{col}.pdf"]
 
     return outputs
 

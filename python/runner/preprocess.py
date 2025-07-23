@@ -62,6 +62,7 @@ class PreProcess():
     # Distribute the shifts
     tmp_copy = copy.deepcopy(df)
     first = True
+
     for _ in range(n_copies):
       tmp = copy.deepcopy(tmp_copy)
       for k, v in shifts.items():
@@ -131,10 +132,15 @@ class PreProcess():
       batch_size=self.batch_size,
     )
 
-    if extra_sel is not None:
+    if cfg["files"][base_file_name]["post_calculate_selection"] is not None and extra_sel is not None:
       post_calculate_selection = f'(({cfg["files"][base_file_name]["post_calculate_selection"]}) & ({extra_sel}))'
-    else:
+    elif cfg["files"][base_file_name]["post_calculate_selection"] is None and extra_sel is not None:
+      post_calculate_selection = extra_sel
+    elif extra_sel is None and cfg["files"][base_file_name]["post_calculate_selection"] is not None:
       post_calculate_selection = cfg["files"][base_file_name]["post_calculate_selection"]
+    else:
+      post_calculate_selection = None
+    
 
     # Get nominal
     yields["nominal"] = dp.GetFull(
@@ -206,7 +212,6 @@ class PreProcess():
               self._CalculateDatasetWithVariations, 
               shifts=down_shifts, 
               pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-              #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
               post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
@@ -510,11 +515,12 @@ class PreProcess():
 
   def _DoModelVariations(self, file_name, cfg):
 
-    # Split models
-    parameters_in_density_model = []
-    for v in cfg["models"][file_name]["density_models"]:
-      parameters_in_density_model = list(set(parameters_in_density_model + v["parameters"]))
-    density_split_model = {"X":cfg["variables"],"Y":parameters_in_density_model,"wt":["wt"]}
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+
+    density_split_model = {}
 
     # Get extra columns
     extra_cols = None
@@ -526,9 +532,16 @@ class PreProcess():
     # Delete files
     for data_split in ["train","test"]:
       for k in ["X","Y","wt","Extra"]:
-        outfile = f"{self.data_output}/density/{k}_{data_split}.parquet"
-        if os.path.isfile(outfile):
-          os.system(f"rm {outfile}")
+        if not split_density_model:
+          outfile = f"{self.data_output}/density/{k}_{data_split}.parquet"
+          if os.path.isfile(outfile):
+            os.system(f"rm {outfile}")
+        else:
+          for ind in range(len(cfg["models"][file_name]["density_models"])):
+            outfile = f"{self.data_output}/density/split_{ind}/{k}_{data_split}.parquet"
+            if os.path.isfile(outfile):
+              os.system(f"rm {outfile}")
+
         for k in ["X","y","wt","Extra"]:
           for value in cfg["models"][file_name]["regression_models"]:
             outfile = f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"
@@ -546,12 +559,18 @@ class PreProcess():
 
     # Loop through the train and test
     for data_split in ["train","test"]:
-      for value in cfg["models"][file_name]["density_models"]:
+      for ind, value in enumerate(cfg["models"][file_name]["density_models"]):
         value_copy = copy.deepcopy(value)
         for k, v in defaults.items():
           if k not in value["parameters"]:
             value_copy["shifts"][k] = {"type":"fixed","value":v}
-        self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", data_split, split_dict=density_split_model)
+        density_split_model_val = {"X":cfg["variables"],"Y":value["parameters"],"wt":["wt"]}
+        for k, v in density_split_model.items(): density_split_model_val[k] = v
+        if not split_density_model:
+          self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", data_split, split_dict=density_split_model_val)
+        else:
+          self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"density/split_{ind}", data_split, split_dict=density_split_model_val)
+
       for value in cfg["models"][file_name]["regression_models"]:
         value_copy = copy.deepcopy(value)
         for k, v in defaults.items():
@@ -569,11 +588,17 @@ class PreProcess():
         base_file_name = cfg["validation"]["files"][file_name]
         parameters_in_file = cfg["files"][base_file_name]["parameters"]
         shift_parameters = [k for k in val.keys() if k not in parameters_in_file]
+        shifts = {}
+        for k, v in defaults.items():
+          if k not in parameters_in_file:
+            shifts[k] = {"type":"fixed","value":v}
+        for k in shift_parameters:
+          shifts[k] = {"type":"fixed","value":val[k]}
         val_shift = {
           "parameters" : GetParametersInModel(file_name, cfg),
           "file" : base_file_name,
           "n_copies" : 1,
-          "shifts" : {k: {"type":"fixed","value":val[k]} for k in shift_parameters}
+          "shifts" : shifts
         }
         val_split_model = {"X":cfg["variables"], "Y":val_shift["parameters"], "wt":["wt"]}
         if extra_cols is not None:
@@ -798,23 +823,73 @@ class PreProcess():
 
     standardisation_parameters = {}
 
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+
     # density model
-    dp = DataProcessor(
-      [[f"{self.data_output}/density/X_train.parquet", f"{self.data_output}/density/Y_train.parquet", f"{self.data_output}/density/wt_train.parquet"]],
-      "parquet",
-      options = {
-        "wt_name" : "wt",
-      },
-      batch_size=self.batch_size,
-    )
-    density_means = dp.GetFull(method="mean")
-    density_stds = dp.GetFull(method="std")
-    standardisation_parameters["density"] = {}
-    for col in density_means.keys():
-      standardisation_parameters["density"][col] = {
-        "mean" : density_means[col],
-        "std" : density_stds[col],
-      }
+    if not split_density_model:
+
+      density_files = [[f"{self.data_output}/density/X_train.parquet", f"{self.data_output}/density/Y_train.parquet", f"{self.data_output}/density/wt_train.parquet"]]
+      dp = DataProcessor(
+        density_files,
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        },
+        batch_size=self.batch_size,
+      )
+      density_means = dp.GetFull(method="mean")
+      density_stds = dp.GetFull(method="std")
+      standardisation_parameters["density"] = {}
+      for col in density_means.keys():
+        standardisation_parameters["density"][col] = {
+          "mean" : density_means[col],
+          "std" : density_stds[col],
+        }
+
+    else:
+
+      # Get X standardisation parameters
+      density_files = [[f"{self.data_output}/density/split_{ind}/X_train.parquet", f"{self.data_output}/density/split_{ind}/wt_train.parquet"] for ind in range(len(cfg["models"][file_name]["density_models"]))]
+      dp = DataProcessor(
+        density_files,
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        },
+        batch_size=self.batch_size,
+      )
+      density_means = dp.GetFull(method="mean")
+      density_stds = dp.GetFull(method="std")
+      standardisation_parameters["density"] = {}
+      for col in cfg["variables"]:
+        standardisation_parameters["density"][col] = {
+          "mean" : density_means[col],
+          "std" : density_stds[col],
+        }
+
+      # Get Y standardisation parameters
+      for col in GetParametersInModel(file_name, cfg, only_density=True):
+        density_files = []
+        for ind, value in enumerate(cfg["models"][file_name]["density_models"]):
+          if col in value["parameters"]:
+            density_files.append([f"{self.data_output}/density/split_{ind}/Y_train.parquet", f"{self.data_output}/density/split_{ind}/wt_train.parquet"])
+        dp = DataProcessor(
+          density_files,
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+        density_means = dp.GetFull(method="mean")
+        density_stds = dp.GetFull(method="std")
+        standardisation_parameters["density"][col] = {
+          "mean" : density_means[col],
+          "std" : density_stds[col],
+        }
 
     # regression models
     standardisation_parameters["regression"] = {}
@@ -840,35 +915,48 @@ class PreProcess():
 
     return standardisation_parameters
 
+
   def _DoStandardisation(self, file_name, cfg, standardisation_parameters):
+
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+
+    if not split_density_model:
+      density_loop = ["density"]
+    else:
+      density_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][file_name]["density_models"]))]
 
     for data_split in ["train","test"]:
 
-      # density model
-      dp = DataProcessor(
-        [[f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet"]],
-        "parquet",
-        options = {
-          "parameters" : {"standardisation": standardisation_parameters["density"]},
-        },
-        batch_size=self.batch_size,
-      )
+      for ind, extra_dir in enumerate(density_loop):
 
-      dp.GetFull(
-        method=None,
-        functions_to_apply = [
-          "transform",
-          partial(
-            self._WriteSplitDataset, 
-            extra_dir="density", 
-            extra_name=f"{data_split}_standardised", 
-            split_dict={"X": cfg["variables"], "Y": [k for k in standardisation_parameters["density"].keys() if k not in cfg["variables"]]}
-          )
-        ]
-      )
+        # density model
+        dp = DataProcessor(
+          [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/Y_{data_split}.parquet"]],
+          "parquet",
+          options = {
+            "parameters" : {"standardisation": standardisation_parameters["density"]},
+          },
+          batch_size=self.batch_size,
+        )
 
-      for i in ["X","Y"]:
-        os.system(f"mv {self.data_output}/density/{i}_{data_split}_standardised.parquet {self.data_output}/density/{i}_{data_split}.parquet")
+        dp.GetFull(
+          method=None,
+          functions_to_apply = [
+            "transform",
+            partial(
+              self._WriteSplitDataset, 
+              extra_dir=f"{extra_dir}", 
+              extra_name=f"{data_split}_standardised", 
+              split_dict={"X": cfg["variables"], "Y": cfg["models"][file_name]["density_models"][ind]["parameters"]}
+            )
+          ]
+        )
+
+        for i in ["X","Y"]:
+          os.system(f"mv {self.data_output}/{extra_dir}/{i}_{data_split}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{data_split}.parquet")
 
 
       # regression models
@@ -903,15 +991,26 @@ class PreProcess():
 
   def _DoShuffle(self, file_name, cfg):
 
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+    if not split_density_model:
+      density_loop = ["density"]
+    else:
+      density_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][file_name]["density_models"]))]
+
     for data_split in ["train","test"]:
 
       # density model
-      self._DoShuffleDataset([f"{self.data_output}/density/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
+      for extra_dir in density_loop:
+        self._DoShuffleDataset([f"{self.data_output}/{extra_dir}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
 
       # regression models
       for value in cfg["models"][file_name]["regression_models"]:
         name = value["parameter"]
         self._DoShuffleDataset([f"{self.data_output}/regression/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
+
 
   def _DoShuffleDataset(self, files):
 
@@ -984,6 +1083,7 @@ class PreProcess():
       "eff_events":eff_events
     }
 
+
     parameters_file["density"]["file_loc"] = f"{self.data_output}/density"
     if "density" in standardisation.keys():
       parameters_file["density"]["standardisation"] = standardisation["density"]
@@ -992,6 +1092,10 @@ class PreProcess():
     for v in cfg["models"][file_name]["density_models"]:
       parameters_in_density_model = list(set(parameters_in_density_model + v["parameters"]))
     parameters_file["density"]["Y_columns"] = parameters_in_density_model
+
+    # check if we need to split density models
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      parameters_file["density"]["split_Y_columns"] = [params["parameters"] for params in cfg["models"][file_name]["density_models"]]
 
     for v in cfg["models"][file_name]["regression_models"]:
       name = v["parameter"]
@@ -1036,12 +1140,24 @@ class PreProcess():
     
     scale_func = partial(scale_down_by_func, func=yield_class.GetYield, defaults=defaults)
 
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+
     load_files = []
     edit_files = []
     for data_split in ["train","test"]:
+
       # density model
-      load_files.append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
-      edit_files.append(f"density/wt_{data_split}.parquet")
+      if not split_density_model:
+        load_files.append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
+        edit_files.append(f"density/wt_{data_split}.parquet")
+      else:
+        for ind in range(len(cfg["models"][file_name]["density_models"])):
+          load_files.append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
+          edit_files.append(f"density/split_{ind}/wt_{data_split}.parquet")
+
       # regression models
       for value in cfg["models"][file_name]["regression_models"]:
         name = value["parameter"]
@@ -1077,6 +1193,11 @@ class PreProcess():
     if len(cfg["preprocess"]["normalise_training_in"][file_name]) == 0:
       return None
 
+    # Check if we need to split density models
+    split_density_model = False
+    if len(cfg["models"][file_name]["density_models"]) > 1:
+      split_density_model = True
+
     load_files = {}
     edit_files = {}
     for data_split in ["train","test"]:
@@ -1084,8 +1205,14 @@ class PreProcess():
       edit_files[data_split] = []
 
       # density model
-      load_files[data_split].append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
-      edit_files[data_split].append(f"density/wt_{data_split}.parquet")
+      if not split_density_model:
+        load_files[data_split].append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
+        edit_files[data_split].append(f"density/wt_{data_split}.parquet")
+      else:
+        for ind in range(len(cfg["models"][file_name]["density_models"])):
+          load_files[data_split].append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
+          edit_files[data_split].append(f"density/split_{ind}/wt_{data_split}.parquet")
+
       # regression models
       for value in cfg["models"][file_name]["regression_models"]:
         name = value["parameter"]
@@ -1258,7 +1385,11 @@ class PreProcess():
 
       # Add density files
       for k in density_loop:
-        outputs += [f"{self.data_output}/density/{k}_{data_split}.parquet"]
+        if len(cfg["models"][self.file_name]["density_models"]) == 1:
+          outputs += [f"{self.data_output}/density/{k}_{data_split}.parquet"]
+        else:
+          for ind in range(len(cfg["models"][self.file_name]["density_models"])):
+            outputs += [f"{self.data_output}/density/split_{ind}/{k}_{data_split}.parquet"]
 
       # Add regression files
       for k in regression_loop:
