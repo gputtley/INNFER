@@ -25,6 +25,8 @@ class BayesianHyperparameterTuning():
     self.metric = ""
 
     self.file_name = None
+    self.file_loc = None
+    self.val_file_loc = None
     self.data_input = "data/"
     self.use_wandb = False
     self.wandb_project_name = "innfer"
@@ -214,7 +216,7 @@ class BayesianHyperparameterTuning():
         "parameters" : self.parameters,
         "architecture" : self.tune_architecture_name,
         "file_name" : self.file_name,
-        "data_input" : f"{self.data_input}/{self.file_name}/density",
+        "data_input" : self.file_loc,
         "data_output" : self.data_output,
         "no_plot" : True,
         "disable_tqdm" : self.disable_tqdm,
@@ -237,9 +239,10 @@ class BayesianHyperparameterTuning():
       {
         "cfg" : self.cfg,
         "file_name" : self.file_name,
+        "file_loc" : self.file_loc,
+        "val_file_loc" : self.val_file_loc,
         "parameters" : self.parameters,
         "model_input" : self.data_output,
-        "data_input" : self.data_input,
         "data_output" : self.data_output,
         "do_inference": "inference" in self.density_performance_metrics,
         "do_loss": "loss" in self.density_performance_metrics,
@@ -247,6 +250,9 @@ class BayesianHyperparameterTuning():
         "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
         "save_extra_name" : f"_{self.objective_ind}",
         "verbose" : self.verbose,     
+        "inference_datasets" : ["test_inf"],
+        "histogram_datasets" : ["test_inf"],
+        "multidimensional_datasets" : ["test_inf"],
       }
     )
 

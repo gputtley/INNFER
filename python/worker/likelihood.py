@@ -845,6 +845,7 @@ class Likelihood():
     # Run likelihood
     first = True
     for category in self.categories:
+
       if self.type == "unbinned":
         cat_val = self.LikelihoodUnbinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
       elif self.type == "unbinned_extended":
