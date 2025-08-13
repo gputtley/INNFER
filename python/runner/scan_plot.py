@@ -19,6 +19,7 @@ class ScanPlot():
     self.other_input = {}
     self.verbose = True
     self.extra_plot_name = ""
+    self.val_info = None
 
   def Configure(self, options):
     """
@@ -61,7 +62,7 @@ class ScanPlot():
       other_lklds[key] = [other_scan_results["scan_values"], other_scan_results["nlls"]]
 
     if row is not None:
-      plot_extra_name = GetYName(row, purpose="plot")
+      plot_extra_name = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
     else:
       plot_extra_name = ""
     
@@ -75,7 +76,7 @@ class ScanPlot():
       name = f"{self.plots_output}/likelihood_scan_{self.column}{self.extra_file_name}{self.extra_plot_name}", 
       xlabel = Translate(self.column), 
       true_value = row[ind] if row is not None else None,
-      under_result = f"Truth: y={plot_extra_name}" if plot_extra_name != "" else "",
+      under_result = f"Truth: {plot_extra_name}" if plot_extra_name != "" else "",
       cap_at = 9,
       label = None if len(list(other_lklds.keys())) == 0 else "Nominal",
       other_lklds=other_lklds,

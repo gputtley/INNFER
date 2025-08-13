@@ -150,15 +150,15 @@ def parse_args():
   if args.overwrite_regression_architecture != "":
     args.regression_architecture = OverwriteArchitecture(args.regression_architecture, args.overwrite_regression_architecture)
 
-  # Get extra input and output directory name
-  if args.extra_dir_name != "":
-    args.extra_input_dir_name = args.extra_dir_name
-    args.extra_output_dir_name = args.extra_dir_name
-
   return args, default_args
 
 
 def main(args, default_args):
+
+  # Get extra input and output directory name
+  if args.extra_dir_name != "":
+    args.extra_input_dir_name = args.extra_dir_name
+    args.extra_output_dir_name = args.extra_dir_name
 
   # Initiate module class
   module = Module(
@@ -685,7 +685,7 @@ def main(args, default_args):
             "file_name" : model_info["file_name"],
             "file_loc" : model_info['file_loc'],
             "val_file_loc" : model_info['val_file_loc'],
-            "best_model_output" : f"{models_dir}/{model_info['file_name']}{args.extra_density_model_name}",
+            "best_model_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
             "data_output" : f"{data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "use_wandb" : args.use_wandb,
             "wandb_project_name" : args.wandb_project_name,
@@ -772,9 +772,8 @@ def main(args, default_args):
             "file_name" : file_name,
             "val_inds" : args.val_inds,
             "verbose" : not args.quiet,
-            
           },
-          loop = {"file_name" : file_name},
+          loop = {"file_name" : file_name, "category" : category},
         )
 
 
@@ -1130,6 +1129,7 @@ def main(args, default_args):
                 "extra_file_name" : str(val_ind),
                 "other_input" : {other_input.split(':')[0] : f"{data_dir}/{file_name}/{other_input.split(':')[1]}" for other_input in args.other_input.split(",")} if args.other_input is not None else {},
                 "extra_plot_name" : args.extra_plot_name,
+                "val_info" : val_info,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},

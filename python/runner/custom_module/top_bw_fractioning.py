@@ -44,10 +44,10 @@ class top_bw_fractioning():
     # Apply the BW reweighting
 
     mask = df.loc[:,self.gen_mass] > 0
-    df.loc[mask,"wt"] *= self._BW(df.loc[mask,self.gen_mass]**2,l=l, m=m)/self._BW(df.loc[mask,self.gen_mass]**2,l=self._TopQuarkWidth(df.loc[mask,"mass"]), m=df.loc[mask,"mass"]) 
+    df.loc[mask,"wt"] *= self._BW(df.loc[mask,self.gen_mass]**2,l=l, m=m)/self._BW(df.loc[mask,self.gen_mass]**2,l=self._TopQuarkWidth(df.loc[mask,self.mass_name]), m=df.loc[mask,self.mass_name]) 
     if self.gen_mass_other is not None:
       mask = df.loc[:,self.gen_mass_other] > 0
-      df.loc[mask,"wt"] *= self._BW(df.loc[mask,self.gen_mass_other]**2,l=l, m=m)/self._BW(df.loc[mask,self.gen_mass_other]**2,l=self._TopQuarkWidth(df.loc[mask,"mass"]), m=df.loc[mask,"mass"])
+      df.loc[mask,"wt"] *= self._BW(df.loc[mask,self.gen_mass_other]**2,l=l, m=m)/self._BW(df.loc[mask,self.gen_mass_other]**2,l=self._TopQuarkWidth(df.loc[mask,self.mass_name]), m=df.loc[mask,self.mass_name])
     return df
 
 
@@ -59,7 +59,7 @@ class top_bw_fractioning():
         fractions (dict): The fractions to apply.
     """
     # Apply the fractions
-    df.loc[:,"wt"] *= df.loc[:,"mass"].map(fractions)
+    df.loc[:,"wt"] *= df.loc[:,self.mass_name].map(fractions)
     return df  
 
 
@@ -102,21 +102,21 @@ class top_bw_fractioning():
 
     # calculate weight
     def apply_wt(df, wt_func):
-      if "bw_mass" not in df.columns:
-        df.loc[:,"bw_mass"] = 172.5
+      if self.bw_mass_name not in df.columns:
+        df.loc[:,self.bw_mass_name] = 172.5
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
 
     # get unique Y and loop through
-    unique = dp.GetFull(method="unique")["mass"]
+    unique = dp.GetFull(method="unique")[self.mass_name]
 
     # get nominal sum of weights
     nominal_sum_wt = []
     for transformed_from in unique:
       nominal_sum_wt.append(dp.GetFull(
           method = "sum", 
-          extra_sel = f"mass=={transformed_from}", 
+          extra_sel = f"{self.mass_name}=={transformed_from}", 
           functions_to_apply = [
             apply_wt_partial,
           ]
@@ -136,7 +136,7 @@ class top_bw_fractioning():
 
         sum_wt[transformed_to][transformed_from] = dp.GetFull(
           method = "sum", 
-          extra_sel = f"mass=={transformed_from}", 
+          extra_sel = f"{self.mass_name}=={transformed_from}", 
           functions_to_apply = [
             apply_wt_partial,
             partial(self._ApplyBWReweight,m=transformed_to,l=self._TopQuarkWidth(transformed_to))
@@ -144,7 +144,7 @@ class top_bw_fractioning():
         )
         sum_wt_squared[transformed_to][transformed_from] = dp.GetFull(
           method = "sum_w2", 
-          extra_sel = f"mass=={transformed_from}", 
+          extra_sel = f"{self.mass_name}=={transformed_from}", 
           functions_to_apply = [
             apply_wt_partial,
             partial(self._ApplyBWReweight,m=transformed_to,l=self._TopQuarkWidth(transformed_to))
@@ -157,7 +157,6 @@ class top_bw_fractioning():
       fractions[transformed_to] = {}
       for transformed_from in unique:
         fractions[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from] / sum_wt_squared[transformed_to][transformed_from])
-
 
     # derive normalisation
     normalised_fractions = {}
@@ -219,11 +218,11 @@ class top_bw_fractioning():
       os.system(f"rm {wt_alt}")
 
     def ApplyFractions(df, fraction_splines={}, shift_column="wt"):
-      if "bw_mass" not in df.columns:
-        df.loc[:,"bw_mass"] = 172.5
+      if self.bw_mass_name not in df.columns:
+        df.loc[:,self.bw_mass_name] = 172.5
       for k, v in fraction_splines.items():
-        indices = (df.loc[:,"mass"]==k)
-        df.loc[indices,shift_column] *= v(df.loc[indices,"bw_mass"].to_numpy())
+        indices = (df.loc[:,self.mass_name]==k)
+        df.loc[indices,shift_column] *= v(df.loc[indices,self.bw_mass_name].to_numpy())
       return df.loc[:,[shift_column]]
 
     dp.GetFull(
@@ -254,7 +253,7 @@ class top_bw_fractioning():
         "wt_name" : "wt"
       }      
     )
-    hist, bins = dp.GetFull(method="histogram", column="bw_mass", bins=40, ignore_quantile=0.0)
+    hist, bins = dp.GetFull(method="histogram", column=self.bw_mass_name, bins=40, ignore_quantile=0.0)
     for data_split in ["train","test"]:
       wt_file = f"{file_loc}/wt_{data_split}.parquet"
       wt_flat_file = wt_file.replace(".parquet","_flattened.parquet")
@@ -267,10 +266,10 @@ class top_bw_fractioning():
         }      
       ) 
       def apply_flattening(df, hist, bins):
-        if "bw_mass" not in df.columns:
-          df.loc[:,"bw_mass"] = 172.5
+        if self.bw_mass_name not in df.columns:
+          df.loc[:,self.bw_mass_name] = 172.5
         for ind in range(len(hist)):
-          df.loc[((df.loc[:,"bw_mass"]>=bins[ind]) & (df.loc[:,"bw_mass"]<bins[ind+1])),"wt"] /= hist[ind]     
+          df.loc[((df.loc[:,self.bw_mass_name]>=bins[ind]) & (df.loc[:,self.bw_mass_name]<bins[ind+1])),"wt"] /= hist[ind]     
         return df.loc[:,["wt"]]
       apply_flattening_partial = partial(apply_flattening, hist=hist, bins=bins)
       if os.path.isfile(wt_flat_file): os.system(f"rm {wt_flat_file}")
@@ -376,8 +375,8 @@ class top_bw_fractioning():
 
     # calculate weight
     def apply_wt(df, wt_func):
-      if "bw_mass" not in df.columns:
-        df.loc[:,"bw_mass"] = 172.5
+      if self.bw_mass_name not in df.columns:
+        df.loc[:,self.bw_mass_name] = 172.5
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
@@ -403,13 +402,13 @@ class top_bw_fractioning():
         functions_to_apply = [apply_wt_partial]
       )
 
-      colour_list = sns.color_palette("Set2", len(unique["mass"]))
+      colour_list = sns.color_palette("Set2", len(unique[self.mass_name]))
 
-      for i, mass in enumerate(unique["mass"]):
+      for i, mass in enumerate(unique[self.mass_name]):
 
         var_hist, var_hist_uncert, _ = dp.GetFull(
           method="histogram_and_uncert", 
-          extra_sel=f"mass=={mass}",
+          extra_sel=f"{self.mass_name}=={mass}",
           bins=bins,
           column=col,
           functions_to_apply = [apply_wt_partial]
@@ -507,12 +506,16 @@ class top_bw_fractioning():
     self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
     self.gen_mass = "mass_had_top" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
-    self.gen_mass_other = None if "other_gen_mass" not in self.options else self.options["other_gen_mass"].strip()
+    self.gen_mass_other = None if "gen_mass_other" not in self.options else self.options["gen_mass_other"].strip()
     self.file_name = "ttbar" if "file_name" not in self.options else self.options["file_name"].strip()
+    self.mass_name = "mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
+    self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
 
     cfg = LoadConfig(self.cfg)
     self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
-    self.plot_columns = [self.gen_mass]
+    self.plot_columns = [self.gen_mass] + cfg["variables"]
+    if self.gen_mass_other is not None:
+      self.plot_columns.append(self.gen_mass_other)
     self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractioning/{self.file_name}"
 
 
@@ -584,8 +587,8 @@ class top_bw_fractioning():
           outfile = infile.replace('.parquet','_normalised.parquet')
           if os.path.isfile(outfile): os.system(f"rm {outfile}")
           def normalise(df, sum_wt):
-            if "bw_mass" not in df.columns:
-              df.loc[:,"bw_mass"] = 172.5
+            if self.bw_mass_name not in df.columns:
+              df.loc[:,self.bw_mass_name] = 172.5
             df.loc[:,"wt"] /= sum_wt
             return df.loc[:,["wt"]]
           dp.GetFull(
@@ -600,18 +603,18 @@ class top_bw_fractioning():
       # flatten training bw shapes
       do_density = False
       for model in cfg["models"][self.file_name]["density_models"]:
-        if "bw_mass" in model["parameters"]:
+        if self.bw_mass_name in model["parameters"]:
           do_density = True
       if do_density:
         if len(cfg["models"][self.file_name]["density_models"]) == 1:
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/", ["X","Y","wt","Extra"])
         else:
           for ind, model in enumerate(cfg["models"][self.file_name]["density_models"]):
-            if "bw_mass" in model["parameters"]:
+            if self.bw_mass_name in model["parameters"]:
               self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/split_{ind}", ["X","Y","wt","Extra"])
       for model in cfg["models"][self.file_name]["regression_models"]:
-        if model["parameter"] == "bw_mass":
-          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/bw_mass", ["X","y","wt","Extra"])
+        if model["parameter"] == self.bw_mass_name:
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{self.bw_mass_name}", ["X","y","wt","Extra"])
 
       # Change parameters
       if self.write:

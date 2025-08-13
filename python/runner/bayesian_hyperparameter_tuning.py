@@ -245,7 +245,7 @@ class BayesianHyperparameterTuning():
         "model_input" : self.data_output,
         "data_output" : self.data_output,
         "do_inference": "inference" in self.density_performance_metrics,
-        "do_loss": "loss" in self.density_performance_metrics,
+        "do_loss": True,
         "do_histogram_metrics": "histogram" in self.density_performance_metrics,
         "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
         "save_extra_name" : f"_{self.objective_ind}",

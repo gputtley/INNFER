@@ -1290,6 +1290,9 @@ class NLLAndGradient():
     elif method == "custom":     
       res = CustomMinimise(func, jac, initial_guess)
 
+    else:
+      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy_with_gradients', 'minuit', 'minuit_with_gradients' or 'custom'.")
+
     # Set minimisation_step
     self.minimisation_step = None
 

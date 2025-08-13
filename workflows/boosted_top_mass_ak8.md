@@ -7,7 +7,7 @@ python3 scripts/config_inputs.py -f "data/top_reco/230725/TT*.parquet" -ac "mass
 ```
 
 ```
-python3 scripts/config_inputs.py -f "data/top_reco/230725/W*.parquet,data/top_reco/170725/ST*.parquet,data/top_reco/170725/DY*.parquet" -ac "run,201,2" -ac "run,202,3"
+python3 scripts/config_inputs.py -f "data/top_reco/230725/W*.parquet,data/top_reco/230725/ST*.parquet,data/top_reco/230725/DY*.parquet" -ac "run,201,2" -ac "run,202,3"
 ```
 
 ## Set configuration file
