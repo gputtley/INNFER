@@ -515,8 +515,6 @@ class Infer():
 
   def _BuildBinYields(self):
 
-    import pandas as pd
-
     # Define bin_yields dictionary
     bin_yields = {}
 

@@ -39,7 +39,6 @@ class LoadData():
       table = table.select(common_columns)
       existing_table = existing_table.select(common_columns)
       combined_table = pa.concat_tables([existing_table, table])
-      #combined_table = pa.concat_tables([pq.read_table(file_path), table])
       pq.write_table(combined_table, file_path, compression='snappy')
     else:
       pq.write_table(table, file_path, compression='snappy')

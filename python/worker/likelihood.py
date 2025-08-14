@@ -845,6 +845,7 @@ class Likelihood():
     # Run likelihood
     first = True
     for category in self.categories:
+
       if self.type == "unbinned":
         cat_val = self.LikelihoodUnbinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
       elif self.type == "unbinned_extended":
@@ -1288,6 +1289,9 @@ class NLLAndGradient():
     # custom
     elif method == "custom":     
       res = CustomMinimise(func, jac, initial_guess)
+
+    else:
+      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy_with_gradients', 'minuit', 'minuit_with_gradients' or 'custom'.")
 
     # Set minimisation_step
     self.minimisation_step = None

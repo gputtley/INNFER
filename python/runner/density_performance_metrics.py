@@ -428,12 +428,13 @@ class DensityPerformanceMetrics():
       from likelihood import Likelihood
       lkld = Likelihood(
         {
-          "pdfs" : {self.open_parameters["file_name"] : self.network},
+          "pdfs" : {"inclusive":{self.open_parameters["file_name"] : self.network}},
         },
         likelihood_type = "unbinned",
         X_columns = self.open_parameters["density"]["X_columns"],
         Y_columns = params_in_model,
         Y_columns_per_model = {self.open_parameters["file_name"] : params_in_model},
+        categories = ["inclusive"]
       )
 
 
@@ -462,13 +463,13 @@ class DensityPerformanceMetrics():
         if dps.GetFull(method="count") == 0: continue
 
         # Do initial fit
-        lkld.GetBestFit([dps], pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}))
+        lkld.GetBestFit({"inclusive":[dps]}, pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}))
 
         # Get approximate uncertainty
         for col_index, col in enumerate(params_in_model):
           if self.verbose:
             print(f"  - Finding uncertainty estimates for {col}")
-          uncert = lkld.GetApproximateUncertainty([dps], col)
+          uncert = lkld.GetApproximateUncertainty({"inclusive":[dps]}, col)
           true_value = float(val_info[col])
           if true_value > lkld.best_fit[col_index]:
             self.metrics[f"inference_chi_squared_{data_type}_val_ind_{val_ind}_{col}"] = float(((true_value - lkld.best_fit[col_index])**2) / (uncert[1]**2))
@@ -546,6 +547,7 @@ class DensityPerformanceMetrics():
 
     # Add density model
     density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+    density_model_name = density_model_name.replace("//", "/")
     inputs += [f"{density_model_name}.h5"]
     inputs += [f"{density_model_name}_architecture.yaml"]
 

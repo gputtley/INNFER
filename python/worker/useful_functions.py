@@ -1,4 +1,5 @@
 import copy
+import importlib.util
 import os
 import pickle
 import re
@@ -9,6 +10,28 @@ import pandas as pd
 
 from itertools import product
 from functools import partial
+
+def BuildBinYields(params, rate_parameters, col):
+
+  # Define bin_yields dictionary
+  bin_yields = {}
+
+  # Loop through files
+  for cat, par in params.items():
+
+    bin_yields[cat] = {}
+    for file_name, v in par.items():
+
+      # Open data parameters
+      with open(v, 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Make binned inputs
+      rate_param = f"mu_{file_name}" if file_name in rate_parameters else None
+      bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=col, rate_param=rate_param)
+
+  return bin_yields
+
 
 def BuildBinnedCategories(var_input):
 
@@ -936,15 +959,24 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
 
 def LoadConfig(config_name):
 
-  with open(config_name, 'r') as yaml_file:
-    cfg_before = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  if ".yaml" in config_name:
+    with open(config_name, 'r') as yaml_file:
+      cfg_before = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    if "export_string" in cfg_before.keys():
+      for k,v in cfg_before["export_string"].items():
+        os.environ[k] = v
+    with open(config_name, 'r') as yaml_file:
+      content = os.path.expandvars(yaml_file.read())  # Replace ${VAR} with environment value
+      cfg = yaml.safe_load(content)
 
-  if "export_string" in cfg_before.keys():
-    for k,v in cfg_before["export_string"].items():
-      os.environ[k] = v
-  with open(config_name, 'r') as yaml_file:
-    content = os.path.expandvars(yaml_file.read())  # Replace ${VAR} with environment value
-    cfg = yaml.safe_load(content)
+  elif ".py" in config_name:
+    spec = importlib.util.spec_from_file_location("config", config_name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cfg = module.config
+
+  else:
+    raise ValueError("Config file must be a .yaml or .py file")
 
   # if missing set some defaults
   if "inference" not in cfg.keys():

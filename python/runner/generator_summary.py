@@ -19,7 +19,7 @@ class GeneratorSummary():
     self.val_loop = []
     self.data_input = []
     self.asimov_input = []
-    self.sim_type = "test"
+    self.sim_type = "test_inf"
     self.plots_output = "plots/"
     self.extra_plot_name = ""
     self.file_name = None
@@ -137,6 +137,7 @@ class GeneratorSummary():
           bins = bins,
           column = col,
         )
+
         names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
 
 

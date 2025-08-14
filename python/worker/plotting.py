@@ -330,7 +330,7 @@ def plot_likelihood(
     decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
     decimal_places = min(decimal_places_down,decimal_places_up)
 
-    text = f'Result: {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
+    text = f'{xlabel} = {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
     ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
 
   if under_result != "":

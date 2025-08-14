@@ -1,3 +1,4 @@
+mkdir -p tmp
 export TMPDIR="./tmp/"
 
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
@@ -21,6 +22,8 @@ if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   pip3 install tensorflow==2.15.1 wrapt==1.14.1 --no-deps
   pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
   conda activate miniconda/files/envs/innfer_env
+  chmod +x scripts/innfer.py
+  alias innfer="$PWD/scripts/innfer.py"
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
