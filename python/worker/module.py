@@ -315,12 +315,15 @@ class Module():
 
       # Make job name
       job_name = StringToFile(f"{self.job_name}{extra_name}")
-      if self.args.extra_input_dir_name != "":
-        job_name += f"_{self.args.extra_input_dir_name}"
-      if self.args.extra_output_dir_name != "":
-        job_name += f"_{self.args.extra_output_dir_name}"
+      if self.args.extra_dir_name != "":
+        job_name += f"_{self.args.extra_dir_name}"
+      else:
+        if self.args.extra_input_dir_name != "":
+          job_name += f"_{self.args.extra_input_dir_name}"
+        if self.args.extra_output_dir_name != "":
+          job_name += f"_{self.args.extra_output_dir_name}"
       if self.args.extra_plot_name != "":
-        job_name += f"_{self.args.extra_plot_name}"      
+        job_name += f"_{self.args.extra_plot_name}"
 
       # Submit job
       options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run}
@@ -334,15 +337,21 @@ class Module():
       job_name = StringToFile(f"{self.job_name}{extra_name}")
 
       rule_name = job_name.split('/')[-1].split('.sh')[0]
-      if self.args.extra_input_dir_name != "":
-        rule_name += f"_{self.args.extra_input_dir_name}"
-        job_name += f"_{self.args.extra_input_dir_name}"
-      if self.args.extra_output_dir_name != "":
-        rule_name += f"_{self.args.extra_output_dir_name}"
-        job_name += f"_{self.args.extra_output_dir_name}"
+      if self.args.extra_dir_name != "":
+        rule_name += f"_{self.args.extra_dir_name}"
+        job_name += f"_{self.args.extra_dir_name}"
+      else:
+        if self.args.extra_input_dir_name != "":
+          rule_name += f"_{self.args.extra_input_dir_name}"
+          job_name += f"_{self.args.extra_input_dir_name}"
+        if self.args.extra_output_dir_name != "":
+          rule_name += f"_{self.args.extra_output_dir_name}"
+          job_name += f"_{self.args.extra_output_dir_name}"
       if self.args.extra_plot_name != "":
         rule_name += f"_{self.args.extra_plot_name}"
         job_name += f"_{self.args.extra_plot_name}"
+
+      print(rule_name, job_name, self.args.extra_input_dir_name, self.args.extra_output_dir_name, self.args.extra_plot_name)
 
       job_name += ".sh"
       b = Batch(options={"job_name":job_name})

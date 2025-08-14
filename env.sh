@@ -32,3 +32,4 @@ export PLOTS_DIR="plots"
 ulimit -s unlimited
 source miniconda/files/etc/profile.d/conda.sh
 conda activate miniconda/files/envs/innfer_env
+alias innfer="$PWD/scripts/innfer.py"
