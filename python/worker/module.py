@@ -351,8 +351,6 @@ class Module():
         rule_name += f"_{self.args.extra_plot_name}"
         job_name += f"_{self.args.extra_plot_name}"
 
-      print(rule_name, job_name, self.args.extra_input_dir_name, self.args.extra_output_dir_name, self.args.extra_plot_name)
-
       job_name += ".sh"
       b = Batch(options={"job_name":job_name})
       b._CreateBatchJob(self.cmd_store)

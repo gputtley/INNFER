@@ -254,8 +254,10 @@ def main(args, default_args):
         module_name = "data_categories",
         class_name = "DataCategories",
         config = {
+          "selection" : cfg["data_selection"],
           "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
           "data_input" : cfg["data_file"],
+          "add_columns" : cfg["data_add_columns"],
           "data_output" : f"{data_dir}/DataCategories/{category}",
           "verbose" : not args.quiet,
         },
@@ -848,7 +850,7 @@ def main(args, default_args):
 
 
   # Get the Hessian matrix
-  if args.step == "Hessian":
+  if args.step == "Hessian" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
     print(f"<< Calculating the Hessian matrix >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
@@ -926,7 +928,7 @@ def main(args, default_args):
 
 
   # Get the Hessian matrix numerically
-  if args.step == "HessianNumerical":
+  if (args.step == "HessianNumerical") or ((args.step == "Hessian") and (args.likelihood_type in ["binned", "binned_extended"])):
     print(f"<< Calculating the Hessian matrix numerically >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
@@ -1139,76 +1141,78 @@ def main(args, default_args):
   # Make the postfit asimov datasets
   if args.step == "MakePostFitAsimov":
     print(f"<< Making the postfit asimov datasets >>")
-    for file_name in GetModelFileLoop(cfg):
-      bf_file_name = "combined" if args.data_type == "data" else file_name
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
-        best_fit = GetBestFitFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
-        for category in GetCategoryLoop(cfg):
-          module.Run(
-            module_name = "make_asimov",
-            class_name = "MakeAsimov",
-            config = {
-              "cfg" : args.cfg,
-              "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
-              "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-              "regression_spline_input" : f"{data_dir}/EvaluateRegression",
-              "model_input" : f"{models_dir}",
-              "extra_density_model_name" : args.extra_density_model_name,
-              "extra_regression_model_name" : args.extra_regression_model_name,
-              "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
-              "data_output" : f"{data_dir}/MakePostFitAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}",
-              "n_asimov_events" : args.number_of_asimov_events,
-              "seed" : args.asimov_seed,
-              "val_info" : best_fit,
-              "val_ind" : val_ind,
-              "only_density" : args.only_density,
-              "file_name" : file_name,
-              "use_asimov_scaling" : args.use_asimov_scaling,
-              "verbose" : not args.quiet,
-            },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
-          )
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      asimov_file_names = [file_name] if file_name != "combined" else GetModelFileLoop(cfg)
+      for asimov_file_name in asimov_file_names:
+        for val_ind, val_info in enumerate(GetValidationLoop(cfg, asimov_file_name)):
+          if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
+          if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
+          best_fit = GetBestFitFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
+          for category in GetCategoryLoop(cfg):
+            module.Run(
+              module_name = "make_asimov",
+              class_name = "MakeAsimov",
+              config = {
+                "cfg" : args.cfg,
+                "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
+                "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
+                "regression_spline_input" : f"{data_dir}/EvaluateRegression",
+                "model_input" : f"{models_dir}",
+                "extra_density_model_name" : args.extra_density_model_name,
+                "extra_regression_model_name" : args.extra_regression_model_name,
+                "parameters" : f"{data_dir}/PreProcess/{asimov_file_name}/{category}/parameters.yaml",
+                "data_output" : f"{data_dir}/MakePostFitAsimov{args.extra_output_dir_name}/{file_name}/{asimov_file_name}/{category}/val_ind_{val_ind}",
+                "n_asimov_events" : args.number_of_asimov_events,
+                "seed" : args.asimov_seed,
+                "val_info" : best_fit,
+                "val_ind" : val_ind,
+                "only_density" : args.only_density,
+                "file_name" : asimov_file_name,
+                "use_asimov_scaling" : args.use_asimov_scaling,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category},
+            )
 
 
   # Make asimov datasets for uncertainty bands for postfit plots
   if args.step == "MakePostFitUncertaintyAsimov":
     print(f"<< Making the postfit asimov datasets for the uncertainty bands >>")
     for file_name in GetModelFileLoop(cfg):
-      bf_file_name = "combined" if args.data_type == "data" else file_name
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
-        for category in GetCategoryLoop(cfg):
-          for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
-            for nuisance_value in ["up","down"]:
-              summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-              val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{bf_file_name}/best_fit_{val_ind}.yaml", f"{data_dir}/{args.summary_from}{args.extra_input_dir_name}/{bf_file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
-              module.Run(
-                module_name = "make_asimov",
-                class_name = "MakeAsimov",
-                config = {
-                  "cfg" : args.cfg,
-                  "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
-                  "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-                  "regression_spline_input" : f"{data_dir}/EvaluateRegression",
-                  "model_input" : f"{models_dir}",
-                  "extra_density_model_name" : args.extra_density_model_name,
-                  "extra_regression_model_name" : args.extra_regression_model_name,
-                  "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
-                  "data_output" : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}",
-                  "n_asimov_events" : args.number_of_asimov_events,
-                  "seed" : args.asimov_seed,
-                  "val_info" : val_info,
-                  "val_ind" : val_ind,
-                  "only_density" : args.only_density,
-                  "file_name" : file_name,
-                  "use_asimov_scaling" : args.use_asimov_scaling,
-                  "verbose" : not args.quiet,
-                },
-                loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
-              )
+      asimov_file_names = [file_name] if file_name != "combined" else GetModelFileLoop(cfg)
+      for asimov_file_name in asimov_file_names:
+        for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+          if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
+          if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
+          for category in GetCategoryLoop(cfg):
+            for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
+              for nuisance_value in ["up","down"]:
+                summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
+                val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{data_dir}/{args.summary_from}{args.extra_input_dir_name}/{bf_file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
+                module.Run(
+                  module_name = "make_asimov",
+                  class_name = "MakeAsimov",
+                  config = {
+                    "cfg" : args.cfg,
+                    "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
+                    "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
+                    "regression_spline_input" : f"{data_dir}/EvaluateRegression",
+                    "model_input" : f"{models_dir}",
+                    "extra_density_model_name" : args.extra_density_model_name,
+                    "extra_regression_model_name" : args.extra_regression_model_name,
+                    "parameters" : f"{data_dir}/PreProcess/{asimov_file_name}/{category}/parameters.yaml",
+                    "data_output" : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_output_dir_name}/{file_name}/{asimov_file_name}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}",
+                    "n_asimov_events" : args.number_of_asimov_events,
+                    "seed" : args.asimov_seed,
+                    "val_info" : val_info,
+                    "val_ind" : val_ind,
+                    "only_density" : args.only_density,
+                    "file_name" : asimov_file_name,
+                    "use_asimov_scaling" : args.use_asimov_scaling,
+                    "verbose" : not args.quiet,
+                  },
+                  loop = {"file_name" : file_name, "asimov_file_name" : asimov_file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
+                )
   
 
   # Making plots using the network as a generator for individual Y values
@@ -1226,14 +1230,14 @@ def main(args, default_args):
               config = {
                 "cfg" : args.cfg,
                 "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
-                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}")[category],
+                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}/{file_name}")[category],
                 "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "do_2d_unrolled" : args.plot_2d_unrolled,
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
                 "sim_type" : args.sim_type,
                 "val_info" : {},
                 "plot_styles" : [1],
-                "data_label" : "Data" if args.data_type == "data" else "Simulated",
+                "data_label" : {"Data":"data", "Simulated":"sim", "Asimov":"asimov"}[args.data_type],
                 "stack_label" : "",
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
                 "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},

@@ -3,18 +3,11 @@ import os
 import textwrap
 
 import matplotlib.colors as mcolors
-import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import mplhep as hep
 import numpy as np
-import pandas as pd
 import seaborn as sns
-
-from matplotlib import gridspec
-from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.lines import Line2D
-import matplotlib.patches as mpatches
 
 from useful_functions import MakeDirectories, RoundToSF
 
@@ -524,6 +517,8 @@ def plot_stacked_histogram_with_ratio(
 
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
 
+  stack_hist_dict = {k: stack_hist_dict[k] for k in reversed(list(stack_hist_dict.keys()))}
+
   if data_hist is not None:
     data_hist = data_hist.astype(np.float64)
   for k, v in stack_hist_dict.items():
@@ -548,8 +543,10 @@ def plot_stacked_histogram_with_ratio(
   for ind, (k, v) in enumerate(stack_hist_dict.items()):
     if ind == 0:
       bottom = None
+    elif bottom is None:
+      bottom = copy.deepcopy(stack_hist_dict[list(stack_hist_dict.keys())[ind-1]])
     else:
-      bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
+      bottom += copy.deepcopy(stack_hist_dict[list(stack_hist_dict.keys())[ind-1]])
 
     ax1.bar(
        bin_edges[:-1], 
@@ -576,12 +573,10 @@ def plot_stacked_histogram_with_ratio(
   else:
     ax1.set_ylim([0.0,top_space*max(total_stack_hist)])
 
-
   if stack_hist_errors_asym is None:
     ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
   else:
     ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors_asym["down"],stack_hist_errors_asym["down"][-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors_asym["up"],stack_hist_errors_asym["up"][-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
-
 
   if data_hist is not None:
     # Plot the other histogram as markers with error bars
@@ -743,7 +738,8 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
 
   # combine stack_hists
   stack_hist_dict = {}
-  for k, v in stack_hists_dict.items():
+  for k in list(stack_hists_dict.keys())[::-1]:
+    v = stack_hists_dict[k]
     for ind, hist in enumerate(v):
       if ind == 0:
         stack_hist_dict[k] = copy.deepcopy(hist)

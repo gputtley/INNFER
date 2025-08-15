@@ -116,6 +116,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
           with open(f"{data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if v not in parameters["validation_binned_fit"]["full"]:
+            continue
           if first:
             binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
             first = False
@@ -979,6 +981,12 @@ def LoadConfig(config_name):
     raise ValueError("Config file must be a .yaml or .py file")
 
   # if missing set some defaults
+  if "data_file" not in cfg.keys():
+    cfg["data_file"] = None
+  if "data_add_columns" not in cfg.keys():
+    cfg["data_add_columns"] = {}
+  if "data_selection" not in cfg.keys():
+    cfg["data_selection"] = None
   if "inference" not in cfg.keys():
     cfg["inference"] = {}
   if "rate_parameters" not in cfg["inference"].keys():

@@ -684,7 +684,10 @@ class PreProcess():
     # Check if binned fit is needed
     if "binned_fit" not in cfg["inference"].keys():
       return None
-    
+
+    if cfg["inference"]["binned_fit"] == {}:
+      return None
+
     # Check that there are not too many shape POIs
     if len(cfg["pois"]) > 1:
       raise ValueError("Binned fits are not setup to work for more the one shape POI.")
@@ -750,6 +753,8 @@ class PreProcess():
 
     # Check if binned fit is needed
     if "binned_fit" not in cfg["inference"].keys():
+      return None
+    if cfg["inference"]["binned_fit"] == {}:
       return None
 
     self.validation_binned = {}

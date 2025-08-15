@@ -47,7 +47,7 @@ innfer --step="PreProcess" --cfg="${cfg}"
 Finally, in order to optimally fraction the breit-wigner reweighting (specific to tops), you can run the custom module for this.
 
 ```
-innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractioning" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass"
+innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractioning" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass"
 ```
 
 ### Visualising datasets
@@ -69,7 +69,7 @@ The next step is to train the density network. Here we use a BayesFlow density m
 innfer --step="TrainDensity" --cfg="${cfg}" --density-architecture="density_default.yaml"
 ```
 
-In this case, we are using regression models for weight variations. This training can be performed with a similar command.
+In the case where we are using regression models for weight variations. This training can be performed with a similar command.
 
 ```
 innfer --step="TrainRegression" --cfg="${cfg}" --density-architecture="regression_default.yaml"
