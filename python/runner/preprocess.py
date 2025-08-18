@@ -85,6 +85,7 @@ class PreProcess():
     # Apply post selection
     if post_calculate_selection is not None:
       df = df.loc[df.eval(post_calculate_selection),:]
+
     if self.extra_selection is not None:
       df = df.loc[df.eval(self.extra_selection),:]
 
@@ -186,7 +187,6 @@ class PreProcess():
         else:
           up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
           down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
-
 
         up_yield = dp.GetFull(
           method="sum",
