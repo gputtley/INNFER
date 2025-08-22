@@ -12,8 +12,6 @@ import seaborn as sns
 from useful_functions import MakeDirectories, RoundToSF
 
 hep.style.use("CMS")
-cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
-lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
 def plot_histograms(
     bins,
@@ -55,6 +53,9 @@ def plot_histograms(
       If True, moves the legend to a separate subplot on the right.
   """
   
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   # Create figure with two subplots if legend_right is True
   if legend_right:
       fig, (ax, ax_leg) = plt.subplots(ncols=2, gridspec_kw={"width_ratios": [3, 1]}, figsize=(12, 8))
@@ -160,9 +161,16 @@ def plot_histograms_with_ratio(
   axis_text = None,
 ):
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
 
   hep.cms.text(cms_label,ax=ax[0])
+
+  ax[0].text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax[0].transAxes)
 
   rgb_palette = sns.color_palette("Set2", 8)
 
@@ -291,6 +299,9 @@ def plot_likelihood(
       Label for the likelihood curve.
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   if cap_at != None:
     sel_inds = []
     x_plot = []
@@ -373,6 +384,9 @@ def  plot_many_comparisons(
   ylabel="Events",
   name="generation_non_stack",       
 ):
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   n_models = len(sim_hists.keys())
   fig, ax= plt.subplots(n_models+1, 1, sharex=True, gridspec_kw={'height_ratios': [3]*n_models+[2]})
@@ -465,6 +479,9 @@ def plot_spline_and_thresholds(
       Name of the output file (without extension) where the plot will be saved. Defaults to "spline_and_thresholds".
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
 
@@ -533,6 +550,9 @@ def plot_stacked_histogram_with_ratio(
   axis_text : str, optional
       Text to be displayed on the top left corner of the plot (default is '').
   """
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   if draw_ratio:
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
@@ -734,6 +754,9 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   axis_text : str, optional
       Text to be displayed on the bottom left corner of the plot (default is '').
   """
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
 
@@ -976,6 +999,9 @@ def plot_summary(
       Other summaries to plot (default is {}).
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   if nominal_name != "":
     nominal_name += " "
 
@@ -1173,6 +1199,7 @@ def plot_summary(
   plt.savefig(name+".pdf")
   plt.close()
 
+
 def plot_summary_per_val(
   results_with_constraints,
   results_without_constraints,
@@ -1199,6 +1226,9 @@ def plot_summary_per_val(
   plot_name : str, optional
       Name of the output plot file (default is "/summary_per_val.pdf").
   """
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   # Calculate the number of pads
   n_pads = 1 # legend
   n_pads += len(results_without_constraints.keys())  # results without constraints

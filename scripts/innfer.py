@@ -30,6 +30,7 @@ from useful_functions import (
     OverwriteArchitecture,
     SetupSnakeMakeFile,
     SkipNonData,
+    SkipNonDefault,
     SkipNonDensity,
 )
 
@@ -98,6 +99,7 @@ def parse_args():
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
+  parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix'])
@@ -810,6 +812,7 @@ def main(args, default_args):
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for category in GetCategoryLoop(cfg):
           module.Run(
             module_name = "generator",
@@ -865,6 +868,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         module.Run(
           module_name = "infer",
           class_name = "Infer",
@@ -886,6 +890,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -909,6 +914,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
@@ -935,6 +941,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -959,6 +966,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           columns = [col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()]
           for column_1_ind, column_1 in enumerate(columns):
@@ -989,6 +997,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -1013,6 +1022,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -1037,6 +1047,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -1061,6 +1072,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -1085,6 +1097,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
           module.Run(
             module_name = "infer",
@@ -1110,6 +1123,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
@@ -1140,6 +1154,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             for scan_ind in range(args.number_of_scan_points):
@@ -1174,6 +1189,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
@@ -1198,6 +1214,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
           for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
             module.Run(
@@ -1226,6 +1243,7 @@ def main(args, default_args):
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, asimov_file_name)):
           if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
           if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
+          if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
           best_fit = GetBestFitFromYaml(f"{data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
           for category in GetCategoryLoop(cfg):
             module.Run(
@@ -1263,6 +1281,7 @@ def main(args, default_args):
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
           if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
           if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
+          if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
           for category in GetCategoryLoop(cfg):
             for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
               for nuisance_value in ["up","down"]:
@@ -1301,6 +1320,7 @@ def main(args, default_args):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for category in GetCategoryLoop(cfg):
           if args.likelihood_type in ["unbinned", "unbinned_extended"]:
             module.Run(

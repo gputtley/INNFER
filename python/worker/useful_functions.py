@@ -819,8 +819,28 @@ def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
 
   return True
 
-  
+
+def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False):
+
+  if not specific_combined_default_val:
+    return False
+
+  if file_name != "combined":
+    return True
+
+  defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
+  default = True
+  for k,v in val_info.items():
+    if k in defaults.keys():
+      if v != defaults[k]:
+        default = False
+        break
+
+  return not default
+
+
 def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
+
   if not skip_non_density:
     return False
   if file_name == "combined":
@@ -1425,7 +1445,7 @@ def StringToFile(string):
   return string
 
 
-def Translate(key, translation_file="configs/translate/translate.yaml"):
+def Translate(key, translation_file="configs/other/translate.yaml"):
   val = GetDictionaryEntryFromYaml(translation_file, [key])
   if val is not None:
     return val

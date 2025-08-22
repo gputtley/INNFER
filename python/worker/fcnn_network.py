@@ -497,7 +497,10 @@ class FCNNNetwork():
       if self.task == "regression":
         preds += [pd.DataFrame({param_name : pred.numpy()})]
       elif self.task == "classification":
-        preds += [pd.DataFrame({f"{param_name}_{ind}" : pred.numpy()[:,ind] for ind in range(pred.shape[1])})]
+        if prob_ind is not None:
+          preds += [pd.DataFrame({f"{param_name}_{prob_ind}" : pred.numpy()})]
+        else:
+          preds += [pd.DataFrame({f"{param_name}_{ind}" : pred.numpy()[:,ind] for ind in range(pred.shape[1])})]
 
     elif order == 1 or order == [1] or order == [0,1]:
 
@@ -505,8 +508,9 @@ class FCNNNetwork():
       with tf.GradientTape(persistent=True) as tape:
         tape.watch(X)
         pred = self._GraphPredictTotal(X)
-        if prob_ind is not None:
-          pred = pred[:, prob_ind]
+        if prob_ind is None:
+          raise ValueError("You must specify a probability index for gradients with classification tasks.")
+        pred = pred[:, prob_ind]
 
       if len(indices_1) == 0:
         first_derivative = tf.zeros((len(X), 1), dtype=tf.float32)
@@ -535,8 +539,9 @@ class FCNNNetwork():
         with tf.GradientTape() as tape_1:
           tape_1.watch(X)
           pred = self._GraphPredictTotal(X)
-          if prob_ind is not None:
-            pred = pred[:, prob_ind]
+          if prob_ind is None:
+            raise ValueError("You must specify a probability index for gradients with classification tasks.")
+          pred = pred[:, prob_ind]
         if len(indices_1) == 0 or len(indices_2) == 0:
           first_derivative = tf.zeros((len(X), 1), dtype=tf.float32)
         else:
