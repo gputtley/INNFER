@@ -39,6 +39,7 @@ def parse_args():
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--cfg', help='Config for running', default=None)
+  parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--custom-module', help='Name of custom module', default=None)
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
@@ -51,10 +52,11 @@ def parse_args():
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
   parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
   parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
+  parser.add_argument('--extra-classifier-model-name', help='Add extra name to classifier model name', type=str, default='')
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
-  parser.add_argument('--hyperparameter-metric', help='Colon separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
+  parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
   parser.add_argument('--include-per-model-rate', help='Include the rate parameters in the non-combined likelihood.', action='store_true')
   parser.add_argument('--include-postfit-uncertainty', help='Include the postfit uncertainties in the postfit plots.', action='store_true')
@@ -75,6 +77,7 @@ def parse_args():
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--overwrite-classifier-architecture', help='Comma separated list of key=values to overwrite classifier architecture parameters', type=str, default='')
   parser.add_argument('--overwrite-density-architecture', help='Comma separated list of key=values to overwrite density architecture parameters', type=str, default='')
   parser.add_argument('--overwrite-regression-architecture', help='Comma separated list of key=values to overwrite regression architecture parameters', type=str, default='')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
@@ -145,6 +148,8 @@ def parse_args():
       print("WARNING: Make sure you run SetupDensityFromBenchmark before running the other steps when using density_architecture=Benchmark.")
 
   # Overwrite architecture
+  if args.overwrite_classifier_architecture != "":
+    args.classifier_architecture = OverwriteArchitecture(args.classifier_architecture, args.overwrite_classifier_architecture)
   if args.overwrite_density_architecture != "":
     args.density_architecture = OverwriteArchitecture(args.density_architecture, args.overwrite_density_architecture)
   if args.overwrite_regression_architecture != "":
@@ -402,7 +407,7 @@ def main(args, default_args):
         class_name = "EvaluateRegression",
         config = {
           "data_input" : model_info['file_loc'],
-          "plots_output" : f"{plots_dir}/EvaluateRegression/{model_info['file_name']}{args.extra_regression_model_name}",
+          "plots_output" : f"{plots_dir}/EvaluateRegression/{model_info['name']}{args.extra_regression_model_name}",
           "model_input" : f"{models_dir}",
           "model_name" : f"{model_info['name']}{args.extra_regression_model_name}",
           "file_name" : model_info["file_name"],
@@ -436,6 +441,77 @@ def main(args, default_args):
       )
 
 
+  # Train the classifier models
+  if args.step == "TrainClassifier":
+    print("<< Training the classifier networks >>")
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      module.Run(
+        module_name = "train_classifier",
+        class_name = "TrainClassifier",
+        config = {
+          "parameters" : model_info["parameters"],
+          "architecture" : args.classifier_architecture,
+          "file_name" : model_info["file_name"],
+          "data_input" : model_info['file_loc'],
+          "parameter" : model_info["parameter"],
+          "data_output" : f"{models_dir}/{model_info['name']}{args.extra_classifier_model_name}",
+          "plots_output" : f"{plots_dir}/TrainClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "disable_tqdm" : args.disable_tqdm,
+          "use_wandb" : args.use_wandb,
+          "initiate_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
+          "save_model_per_epoch" : args.save_model_per_epoch,
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
+  # Evaluate the classifier models
+  if args.step == "EvaluateClassifier":
+    print("<< Evaluating the classifier networks >>")
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      module.Run(
+        module_name = "evaluate_classifier",
+        class_name = "EvaluateClassifier",
+        config = {
+          "data_input" : model_info['file_loc'],
+          "plots_output" : f"{plots_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "model_input" : f"{models_dir}",
+          "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
+          "file_name" : model_info["file_name"],
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "data_output" : f"{data_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
+  # Plot the classifier models
+  if args.step == "PlotClassifier":
+    print("<< Plotting the classifier distributions >>")
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      module.Run(
+        module_name = "plot_classifier",
+        class_name = "PlotClassifier",
+        config = {
+          "cfg" : args.cfg,
+          "data_input" : model_info['file_loc'],
+          "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
+          "model_input" : f"{models_dir}",
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "evaluate_input" : f"{data_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "plots_output" : f"{plots_dir}/PlotClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
   # Make the asimov datasets
   if args.step == "MakeAsimov":
     print(f"<< Making the asimov datasets >>")
@@ -451,9 +527,12 @@ def main(args, default_args):
               "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
               "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
               "regression_spline_input" : f"{data_dir}/EvaluateRegression",
+              "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+              "classifier_spline_input" : f"{data_dir}/EvaluateClassifier",
               "model_input" : f"{models_dir}",
               "extra_density_model_name" : args.extra_density_model_name,
               "extra_regression_model_name" : args.extra_regression_model_name,
+              "extra_classifier_model_name" : args.extra_classifier_model_name,
               "parameters" : f"{data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
               "data_output" : f"{data_dir}/MakeAsimov{args.extra_output_dir_name}/{file_name}/{category}/val_ind_{val_ind}",
               "n_asimov_events" : args.number_of_asimov_events,

@@ -31,22 +31,48 @@ class LoadData():
     self.batch_size = 10**7
     self.columns = []
 
+  def _GetTokens(self, input):
+    tokens = re.findall(r"[A-Za-z_]\w*", input)
+    reserved = {"and", "or", "not", "cos", "sin", "sinh", "cosh", "tanh", "abs", "exp", "sqrt"}
+    return [t for t in tokens if t not in reserved]
+
+
   def _FindColumns(self, file_name, cfg):
+
+    # Set up calculated
+    calculated = []
+    existing = []
+    if "pre_calculate" in cfg["files"][file_name].keys():
+      for k, v in cfg["files"][file_name]["pre_calculate"].items():
+        if k not in self._GetTokens(v) and k not in existing:
+          calculated += [k]
+        else:
+          existing += [k]
+    if "weight_shifts" in cfg["files"][file_name].keys():
+      calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
 
     # Add fitted variables
     self.columns = cfg["variables"]
 
     # Add parameters and save extra columns from models
-    for actual_file_name, models in cfg["models"].items():
-      if "file" not in models.keys(): continue
-      if file_name != models["file"]: continue
+    for actual_file_name, model_types in cfg["models"].items():
+      for model_type, models in model_types.items():
+        if model_type == "yields": continue
+        for model in models:
+          if "file" not in model.keys(): continue
+          file_matched = (file_name == model["file"])
+          yields_matched = (model_types["yields"]["file"] == file_name)
+          if not (file_matched or yields_matched): continue
 
-      if "parameters" in models.keys():
-        self.columns += models["parameters"]
-      elif "parameter" in models.keys():
-        self.columns += models["parameter"]
-      if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
-        self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
+          if "parameters" in model.keys():
+            calculated += model["parameters"]
+          elif "parameter" in model.keys():
+            calculated += [model["parameter"]]
+
+          if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
+            self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
+
+    calculated = list(set(calculated))
 
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
@@ -63,51 +89,35 @@ class LoadData():
 
     # Get from weight
     weight = cfg["files"][file_name]["weight"]
-    tokens = re.findall(r"[A-Za-z_]\w*", weight)
-    reserved = {"and", "or", "not"}
-    self.columns += [t for t in tokens if t not in reserved]
+    self.columns += self._GetTokens(weight)
 
     # Get from selection
     if "selection" in cfg["files"][file_name].keys():
       if cfg["files"][file_name]["selection"] is not None:
-        selection = cfg["files"][file_name]["selection"]
-        tokens = re.findall(r"[A-Za-z_]\w*", selection)
-        reserved = {"and", "or", "not"}
-        self.columns += [t for t in tokens if t not in reserved]
-
-    # Setup calculated
-    calculated = []
+        self.columns += self._GetTokens(cfg["files"][file_name]["selection"])
 
     # Get from post selection
     if "pre_calculate" in cfg["files"][file_name].keys():
-      calculated += list(cfg["files"][file_name]["pre_calculate"].keys())
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        tokens = re.findall(r"[A-Za-z_]\w*", v)
-        reserved = {"and", "or", "not"}
-        self.columns += [t for t in tokens if t not in reserved and t not in calculated]
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
       if cfg["files"][file_name]["post_calculate_selection"] is not None:
-        tokens = re.findall(r"[A-Za-z_]\w*", cfg["files"][file_name]["post_calculate_selection"])
-        reserved = {"and", "or", "not"}
-        self.columns += [t for t in tokens if t not in reserved and t not in calculated]
+        self.columns += [i for i in self._GetTokens(cfg["files"][file_name]["post_calculate_selection"]) if i not in calculated]
 
     # Get from weight shifts
     if "weight_shifts" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["weight_shifts"].items():
-        tokens = re.findall(r"[A-Za-z_]\w*", v)
-        reserved = {"and", "or", "not"}
-        self.columns += [t for t in tokens if t not in reserved and t not in calculated]
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
 
     # Add categories
     if "categories" in cfg.keys():
       for k, v in cfg["categories"].items():
-        tokens = re.findall(r"[A-Za-z_]\w*", v)
-        reserved = {"and", "or", "not"}
-        self.columns += [t for t in tokens if t not in reserved and t not in calculated]
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
 
     self.columns = list(set(self.columns))  # Remove duplicates
+
 
   def _DoWriteDataset(self, df, file_name):
 

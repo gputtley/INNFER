@@ -154,7 +154,10 @@ def plot_histograms_with_ratio(
   xlabel = "",
   ylabel="Events",
   name="histogram_with_ratio",    
-  ratio_range = [0.5,1.5],   
+  ratio_range = [0.5,1.5],
+  first_ratio = False,
+  anchor_y_at_0 = True,
+  axis_text = None,
 ):
 
   fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
@@ -163,14 +166,22 @@ def plot_histograms_with_ratio(
 
   rgb_palette = sns.color_palette("Set2", 8)
 
+  if anchor_y_at_0:
+    ax[0].set_ylim(bottom=0, top=1.2 * max(max(np.max(hist[0]),np.max(hist[1])) for hist in hists))
+
   # draw histograms
   legend = {}
   for ind, hist_pairs in enumerate(hists):
 
     colour = tuple(x for x in rgb_palette[ind])
 
+    if first_ratio and ind == 0:
+      ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color="black", linestyle="-", drawstyle="steps-mid")
+    elif not first_ratio:
+      ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
+
     ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
-    ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
+
 
     # add uncertainty
     ax[0].fill_between(
@@ -181,14 +192,24 @@ def plot_histograms_with_ratio(
       alpha=0.2,
       step='mid'
       )
-    ax[0].fill_between(
-      bins,
-      np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-      np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-      color=colour,
-      alpha=0.5,
-      step='mid'
-      )
+    if first_ratio and (ind == 0):
+      ax[0].fill_between(
+        bins,
+        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        color="black",
+        alpha=0.2,
+        step='mid'
+        )
+    elif not first_ratio:
+      ax[0].fill_between(
+        bins,
+        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        color=colour,
+        alpha=0.5,
+        step='mid'
+        )
 
     # y label
     ax[0].set_ylabel(ylabel)
@@ -208,18 +229,21 @@ def plot_histograms_with_ratio(
     # draw ratios
     denom = np.array([v if v !=0 else 1.0 for v in hist_pairs[1]])
     ratio = hist_pairs[0]/denom
-    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="-", drawstyle="steps-mid")
+    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="--", drawstyle="steps-mid")
 
     # add uncertainty ro ratio
     ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
     ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
 
   # ratio labels
-  ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax[-1].axhline(y=1, color='black', linestyle='-')  # Add a horizontal line at ratio=1
   ax[-1].set_xlabel(xlabel)
   ax[-1].set_ylabel('Ratio')
   ax[-1].set_ylim([ratio_range[0],ratio_range[1]])
   ax[-1].xaxis.get_major_formatter().set_useOffset(False)
+  if axis_text is not None:
+    ax[0].text(0.03, 0.96, axis_text, transform=ax[0].transAxes, va='top', ha='left', fontsize=18)
+
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1, left=0.15)

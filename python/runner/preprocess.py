@@ -9,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from functools import partial
+from scipy.interpolate import CubicSpline
 from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
@@ -57,7 +58,7 @@ class PreProcess():
     self.parameters = {}
 
 
-  def _CalculateDatasetWithVariations(self, df, shifts, pre_calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1):
+  def _CalculateDatasetWithVariations(self, df, shifts, pre_calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1, post_shifts={}):
 
     # Distribute the shifts
     tmp_copy = copy.deepcopy(df)
@@ -88,6 +89,15 @@ class PreProcess():
 
     if self.extra_selection is not None:
       df = df.loc[df.eval(self.extra_selection),:]
+
+    # Post shifts
+    for k, v in post_shifts.items():
+      if v["type"] == "continuous":
+        df.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(df))   
+      elif v["type"] == "discrete":
+        df.loc[:,k] = np.random.choice(v["values"], size=len(df))
+      elif v["type"] == "fixed":
+        df.loc[:,k] = v["value"]*np.ones(len(df))
 
     # store old weight before doing weight shift
     df.loc[:,"old_wt"] = df.eval(nominal_weight)
@@ -142,7 +152,6 @@ class PreProcess():
     else:
       post_calculate_selection = None
     
-
     # Get nominal
     yields["nominal"] = dp.GetFull(
       method="sum",
@@ -502,6 +511,7 @@ class PreProcess():
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=value["n_copies"],
               nominal_weight=cfg["files"][base_file_name]["weight"],
+              post_shifts=value["post_shifts"] if "post_shifts" in value.keys() else {}
             ),
             partial(
               self._WriteSplitDataset, 
@@ -547,6 +557,12 @@ class PreProcess():
             outfile = f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"
             if os.path.isfile(outfile):
               os.system(f"rm {outfile}")
+        for k in ["X","y","wt","Extra"]:
+          for value in cfg["models"][file_name]["classifier_models"]:
+            outfile = f"{self.data_output}/classifier/{value['parameter']}/{k}_{data_split}.parquet"
+            if os.path.isfile(outfile):
+              os.system(f"rm {outfile}")
+
     for data_split in ["val","train_inf","test_inf","full"]:
       for k in ["X","Y","wt","Extra"]:
         for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
@@ -559,6 +575,7 @@ class PreProcess():
 
     # Loop through the train and test
     for data_split in ["train","test"]:
+      # Do density models
       for ind, value in enumerate(cfg["models"][file_name]["density_models"]):
         value_copy = copy.deepcopy(value)
         for k, v in defaults.items():
@@ -571,6 +588,7 @@ class PreProcess():
         else:
           self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"density/split_{ind}", data_split, split_dict=density_split_model_val)
 
+      # Do regression models
       for value in cfg["models"][file_name]["regression_models"]:
         value_copy = copy.deepcopy(value)
         for k, v in defaults.items():
@@ -580,6 +598,26 @@ class PreProcess():
         if extra_cols is not None:
           regression_split_model["Extra"] = extra_cols
         self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"regression/{value['parameter']}", data_split, split_dict=regression_split_model)
+
+      # Do classifier models
+      for value in cfg["models"][file_name]["classifier_models"]:
+        value_copy = copy.deepcopy(value)
+        for k, v in defaults.items():
+          if k != value["parameter"]:
+            value_copy["shifts"][k] = {"type":"fixed","value":v}
+        value_copy["shifts"]["classifier_truth"] = {"type":"fixed","value":1.0}
+        classifier_split_model = {"X":cfg["variables"]+[value["parameter"]], "y":["classifier_truth"], "wt":["wt"]}
+        if extra_cols is not None:
+          classifier_split_model["Extra"] = extra_cols
+        self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model)
+        value_default = copy.deepcopy(value)
+        for k, v in defaults.items():
+          value_default["shifts"][k] = {"type":"fixed","value":v}
+        value_default["shifts"]["classifier_truth"] = {"type":"fixed","value":0.0}
+        value_default["post_shifts"] = copy.deepcopy(value_copy["shifts"])
+        value_default["post_shifts"]["classifier_truth"] = {"type":"fixed","value":0.0}
+        self._DoWriteModelVariation(value_default, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model)
+
 
     # Loop through validation files
     for data_split in ["val","train_inf","test_inf","full"]:
@@ -918,6 +956,28 @@ class PreProcess():
           "std" : regression_stds[col],
         }
 
+    # classifier models
+    standardisation_parameters["classifier"] = {}
+    for value in cfg["models"][file_name]["classifier_models"]:
+      name = value["parameter"]
+
+      dp = DataProcessor(
+        [[f"{self.data_output}/classifier/{name}/X_train.parquet", f"{self.data_output}/classifier/{name}/wt_train.parquet"]],
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        },
+        batch_size=self.batch_size,
+      )
+      classifier_means = dp.GetFull(method="mean")
+      classifier_stds = dp.GetFull(method="std")
+      standardisation_parameters["classifier"][name] = {}
+      for col in classifier_means.keys():
+        standardisation_parameters["classifier"][name][col] = {
+          "mean" : classifier_means[col],
+          "std" : classifier_stds[col],
+        }
+
     return standardisation_parameters
 
 
@@ -993,6 +1053,35 @@ class PreProcess():
         for i in ["X","y"]:
           os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
 
+      # classifier models
+      for value in cfg["models"][file_name]["classifier_models"]:
+        name = value["parameter"]
+
+        dp = DataProcessor(
+          [[f"{self.data_output}/classifier/{name}/X_{data_split}.parquet"]],
+          "parquet",
+          options = {
+            "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
+          },
+          batch_size=self.batch_size,
+        )
+
+        dp.GetFull(
+          method=None,
+          functions_to_apply = [
+            "transform",
+            partial(
+              self._WriteSplitDataset, 
+              extra_dir=f"classifier/{name}", 
+              extra_name=f"{data_split}_standardised", 
+              split_dict={"X": cfg["variables"]+[value["parameter"]]}
+            )
+          ]
+        )
+
+        for i in ["X"]:
+          os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
+
 
   def _DoShuffle(self, file_name, cfg):
 
@@ -1015,6 +1104,11 @@ class PreProcess():
       for value in cfg["models"][file_name]["regression_models"]:
         name = value["parameter"]
         self._DoShuffleDataset([f"{self.data_output}/regression/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
+
+      # classifier models
+      for value in cfg["models"][file_name]["classifier_models"]:
+        name = value["parameter"]
+        self._DoShuffleDataset([f"{self.data_output}/classifier/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
 
 
   def _DoShuffleDataset(self, files):
@@ -1085,6 +1179,7 @@ class PreProcess():
       "yields": yields, 
       "density":{}, 
       "regression":{}, 
+      "classifier":{},
       "eff_events":eff_events
     }
 
@@ -1111,6 +1206,16 @@ class PreProcess():
           parameters_file["regression"][name]["standardisation"] = standardisation["regression"][name]
       parameters_file["regression"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
       parameters_file["regression"][name]["y_columns"] = ["wt_shift"]
+
+    for v in cfg["models"][file_name]["classifier_models"]:
+      name = v["parameter"]
+      parameters_file["classifier"][name] = {}
+      parameters_file["classifier"][name]["file_loc"] = f"{self.data_output}/classifier/{name}"
+      if "classifier" in standardisation.keys():
+        if name in standardisation["classifier"].keys():
+          parameters_file["classifier"][name]["standardisation"] = standardisation["classifier"][name]
+      parameters_file["classifier"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
+      parameters_file["classifier"][name]["y_columns"] = ["classifier_truth"]
 
     if self.binned_fit_input is not None:
       parameters_file["binned_fit_input"] = self.binned_fit_input
@@ -1169,6 +1274,12 @@ class PreProcess():
         load_files.append([f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet", f"{self.data_output}/regression/{name}/wt_{data_split}.parquet"])
         edit_files.append(f"regression/{name}/wt_{data_split}.parquet")
 
+      # classifier models
+      for value in cfg["models"][file_name]["classifier_models"]:
+        name = value["parameter"]
+        load_files.append([f"{self.data_output}/classifier/{name}/X_{data_split}.parquet", f"{self.data_output}/classifier/{name}/y_{data_split}.parquet", f"{self.data_output}/classifier/{name}/wt_{data_split}.parquet"])
+        edit_files.append(f"classifier/{name}/wt_{data_split}.parquet")
+
     for file_ind, file_names in enumerate(load_files):
 
       if not os.path.isfile(f"{self.data_output}/{edit_files[file_ind]}"): continue
@@ -1224,6 +1335,12 @@ class PreProcess():
         load_files[data_split].append([f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet", f"{self.data_output}/regression/{name}/wt_{data_split}.parquet"])
         edit_files[data_split].append(f"regression/{name}/wt_{data_split}.parquet")
 
+      # classifier models
+      for value in cfg["models"][file_name]["classifier_models"]:
+        name = value["parameter"]
+        load_files[data_split].append([f"{self.data_output}/classifier/{name}/X_{data_split}.parquet", f"{self.data_output}/classifier/{name}/y_{data_split}.parquet", f"{self.data_output}/classifier/{name}/wt_{data_split}.parquet"])
+        edit_files[data_split].append(f"classifier/{name}/wt_{data_split}.parquet")
+
     # get normalisations
     normalisations = {}
     for file_ind, file_names in enumerate(load_files["train"]):
@@ -1277,6 +1394,81 @@ class PreProcess():
 
         if os.path.isfile(f"{self.data_output}/{normalised_name}"):
           os.system(f"mv {self.data_output}/{normalised_name} {self.data_output}/{edit_files[data_split][file_ind]}")  
+
+  def _DoClassBalancing(self, file_name, cfg):
+
+    for value in cfg["models"][file_name]["classifier_models"]:
+      dp = DataProcessor(
+        [[f"{self.data_output}/classifier/{value['parameter']}/y_train.parquet", f"{self.data_output}/classifier/{value['parameter']}/wt_train.parquet"]],
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+          "selection" : None,
+        }
+      )
+      sum_zero = dp.GetFull(method="sum", extra_sel="(classifier_truth == 0)")
+      sum_one = dp.GetFull(method="sum", extra_sel="(classifier_truth == 1)")
+      scale_to = max(sum_zero, sum_one)
+
+      def class_balancing(df):
+        df.loc[df["classifier_truth"] == 0, "wt"] *= scale_to / sum_zero
+        df.loc[df["classifier_truth"] == 1, "wt"] *= scale_to / sum_one
+        return df
+
+      balanced_name = f"classifier/{value['parameter']}/wt_train_balanced.parquet"
+      if os.path.isfile(f"{self.data_output}/{balanced_name}"):
+        os.system(f"rm {self.data_output}/{balanced_name}")
+
+      dp.GetFull(
+        method = None,
+        functions_to_apply = [
+          class_balancing,
+          partial(self._WriteDataset, file_name=balanced_name)
+        ]
+      )
+      if os.path.isfile(f"{self.data_output}/{balanced_name}"):
+        os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_train.parquet")
+
+
+  def _DoConditionalClassifierReweighting(self, file_name, cfg):
+
+    for value in cfg["models"][file_name]["classifier_models"]:
+
+      dp = DataProcessor(
+        [[f"{self.data_output}/classifier/{value['parameter']}/X_train.parquet", f"{self.data_output}/classifier/{value['parameter']}/y_train.parquet", f"{self.data_output}/classifier/{value['parameter']}/wt_train.parquet"]],
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+          "selection" : None,
+        }
+      )
+      n_bins=50
+      nom_hist, bins = dp.GetFull(method="histogram", column=value["parameter"], bins=n_bins, extra_sel="(classifier_truth == 0)")
+      shift_hist, _ = dp.GetFull(method="histogram", column=value["parameter"], bins=bins, extra_sel="(classifier_truth == 1)")
+      ratio = nom_hist/shift_hist
+
+      bin_centers = (bins[:-1] + bins[1:]) / 2
+      spline = CubicSpline(bin_centers, ratio, bc_type="clamped", extrapolate=False)
+
+      def class_balancing(df, spline):
+        df.loc[(df["classifier_truth"] == 1), "wt"] *= spline(df.loc[(df["classifier_truth"] == 1), value["parameter"]])
+        return df
+
+      for dt in ["train", "test"]:
+
+        balanced_name = f"classifier/{value['parameter']}/wt_{dt}_conditional_reweighting.parquet"
+        if os.path.isfile(f"{self.data_output}/{balanced_name}"):
+          os.system(f"rm {self.data_output}/{balanced_name}")
+
+        dp.GetFull(
+          method = None,
+          functions_to_apply = [
+            partial(class_balancing, spline=spline),
+            partial(self._WriteDataset, file_name=balanced_name)
+          ]
+        )
+        if os.path.isfile(f"{self.data_output}/{balanced_name}"):
+          os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_{dt}.parquet")
 
 
   def Configure(self, options):
@@ -1343,15 +1535,26 @@ class PreProcess():
       print("- Flattening train and test dataset")
     self._DoFlattenByYields(self.file_name, cfg, yields)
 
+    # Normalise yields in certain bins
     if self.verbose:
       print("- Normalising train and test in given selections")
     self._DoNormaliseIn(self.file_name, cfg)
+
+    ## Normalise the conditions of the classifier
+    #if self.verbose:
+    #  print("- Reweighting the classifier conditions so they are equal")
+    #self._DoConditionalClassifierReweighting(self.file_name, cfg)
 
     # Standardise
     if self.verbose:
       print("- Standardising train and test datasets")
     standardisation_parameters = self._GetStandardisationParameters(self.file_name, cfg)
     self._DoStandardisation(self.file_name, cfg, standardisation_parameters)
+
+    # Do classifier class balancing
+    if self.verbose:
+      print("- Doing classifier class balancing")
+    self._DoClassBalancing(self.file_name, cfg)
 
     # Shuffle
     if self.verbose:
@@ -1380,10 +1583,12 @@ class PreProcess():
     # Check if we output Extra
     density_loop = ["X","Y","wt"]
     regression_loop = ["X","y","wt"]
+    classifier_loop = ["X","y","wt"]
     if "save_extra_columns" in cfg["preprocess"]:
       if self.file_name in cfg["preprocess"]["save_extra_columns"]:
         density_loop += ["Extra"]
         regression_loop += ["Extra"]
+        classifier_loop += ["Extra"]
 
     # Add train/test files
     for data_split in ["train","test"]:
@@ -1400,6 +1605,11 @@ class PreProcess():
       for k in regression_loop:
         for value in cfg["models"][self.file_name]["regression_models"]:
           outputs += [f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"]
+
+      # Add classifier files
+      for k in classifier_loop:
+        for value in cfg["models"][self.file_name]["classifier_models"]:
+          outputs += [f"{self.data_output}/classifier/{value['parameter']}/{k}_{data_split}.parquet"]
 
     # Add validation files
     for data_split in ["val","train_inf","test_inf","full"]:
