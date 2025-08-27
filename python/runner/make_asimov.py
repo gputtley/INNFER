@@ -13,7 +13,7 @@ from functools import partial
 from scipy.interpolate import CubicSpline
 
 from data_processor import DataProcessor
-from useful_functions import InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
+from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
 from yields import Yields
 
 class MakeAsimov():
@@ -25,11 +25,13 @@ class MakeAsimov():
     self.file_name = None
     self.density_model = None
     self.regression_models = None
+    self.classifier_models = None
     self.model_extra_name = ""
     self.parameters = None
     self.model_input = "data/"
     self.data_output = "data/"
     self.regression_spline_input = "data/"
+    self.classifier_spline_input = "data/"
     self.n_asimov_events = 10**7
     self.seed = 42
     self.val_info = {}
@@ -40,6 +42,7 @@ class MakeAsimov():
     self.scale_to_one = False
     self.extra_density_model_name = ""
     self.extra_regression_model_name = ""
+    self.extra_classifier_model_name = ""
     self.use_asimov_scaling = None
     self.verbose = True
 
@@ -195,7 +198,7 @@ class MakeAsimov():
           }
         )  
       
-        # Loading density model
+        # Loading regression model
         if self.verbose:
           print(f"- Loading the density model {regression_model_name}")
         network.Load(name=f"{regression_model_name}.h5")
@@ -229,7 +232,7 @@ class MakeAsimov():
             df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
-        wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter.parquet')
+        wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter_regression.parquet')
         if os.path.isfile(wt_shifter_name): os.system(f"rm {wt_shifter_name}")
 
         wt_shifter.GetFull(
@@ -242,6 +245,80 @@ class MakeAsimov():
               add_columns={regression_model['parameter']: model_parameters[regression_model['parameter']]},
               spl = spl,
               parameter = regression_model['parameter']
+            ),
+            partial(self._WriteDataset,file_name=wt_shifter_name.split("/")[-1])
+          ]
+        )
+
+        if os.path.isfile(wt_shifter_name): os.system(f"mv {wt_shifter_name} {asimov_file_name}")
+
+
+      # Do classifier models
+      for classifier_model in self.classifier_models:
+
+        # Build the classifier model
+        if self.verbose:
+          print(f"- Building classifier network for {classifier_model['parameter']}")
+        classifier_model_name = f"{self.model_input}/{classifier_model['name']}{self.extra_classifier_model_name}/{parameters['file_name']}"
+        with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
+          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+        network = InitiateClassifierModel(
+          architecture,
+          classifier_model['file_loc'],
+          options = {
+            "data_parameters" : parameters['classifier'][classifier_model['parameter']]
+          }
+        )
+
+        # Loading classifier model
+        if self.verbose:
+          print(f"- Loading the classifier model {classifier_model_name}")
+        network.Load(name=f"{classifier_model_name}.h5")
+
+        # Apply weights
+        wt_shifter = DataProcessor(
+          [[asimov_file_name]],
+          "parquet",
+          wt_name = "wt",
+          options = {
+          }
+        )
+
+        # Open normalising spline
+        if self.verbose:
+          print(f"- Loading the normalising spline for {classifier_model_name}")
+
+        spline_name = f"{classifier_model_name}_norm_spline.pkl"
+        if os.path.isfile(spline_name):
+          with open(spline_name, 'rb') as f:
+              spl = pickle.load(f)
+        else:
+          print(f"WARNING: No normalising spline found for {classifier_model['parameter']}. Leaving unnormalised.")
+          spl = None
+
+        def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None):
+          cols_in = list(df.columns)
+          for k,v in add_columns.items(): df.loc[:,k] = v
+          probs = func(df.loc[:,X_columns])
+          df.loc[:,"wt"] *= probs[:,0]/probs[:,1]
+          if spl is not None:
+            df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
+          return df.loc[:,cols_in]
+
+        wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter_classifier.parquet')
+        if os.path.isfile(wt_shifter_name): os.system(f"rm {wt_shifter_name}")
+
+        wt_shifter.GetFull(
+          method = None,
+          functions_to_apply = [
+            partial(
+              apply_classifier, 
+              func=network.Predict, 
+              X_columns=parameters['classifier'][classifier_model['parameter']]["X_columns"],
+              add_columns={classifier_model['parameter']: model_parameters[classifier_model['parameter']]},
+              spl = spl,
+              parameter = classifier_model['parameter']
             ),
             partial(self._WriteDataset,file_name=wt_shifter_name.split("/")[-1])
           ]
@@ -276,5 +353,11 @@ class MakeAsimov():
       inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
       inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
       inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
+
+    # Add classifier models
+    for classifier_model in self.classifier_models:
+      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
+      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
+      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
 
     return inputs

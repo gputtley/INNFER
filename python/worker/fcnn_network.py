@@ -27,12 +27,18 @@ if gpus:
   print("INFO: Using GPUs for FCNNNetwork")
   for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
+else:
+  print("INFO: Using CPU for FCNNNetwork")
 
 class FCNNNetwork():
   """
-  Network class for building and training a BayesFlow normalising flow.
+  Network class for building and training a FCNN for regression.
   """
   def __init__(self, X_train=None, y_train=None, wt_train=None, X_test=None, y_test=None, wt_test=None, options={}):
+
+    # Task
+    self.task = "regression"
+    self.num_classes = None
 
     # Architecture parameters
     self.dropout = 0.05
@@ -93,6 +99,7 @@ class FCNNNetwork():
     else:
       self.wt_test = None
 
+
   def _SetOptions(self, options):
     """
     Set options for the Network instance.
@@ -115,6 +122,7 @@ class FCNNNetwork():
       self.X_train.ChangeBatchSize(batch_size)
       self.y_train.ChangeBatchSize(batch_size)
       self.wt_train.ChangeBatchSize(batch_size)
+      num_batches = self.X_train.num_batches
     elif data_type == "test":
       X_old_batch_size = copy.deepcopy(self.X_test.batch_size)
       Y_old_batch_size = copy.deepcopy(self.y_test.batch_size)
@@ -122,10 +130,12 @@ class FCNNNetwork():
       self.X_test.ChangeBatchSize(batch_size)
       self.y_test.ChangeBatchSize(batch_size)
       self.wt_test.ChangeBatchSize(batch_size)
+      num_batches = self.X_test.num_batches
 
     sum_loss = 0
     sum_wts = 0
-    for _ in range(self.X_train.num_batches):
+
+    for ind in range(num_batches):
 
       if data_type == "train":
         if self.only_X_columns is not None:
@@ -142,8 +152,13 @@ class FCNNNetwork():
         y_data = self.y_test.LoadNextBatch().to_numpy()
         wt_data = self.wt_test.LoadNextBatch().to_numpy()    
 
+      if self.task == "classification":
+        y_data = tf.cast(y_data, tf.int32)
+        y_data = tf.squeeze(y_data, axis=-1)  # removes that extra 1-dim
+        y_data = tf.one_hot(y_data, depth=self.num_classes)
+
       predictions = self._GraphPredict(X_data)
-      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype))* self._MSE(predictions, y_data, wt_data))  # Compute loss
+      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data))  # Compute loss
       sum_wts += tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 
     loss = tf.constant(sum_loss/sum_wts)
@@ -162,28 +177,30 @@ class FCNNNetwork():
 
   def _FormatLossString(self, ep, it, loss, avg_dict, slope=None, lr=None, ep_str="Epoch", it_str="Iter", scalar_loss_str="Loss"):
 
-      # Prepare info part
-      disp_str = f"{ep_str}: {ep}, {it_str}: {it}"
-      if type(loss) is dict:
-          for k, v in loss.items():
-              disp_str += f",{k}: {v.numpy():.3g}"
-      else:
-          disp_str += f",{scalar_loss_str}: {loss.numpy():.3g}"
-      # Add running
-      if avg_dict is not None:
-          for k, v in avg_dict.items():
-              disp_str += f",{k}: {v:.3g}"
-      if slope is not None:
-          disp_str += f",L.Slope: {slope:.3f}"
-      if lr is not None:
-          disp_str += f",LR: {lr:.2E}"
-      return disp_str
+    # Prepare info part
+    disp_str = f"{ep_str}: {ep}, {it_str}: {it}"
+    if type(loss) is dict:
+      for k, v in loss.items():
+        disp_str += f",{k}: {v.numpy():.3g}"
+    else:
+      disp_str += f",{scalar_loss_str}: {loss.numpy():.3g}"
+    # Add running
+    if avg_dict is not None:
+      for k, v in avg_dict.items():
+        disp_str += f",{k}: {v:.3g}"
+    if slope is not None:
+      disp_str += f",L.Slope: {slope:.3f}"
+    if lr is not None:
+      disp_str += f",LR: {lr:.2E}"
+    return disp_str
+
 
   def _MSE(self, predictions, y_data, wt_data=None):
     if wt_data is None:
       return tf.reduce_mean(tf.square(y_data - predictions))
     else:
       return tf.reduce_sum(tf.square(y_data - predictions) * wt_data)/tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
+
 
   def _MAE(self, predictions, y_data, wt_data=None):
     if wt_data is None:
@@ -192,13 +209,50 @@ class FCNNNetwork():
       return tf.reduce_sum(tf.math.abs(y_data - predictions) * wt_data)/tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 
 
+  #def _CrossEntropy(self, predictions, y_data, wt_data=None):
+  #  if wt_data is None:
+  #    return tf.reduce_mean(tf.keras.losses.categorical_crossentropy(y_data, predictions, from_logits=False))
+  #  else:
+  #    per_sample_loss = tf.keras.losses.categorical_crossentropy(
+  #        y_data, predictions, from_logits=False
+  #    )
+  #    per_sample_loss = tf.expand_dims(per_sample_loss, axis=-1)  # shape (batch_size, 1)
+  #    return tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
+
+
+  def _CrossEntropy(self, predictions, y_data, wt_data=None, eps=1e-7):
+    # Ensure probabilities are numerically stable
+    predictions = tf.nn.softmax(predictions, axis=-1)
+    per_sample_loss = -tf.reduce_sum(y_data * tf.math.log(predictions), axis=-1)  # shape (batch_size,)
+
+    if wt_data is None:
+        return tf.reduce_mean(per_sample_loss)
+    else:
+      wt_data = tf.cast(tf.reshape(wt_data, (-1,)), predictions.dtype)  # flatten to shape (batch_size,)
+      weighted_loss = tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(wt_data)
+      return weighted_loss
+
+  def loss(self, predictions, y_data, wt_data=None):
+
+    if self.task == "regression":
+      return self._MSE(predictions, y_data, wt_data)
+    elif self.task == "classification":
+      return self._CrossEntropy(predictions, y_data, wt_data)
+    else:
+      raise ValueError("Unknown task")
+  
+
   def BuildModel(self):
 
     if self.only_X_columns is not None:
       input_dim = len(self.only_X_columns)
     else:
       input_dim = self.X_train.num_columns
-    output_dim = self.y_train.num_columns
+
+    if self.task == "regression":
+      output_dim = self.y_train.num_columns
+    elif self.task == "classification":
+      output_dim = self.num_classes
 
     nn_layers = [layers.Input(shape=input_dim),]
     for layer in self.dense_layers:
@@ -224,8 +278,7 @@ class FCNNNetwork():
     )
     
     self.model.compile(
-        optimizer=self.optimizer,
-        loss=losses.MeanSquaredError(),
+      optimizer=self.optimizer
     )
 
 
@@ -233,7 +286,7 @@ class FCNNNetwork():
   def _train_step(self, X_data, y_data, wt_data):
     with tf.GradientTape() as tape:
       predictions = self.model(X_data, training=True)  # Forward pass
-      loss = self._MSE(predictions, y_data, wt_data)  # Compute loss
+      loss = self.loss(predictions, y_data, wt_data)  # Compute loss
     
     # Compute gradients and apply them
     gradients = tape.gradient(loss, self.model.trainable_variables)
@@ -241,14 +294,13 @@ class FCNNNetwork():
     return loss
 
 
-
   def Train(self, name="model.h5"):
 
     # Get loss before training
     epoch_train_loss = self._GetEpochLoss(data_type="train")
     epoch_test_loss = self._GetEpochLoss(data_type="test")
-    print(f"Train, Epoch: 0, Loss: {epoch_train_loss: .3g}")
-    print(f"Test, Epoch: 0, Loss: {epoch_test_loss: .3g}")
+    print(f"Train, Epoch: 0, Loss: {epoch_train_loss}")
+    print(f"Test, Epoch: 0, Loss: {epoch_test_loss}")
     self.epoch_train_losses = [epoch_train_loss]
     self.epoch_test_losses = [epoch_test_loss]
     lr = extract_current_lr(self.model.optimizer)
@@ -283,6 +335,11 @@ class FCNNNetwork():
           y_data = self.y_train.LoadNextBatch().to_numpy().astype("float32")
           wt_data = self.wt_train.LoadNextBatch().to_numpy().astype("float32")
 
+          if self.task == "classification":
+            y_data = tf.cast(y_data, tf.int32)
+            y_data = tf.squeeze(y_data, axis=-1)  # removes that extra 1-dim
+            y_data = tf.one_hot(y_data, depth=self.num_classes)
+
           loss = self._train_step(X_data, y_data, wt_data)
 
           ep_losses.append(loss.numpy())
@@ -297,8 +354,6 @@ class FCNNNetwork():
       epoch_test_loss = self._GetEpochLoss(data_type="test")
       print(f"Train, Epoch: {ep}, Loss: {epoch_train_loss}")
       print(f"Test, Epoch: {ep}, Loss: {epoch_test_loss}")
-      #print(f"Train, Epoch: {ep}, Loss: {epoch_train_loss: .3g}")
-      #print(f"Test, Epoch: {ep}, Loss: {epoch_test_loss: .3g}")
 
       self.epoch_train_losses.append(epoch_train_loss)
       self.epoch_test_losses.append(epoch_test_loss)
@@ -375,8 +430,18 @@ class FCNNNetwork():
   def _GraphPredict(self, X):
     return self.model(X, training=False)
 
+  @tf.function
+  def _GraphPredictSoftMax(self, X):
+    logits = self.model(X, training=False)
+    return tf.nn.softmax(logits)
 
-  def Predict(self, X, transform_X=True, order=0, column_1=None, column_2=None):
+  def _GraphPredictTotal(self, X):
+    if self.task == "regression":
+      return self._GraphPredict(X)
+    elif self.task == "classification":
+      return self._GraphPredictSoftMax(X)
+
+  def Predict(self, X, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
 
     # Preprocess inputs
     X_dp = DataProcessor(
@@ -395,7 +460,6 @@ class FCNNNetwork():
     else:
       X = X.loc[:,self.data_parameters["X_columns"]]
     X = X.to_numpy()
-
 
     # Check type of gradient
     if isinstance(order,int):
@@ -422,29 +486,40 @@ class FCNNNetwork():
     indices_2 = [self.data_parameters["X_columns"].index(col) for col in column_2 if col in self.data_parameters["X_columns"]]
     column_to_index_1 = {col : indices_1.index(self.data_parameters["X_columns"].index(col)) for col in column_1 if col in self.data_parameters["X_columns"]}
 
-
     preds = []
     param_name = self.data_parameters["y_columns"][0]
 
     if order == 0 or order == [0]:
 
-      pred = self._GraphPredict(X)
-      preds += [pd.DataFrame({param_name : pred.numpy().flatten()})]
+      pred = self._GraphPredictTotal(X)
+      if prob_ind is not None:
+        pred = pred[:, prob_ind]
+      if self.task == "regression":
+        preds += [pd.DataFrame({param_name : pred.numpy()})]
+      elif self.task == "classification":
+        if prob_ind is not None:
+          preds += [pd.DataFrame({f"{param_name}_{prob_ind}" : pred.numpy()})]
+        else:
+          preds += [pd.DataFrame({f"{param_name}_{ind}" : pred.numpy()[:,ind] for ind in range(pred.shape[1])})]
 
     elif order == 1 or order == [1] or order == [0,1]:
 
       X = tf.convert_to_tensor(X, dtype=tf.float32)
       with tf.GradientTape(persistent=True) as tape:
         tape.watch(X)
-        pred = self._GraphPredict(X)
+        pred = self._GraphPredictTotal(X)
+        if prob_ind is None:
+          raise ValueError("You must specify a probability index for gradients with classification tasks.")
+        pred = pred[:, prob_ind]
+
       if len(indices_1) == 0:
         first_derivative = tf.zeros((len(X), 1), dtype=tf.float32)
       else:
         grad = tape.gradient(pred, X)
         first_derivative = tf.gather(grad, indices_1, axis=1)
 
-      if order == [0,1]:
-        preds += [pd.DataFrame({param_name : pred.numpy().flatten()})]
+      if order == [0,1]:        
+        preds += [pd.DataFrame({param_name : pred.numpy()})]
         del pred
         gc.collect()
       if order == 1 or order == [1] or order == [0,1]:
@@ -463,7 +538,10 @@ class FCNNNetwork():
         tape_2.watch(X)
         with tf.GradientTape() as tape_1:
           tape_1.watch(X)
-          pred = self._GraphPredict(X)
+          pred = self._GraphPredictTotal(X)
+          if prob_ind is None:
+            raise ValueError("You must specify a probability index for gradients with classification tasks.")
+          pred = pred[:, prob_ind]
         if len(indices_1) == 0 or len(indices_2) == 0:
           first_derivative = tf.zeros((len(X), 1), dtype=tf.float32)
         else:
@@ -477,7 +555,7 @@ class FCNNNetwork():
 
       # Make log_probs array
       if order == [0,1,2] or order == [0,2]:
-        preds += [pd.DataFrame({param_name : pred.numpy().flatten()})]
+        preds += [pd.DataFrame({param_name : pred.numpy()})]
         del pred
         gc.collect()
       if order == [0,1,2] or order == [1,2]:
