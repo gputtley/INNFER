@@ -1,7 +1,16 @@
-![Imperial College Logo](images/Imperial_College_London_logo.png)
+<img src="images/Imperial_College_London_logo.png" alt="Imperial College Logo" width="200">
 
+<hr>
 
 # INNFER - Invertible Neural Networks for Extracting Results
+
+## Table of Contents
+- [Installing Repository and Packages](#installing-repository-and-packages)
+- [Setup Environment](#setup-environment)
+- [Running INNFER](#running-innfer)
+- [Input Configuration File](#input-configuration-file)
+- [SnakeMake](#snakemake)
+- [Description of Steps](#description-of-steps)
 
 ## Installing Repository and Packages
 
