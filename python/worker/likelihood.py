@@ -122,7 +122,6 @@ class Likelihood():
 
   def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
-
     # Get the per event log likelihoods
     if self.type == "unbinned":
       # For unbinned
@@ -500,6 +499,7 @@ class Likelihood():
     else:
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
+
     if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
 
@@ -1189,9 +1189,10 @@ class Likelihood():
     return covariance.tolist()
 
 
-  def GetCovarianceIntervals(self, covariance, column):
-
-    col_index = self.Y_columns.index(column)
+  def GetCovarianceIntervals(self, covariance, column, matrix_columns=None):
+    if matrix_columns is None:
+      matrix_columns = self.Y_columns
+    col_index = matrix_columns.index(column)
     uncertainty = np.sqrt(covariance[col_index][col_index])
     m1p1_vals = {-1: uncertainty, 1: uncertainty}
     return m1p1_vals
@@ -1295,7 +1296,7 @@ class Likelihood():
     if method == "approximate":
       m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
     elif method == "hessian":
-      m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column)
+      m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column, matrix_columns=self.Y_columns)
 
     if self.verbose:
       print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
@@ -1480,8 +1481,8 @@ class NLLAndGradient():
 
 
   def GetAndWriteCovarianceIntervalsToYaml(self, col, row=None, scan_over=None, filename="covariance_results.yaml"):
-    
-    m1p1_vals = self.GetCovarianceIntervals(self.covariance, col)
+
+    m1p1_vals = self.GetCovarianceIntervals(self.covariance, col, matrix_columns=scan_over)
     col_index = self.Y_columns.index(col)
     best_fit_col = self.best_fit[col_index]
     dump = {

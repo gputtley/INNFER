@@ -1,0 +1,13 @@
+- workflow: configs/snakemake/subworkflow/train_density_condor_ic.yaml # Train density
+# - workflow: configs/snakemake/subworkflow/train_bayesian_tune_density_condor_ic.yaml # Density bayesian optimisation
+# - workflow: configs/snakemake/subworkflow/train_regression_condor_ic.yaml # Train regression
+# - workflow: configs/snakemake/subworkflow/train_classifier_condor_ic.yaml # Train classifier
+- workflow: configs/snakemake/subworkflow/make_asimov_condor_ic.yaml # Make asimov
+- workflow: configs/snakemake/subworkflow/generator_condor_ic.yaml # Make generation plots
+- workflow: configs/snakemake/subworkflow/inference_closure_test_condor_ic.yaml # Closure tests
+- workflow: configs/snakemake/subworkflow/inference_closure_test_frozen_condor_ic.yaml # Closure test frozen
+- workflow: configs/snakemake/subworkflow/inference_asimov_condor_ic.yaml # Asimov inference
+- workflow: configs/snakemake/subworkflow/summary_condor_ic.yaml # Summary
+- workflow: configs/snakemake/subworkflow/summary_with_frozen_condor_ic.yaml # Summary with frozen plots
+- workflow: configs/snakemake/subworkflow/summary_with_frozen_and_asimov_condor_ic.yaml # Summary with frozen and asimov plots
+

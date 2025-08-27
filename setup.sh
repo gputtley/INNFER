@@ -1,5 +1,7 @@
 mkdir -p tmp
 export TMPDIR="./tmp/"
+export TEMP=$TMPDIR
+export TMP=$TMPDIR
 
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   echo "Installing miniconda"
@@ -18,10 +20,13 @@ fi
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
   source miniconda/files/etc/profile.d/conda.sh
+  conda config --set channel_priority flexible
   conda env create --file=configs/setup/environment.yaml
-  pip3 install tensorflow==2.15.1 wrapt==1.14.1 --no-deps
+  conda activate innfer_env
+  #pip3 install tensorflow==2.15.1 wrapt==1.14.1 --no-deps
+  #pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
+  pip3 install tensorflow[and-cuda]==2.15.1 wrapt==1.14.1
   pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
-  conda activate miniconda/files/envs/innfer_env
   chmod +x scripts/innfer.py
   alias innfer="$PWD/scripts/innfer.py"
 fi

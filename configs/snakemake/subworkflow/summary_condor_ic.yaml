@@ -1,0 +1,21 @@
+# Get full summary
+- step: "Summary"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    extra_dir_name: "ClosureTest"
+    summary_from: "CovarianceWithDMatrix"
+    summary_nominal_name: "Closure Test"
+    summary_show_2sigma: True
+    summary_subtract: True
+    loop_over_nuisances: True
+
+# Get summary per val
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    summary_from: "CovarianceWithDMatrix"
+    extra_dir_name: "ClosureTest"
+    summary_nominal_name: "Closure Test"
+    summary_show_2sigma: True
+    loop_over_rates: True
+    loop_over_lnN: True

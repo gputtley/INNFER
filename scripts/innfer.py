@@ -355,6 +355,46 @@ def main(args, default_args):
       )
 
 
+  # Evaluate density network
+  if args.step == "EvaluateDensity":
+    print("<< Generating samples on the train and test conditions >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "evaluate_density",
+        class_name = "EvaluateDensity",
+        config = {          
+          "parameters" : model_info["parameters"],
+          "data_input" : model_info['file_loc'],
+          "model_input" : f"{models_dir}",
+          "model_name" : f"{model_info['name']}{args.extra_density_model_name}",
+          "file_name" : model_info["file_name"],
+          "data_output" : f"{data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
+  # Plot the density network
+  if args.step == "PlotDensity":
+    print("<< Plotting the density distribution compared to train and test >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "plot_density",
+        class_name = "PlotDensity",
+        config = {          
+          "cfg" : args.cfg,
+          "file_name" : model_info["file_name"],
+          "parameters" : model_info["parameters"],
+          "data_input" : model_info['file_loc'],
+          "evaluate_input" : f"{data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
+          "plots_output" : f"{plots_dir}/PlotDensity/{model_info['name']}{args.extra_density_model_name}",
+          "verbose" : not args.quiet,        
+        },
+        loop = {"model_name" : model_info['name']}
+      )
+
+
   # Setup density from benchmark
   if args.step == "SetupDensityFromBenchmark":
     print("<< Setup density from benchmark >>")
@@ -887,7 +927,7 @@ def main(args, default_args):
   if args.step == "InitialFit":
     print(f"<< Running initial fits >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -911,7 +951,7 @@ def main(args, default_args):
   if args.step == "ApproximateUncertainty":
     print(f"<< Finding the approximate uncertainties >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -938,7 +978,7 @@ def main(args, default_args):
   if args.step == "Hessian" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
     print(f"<< Calculating the Hessian matrix >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -963,7 +1003,7 @@ def main(args, default_args):
   if args.step == "HessianParallel":
     print(f"<< Calculating the Hessian matrix in parallel >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -994,7 +1034,7 @@ def main(args, default_args):
   if args.step == "HessianCollect":
     print(f"<< Collecting the Hessian matrix >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1019,7 +1059,7 @@ def main(args, default_args):
   if (args.step == "HessianNumerical") or ((args.step == "Hessian") and (args.likelihood_type in ["binned", "binned_extended"])):
     print(f"<< Calculating the Hessian matrix numerically >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1044,7 +1084,7 @@ def main(args, default_args):
   if args.step == "Covariance":
     print(f"<< Calculating the Covariance matrix >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1069,7 +1109,7 @@ def main(args, default_args):
   if args.step == "DMatrix":
     print(f"<< Calculating the D matrix >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1094,7 +1134,7 @@ def main(args, default_args):
   if args.step == "CovarianceWithDMatrix":
     print(f"<< Calculating the Covariance matrix with the D matrix correction >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1120,7 +1160,7 @@ def main(args, default_args):
   if args.step in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
     print(f"<< Finding points to scan over >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1151,7 +1191,7 @@ def main(args, default_args):
   if args.step == "Scan":
     print(f"<< Running profiled likelihood scans >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1186,7 +1226,7 @@ def main(args, default_args):
   if args.step == "ScanCollect":
     print(f"<< Collecting likelihood scan results >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1211,7 +1251,7 @@ def main(args, default_args):
   if args.step == "ScanPlot":
     print(f"<< Plot likelihood scan >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1240,7 +1280,7 @@ def main(args, default_args):
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       asimov_file_names = [file_name] if file_name != "combined" else GetModelFileLoop(cfg)
       for asimov_file_name in asimov_file_names:
-        for val_ind, val_info in enumerate(GetValidationLoop(cfg, asimov_file_name)):
+        for val_ind, val_info in enumerate(GetValidationLoop(cfg, asimov_file_name, inference=True)):
           if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
           if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
           if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1278,7 +1318,7 @@ def main(args, default_args):
     for file_name in GetModelFileLoop(cfg):
       asimov_file_names = [file_name] if file_name != "combined" else GetModelFileLoop(cfg)
       for asimov_file_name in asimov_file_names:
-        for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
           if SkipNonDensity(cfg, asimov_file_name, val_info, skip_non_density=args.skip_non_density): continue
           if SkipNonData(cfg, file_name, args.data_type, val_ind, allow_split=True): continue
           if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1317,7 +1357,7 @@ def main(args, default_args):
   if args.step == "PostFitPlot":
     print(f"<< Drawing the distributions for the best fit values >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
@@ -1365,7 +1405,7 @@ def main(args, default_args):
           "data_input" : f"{data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}",
           "data_output" : f"{data_dir}/SummaryChiSquared{summary_from}{args.extra_output_dir_name}/{file_name}",
           "file_name" : f"{summary_from}_results".lower(),
-          "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None else {},
+          "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in args.freeze.split(",")} if args.freeze is not None and args.freeze != "all-but-one" else {},
           "column_loop" : column_loop,
           "verbose" : not args.quiet,
         },
@@ -1378,7 +1418,8 @@ def main(args, default_args):
     print(f"<< Collecting all-but-one results for the summary plot >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
         if len(column_loop) <= 1: continue
         module.Run(
@@ -1433,6 +1474,7 @@ def main(args, default_args):
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         column_loop = GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
         if len(column_loop) == 0: continue
         module.Run(

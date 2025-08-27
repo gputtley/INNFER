@@ -33,32 +33,6 @@ def BuildBinYields(params, rate_parameters, col):
   return bin_yields
 
 
-def BuildBinnedCategories(var_input):
-
-  # Make selection, variable and bins
-  categories = {}
-  for category_ind, category in enumerate(var_input.split(";")):
-
-    # Make selection, variable and bins
-    if ":" in category:
-      sel = category.split(":")[0]
-      var_and_bins = category.split(":")[1]
-    else:
-      sel = None
-      var_and_bins = category
-
-    if "[" in var_and_bins:
-      var = var_and_bins.split("[")[0]
-      bins = [float(i) for i in list(var_and_bins.split("[")[1].split("]")[0].split(","))]
-    elif "(" in var_and_bins:
-      var = var_and_bins.split("(")[0]
-      start_stop_step = [float(i) for i in list(var_and_bins.split("(")[1].split(")")[0].split(","))]
-      bins = [float(i) for i in np.arange(start_stop_step[0], start_stop_step[1], start_stop_step[2])]
-    categories[category_ind] = [sel, var, bins]
-  
-  return categories
-
-
 def CamelToSnake(name):
   """
   Convert a CamelCase string to a snake_case string.
@@ -685,12 +659,15 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
   return parameters_in_model
 
 
-def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False):
+def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False, inference=False):
   if file_name == "combined":
     return cfg["validation"]["loop"]
   parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression, only_classification=only_classification)
   if len(parameters_in_model) == 0:
-    return [{}]
+    if inference:
+      return []
+    else:
+      return [{}]
   loop_with_parameters = []
   for value in cfg["validation"]["loop"]:
     loop_with_parameters.append({k:v for k, v in value.items() if k in parameters_in_model})
@@ -1351,8 +1328,7 @@ def SetupSnakeMakeFile(args, default_args, main):
 
     # Open config when available
     if not args_copy.step in ["MakeBenchmark"] and clear_file:
-      with open(args_copy.cfg, 'r') as yaml_file:
-        cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      cfg = LoadConfig(args_copy.cfg)
       snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
       if os.path.isfile(snakemake_file):
         os.system(f"rm {snakemake_file}")
@@ -1362,8 +1338,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     main(args_copy, default_args)
 
   # make final outputs
-  with open(args_copy.cfg, 'r') as yaml_file:
-    cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+  cfg = LoadConfig(args_copy.cfg)
   snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
   # Find outputs

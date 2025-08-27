@@ -105,6 +105,7 @@ class MakeAsimov():
       physics_model = None,
       rate_param = f"mu_{parameters['file_name']}" if f"mu_{parameters['file_name']}" in model_parameters.keys() else None,
     )
+
     if self.scale_to_one:
       total_yield = 1.0
     else:
@@ -301,7 +302,7 @@ class MakeAsimov():
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
           probs = func(df.loc[:,X_columns])
-          df.loc[:,"wt"] *= probs[:,0]/probs[:,1]
+          df.loc[:,"wt"] *= probs[:,1]/probs[:,0]
           if spl is not None:
             df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]

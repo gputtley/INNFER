@@ -511,7 +511,7 @@ class DensityPerformanceMetrics():
     outputs = [f"{self.data_output}/metrics{self.save_extra_name}{self.metrics_save_extra_name}.yaml"]
 
     # Add asimov
-    if not self.tidy_up_asimov and not self.asimov_input is not None:
+    if not (self.tidy_up_asimov or self.asimov_input is not None):
       dataset = []
       if self.do_histogram_metrics:
         dataset += self.histogram_datasets
