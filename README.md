@@ -1,3 +1,6 @@
+![Imperial College Logo](images/Imperial_College_London_logo.png)
+
+
 # INNFER - Invertible Neural Networks for Extracting Results
 
 ## Installing Repository and Packages
