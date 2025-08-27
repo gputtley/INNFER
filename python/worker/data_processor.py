@@ -205,7 +205,7 @@ class DataProcessor():
 
     # Sort columns
     df = df.loc[:, sorted(list(df.columns))]
-            
+
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
       self.batch_ind = 0

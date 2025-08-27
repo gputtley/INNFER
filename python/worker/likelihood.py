@@ -296,6 +296,18 @@ class Likelihood():
         category=category        
       )
 
+      # Shift density with classification
+      log_probs[name] = self._ShiftDensityByClassifier(
+        log_probs[name],
+        X.loc[:,self.X_columns], 
+        Y.loc[:,self.Y_columns],
+        name,
+        gradient=gradient, 
+        column_1=column_1, 
+        column_2=column_2,
+        category=category        
+      )
+
     # check for nans
     log_probs = self._CheckLogProbsForNaNs(log_probs, gradient=gradient)
 
@@ -804,6 +816,84 @@ class Likelihood():
     return log_probs
 
 
+  def _ShiftDensityByClassifier(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None, category=None):
+
+    if "pdf_shifts_with_classifier" not in self.models.keys():
+      return log_probs
+
+    # Make gradient loop
+    if not isinstance(gradient, list):
+      gradient_loop = [gradient]
+      log_probs = [log_probs]
+    else:
+      gradient_loop = gradient
+
+    # Make combined dataset
+    combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
+    del X, Y
+    gc.collect()
+
+    # Loop through classifier models
+    if file_name in self.models["pdf_shifts_with_classifier"][category].keys():
+      for k, v in self.models["pdf_shifts_with_classifier"][category][file_name].items():
+
+        # Get predictions
+        if max(gradient_loop) == 0:
+          get_gradient = [0]
+        elif max(gradient_loop) == 1:
+          get_gradient = [0,1]
+        elif max(gradient_loop) == 2:
+          get_gradient = [0,1,2]
+
+        probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
+        pred = []
+        for ind, grad in enumerate(get_gradient):
+          if grad == 0:
+            pred += [probs[0]/(1-probs[0])]
+          elif grad == 1: # derivative of f(x)/(1-f(x)) where f'(x) is probs[1] and f'(x) if probs[0][:,[1]]
+            f = probs[0]
+            fprime = probs[1]
+            denom = (1.0 - f)**2
+            pred += [fprime / denom]
+          elif grad == 2:
+            f = probs[0]      # (N,1)
+            fprime = probs[1]          # (N,n_features)
+            fsecond = probs[2]         # (N,n_features)
+            denom1 = (1.0 - f)**2
+            denom2 = (1.0 - f)**3
+            pred += [fsecond / denom1 + 2.0 * (fprime**2) / denom2]
+
+        # Update log prob
+        for ind, grad in enumerate(gradient_loop):
+          if grad == 0:
+            log_probs[ind] += np.log(pred[0])                
+          elif grad == 1:
+            log_probs[ind] += pred[1]/pred[0]
+          elif grad == 2:
+            log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
+
+        # Normalise predictions
+        for ind, grad in enumerate(gradient_loop):
+          if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
+            if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
+              if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
+                norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+                if grad == 0:
+                  log_probs[ind] += np.log(norm)                
+                elif grad == 1 and k in column_1:
+                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+                elif grad == 2 and column_1 == k and column_2 == k:
+                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+        
+    if not isinstance(gradient, list):
+      log_probs = log_probs[0]
+
+    return log_probs
+
+
   def Run(self, inputs, Y, multiply_by=1, gradient=0, column_1=None, column_2=None, numerical_gradient=False):
     """
     Evaluates the likelihood for given data.
@@ -1064,6 +1154,10 @@ class Likelihood():
         nll_jac = eval(f"lambda {inputs}: nllgrad.GetJac(np.array([{inputs}]))", {"nllgrad": nllgrad, 'np': np})
         func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nll_func, jac=nll_jac, non_list_input=True)
         result = self.Minimise(func, initial_guess, method=method, jac=jac)
+
+    else:
+
+      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'minuit', 'scipy_with_gradients', 'minuit_with_gradients' or 'custom'.")
 
     if save_best_fit:
       self.best_fit = result[0]

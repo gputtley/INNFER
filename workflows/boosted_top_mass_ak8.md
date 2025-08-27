@@ -47,7 +47,7 @@ innfer --step="PreProcess" --cfg="${cfg}"
 Finally, in order to optimally fraction the breit-wigner reweighting (specific to tops), you can run the custom module for this.
 
 ```
-innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractioning" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass"
+innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractioning" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass"
 ```
 
 ### Visualising datasets
@@ -69,10 +69,16 @@ The next step is to train the density network. Here we use a BayesFlow density m
 innfer --step="TrainDensity" --cfg="${cfg}" --density-architecture="density_default.yaml"
 ```
 
-In this case, we are using regression models for weight variations. This training can be performed with a similar command.
+In the case where we are using regression models for weight variations. This training can be performed with a similar command.
 
 ```
 innfer --step="TrainRegression" --cfg="${cfg}" --density-architecture="regression_default.yaml"
+```
+
+In the case where we are using classification models for variations. This training can be performed with a similar command.
+
+```
+innfer --step="TrainClassifier" --cfg="${cfg}" --density-architecture="classifier_default.yaml"
 ```
 
 ### Density performance metrics
@@ -82,6 +88,15 @@ To test the performance of the density model, there is a module to get some perf
 ```
 innfer --step="DensityPerformanceMetrics" --cfg="${cfg}"
 ```
+
+### Running a bayesian hyperparameter optimisation of the density network
+
+To optimise the density model's hyperparameter, you can run a bayesian hyperparameter optimisation with the follow command.
+
+```
+innfer --step="BayesianHyperparameterTuning" --cfg="${cfg}" --density-architecture="density_scan_bayesian.yaml" --number-of-trials=10 --hyperparameter-metric="inference_distance_test_inf,min" --density-performance-metrics="loss,inference"
+```
+
 
 ### Regression evaluation and plotting
 

@@ -197,6 +197,9 @@ class top_bw_fractioning():
     elif file_type == "regression":
       parameters_dict = parameters["regression"][shift_file.split("/")[-2]]
       functions = ["untransform"]
+    elif file_type == "classifier":
+      parameters_dict = parameters["classifier"][shift_file.split("/")[-2]]
+      functions = ["untransform"]
     elif file_type == "validation":
       parameters_dict = {}
       functions = []
@@ -293,16 +296,18 @@ class top_bw_fractioning():
         tuple: A tuple containing the files, shift files, and shift columns.
     """
 
-    files = {"density":[], "regression":[], "validation":[]}
-    shift_files = {"density":[], "regression":[], "validation":[]}
-    shift_columns = {"density":[], "regression":[], "validation":[]}
+    files = {"density":[], "regression":[], "classifier":[], "validation":[]}
+    shift_files = {"density":[], "regression":[], "classifier":[], "validation":[]}
+    shift_columns = {"density":[], "regression":[], "classifier":[], "validation":[]}
 
     density_loop = ["X","Y","wt"]
     regression_loop = ["X","y","wt"]
+    classifier_loop = ["X","y","wt"]
     if "save_extra_columns" in cfg["preprocess"]:
       if self.file_name in cfg["preprocess"]["save_extra_columns"].keys():
         density_loop += ["Extra"]
         regression_loop += ["Extra"]
+        classifier_loop += ["Extra"]
 
     # Check if we need to split density models
     split_density_model = False
@@ -336,6 +341,17 @@ class top_bw_fractioning():
           files["regression"].append(tmp_files)
           shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
           shift_columns["regression"].append("wt")
+
+      tmp_files = []
+      for value in cfg["models"][self.file_name]["classifier_models"]:
+        for k in classifier_loop:
+          outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{value['parameter']}/{k}_{data_split}.parquet"
+          tmp_files.append(outfile)
+          if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+        if len(tmp_files) > 0:
+          files["classifier"].append(tmp_files)
+          shift_files["classifier"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{value['parameter']}/wt_{data_split}.parquet")
+          shift_columns["classifier"].append("wt")
 
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind in range(len(GetValidationLoop(cfg, self.file_name))):
@@ -615,6 +631,9 @@ class top_bw_fractioning():
       for model in cfg["models"][self.file_name]["regression_models"]:
         if model["parameter"] == self.bw_mass_name:
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{self.bw_mass_name}", ["X","y","wt","Extra"])
+      for model in cfg["models"][self.file_name]["classifier_models"]:
+        if model["parameter"] == self.bw_mass_name:
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{self.bw_mass_name}", ["X","y","wt","Extra"])
 
       # Change parameters
       if self.write:

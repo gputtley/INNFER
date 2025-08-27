@@ -194,6 +194,33 @@ class Module():
 
     return f"python3 {self.argv[0]} {' '.join(argv)} {specific_sub_string}"
 
+
+  def _SetupGlobal(self, loop):
+    """
+    Sets up global variables for the job.
+
+    Parameters
+    ----------
+    loop : dict
+        Current loop conditions.
+    """
+    # Load global config
+    with open("configs/other/global.yaml", 'r') as yaml_file:
+      global_config = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    # Set up global variables
+    for key, values in global_config.items():
+      already_set = False
+      for value in values:
+        set_var = True
+        for loop_key, loop_value in loop.items():
+          if loop_key in value.keys():
+            if loop_value != value[loop_key]:
+              set_var = False
+        if set_var and not already_set:
+          already_set = True
+          os.environ[key] = value["value"]
+
   def Run(
       self,    
       module_name,
@@ -229,6 +256,9 @@ class Module():
 
       # Printing loop
       print(f"* Running {self._MakeSpecificString(loop)}")
+
+      # Set up global variables
+      self._SetupGlobal(loop)
 
       # Import modules and initiating class
       if self.saved_class is None:
@@ -350,8 +380,6 @@ class Module():
       if self.args.extra_plot_name != "":
         rule_name += f"_{self.args.extra_plot_name}"
         job_name += f"_{self.args.extra_plot_name}"
-
-      print(rule_name, job_name, self.args.extra_input_dir_name, self.args.extra_output_dir_name, self.args.extra_plot_name)
 
       job_name += ".sh"
       b = Batch(options={"job_name":job_name})

@@ -3,24 +3,15 @@ import os
 import textwrap
 
 import matplotlib.colors as mcolors
-import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import mplhep as hep
 import numpy as np
-import pandas as pd
 import seaborn as sns
-
-from matplotlib import gridspec
-from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.lines import Line2D
-import matplotlib.patches as mpatches
 
 from useful_functions import MakeDirectories, RoundToSF
 
 hep.style.use("CMS")
-cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
-lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
 def plot_histograms(
     bins,
@@ -62,6 +53,9 @@ def plot_histograms(
       If True, moves the legend to a separate subplot on the right.
   """
   
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   # Create figure with two subplots if legend_right is True
   if legend_right:
       fig, (ax, ax_leg) = plt.subplots(ncols=2, gridspec_kw={"width_ratios": [3, 1]}, figsize=(12, 8))
@@ -161,14 +155,27 @@ def plot_histograms_with_ratio(
   xlabel = "",
   ylabel="Events",
   name="histogram_with_ratio",    
-  ratio_range = [0.5,1.5],   
+  ratio_range = [0.5,1.5],
+  first_ratio = False,
+  anchor_y_at_0 = True,
+  axis_text = None,
 ):
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
 
   hep.cms.text(cms_label,ax=ax[0])
 
+  ax[0].text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax[0].transAxes)
+
   rgb_palette = sns.color_palette("Set2", 8)
+
+  if anchor_y_at_0:
+    ax[0].set_ylim(bottom=0, top=1.2 * max(max(np.max(hist[0]),np.max(hist[1])) for hist in hists))
 
   # draw histograms
   legend = {}
@@ -176,8 +183,13 @@ def plot_histograms_with_ratio(
 
     colour = tuple(x for x in rgb_palette[ind])
 
+    if first_ratio and ind == 0:
+      ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color="black", linestyle="-", drawstyle="steps-mid")
+    elif not first_ratio:
+      ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
+
     ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
-    ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
+
 
     # add uncertainty
     ax[0].fill_between(
@@ -188,14 +200,24 @@ def plot_histograms_with_ratio(
       alpha=0.2,
       step='mid'
       )
-    ax[0].fill_between(
-      bins,
-      np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-      np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-      color=colour,
-      alpha=0.5,
-      step='mid'
-      )
+    if first_ratio and (ind == 0):
+      ax[0].fill_between(
+        bins,
+        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        color="black",
+        alpha=0.2,
+        step='mid'
+        )
+    elif not first_ratio:
+      ax[0].fill_between(
+        bins,
+        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        color=colour,
+        alpha=0.5,
+        step='mid'
+        )
 
     # y label
     ax[0].set_ylabel(ylabel)
@@ -215,18 +237,21 @@ def plot_histograms_with_ratio(
     # draw ratios
     denom = np.array([v if v !=0 else 1.0 for v in hist_pairs[1]])
     ratio = hist_pairs[0]/denom
-    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="-", drawstyle="steps-mid")
+    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="--", drawstyle="steps-mid")
 
     # add uncertainty ro ratio
     ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
     ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
 
   # ratio labels
-  ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
+  ax[-1].axhline(y=1, color='black', linestyle='-')  # Add a horizontal line at ratio=1
   ax[-1].set_xlabel(xlabel)
   ax[-1].set_ylabel('Ratio')
   ax[-1].set_ylim([ratio_range[0],ratio_range[1]])
   ax[-1].xaxis.get_major_formatter().set_useOffset(False)
+  if axis_text is not None:
+    ax[0].text(0.03, 0.96, axis_text, transform=ax[0].transAxes, va='top', ha='left', fontsize=18)
+
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1, left=0.15)
@@ -273,6 +298,9 @@ def plot_likelihood(
   label : str, optional
       Label for the likelihood curve.
   """
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   if cap_at != None:
     sel_inds = []
@@ -356,6 +384,9 @@ def  plot_many_comparisons(
   ylabel="Events",
   name="generation_non_stack",       
 ):
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   n_models = len(sim_hists.keys())
   fig, ax= plt.subplots(n_models+1, 1, sharex=True, gridspec_kw={'height_ratios': [3]*n_models+[2]})
@@ -448,6 +479,9 @@ def plot_spline_and_thresholds(
       Name of the output file (without extension) where the plot will be saved. Defaults to "spline_and_thresholds".
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
 
@@ -517,12 +551,17 @@ def plot_stacked_histogram_with_ratio(
       Text to be displayed on the top left corner of the plot (default is '').
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   if draw_ratio:
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
   else:
     fig, ax1 = plt.subplots()
 
   bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2  # Compute bin centers
+
+  stack_hist_dict = {k: stack_hist_dict[k] for k in reversed(list(stack_hist_dict.keys()))}
 
   if data_hist is not None:
     data_hist = data_hist.astype(np.float64)
@@ -548,8 +587,10 @@ def plot_stacked_histogram_with_ratio(
   for ind, (k, v) in enumerate(stack_hist_dict.items()):
     if ind == 0:
       bottom = None
+    elif bottom is None:
+      bottom = copy.deepcopy(stack_hist_dict[list(stack_hist_dict.keys())[ind-1]])
     else:
-      bottom = stack_hist_dict[list(stack_hist_dict.keys())[ind-1]]
+      bottom += copy.deepcopy(stack_hist_dict[list(stack_hist_dict.keys())[ind-1]])
 
     ax1.bar(
        bin_edges[:-1], 
@@ -576,12 +617,10 @@ def plot_stacked_histogram_with_ratio(
   else:
     ax1.set_ylim([0.0,top_space*max(total_stack_hist)])
 
-
   if stack_hist_errors_asym is None:
     ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors,stack_hist_errors[-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors,stack_hist_errors[-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
   else:
     ax1.fill_between(bin_edges[:],np.append(total_stack_hist,total_stack_hist[-1])-np.append(stack_hist_errors_asym["down"],stack_hist_errors_asym["down"][-1]),np.append(total_stack_hist,total_stack_hist[-1])+np.append(stack_hist_errors_asym["up"],stack_hist_errors_asym["up"][-1]),color="gray",alpha=0.3,step='post',label="Uncertainty")
-
 
   if data_hist is not None:
     # Plot the other histogram as markers with error bars
@@ -716,6 +755,9 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
       Text to be displayed on the bottom left corner of the plot (default is '').
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
 
   bin_edges = []
@@ -743,7 +785,8 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
 
   # combine stack_hists
   stack_hist_dict = {}
-  for k, v in stack_hists_dict.items():
+  for k in list(stack_hists_dict.keys())[::-1]:
+    v = stack_hists_dict[k]
     for ind, hist in enumerate(v):
       if ind == 0:
         stack_hist_dict[k] = copy.deepcopy(hist)
@@ -956,6 +999,9 @@ def plot_summary(
       Other summaries to plot (default is {}).
   """
 
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   if nominal_name != "":
     nominal_name += " "
 
@@ -1153,6 +1199,7 @@ def plot_summary(
   plt.savefig(name+".pdf")
   plt.close()
 
+
 def plot_summary_per_val(
   results_with_constraints,
   results_without_constraints,
@@ -1179,6 +1226,9 @@ def plot_summary_per_val(
   plot_name : str, optional
       Name of the output plot file (default is "/summary_per_val.pdf").
   """
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
   # Calculate the number of pads
   n_pads = 1 # legend
   n_pads += len(results_without_constraints.keys())  # results without constraints

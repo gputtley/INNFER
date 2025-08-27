@@ -13,6 +13,7 @@ from useful_functions import (
   GetBinValues,
   InitiateDensityModel, 
   InitiateRegressionModel, 
+  InitiateClassifierModel,
   MakeDirectories
 )
 
@@ -24,6 +25,7 @@ class Infer():
     self.model_input = None
     self.density_models = {}
     self.regression_models = {}
+    self.classifier_models = {}
 
     self.true_Y = None
     self.val_ind = None
@@ -487,6 +489,16 @@ class Infer():
               f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
             ]
 
+      # Add classifier model inputs
+      for cat, models in self.classifier_models.items():
+        for k, v in models.items():
+          for vi in v:
+            inputs += [
+              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+              f"{self.model_input}/{vi['name']}/{k}.h5",
+              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+            ]
+
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
@@ -723,6 +735,55 @@ class Infer():
     return networks, splines
 
 
+  def _BuildClassifierModels(self):
+
+    networks = {}
+    splines = {}
+    parameters = {}
+
+    for cat, models in self.classifier_models.items():
+
+      networks[cat] = {}
+      splines[cat] = {}
+      parameters[cat] = {}
+
+      for k, v in models.items():
+
+        networks[cat][k] = {}
+        splines[cat][k] = {}
+        parameters[cat][k] = {}
+
+        for vi in v:
+
+          # Open parameters
+          with open(vi["parameters"], 'r') as yaml_file:
+            parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+          # Open architecture
+          classifier_model_name = f"{self.model_input}/{vi['name']}/{parameters[cat][k]['file_name']}"
+          with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
+            architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+          # Make model
+          networks[cat][k][vi["parameter"]] = InitiateClassifierModel(
+            architecture,
+            vi['file_loc'],
+            options = {
+              "data_parameters" : parameters[cat][k]["classifier"][vi["parameter"]],
+            }
+          )
+
+          networks[cat][k][vi["parameter"]].Load(name=f"{classifier_model_name}.h5")
+
+          # Make normalising spline
+          spline_name = f"{classifier_model_name}_norm_spline.pkl"
+          if os.path.isfile(spline_name):
+            with open(spline_name, 'rb') as f:
+              splines[cat][k][vi["parameter"]] = pickle.load(f)
+
+    return networks, splines
+
+
   def _BuildLikelihood(self):
 
     from likelihood import Likelihood
@@ -743,6 +804,7 @@ class Infer():
       }
       if not self.only_density:
         likelihood_inputs["pdf_shifts_with_regression"], likelihood_inputs["pdf_shifts_with_regression_norm_spline"] = self._BuildRegressionModels()
+        likelihood_inputs["pdf_shifts_with_classifier"], likelihood_inputs["pdf_shifts_with_classifier_norm_spline"] = self._BuildClassifierModels()
 
     elif self.likelihood_type in ["binned", "binned_extended"]:
       likelihood_inputs = {

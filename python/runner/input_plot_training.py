@@ -54,6 +54,9 @@ class InputPlotTraining():
     elif self.model_type == "regression":
       self.condition_target = "y"
       specific_parameters = parameters[self.model_type][self.parameter]
+    elif self.model_type == "classifier":
+      self.condition_target = "y"
+      specific_parameters = parameters[self.model_type][self.parameter]
 
     # Run 1D plot of all variables
     if self.verbose:
@@ -85,6 +88,8 @@ class InputPlotTraining():
       else:
         columns += cfg["models"][self.file_name]["density_models"][self.split]['parameters']
     elif self.model_type == "regression":
+      columns += [self.parameter]
+    elif self.model_type == "classifier":
       columns += [self.parameter]
 
     # Add plots
@@ -120,6 +125,11 @@ class InputPlotTraining():
         f"{self.data_input}/Y_test.parquet",
       ]
     elif self.model_type == "regression":
+      inputs += [
+        f"{self.data_input}/y_train.parquet",
+        f"{self.data_input}/y_test.parquet",
+      ]
+    elif self.model_type == "classifier":
       inputs += [
         f"{self.data_input}/y_train.parquet",
         f"{self.data_input}/y_test.parquet",

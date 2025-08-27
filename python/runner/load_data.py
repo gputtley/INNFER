@@ -1,4 +1,5 @@
 import os
+import re
 import uproot
 
 import numpy as np
@@ -28,17 +29,104 @@ class LoadData():
     self.verbose = True
     self.data_output = "data/"
     self.batch_size = 10**7
+    self.columns = []
+
+  def _GetTokens(self, input):
+    tokens = re.findall(r"[A-Za-z_]\w*", input)
+    reserved = {"and", "or", "not", "cos", "sin", "sinh", "cosh", "tanh", "abs", "exp", "sqrt"}
+    return [t for t in tokens if t not in reserved]
+
+
+  def _FindColumns(self, file_name, cfg):
+
+    # Set up calculated
+    calculated = []
+    existing = []
+    if "pre_calculate" in cfg["files"][file_name].keys():
+      for k, v in cfg["files"][file_name]["pre_calculate"].items():
+        if k not in self._GetTokens(v) and k not in existing:
+          calculated += [k]
+        else:
+          existing += [k]
+    if "weight_shifts" in cfg["files"][file_name].keys():
+      calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
+
+    # Add fitted variables
+    self.columns = cfg["variables"]
+
+    # Add parameters and save extra columns from models
+    for actual_file_name, model_types in cfg["models"].items():
+      for model_type, models in model_types.items():
+        if model_type == "yields": continue
+        for model in models:
+          if "file" not in model.keys(): continue
+          file_matched = (file_name == model["file"])
+          yields_matched = (model_types["yields"]["file"] == file_name)
+          if not (file_matched or yields_matched): continue
+
+          if "parameters" in model.keys():
+            calculated += model["parameters"]
+          elif "parameter" in model.keys():
+            calculated += [model["parameter"]]
+
+          if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
+            self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
+
+    calculated = list(set(calculated))
+
+    # Add save extra columns from validation
+    for k, v in cfg["validation"]["files"].items():
+      if file_name == v:
+        if k in cfg["preprocess"]["save_extra_columns"]:
+          self.columns += cfg["preprocess"]["save_extra_columns"][k]
+
+    # Add parameters in model
+    self.columns += cfg["files"][file_name]["parameters"]
+
+    # Add add columns
+    if "add_columns" in cfg["files"][file_name].keys():
+      self.columns += list(cfg["files"][file_name]["add_columns"].keys())
+
+    # Get from weight
+    weight = cfg["files"][file_name]["weight"]
+    self.columns += self._GetTokens(weight)
+
+    # Get from selection
+    if "selection" in cfg["files"][file_name].keys():
+      if cfg["files"][file_name]["selection"] is not None:
+        self.columns += self._GetTokens(cfg["files"][file_name]["selection"])
+
+    # Get from post selection
+    if "pre_calculate" in cfg["files"][file_name].keys():
+      for k, v in cfg["files"][file_name]["pre_calculate"].items():
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+
+    # Do post_calculate_selection
+    if "post_calculate_selection" in cfg["files"][file_name].keys():
+      if cfg["files"][file_name]["post_calculate_selection"] is not None:
+        self.columns += [i for i in self._GetTokens(cfg["files"][file_name]["post_calculate_selection"]) if i not in calculated]
+
+    # Get from weight shifts
+    if "weight_shifts" in cfg["files"][file_name].keys():
+      for k, v in cfg["files"][file_name]["weight_shifts"].items():
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+
+    # Add categories
+    if "categories" in cfg.keys():
+      for k, v in cfg["categories"].items():
+        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+
+    self.columns = list(set(self.columns))  # Remove duplicates
+
 
   def _DoWriteDataset(self, df, file_name):
+
+    df = df.loc[:,self.columns]
 
     file_path = f"{self.data_output}/{file_name}.parquet"
     table = pa.Table.from_pandas(df, preserve_index=False)
     if os.path.isfile(file_path):
-      existing_table = pq.read_table(file_path)
-      common_columns = list(set(existing_table.column_names) & set(table.column_names))
-      table = table.select(common_columns)
-      existing_table = existing_table.select(common_columns)
-      combined_table = pa.concat_tables([existing_table, table])
+      combined_table = pa.concat_tables([pq.read_table(file_path), table])
       pq.write_table(combined_table, file_path, compression='snappy')
     else:
       pq.write_table(table, file_path, compression='snappy')
@@ -99,22 +187,8 @@ class LoadData():
             else:
               raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
-        """
-        # Calculate weight
-        if "weight" in file_info.keys():
-          df.loc[:,"wt"] = df.eval(file_info["weight"])
-          df = df.loc[(df.loc[:,"wt"]!=0),:]
-        else:
-          df.loc[:,"wt"] = 1.0
-
-        # Scale 
-        if "scale" in file_info.keys():
-          if isinstance(file_info["scale"], int) or isinstance(file_info["scale"], float):
-            df.loc[:,"wt"] *= file_info["scale"]
-          else:
-            df.loc[:,"wt"] *= file_info["scale"][input_file_ind]
-        """
-            
+        df = df.loc[:, self.columns]
+    
         # Removing nans
         nan_rows = df[df.isna().any(axis=1)]
         if len(nan_rows) > 0:
@@ -211,6 +285,8 @@ class LoadData():
 
     # Load config
     cfg = LoadConfig(self.cfg)
+
+    self._FindColumns(self.file_name, cfg)
 
     # Make file
     MakeDirectories(f"{self.data_output}/{self.file_name}.parquet")

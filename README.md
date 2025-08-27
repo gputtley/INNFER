@@ -1,4 +1,25 @@
+<table>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="images/Imperial_College_London_logo.png" alt="Imperial College Logo" width="200">
+    </td>
+    <td align="center" valign="middle">
+      <img src="images/CMS_logo.png" alt="CMS Logo" width="100">
+    </td>
+  </tr>
+</table>
+
+<hr>
+
 # INNFER - Invertible Neural Networks for Extracting Results
+
+## Table of Contents
+- [Installing Repository and Packages](#installing-repository-and-packages)
+- [Setup Environment](#setup-environment)
+- [Running INNFER](#running-innfer)
+- [Input Configuration File](#input-configuration-file)
+- [SnakeMake](#snakemake)
+- [Description of Steps](#description-of-steps)
 
 ## Installing Repository and Packages
 

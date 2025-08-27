@@ -116,6 +116,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
           with open(f"{data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if v not in parameters["validation_binned_fit"]["full"]:
+            continue
           if first:
             binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
             first = False
@@ -127,6 +129,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
     "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
+    "classifier_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
     "model_input" : models_dir,
     "extra_density_model_name" : args.extra_density_model_name,
     "parameters" : {category:{k:f"{data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg)},
@@ -548,7 +551,7 @@ def GetModelFileLoop(cfg, with_combined=False):
   return model_files
 
 
-def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name=None, specific_category=None):
+def GetModelLoop(cfg, only_density=False, only_regression=False, only_classification=False, model_file_name=None, specific_category=None):
 
   data_dir = str(os.getenv("DATA_DIR"))
 
@@ -566,7 +569,7 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
         if specific_category != category:
           continue
 
-      if not only_regression:
+      if not (only_regression or only_classification):
 
         if len(v["density_models"]) == 1:
           models.append(
@@ -597,13 +600,28 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, model_file_name
             )
 
       for value in v["regression_models"]:
-        if not only_density:
+        if not (only_density or only_classification):
           models.append(
             {
               "type" : "regression",
               "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/regression/{value['parameter']}",
               "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
               "name" : f"regression_{k}_{value['parameter']}_{category}",
+              "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+              "parameter" : value['parameter'],
+              "file_name" : k,
+              "split" : None,
+            }
+          )
+      
+      for value in v["classifier_models"]:
+        if not (only_density or only_regression):
+          models.append(
+            {
+              "type" : "classifier",
+              "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/classifier/{value['parameter']}",
+              "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+              "name" : f"classifier_{k}_{value['parameter']}_{category}",
               "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
               "parameter" : value['parameter'],
               "file_name" : k,
@@ -642,16 +660,21 @@ def GetFilesInModel(file_name, cfg):
     parameters_in_model = list(set(parameters_in_model + [v["file"]]))
   for v in cfg["models"][file_name]["regression_models"]:
     parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+  for v in cfg["models"][file_name]["classifier_models"]:
+    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
   return parameters_in_model
 
 
-def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, include_rate=False, include_lnN=False, only_nuisances=False):
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False):
   parameters_in_model = []
-  if not only_regression:
+  if not (only_regression or only_classification):
     for v in cfg["models"][file_name]["density_models"]:
       parameters_in_model = list(set(parameters_in_model + v["parameters"]))
-  if not only_density:
+  if not (only_density or only_classification):
     for v in cfg["models"][file_name]["regression_models"]:
+      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
+  if not (only_density or only_regression):
+    for v in cfg["models"][file_name]["classifier_models"]:
       parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
   if include_rate and file_name in cfg["inference"]["rate_parameters"]:
     parameters_in_model.append(f"mu_{file_name}")
@@ -662,10 +685,10 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
   return parameters_in_model
 
 
-def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False):
+def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False):
   if file_name == "combined":
     return cfg["validation"]["loop"]
-  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression)
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression, only_classification=only_classification)
   if len(parameters_in_model) == 0:
     return [{}]
   loop_with_parameters = []
@@ -720,7 +743,12 @@ def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
     network = module_class()
     network.file_name = options["file_name"]
 
+  else:
+
+    raise NotImplementedError(f"Density model type {architecture['type']} not implemented")
+
   return network
+
 
 
 def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
@@ -736,10 +764,47 @@ def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
       f"{file_loc}/y_{test_name}.parquet" if test_name is not None else None,
       f"{file_loc}/wt_{test_name}.parquet" if test_name is not None else None,
       options = {
+        "task" : "regression",
         **{k:v for k,v in architecture.items() if k!="type"},
         **options
       }
-    )  
+    )
+  
+  else:
+
+    raise NotImplementedError(f"Regression model type {architecture['type']} not implemented")
+
+  return network
+
+
+def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, wt_name=None):
+
+  if wt_name is None:
+    wt_file = f"{file_loc}/wt"
+  else:
+    wt_file = copy.deepcopy(wt_name)
+
+  if architecture["type"] == "FCNN":
+
+    from fcnn_network import FCNNNetwork
+    network = FCNNNetwork(
+      f"{file_loc}/X_train.parquet",
+      f"{file_loc}/y_train.parquet", 
+      f"{wt_file}_train.parquet",
+      f"{file_loc}/X_{test_name}.parquet" if test_name is not None else None,
+      f"{file_loc}/y_{test_name}.parquet" if test_name is not None else None,
+      f"{wt_file}_{test_name}.parquet" if test_name is not None else None,
+      options = {
+        "task" : "classification",
+        "num_classes" : 2,
+        **{k:v for k,v in architecture.items() if k!="type"},
+        **options
+      }
+    )
+  
+  else:
+
+    raise NotImplementedError(f"Classifier model type {architecture['type']} not implemented")
 
   return network
 
@@ -754,8 +819,28 @@ def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
 
   return True
 
-  
+
+def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False):
+
+  if not specific_combined_default_val:
+    return False
+
+  if file_name != "combined":
+    return True
+
+  defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
+  default = True
+  for k,v in val_info.items():
+    if k in defaults.keys():
+      if v != defaults[k]:
+        default = False
+        break
+
+  return not default
+
+
 def SkipNonDensity(cfg, file_name, val_info, skip_non_density=True):
+
   if not skip_non_density:
     return False
   if file_name == "combined":
@@ -979,6 +1064,12 @@ def LoadConfig(config_name):
     raise ValueError("Config file must be a .yaml or .py file")
 
   # if missing set some defaults
+  if "data_file" not in cfg.keys():
+    cfg["data_file"] = None
+  if "data_add_columns" not in cfg.keys():
+    cfg["data_add_columns"] = {}
+  if "data_selection" not in cfg.keys():
+    cfg["data_selection"] = None
   if "inference" not in cfg.keys():
     cfg["inference"] = {}
   if "rate_parameters" not in cfg["inference"].keys():
@@ -988,10 +1079,15 @@ def LoadConfig(config_name):
   if "nuisance_constraints" not in cfg.keys():
     cfg["nuisance_constraints"] = []
   for k, v in cfg["models"].items():
+    if "classifier_models" not in v.keys():
+      cfg["models"][k]["classifier_models"] = []
     if "regression_models" not in v.keys():
       cfg["models"][k]["regression_models"] = []
     if "density_models" not in v.keys():
       cfg["models"][k]["density_models"] = []
+    for val_ind, val in enumerate(cfg["models"][k]["classifier_models"]):
+      if "n_copies" not in val.keys():
+        cfg["models"][k]["classifier_models"][val_ind]["n_copies"] = 1
     for val_ind, val in enumerate(cfg["models"][k]["regression_models"]):
       if "n_copies" not in val.keys():
         cfg["models"][k]["regression_models"][val_ind]["n_copies"] = 1
@@ -1349,7 +1445,7 @@ def StringToFile(string):
   return string
 
 
-def Translate(key, translation_file="configs/translate/translate.yaml"):
+def Translate(key, translation_file="configs/other/translate.yaml"):
   val = GetDictionaryEntryFromYaml(translation_file, [key])
   if val is not None:
     return val
