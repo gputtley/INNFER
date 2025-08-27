@@ -85,6 +85,7 @@ class Generator():
         }
       )
 
+
     # Postfit uncertainty synth data processors
     if self.include_postfit_uncertainty:
       synth_uncert_dps = {}

@@ -141,13 +141,14 @@ class GeneratorSummary():
         names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
 
 
+      # Plot ratio summary
       y_label = f"Ratio to Synthetic {names[default_val_ind]}"
       error_bar_names = [f"Simulated ({names[default_val_ind]})"] + [None]*(len(sim_hists.keys())-1)
 
       colours = ["black"] + list(sns.color_palette("Set2", len(list(sim_hists.keys()))-1))
       hists = [i/nom_synth_hist for i in synth_hists.values()]
       hists = [hists[default_val_ind]] + hists[:default_val_ind] + hists[default_val_ind+1:]
-      names = [f"Synthetic ({names[default_val_ind]})"] + names[:default_val_ind] + names[default_val_ind+1:]
+      hist_names = [f"Synthetic ({names[default_val_ind]})"] + names[:default_val_ind] + names[default_val_ind+1:]
 
       error_bar_hists = [i/nom_synth_hist for i in sim_hists.values()]
       error_bar_hist_uncerts = [i/nom_synth_hist for i in sim_hist_uncerts.values()]
@@ -155,10 +156,11 @@ class GeneratorSummary():
       error_bar_hist_uncerts = [error_bar_hist_uncerts[default_val_ind]] + error_bar_hist_uncerts[:default_val_ind] + error_bar_hist_uncerts[default_val_ind+1:]
       error_bar_names = [f"Simulated ({names[default_val_ind]})"] + [None]*(len(error_bar_hists)-1)
 
+
       plot_histograms(
         np.array(bins[:-1]),
         hists,
-        names,
+        hist_names,
         colors=colours,
         x_label=Translate(col),
         name=f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}", 

@@ -493,9 +493,10 @@ class BayesFlowNetwork():
         del second_derivative
         gc.collect()
 
-
     # Untransform probabilities
     for ind in range(len(log_probs)):
+
+      columns = list(log_probs[ind].columns)
 
       prob_dp = DataProcessor(
         [[log_probs[ind]]],
@@ -507,7 +508,7 @@ class BayesFlowNetwork():
       log_probs[ind] = prob_dp.GetFull(
         method="dataset",
         functions_to_apply = ["untransform"] if transform_X else []
-      )
+      ).loc[:, columns]
 
       # Fix 1d probability by ensuring integral is 1
       if self.fix_1d and not no_fix and order[ind] == 0:

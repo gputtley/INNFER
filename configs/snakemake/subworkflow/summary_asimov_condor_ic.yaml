@@ -1,0 +1,10 @@
+- step: "SummaryPerVal"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    extra_dir_name: "Asimov"
+    summary_from: "Covariance"
+    summary_nominal_name: "Asimov"
+    summary_show_2sigma: True
+    loop_over_rates: True
+    loop_over_lnN: True

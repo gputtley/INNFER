@@ -21,6 +21,7 @@ else
   export EVENTS_PER_BATCH=50000
   export EVENTS_PER_BATCH_FOR_GRADIENTS=10000
   export EVENTS_PER_BATCH_FOR_HESSIAN=5000
+  #python3 -c "import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'; import tensorflow as tf; print('GPUs available:', tf.config.list_physical_devices('GPU'))"
 fi
 export PLOTTING_CMS_LABEL="Work In Progress"
 export PLOTTING_LUMINOSITY="\$138\ fb^{-1} (13\ TeV)\$"

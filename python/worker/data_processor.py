@@ -261,8 +261,11 @@ class DataProcessor():
       eff_events.loc[:,"eff_events"] = np.where(sum_wts_squared.loc[:,"sum_w2"] == 0, 0, eff_events.loc[:,"eff_events"] / sum_wts_squared.loc[:,"sum_w2"])
       return eff_events
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
-      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
-      if unique is not None and not ignore_discrete: # Discrete bins
+      if not ignore_discrete:
+        unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
+      else:
+        unique = None
+      if unique is not None: # Discrete bins
         unique = sorted(unique)
         return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
