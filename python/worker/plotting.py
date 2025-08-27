@@ -166,11 +166,11 @@ def plot_histograms_with_ratio(
 
   fig, ax= plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
 
-  hep.cms.text(cms_label,ax=ax[0])
+  hep.cms.text(cms_label,ax=ax[0],fontsize=22)
 
   ax[0].text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
-      transform=ax[0].transAxes)
+      transform=ax[0].transAxes, fontsize=22)
 
   rgb_palette = sns.color_palette("Set2", 8)
 
@@ -1009,12 +1009,11 @@ def plot_summary(
   n_pads = len(list(crossings.keys()))
   fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
   plt.subplots_adjust(left=0.2, right=0.9)
-  hep.cms.text(cms_label,ax=ax[0])
+  hep.cms.text(cms_label,ax=ax[0], fontsize=22)
 
   other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)
 
   #other_colors = [sns.color_palette("bright", 10)[3], sns.color_palette("bright", 10)[2], sns.color_palette("bright", 2)[1]]
-
 
   for ind, (col, vals) in enumerate(crossings.items()):
 
@@ -1154,7 +1153,7 @@ def plot_summary(
 
   ax[-2].text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
-      transform=ax[-2].transAxes)
+      transform=ax[-2].transAxes, fontsize=22)
 
   # y title
   ax[0].set_ylabel(y_label)
@@ -1237,21 +1236,25 @@ def plot_summary_per_val(
 
   # Calculate the pad sizes
   pad_sizes = [1 for _ in range(len(results_without_constraints.keys()))]
-  pad_sizes += [len(results_with_constraints.keys())]
+
+  if len(results_with_constraints.keys()) > 0:
+    pad_sizes += [len(results_with_constraints.keys())]
+
   sum_pad_sizes = sum(pad_sizes)
   pad_sizes = [x/sum_pad_sizes for x in pad_sizes]
   pad_sizes = [0.2] + pad_sizes
   sum_pad_sizes = sum(pad_sizes)
   pad_sizes = [x/sum_pad_sizes for x in pad_sizes]
 
+
   # Create the figure and axes
   fig, ax = plt.subplots(n_pads, 1, gridspec_kw={'height_ratios': pad_sizes}, figsize=(8.27, 11.69), constrained_layout=True)
-  hep.cms.text(cms_label,ax=ax[0])
+  hep.cms.text(cms_label,ax=ax[0], fontsize=22)
 
   # Draw lumi label
   ax[0].text(1.0, 1.0, lumi_label,
       verticalalignment='bottom', horizontalalignment='right',
-      transform=ax[0].transAxes)
+      transform=ax[0].transAxes, fontsize=22)
 
   # turn of top (legend) pad axis labels and ticks
   ax[0].tick_params(
@@ -1283,25 +1286,30 @@ def plot_summary_per_val(
       )
 
   # Draw horizontal lines on constraint pad
-  constraint_pad = n_pads - 1
-  for i in range(1, len(results_with_constraints.keys())):
-    ax[constraint_pad].axhline(y=i, color='black', linestyle='-')
+  if len(results_with_constraints.keys()) > 0:
+    constraint_pad = n_pads - 1
+    for i in range(1, len(results_with_constraints.keys())):
+      ax[constraint_pad].axhline(y=i, color='black', linestyle='-')
+  else:
+    constraint_pad = n_pads
 
   # Set range of non constraint pad to be 0 and 1
   for i in range(1, constraint_pad):
     ax[i].set_ylim(0, 1)
 
-  # Set range of constraint pad to be 0 to len(results_with_constraints.keys())
-  ax[constraint_pad].set_ylim(0, len(results_with_constraints.keys()))
+  if len(results_with_constraints.keys()) > 0:
+    # Set range of constraint pad to be 0 to len(results_with_constraints.keys())
+    ax[constraint_pad].set_ylim(0, len(results_with_constraints.keys()))
 
   # Write y labels (names) on non constraint pads
   for i, name in enumerate(results_without_constraints.keys()):
     ax[i+1].text(-0.02, 0.5, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[i+1].transAxes)
 
   # Write y labels (names) on constraint pad
-  for i, name in enumerate(results_with_constraints.keys()):
-    y_coord = ((1/(2*len(results_with_constraints.keys())))) + (i/(len(results_with_constraints.keys())))
-    ax[constraint_pad].text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[constraint_pad].transAxes)
+  if len(results_with_constraints.keys()) > 0:
+    for i, name in enumerate(results_with_constraints.keys()):
+      y_coord = ((1/(2*len(results_with_constraints.keys())))) + (i/(len(results_with_constraints.keys())))
+      ax[constraint_pad].text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[constraint_pad].transAxes)
 
   # Draw vertical lines on non constraint pads for the truth values
   for i in range(1, constraint_pad):
@@ -1312,11 +1320,12 @@ def plot_summary_per_val(
   for i in range(1, constraint_pad):
     ax[i].set_xlabel(r"$\hat{\theta}$", fontsize=20)
 
-  # Set x axis title for constraint pad
-  ax[constraint_pad].set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$", fontsize=20)
+  if len(results_with_constraints.keys()) > 0:
+    # Set x axis title for constraint pad
+    ax[constraint_pad].set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$", fontsize=20)
 
-  # Draw vertical lines on constraint pad around the truth value 0
-  ax[constraint_pad].axvline(x=0, color='black', linestyle='--')
+    # Draw vertical lines on constraint pad around the truth value 0
+    ax[constraint_pad].axvline(x=0, color='black', linestyle='--')
 
   # Find the deepest vals length
   max_len = 0

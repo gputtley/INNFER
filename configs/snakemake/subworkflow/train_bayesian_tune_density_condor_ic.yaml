@@ -1,0 +1,9 @@
+# Train density models
+- step: "BayesianHyperparameterTuning"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
+    number_of_trials: 10
+    hyperparameter_metric: "inference_distance_test_inf,min"
+    density_performance_metrics: "inference"

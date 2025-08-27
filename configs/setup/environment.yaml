@@ -161,7 +161,8 @@ dependencies:
       - pyyaml==6.0.1
       - random-word==1.0.11
       - referencing==0.35.1
-      - requests==2.32.1
+      #- requests==2.32.1
+      - requests==2.32.3
       - requests-oauthlib==2.0.0
       - reretry==0.11.8
       - rich==13.7.1

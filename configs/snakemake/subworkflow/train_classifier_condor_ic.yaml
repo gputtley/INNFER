@@ -1,0 +1,13 @@
+# Train classifier models
+- step: "TrainClassifier"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+
+# Evaluate classifier models
+- step: "EvaluateClassifier"
+  submit: "configs/submit/condor_gpu.yaml"
+
+# Plot classifier models
+- step: "PlotClassifier"
+  submit: "configs/submit/condor_2_cpus.yaml"

@@ -213,13 +213,20 @@ class Module():
       already_set = False
       for value in values:
         set_var = True
-        for loop_key, loop_value in loop.items():
-          if loop_key in value.keys():
-            if loop_value != value[loop_key]:
+        value_dict = copy.deepcopy(value)
+        del value_dict["value"]
+
+        for value_key, value_item in value_dict.items():
+          if value_key in loop.keys():
+            if value_item != loop[value_key]:
               set_var = False
+          else:
+            set_var = False
+
         if set_var and not already_set:
           already_set = True
           os.environ[key] = value["value"]
+
 
   def Run(
       self,    

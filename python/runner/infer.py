@@ -185,6 +185,7 @@ class Infer():
 
       first = True
       columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+
       for column_1_ind, column_1 in enumerate(columns):
         for column_2_ind, column_2 in enumerate(columns):
           if column_1_ind > column_2_ind: continue

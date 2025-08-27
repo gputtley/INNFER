@@ -2,26 +2,26 @@
 - step: "InitialFit"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
+    specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
     points_per_job: 6
-    specific: "file_name=combined;val_ind=0"
 - step: "HessianParallel"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
+    specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
     points_per_job: 12
-    specific: "file_name=combined;val_ind=0"
 - step: "HessianCollect"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
+    specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    specific: "file_name=combined;val_ind=0"
 - step: "Covariance"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
+    specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    specific: "file_name=combined;val_ind=0"
