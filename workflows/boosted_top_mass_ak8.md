@@ -20,10 +20,10 @@ cfg="btm_180725.yaml"
 
 ## SnakeMake running
 
-The full workflow can be run with snakemake. This will utilise the inputs and outputs of each job to submit each job only when the inputs are available. To do this, open up a new terminal (recommend tmux or screen) and run this following command with the relevant snakemake submission configuration. NOT SETUP YET FOR THIS EXAMPLE.
+The full workflow can be run with snakemake. This will utilise the inputs and outputs of each job to submit each job only when the inputs are available. To do this, open up a new terminal (recommend tmux or screen) and run this following command with the relevant snakemake submission configuration. This is currently setup to run after the preprocessing steps (including the custom step). This way you can check you inputs with the plotting listed below before running the remaining workflow.
 
 ```
-innfer --step="SnakeMake" --cfg="${cfg}" --snakemake-cfg="btm_5Y_condor_ic.yaml"
+innfer --step="SnakeMake" --cfg="${cfg}" --snakemake-cfg="ic_core.yaml"
 ```
 
 ## Step-by-step running

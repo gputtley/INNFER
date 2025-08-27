@@ -1,7 +1,7 @@
 # Type
 type: "FCNN"
 # training
-epochs: 10
+epochs: 20
 batch_size: 4096
 early_stopping: False
 learning_rate: 0.001

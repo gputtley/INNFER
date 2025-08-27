@@ -1418,7 +1418,7 @@ def main(args, default_args):
     print(f"<< Collecting all-but-one results for the summary plot >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
         if len(column_loop) <= 1: continue
