@@ -1,4 +1,7 @@
-<img src="images/Imperial_College_London_logo.png" alt="Imperial College Logo" width="200">
+<p align="left">
+  <img src="images/Imperial_College_London_logo.png" alt="Imperial College Logo" width="200">
+  <img src="images/CMS_logo.png" alt="CMS Logo" width="200">
+</p>
 
 <hr>
 
