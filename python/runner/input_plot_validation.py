@@ -22,6 +22,7 @@ class InputPlotValidation():
     self.verbose = True
     self.data_input = "data/"
     self.plots_output = "plots/"
+    self.sim_type = "val"
 
   def Configure(self, options):
     """
@@ -47,7 +48,7 @@ class InputPlotValidation():
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)   
 
     # Plots varying all validation parameters
-    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=["val"])
+    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type])
 
     # plots varying one at a time and freezing others to the nominal
     defaults = GetDefaultsInModel(parameters['file_name'], cfg)
@@ -64,7 +65,7 @@ class InputPlotValidation():
           vary_val_loop.append(val_dict)
           vary_inds.append(ind)      
 
-      self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=["val"])
+      self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type])
 
       
   def Outputs(self):
@@ -102,9 +103,9 @@ class InputPlotValidation():
 
     # Add data
     for ind, _ in enumerate(self.val_loop):
-      inputs += [f"{self.data_input}/val_ind_{ind}/X_val.parquet"]
-      inputs += [f"{self.data_input}/val_ind_{ind}/Y_val.parquet"]
-      inputs += [f"{self.data_input}/val_ind_{ind}/wt_val.parquet"]
+      inputs += [f"{self.data_input}/val_ind_{ind}/X_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/val_ind_{ind}/Y_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/val_ind_{ind}/wt_{self.sim_type}.parquet"]
 
     return inputs
 
@@ -115,6 +116,7 @@ class InputPlotValidation():
 
       hists = {}
       hist_names = {}
+      hist_errs = {}
       bins = {}
 
       for ind, variation in enumerate(variations):
@@ -136,12 +138,14 @@ class InputPlotValidation():
           if col not in bins.keys():
             bins[col] = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
 
-          hist, _ = dp.GetFull(method="histogram", bins=bins[col], column=col)
+          hist, hist_uncert, _ = dp.GetFull(method="histogram_and_uncert", bins=bins[col], column=col)
           if col not in hists.keys():
             hists[col] = []
             hist_names[col] = []
+            hist_errs[col] = []
 
           hists[col].append(hist)
+          hist_errs[col].append(hist_uncert)
           hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
 
 
@@ -158,4 +162,5 @@ class InputPlotValidation():
           y_label = "Density",
           anchor_y_at_0 = True,
           drawstyle = "steps-mid",
+          hist_errs = [hist_err/np.sum(hist) for hist_err in hist_errs[col]],
         )
