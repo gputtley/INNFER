@@ -16,6 +16,7 @@ from data_processor import DataProcessor
 from useful_functions import (
     GetDefaults,
     GetDefaultsInModel,
+    GetDictionaryEntry,
     GetFilesInModel,
     GetParametersInModel,
     GetValidationLoop,
@@ -872,46 +873,57 @@ class PreProcess():
       split_density_model = True
 
     # density model
+    standardisation_parameters["density"] = {}
     if not split_density_model:
 
-      density_files = [[f"{self.data_output}/density/X_train.parquet", f"{self.data_output}/density/Y_train.parquet", f"{self.data_output}/density/wt_train.parquet"]]
-      dp = DataProcessor(
-        density_files,
-        "parquet",
-        options = {
-          "wt_name" : "wt",
-        },
-        batch_size=self.batch_size,
-      )
-      density_means = dp.GetFull(method="mean")
-      density_stds = dp.GetFull(method="std")
-      standardisation_parameters["density"] = {}
-      for col in density_means.keys():
-        standardisation_parameters["density"][col] = {
-          "mean" : density_means[col],
-          "std" : density_stds[col],
-        }
+      sp = GetDictionaryEntry(cfg["preprocess"], ["standardisation",self.file_name,self.category,"density"])
+      if sp is None:
+        density_files = [[f"{self.data_output}/density/X_train.parquet", f"{self.data_output}/density/Y_train.parquet", f"{self.data_output}/density/wt_train.parquet"]]
+        dp = DataProcessor(
+          density_files,
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+        density_means = dp.GetFull(method="mean")
+        density_stds = dp.GetFull(method="std")
+        for col in density_means.keys():
+          standardisation_parameters["density"][col] = {
+            "mean" : density_means[col],
+            "std" : density_stds[col],
+          }
+          
+      else:
+
+        for col in sp.keys():
+          standardisation_parameters["density"][col] = {
+            "mean" : sp[col]["mean"],
+            "std" : sp[col]["std"],
+          }
 
     else:
 
       # Get X standardisation parameters
-      density_files = [[f"{self.data_output}/density/split_{ind}/X_train.parquet", f"{self.data_output}/density/split_{ind}/wt_train.parquet"] for ind in range(len(cfg["models"][file_name]["density_models"]))]
-      dp = DataProcessor(
-        density_files,
-        "parquet",
-        options = {
-          "wt_name" : "wt",
-        },
-        batch_size=self.batch_size,
-      )
-      density_means = dp.GetFull(method="mean")
-      density_stds = dp.GetFull(method="std")
-      standardisation_parameters["density"] = {}
-      for col in cfg["variables"]:
-        standardisation_parameters["density"][col] = {
-          "mean" : density_means[col],
-          "std" : density_stds[col],
-        }
+      sp = GetDictionaryEntry(cfg["preprocess"], ["standardisation",self.file_name,self.category,"density"])
+      if sp is None:
+        density_files = [[f"{self.data_output}/density/split_{ind}/X_train.parquet", f"{self.data_output}/density/split_{ind}/wt_train.parquet"] for ind in range(len(cfg["models"][file_name]["density_models"]))]
+        dp = DataProcessor(
+          density_files,
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+        density_means = dp.GetFull(method="mean")
+        density_stds = dp.GetFull(method="std")
+        for col in cfg["variables"]:
+          standardisation_parameters["density"][col] = {
+            "mean" : density_means[col],
+            "std" : density_stds[col],
+          }
 
       # Get Y standardisation parameters
       for col in GetParametersInModel(file_name, cfg, only_density=True):
@@ -934,49 +946,79 @@ class PreProcess():
           "std" : density_stds[col],
         }
 
+      else:
+
+        for col in sp.keys():
+          standardisation_parameters["density"][col] = {
+            "mean" : sp[col]["mean"],
+            "std" : sp[col]["std"],
+          }
+
+
     # regression models
     standardisation_parameters["regression"] = {}
     for value in cfg["models"][file_name]["regression_models"]:
       name = value["parameter"]
+      sp = GetDictionaryEntry(cfg["preprocess"], ["standardisation",self.file_name,self.category,"regression",name])
 
-      dp = DataProcessor(
-        [[f"{self.data_output}/regression/{name}/X_train.parquet", f"{self.data_output}/regression/{name}/y_train.parquet", f"{self.data_output}/regression/{name}/wt_train.parquet"]],
-        "parquet",
-        options = {
-          "wt_name" : "wt",
-        },
-        batch_size=self.batch_size,
-      )
-      regression_means = dp.GetFull(method="mean")
-      regression_stds = dp.GetFull(method="std")
-      standardisation_parameters["regression"][name] = {}
-      for col in regression_means.keys():
-        standardisation_parameters["regression"][name][col] = {
-          "mean" : regression_means[col],
-          "std" : regression_stds[col],
-        }
+      if sp is None:
+        dp = DataProcessor(
+          [[f"{self.data_output}/regression/{name}/X_train.parquet", f"{self.data_output}/regression/{name}/y_train.parquet", f"{self.data_output}/regression/{name}/wt_train.parquet"]],
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+        regression_means = dp.GetFull(method="mean")
+        regression_stds = dp.GetFull(method="std")
+        standardisation_parameters["regression"][name] = {}
+        for col in regression_means.keys():
+          standardisation_parameters["regression"][name][col] = {
+            "mean" : regression_means[col],
+            "std" : regression_stds[col],
+          }
+
+      else:
+
+        for col in sp.keys():
+          standardisation_parameters["regression"][name][col] = {
+            "mean" : sp[col]["mean"],
+            "std" : sp[col]["std"],
+          }
 
     # classifier models
     standardisation_parameters["classifier"] = {}
     for value in cfg["models"][file_name]["classifier_models"]:
       name = value["parameter"]
+      sp = GetDictionaryEntry(cfg["preprocess"], ["standardisation",self.file_name,self.category,"classifier",name])
 
-      dp = DataProcessor(
-        [[f"{self.data_output}/classifier/{name}/X_train.parquet", f"{self.data_output}/classifier/{name}/wt_train.parquet"]],
-        "parquet",
-        options = {
-          "wt_name" : "wt",
-        },
-        batch_size=self.batch_size,
-      )
-      classifier_means = dp.GetFull(method="mean")
-      classifier_stds = dp.GetFull(method="std")
-      standardisation_parameters["classifier"][name] = {}
-      for col in classifier_means.keys():
-        standardisation_parameters["classifier"][name][col] = {
-          "mean" : classifier_means[col],
-          "std" : classifier_stds[col],
-        }
+      if sp is None:
+
+        dp = DataProcessor(
+          [[f"{self.data_output}/classifier/{name}/X_train.parquet", f"{self.data_output}/classifier/{name}/wt_train.parquet"]],
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          batch_size=self.batch_size,
+        )
+        classifier_means = dp.GetFull(method="mean")
+        classifier_stds = dp.GetFull(method="std")
+        standardisation_parameters["classifier"][name] = {}
+        for col in classifier_means.keys():
+          standardisation_parameters["classifier"][name][col] = {
+            "mean" : classifier_means[col],
+            "std" : classifier_stds[col],
+          }
+
+      else:
+
+        for col in sp.keys():
+          standardisation_parameters["classifier"][name][col] = {
+            "mean" : sp[col]["mean"],
+            "std" : sp[col]["std"],
+          }
 
     return standardisation_parameters
 

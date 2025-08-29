@@ -10,7 +10,9 @@ import pyfiglet as pyg
 
 from module import Module
 from useful_functions import (
+    AdjustArgs,
     CommonInferConfigOptions,
+    DescribeStep,
     GetBestFitFromYaml,
     GetBestFitWithShiftedNuisancesFromYaml,
     GetCategoryLoop,
@@ -26,8 +28,8 @@ from useful_functions import (
     GetParameterLoop,
     GetScanArchitectures,
     GetValidationLoop,
+    ListSteps,
     LoadConfig,
-    OverwriteArchitecture,
     SetupSnakeMakeFile,
     SkipNonData,
     SkipNonDefault,
@@ -35,6 +37,7 @@ from useful_functions import (
 )
 
 def parse_args():
+
   parser = argparse.ArgumentParser()
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
@@ -47,6 +50,7 @@ def parse_args():
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
+  parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory', type=str, default='')
@@ -63,6 +67,7 @@ def parse_args():
   parser.add_argument('--include-postfit-uncertainty', help='Include the postfit uncertainties in the postfit plots.', action='store_true')
   parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--list-steps', help='List the steps available', action='store_true')
   parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
   parser.add_argument('--loop-over-lnN', help='Loop over log normal parameters as well as shape parameter', action='store_true')
   parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
@@ -115,48 +120,9 @@ def parse_args():
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
-  # Check inputs
-  if args.cfg is None and args.benchmark is None:
-    raise ValueError("The --cfg or --benchmark is required.")
-  if args.step is None:
-    raise ValueError("The --step is required.")
-  if args.data_type != "sim" and args.scale_to_eff_events:
-    raise ValueError("The --scale-to-eff-events option is only valid for --data-type=sim.")
-
-  # Adjust input paths
-  if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
-    args.cfg = f"configs/run/{args.cfg}"
-  if os.path.exists(f"configs/architecture/{args.density_architecture}"): # Change architecture path
-    args.density_architecture = f"configs/architecture/{args.density_architecture}"
-  if os.path.exists(f"configs/architecture/{args.regression_architecture}"): # Change architecture path
-    args.regression_architecture = f"configs/architecture/{args.regression_architecture}"
-  if args.snakemake_cfg is not None:
-    if os.path.exists(f"configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
-      args.snakemake_cfg = f"configs/snakemake/{args.snakemake_cfg}"
-  if args.submit is not None: # Change submit path
-    if os.path.exists(f"configs/submit/{args.submit}"):
-      args.submit = f"configs/submit/{args.submit}"
-  if args.benchmark is not None: # Change benchmark path
-    if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
-      args.benchmark = f"configs/run/{args.benchmark}"
-  if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
-      args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
-  if args.submit is not None:
-    args.disable_tqdm = True
-
-  # Check if the density architecture is benchmark
-  if args.density_architecture == "Benchmark" or args.step == "SetupDensityFromBenchmark":
-    if args.step != "SetupDensityFromBenchmark":
-      print("WARNING: Make sure you run SetupDensityFromBenchmark before running the other steps when using density_architecture=Benchmark.")
-
-  # Overwrite architecture
-  if args.overwrite_classifier_architecture != "":
-    args.classifier_architecture = OverwriteArchitecture(args.classifier_architecture, args.overwrite_classifier_architecture)
-  if args.overwrite_density_architecture != "":
-    args.density_architecture = OverwriteArchitecture(args.density_architecture, args.overwrite_density_architecture)
-  if args.overwrite_regression_architecture != "":
-    args.regression_architecture = OverwriteArchitecture(args.regression_architecture, args.overwrite_regression_architecture)
-
+  # Adjust arguments
+  args = AdjustArgs(args)
+    
   return args, default_args
 
 
@@ -323,6 +289,7 @@ def main(args, default_args):
             "data_input" : f"{data_dir}/PreProcess/{file_name}/{category}",
             "plots_output" : f"{plots_dir}/InputPlotValidation{args.extra_input_dir_name}/{file_name}/{category}",
             "val_loop" : GetValidationLoop(cfg, file_name),
+            "sim_type" : args.sim_type,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -1516,23 +1483,36 @@ if __name__ == "__main__":
   # Parse the arguments
   args, default_args = parse_args()
 
-  if args.step != "SnakeMake": # Run a non snakemake step
+  if args.describe or args.list_steps:
 
-    # Loop through steps
-    steps = args.step.split(",")
-    for step in steps:
-      args.step = step
-      main(args, default_args)
+    # Open yaml file of step description
+    with open("configs/other/step_description.yaml", 'r') as yaml_file:
+      step_description = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-  else: # Run snakemake
+    if args.describe:
+      DescribeStep(args.step, step_description[args.step])
+    elif args.list_steps:
+      ListSteps(step_description)
 
-    # Setting up snakemake file
-    snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+  else:
 
-    if not args.snakemake_dry_run: # Run snakemake
-      os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
-      snakemake_extra = " --forceall" if args.snakemake_force else ""
-      os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
+    if args.step != "SnakeMake": # Run a non snakemake step
+
+      # Loop through steps
+      steps = args.step.split(",")
+      for step in steps:
+        args.step = step
+        main(args, default_args)
+
+    else: # Run snakemake
+
+      # Setting up snakemake file
+      snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+
+      if not args.snakemake_dry_run: # Run snakemake
+        os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
+        snakemake_extra = " --forceall" if args.snakemake_force else ""
+        os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 
   # Print the time elapsed
   print("<< Finished running without error >>")

@@ -78,7 +78,7 @@ class top_bw_fractioning():
     return k/((s-(m**2))**2 + (m*l)**2)
 
 
-  def _CalculateOptimalFractions(self, base_file, wt_func):
+  def _CalculateOptimalFractions(self, base_file, wt_func, selection=None):
     """
     Calculate the optimal fractions for the given base file and weight function.
     Args:
@@ -96,7 +96,8 @@ class top_bw_fractioning():
       "parquet",
       batch_size=self.batch_size,
       options = {
-        "wt_name" : "wt"
+        "wt_name" : "wt",
+        "selection" : selection
       }
     )
 
@@ -368,7 +369,7 @@ class top_bw_fractioning():
     return files, shift_files, shift_columns
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None):
     """
     Plot the reweighting of the samples.
     Args:
@@ -385,7 +386,8 @@ class top_bw_fractioning():
       "parquet",
       batch_size=self.batch_size,
       options = {
-        "wt_name" : "wt"
+        "wt_name" : "wt",
+        "selection" : selection
       }
     )
 
@@ -458,6 +460,11 @@ class top_bw_fractioning():
 
       MakeDirectories(self.plot_dir)
 
+      if extra_name is not None:
+        plot_name = f"{self.plot_dir}/bw_reweighted_{col}_{extra_name}"
+      else:
+        plot_name = f"{self.plot_dir}/bw_reweighted_{col}"
+
       plot_histograms(
         np.array(bins[:-1]), 
         hists, 
@@ -468,7 +475,7 @@ class top_bw_fractioning():
         error_bar_names = error_bar_hist_names,
         drawstyle=drawstyles, 
         colors=colours, 
-        name=f"{self.plot_dir}/bw_reweighted_{col}", 
+        name=plot_name, 
         x_label=col, 
         y_label="Density"
       )
@@ -542,13 +549,13 @@ class top_bw_fractioning():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
-    # Calculate optimal fractions
-    normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
-
-    # Plot reweighting
-    self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"])
-
     for category in GetCategoryLoop(cfg):
+
+      # Calculate optimal fractions
+      normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category])
+
+      # Plot reweighting
+      self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
 
       # Open parameters
       parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/parameters.yaml"
@@ -665,8 +672,9 @@ class top_bw_fractioning():
           outputs += [file]
 
       # Add plots
-      for col in self.plot_columns:
-        outputs += [f"{self.plot_dir}/bw_reweighted_{col}.pdf"]
+      for cat in GetCategoryLoop(cfg):
+        for col in self.plot_columns:
+          outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
 
     return outputs
 
