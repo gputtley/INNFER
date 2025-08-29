@@ -139,6 +139,10 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
           with open(f"{data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          if "validation_binned_fit" not in parameters.keys():
+            continue
+          if "full" not in parameters["validation_binned_fit"].keys():
+            continue
           if v not in parameters["validation_binned_fit"]["full"]:
             continue
           if first:
@@ -594,7 +598,6 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, only_classifica
     if model_file_name is not None:
       if model_file_name != k:
         continue
-
 
     for category in GetCategoryLoop(cfg):
 

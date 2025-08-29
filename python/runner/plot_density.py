@@ -20,7 +20,7 @@ class PlotDensity():
     self.evaluate_input = "data/"
     self.plots_output = "plots/"
     self.verbose = True 
-    self.n_plots = 6
+    self.n_plots = 20
 
   def Configure(self, options):
     """

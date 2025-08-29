@@ -116,6 +116,7 @@ class InputPlotValidation():
 
       hists = {}
       hist_names = {}
+      hist_errs = {}
       bins = {}
 
       for ind, variation in enumerate(variations):
@@ -137,12 +138,14 @@ class InputPlotValidation():
           if col not in bins.keys():
             bins[col] = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
 
-          hist, _ = dp.GetFull(method="histogram", bins=bins[col], column=col)
+          hist, hist_uncert, _ = dp.GetFull(method="histogram_and_uncert", bins=bins[col], column=col)
           if col not in hists.keys():
             hists[col] = []
             hist_names[col] = []
+            hist_errs[col] = []
 
           hists[col].append(hist)
+          hist_errs[col].append(hist_uncert)
           hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
 
 
@@ -159,4 +162,5 @@ class InputPlotValidation():
           y_label = "Density",
           anchor_y_at_0 = True,
           drawstyle = "steps-mid",
+          hist_errs = [hist_err/np.sum(hist) for hist_err in hist_errs[col]],
         )

@@ -549,19 +549,10 @@ class top_bw_fractioning():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
-    ## Calculate optimal fractions
-    #normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"])
-
-    ## Plot reweighting
-    #self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"])
-
     for category in GetCategoryLoop(cfg):
 
       # Calculate optimal fractions
       normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category])
-
-      print(category)
-      print(normalised_fractions)
 
       # Plot reweighting
       self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
