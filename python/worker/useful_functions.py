@@ -3,6 +3,7 @@ import importlib.util
 import os
 import pickle
 import re
+import textwrap
 import yaml
 
 import numpy as np
@@ -10,6 +11,54 @@ import pandas as pd
 
 from itertools import product
 from functools import partial
+
+
+def AdjustArgs(args):
+
+  # Check inputs
+  if args.cfg is None and args.benchmark is None:
+    raise ValueError("The --cfg or --benchmark is required.")
+  if args.step is None and not args.list_steps:
+    raise ValueError("The --step is required.")
+  if args.data_type != "sim" and args.scale_to_eff_events:
+    raise ValueError("The --scale-to-eff-events option is only valid for --data-type=sim.")
+
+  # Adjust input paths
+  if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
+    args.cfg = f"configs/run/{args.cfg}"
+  if os.path.exists(f"configs/architecture/{args.density_architecture}"): # Change architecture path
+    args.density_architecture = f"configs/architecture/{args.density_architecture}"
+  if os.path.exists(f"configs/architecture/{args.regression_architecture}"): # Change architecture path
+    args.regression_architecture = f"configs/architecture/{args.regression_architecture}"
+  if args.snakemake_cfg is not None:
+    if os.path.exists(f"configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
+      args.snakemake_cfg = f"configs/snakemake/{args.snakemake_cfg}"
+  if args.submit is not None: # Change submit path
+    if os.path.exists(f"configs/submit/{args.submit}"):
+      args.submit = f"configs/submit/{args.submit}"
+  if args.benchmark is not None: # Change benchmark path
+    if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
+      args.benchmark = f"configs/run/{args.benchmark}"
+  if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
+      args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
+  if args.submit is not None:
+    args.disable_tqdm = True
+
+  # Check if the density architecture is benchmark
+  if args.density_architecture == "Benchmark" or args.step == "SetupDensityFromBenchmark":
+    if args.step != "SetupDensityFromBenchmark":
+      print("WARNING: Make sure you run SetupDensityFromBenchmark before running the other steps when using density_architecture=Benchmark.")
+
+  # Overwrite architecture
+  if args.overwrite_classifier_architecture != "":
+    args.classifier_architecture = OverwriteArchitecture(args.classifier_architecture, args.overwrite_classifier_architecture)
+  if args.overwrite_density_architecture != "":
+    args.density_architecture = OverwriteArchitecture(args.density_architecture, args.overwrite_density_architecture)
+  if args.overwrite_regression_architecture != "":
+    args.regression_architecture = OverwriteArchitecture(args.regression_architecture, args.overwrite_regression_architecture)
+
+  return args
+
 
 def BuildBinYields(params, rate_parameters, col):
 
@@ -203,6 +252,16 @@ def CustomHistogram(
       hist_uncert /= np.sum(hist)
       hist /= np.sum(hist)
     return hist, hist_uncert, bins   
+
+
+def DescribeStep(step, description, width=120):
+  print("-" * width)
+  print(f"step = {step}")
+  print()
+  wrapped = textwrap.fill(description, width=width)
+  print(wrapped)
+  print("-" * width)
+  print()
 
 
 def DiscreteTransform(df, splines={}, thresholds={}, n_integral_bins=100000, X_columns=[], Y_columns=[], wt_name="wt", unique_y_vals={}):
@@ -1017,6 +1076,19 @@ def GetYName(ur, purpose="plot", round_to=2, prefix=""):
   if name is not None and name != "":
     name = prefix+name
   return name
+
+
+def ListSteps(step_description):
+
+  width = 120
+  print("-" * width)
+  print("Steps available:")
+  print()
+  for step in step_description.keys():
+    wrapped = textwrap.fill(step, width=width)
+    print(wrapped)
+  print("-" * width)
+  print()
 
 
 def LoadConfig(config_name):
