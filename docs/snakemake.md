@@ -13,3 +13,7 @@ The snakemake chain can then be run with the following command:
 ```bash
 innfer --cfg="example_cfg.yaml" --step="SnakeMake" --snakemake-cfg="example_snakemake_cfg.yaml"
 ```
+
+---
+
+Back: [Introduction](index.md).
