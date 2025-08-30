@@ -1,5 +1,5 @@
-title: "INNFER Documentation"
-description: "Documentation for the INNFER project"
+title: "INNFER"
+description: "Invertible Neural Networks for Fast Extracting Results"
 theme: minima
 
 # Build settings
@@ -12,3 +12,4 @@ header_pages:
   - setup.md
   - config.md
   - steps.md
+  - snakemake.md
