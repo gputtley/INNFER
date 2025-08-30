@@ -2,6 +2,10 @@ title: "INNFER"
 description: "Invertible Neural Networks For Extracting Results"
 theme: minima
 
+markdown: kramdown
+kramdown:
+  math_engine: mathjax
+
 # Build settings
 exclude:
   - README.md
