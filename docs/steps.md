@@ -104,4 +104,6 @@ Here’s a reference of all the steps INNFER provides:
 
 `SummaryPerVal` : Plots summaries of results for each validation index.
 
+---
+
 Next: [Configuration File](config.md).
