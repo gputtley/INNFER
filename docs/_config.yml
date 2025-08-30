@@ -1,0 +1,7 @@
+title: "INNFER Documentation"
+description: "Documentation for the INNFER project"
+theme: minima
+
+# Exclude files from the built site
+exclude:
+  - README.md
