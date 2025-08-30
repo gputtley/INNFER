@@ -133,4 +133,6 @@ files: # Base dataset inputs
       nui_3: "(1 + (nui_2 * sigma_2))"
 ```
 
-Next: [Available Steps](steps.md).
+---
+
+Next: [SnakeMake](snakemake.md).

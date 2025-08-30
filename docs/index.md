@@ -4,17 +4,26 @@ title: "Introduction"
 permalink: /
 ---
 
-# Welcome to INNFER
+**INNFER** is a framework for performing simulation-based inference in a frequentist statistical setting.  
+It enables multidimensional, unbinned likelihood fits by leveraging machine learning techniques to model probability densities.  
 
-INNFER is a framework for ...
+At its core, INNFER uses artificial intelligence to learn the probability density function:
 
-Running INNFER happens though the `scripts/innfer.py` script with an accompanying yaml config file parsed with the `--cfg` option (or a benchmark name with the `--benchmark` option). You also need to specify the step you want to run with the `--step` option. More information about these two options are detailed further below. An example command for this is shown below.
-```bash
-innfer --cfg="example_cfg.yaml" --step="PreProcess"
-```
+$$
+p(\vec{x} \mid \vec{\theta}, \vec{\nu})
+$$
 
-As some commands may take some time, jobs can be parallelised and submitted to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a configuration file for submission to the batch. Running INNFER on a batch is highly recommended in all cases.
+where:
+- $\vec{x}$ = reconstructed variables  
+- $\vec{\theta}$ = parameters of interests 
+- $\vec{\nu}$ = nuisance parameters  
 
-Example workflows are available in the workflows folder.
+This approach provides an optimal and statistically rigorous way to perform high-dimensional data analyses while maintaining the interpretability of classical frequentist methods.
 
-👉 Get started by reading the [Setup Guide](setup.md).
+The framework is developed at Imperial College London for initial use performing statistical analysis on data collected by the CMS experiment. If you have any questions about the repository contact George Uttley at george.peter.uttley@cern.ch.
+
+Contributors: George Uttley, Nicholas Wardle, Ye He
+
+---
+
+Next: [Setup Guide](setup.md).
