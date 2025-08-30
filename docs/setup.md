@@ -3,46 +3,41 @@ layout: page
 title: "Setup"
 ---
 
-# Setup Guide
+## Cloning from github
 
-This guide will help you install and configure INNFER.
+The INNFER repository can be directly cloned from github with the following command
 
-- [Installing Repository and Packages](#installing-repository-and-packages)
-- [Source Environment](#source-environment)
-- [Setup SnakeMake](#setup-snakemake)
-
-## Installing Repository and Packages
-
-To import the github repository, clone with the following command.
 ```bash
 git clone https://github.com/gputtley/INNFER.git
 ```
 
-Then to install conda run this command. You will need to click `enter` and `yes` through all prompts. If you already have a conda installed, this is not needed. 
+## Installing conda and the environment
+
+Running on the code relies on multiple python packages which are installed using a conda environment. Firstly, conda needs to set up. To install this you can run the following command. You will need to click `enter` and `yes` through all prompts. If you already have a conda installed, this is not needed. 
 ```bash
 source setup.sh conda
 ```
 
-To set up the environment, you will need to run this command.
+Next, you will need to set up the environment, with the following command.
 ```bash
 source setup.sh env
 ```
 
-## Source Environment
+## Source environment
 
-At the beginning of every session you will need to run the following command to start the environment.
+At the beginning of every session you will need to run the following command to start the environment. This will initiate the conda environment and set a number of useful global variables.
 ```bash
 source env.sh
 ```
 
 ## Setup SnakeMake
 
-The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps:
-
+The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps.
 ```bash
 source setup.sh snakemake_condor
 ```
+You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible. Note, this is only setup for use on HTCondor batch systems.
 
-You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible.
+---
 
-Next: [Building the Configuration](config.md).
+Next: [Running INNFER](steps.md).
