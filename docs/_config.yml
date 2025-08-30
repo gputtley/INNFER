@@ -2,6 +2,13 @@ title: "INNFER Documentation"
 description: "Documentation for the INNFER project"
 theme: minima
 
-# Exclude files from the built site
+# Build settings
 exclude:
   - README.md
+
+# Navigation (minima supports this via "header_pages")
+header_pages:
+  - index.md
+  - setup.md
+  - config.md
+  - steps.md
