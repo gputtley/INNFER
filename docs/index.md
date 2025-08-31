@@ -4,9 +4,7 @@ title: "Introduction"
 permalink: /
 ---
 
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async></script>
-
-**INNFER** is a framework for performing simulation-based inference in a frequentist statistical setting.  
+**INNFER** (Invertible Neural Networks for Extracting Results) is a framework for performing simulation-based inference in a frequentist statistical setting.  
 It enables multidimensional, unbinned likelihood fits by leveraging machine learning techniques to model probability densities.  
 
 At its core, INNFER uses artificial intelligence to learn the probability density function:
