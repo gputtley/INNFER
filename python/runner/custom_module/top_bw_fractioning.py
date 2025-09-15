@@ -12,7 +12,7 @@ from functools import partial
 from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
-from plotting import plot_histograms
+from plotting import plot_histograms, plot_histograms_with_ratio
 from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop
 
 data_dir = str(os.getenv("DATA_DIR"))
@@ -437,7 +437,10 @@ class top_bw_fractioning():
         var_hist_uncert /= integral
         hists.append(var_hist)
         hist_uncerts.append(var_hist_uncert)
-        hist_names.append(r"$m_{t}$ = " + f"{mass} GeV")
+        if i == 0:
+          hist_names.append(r"Nominal ($m_{t}$ = " + f"{mass} GeV)")
+        else:
+          hist_names.append(r"$m_{t}$ = " + f"{mass} GeV")
         drawstyles.append("steps-mid")
         colours.append(colour_list[i])
 
@@ -456,7 +459,10 @@ class top_bw_fractioning():
         bw_reweighted_hist_uncert /= integral
         error_bar_hists.append(bw_reweighted_hist)
         error_bar_hist_uncerts.append(bw_reweighted_hist_uncert)
-        error_bar_hist_names.append(None)
+        if i == 0:
+          error_bar_hist_names.append(r"BW ($m_{t}$ = " + f"{mass} GeV)")
+        else:
+          error_bar_hist_names.append(None)
 
       MakeDirectories(self.plot_dir)
 
@@ -464,6 +470,7 @@ class top_bw_fractioning():
         plot_name = f"{self.plot_dir}/bw_reweighted_{col}_{extra_name}"
       else:
         plot_name = f"{self.plot_dir}/bw_reweighted_{col}"
+
 
       plot_histograms(
         np.array(bins[:-1]), 
@@ -478,6 +485,18 @@ class top_bw_fractioning():
         name=plot_name, 
         x_label=col, 
         y_label="Density"
+      )
+
+      plot_histograms_with_ratio(
+        [[error_bar_hists[ind], hists[ind]] for ind in range(len(hists))[::-1]],
+        [[error_bar_hist_uncerts[ind], hist_uncerts[ind]] for ind in range(len(hists))[::-1]],
+        [[error_bar_hist_names[ind], hist_names[ind]] for ind in range(len(hists))[::-1]],
+        np.array(bins),
+        xlabel = col,
+        ylabel = "Density",
+        name = plot_name + "_ratio",
+        ratio_range = [0.9,1.1],
+        draw_error_bars = True,
       )
 
 
