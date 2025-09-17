@@ -13,7 +13,7 @@ git clone https://github.com/gputtley/INNFER.git
 
 ## Installing conda and the environment
 
-Running on the code relies on multiple python packages which are installed using a conda environment. Firstly, conda needs to set up. To install this you can run the following command. You will need to click `enter` and `yes` through all prompts. If you already have a conda installed, this is not needed. 
+Running on the code relies on multiple python packages which are installed using a conda environment. Firstly, conda needs to set up. To install this you can run the following command. You may need to click `enter` and `yes` through all prompts. If you already have conda installed, this initial command may not be needed. 
 ```bash
 source setup.sh conda
 ```
@@ -37,6 +37,7 @@ The framework is set up to work with the SnakeMake workflow manager. Firstly, th
 source setup.sh snakemake_condor
 ```
 You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible. Note, this is only setup for use on HTCondor batch systems.
+
 
 ---
 
