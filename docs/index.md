@@ -27,3 +27,6 @@ Contributors: George Uttley, Nicholas Wardle, Ye He
 ---
 
 Next: [Setup Guide](setup.md).
+
+
+{% include mathjax.html %}
