@@ -7,17 +7,16 @@ Running INNFER happens though the `scripts/innfer.py` script, this can be called
 
 You must provide two accompanying options:
 - A config file parsed with the `--cfg` option (discussed [here](config.md)), or a benchmark name with the `--benchmark` option.
-- The step you want to run with the `--step` option. More information about the steps are detailed further below
+- The step you want to run with the `--step` option. More information about the steps are detailed further below. If you want to run multiple steps in series, you can provide the required steps separated by a comma (`,`).
 
 Therefore, an example command to run **INNFER** is shown below.
 ```bash
 innfer --cfg="example_cfg.yaml" --step="PreProcess"
 ```
 
-As commands may take some time, jobs can be parallelised and submitted to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a configuration file for submission to the batch. The submission options can be altered in this yaml file. Running **INNFER** on a batch is highly recommended in all cases.
+Each step is designed to iterate over all possible parallelisations for that step. For example, if you are training a separate density model for signal and background processes, then these are completely independent tasks that can be parallelised. You can submit each split to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a file for submission to the batch. The submission options can be altered in this yaml file. If you want to run only an individual element of the loop, then you can do this by using the `--specific` option. For example, if you want to only run the signal density model loop, you would add `--specific="model_name=density_signal"`. If it is a nested loop, you can prove a semi-colon (`;`) separated list of the `key=value` to `--specific`. To find the keys and values, they are either printed to the terminal when running locally or you can look in the loop of the `scripts/innfer.py` script. You can also make use of this functionality when running locally. When submitting to the batch, if you want to group together some of the splits into a single job, you can use the `--points-per-job` option which by default is set to 1.
 
 Example workflows that have been used in analyses are available in the workflows folder.
-
 
 ## Available Steps
 
@@ -83,19 +82,39 @@ The step itself builds the input dataset from the known PDF, and the yaml config
 The benchmark scenarios are simple examples set up with a number of observables conditional on a set of parameters. Later when performing inference, the results using true PDF of the benchmark, stored in the class, can be used to compare to the learned PDF.
 
 The benchmark scenarios that are set up are:
-- Dim1Gaussian: A single Gaussian observable conditional on a single parameter which is the mean and which scales the width of the Gaussian.
-- Dim1GaussianWithExpBkg: The PDF from Dim1Gaussian representing a 'signal', stacked on top of a fixed exponentially falling 'background'.
-- Dim1GaussianWithExpBkgVaryingYield: Equivalent to Dim1GaussianWithExpBkg, except separate density models are formed for the 'signal' and 'background'. They are combined at the time of inference with a freely floating rate parameter on the 'signal' yield.
-- Dim2: Two observables, a Gaussian and a chi squared distribution, conditional on one parameter.
-- Dim5: Five observables, a Gaussian, chi squared, exponential, beta and Weibull distribution, conditional on one parameter.
+- **Dim1Gaussian**: A single Gaussian observable conditional on a single parameter which is the mean and which scales the width of the Gaussian.
+- **Dim1GaussianWithExpBkg**: The PDF from **Dim1Gaussian** representing a 'signal', stacked on top of a fixed exponentially falling 'background'.
+- **Dim1GaussianWithExpBkgVaryingYield**: Equivalent to **Dim1GaussianWithExpBkg**, except separate density models are formed for the 'signal' and 'background'. They are combined at the time of inference with a freely floating rate parameter on the 'signal' yield.
+- **Dim2**: Two observables, a Gaussian and a chi squared distribution, conditional on one parameter.
+- **Dim5**: Five observables, a Gaussian, chi squared, exponential, beta and Weibull distribution, conditional on one parameter.
 
 When running the remaining steps from a benchmark you can either continue to parse `--benchmark=Dim5` instead of the configuration file, or the created configuration file with `--cfg=Benchmark_Dim5.yaml`.
 
 ## LoadData
-Loads data to create base datasets.
+
+This step is typically the first step when running **INNFER** (assuming you are not working from a benchmark). It creates the 
+base datasets, defined using the "files" input in the configuration file, from which all variations (both weight and feature changing) are calculated later. 
+
+It loads in the input datasets and adds the extra columns specified in the configuration file. There are additional options to add summed columns and remove negative weights. It will also reduce the number of stored columns to the minimum, so that the next PreProcess steps runs more efficiently. It will output one parquet dataset per "files" key in the configuration file.
 
 ## PreProcess
-Prepares datasets for training, testing, and validation. Includes standardisation, train/test/validation splitting, and optional binned fit input.
+
+PreProcess is the largest of data preparation steps in **INNFER** repository. There are a number of techniques involved but overall the purpose of this step is to create datasets ready for training and testing density, regression and classifier models to use in building the likelihood and to produce validation datasets to validate the performance of the learned likelihood. It also creates a parameters yaml file which contains various information about the datasets including the names of the columns, the standardisation parameters, the information regarding the yields so we can produce a prediction for the total yield in the likelihood, and many other important features.
+
+The methods used during the PreProcess step are:
+- **Getting the yields**: It gets the nominal yield by calculating the sum of the weights at the default values of whichever base file is parsed as the "yield" for the particular "models" input in the configuration file. It also builds that dataset to get the 1 sigma variations of the nuisance parameters and save the sum of weights to find the relative yield effects of each nuisance, so this can be factored out and included as a log normal (lnN) nuisance parameter in the likelihood.
+- **Get the binned fit inputs**: This method is only run if the "binned_fit_input" is defined in the configuration file. As **INNFER** is built for unbinned likelihood fits, this is only setup for a cross check of the unbinned results against the binned results. If you want to use a rigorous statistical framework for binned analysis, we recommend using [Combine](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/). If you still wish to use binned fits in **INNFER**, this will calculate the yields and lnN effects in each bin and write this to the parameters file, for later use when building the binned likelihood.
+- **Train, test and validation splitting**: 
+- **Model variation**: 
+- **Validation normalisation**:
+- **Get validation effective events**:
+- **Get validation binned histograms**:
+- **Flatten by yields**:
+- **Normalise in**:
+- **Data Standardisation**:
+- **Classifier class balancing**:
+- **Shuffle training and testing datasets**:
+- **Make parameters file**:
 
 ## ResampleValidationForData
 ~  
@@ -247,6 +266,7 @@ Plots a summary of best-fit and truth values for validation parameters.
 Plots summaries of results for each validation index.
 
 
+<br>
 
 ---
 

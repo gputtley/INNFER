@@ -38,6 +38,7 @@ source setup.sh snakemake_condor
 ```
 You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible. Note, this is only setup for use on HTCondor batch systems.
 
+<br>
 
 ---
 
