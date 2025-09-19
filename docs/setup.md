@@ -23,13 +23,6 @@ Next, you will need to set up the environment, with the following command.
 source setup.sh env
 ```
 
-## Source environment
-
-At the beginning of every session you will need to run the following command to start the environment. This will initiate the conda environment and set a number of useful global variables.
-```bash
-source env.sh
-```
-
 ## Setup SnakeMake
 
 The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps.
