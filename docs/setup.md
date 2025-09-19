@@ -42,4 +42,4 @@ You should call the profile `htcondor` and if you wish to looks at the condor su
 
 ---
 
-Next: [Running INNFER](steps.md).
+Next: [Running INNFER](running.md).
