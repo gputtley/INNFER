@@ -1,22 +1,7 @@
 ---
 layout: page
-title: "Running INNFER"
+title: "Steps"
 ---
-
-Running INNFER happens though the `scripts/innfer.py` script, this can be called by the `innfer` alias. 
-
-You must provide two accompanying options:
-- A config file parsed with the `--cfg` option (discussed [here](config.md)), or a benchmark name with the `--benchmark` option.
-- The step you want to run with the `--step` option. More information about the steps are detailed further below. If you want to run multiple steps in series, you can provide the required steps separated by a comma (`,`).
-
-Therefore, an example command to run **INNFER** is shown below.
-```bash
-innfer --cfg="example_cfg.yaml" --step="PreProcess"
-```
-
-Each step is designed to iterate over all possible parallelisations for that step. For example, if you are training a separate density model for signal and background processes, then these are completely independent tasks that can be parallelised. You can submit each split to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a file for submission to the batch. The submission options can be altered in this yaml file. If you want to run only an individual element of the loop, then you can do this by using the `--specific` option. For example, if you want to only run the signal density model loop, you would add `--specific="model_name=density_signal"`. If it is a nested loop, you can prove a semi-colon (`;`) separated list of the `key=value` to `--specific`. To find the keys and values, they are either printed to the terminal when running locally or you can look in the loop of the `scripts/innfer.py` script. You can also make use of this functionality when running locally. When submitting to the batch, if you want to group together some of the splits into a single job, you can use the `--points-per-job` option which by default is set to 1.
-
-Example workflows that have been used in analyses are available in the workflows folder.
 
 ## Available Steps
 
@@ -102,8 +87,15 @@ It loads in the input datasets and adds the extra columns specified in the confi
 PreProcess is the largest of data preparation steps in **INNFER** repository. There are a number of techniques involved but overall the purpose of this step is to create datasets ready for training and testing density, regression and classifier models to use in building the likelihood and to produce validation datasets to validate the performance of the learned likelihood. It also creates a parameters yaml file which contains various information about the datasets including the names of the columns, the standardisation parameters, the information regarding the yields so we can produce a prediction for the total yield in the likelihood, and many other important features.
 
 The methods used during the PreProcess step are:
-- **Getting the yields**: It gets the nominal yield by calculating the sum of the weights at the default values of whichever base file is parsed as the "yield" for the particular "models" input in the configuration file. It also builds that dataset to get the 1 sigma variations of the nuisance parameters and save the sum of weights to find the relative yield effects of each nuisance, so this can be factored out and included as a log normal (lnN) nuisance parameter in the likelihood.
-- **Get the binned fit inputs**: This method is only run if the "binned_fit_input" is defined in the configuration file. As **INNFER** is built for unbinned likelihood fits, this is only setup for a cross check of the unbinned results against the binned results. If you want to use a rigorous statistical framework for binned analysis, we recommend using [Combine](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/). If you still wish to use binned fits in **INNFER**, this will calculate the yields and lnN effects in each bin and write this to the parameters file, for later use when building the binned likelihood.
+
+- **Getting the yields**: 
+
+It gets the nominal yield by calculating the sum of the weights at the default values of whichever base file is parsed as the "yield" for the particular "models" input in the configuration file. It also builds that dataset to get the 1 sigma variations of the nuisance parameters and save the sum of weights to find the relative yield effects of each nuisance, so this can be factored out and included as a log normal (lnN) nuisance parameter in the likelihood.
+
+- **Get the binned fit inputs**: 
+
+This method is only run if the "binned_fit_input" is defined in the configuration file. As **INNFER** is built for unbinned likelihood fits, this is only setup for a cross check of the unbinned results against the binned results. If you want to use a rigorous statistical framework for binned analysis, we recommend using [Combine](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/). If you still wish to use binned fits in **INNFER**, this will calculate the yields and lnN effects in each bin and write this to the parameters file, for later use when building the binned likelihood.
+
 - **Train, test and validation splitting**: 
 - **Model variation**: 
 - **Validation normalisation**:
