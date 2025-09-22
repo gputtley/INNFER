@@ -1,4 +1,4 @@
-# INNFER <img src="images/INNFER_logo.png" style="float: right; width: 20%; height: 20%;" align="right" alt="INNFER Logo" />
+# INNFER <img src="images/INNFER_logo.png" style="float: right; width: 30%; height: 30%;" align="right" alt="INNFER Logo" />
 
 
 INNFER (Invertible Neural Networks for Extracting Results) is a framework for performing simulation-based inference in a frequentist statistical setting. It enables multidimensional, unbinned likelihood fits by leveraging machine learning techniques to model probability densities. This approach provides an optimal and statistically rigorous way to perform high-dimensional data analyses while maintaining the interpretability of classical frequentist methods.
