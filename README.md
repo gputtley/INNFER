@@ -1,6 +1,9 @@
 <table>
   <tr>
     <td align="center" valign="middle">
+      <img src="images/INNFER_logo.png" alt="INNFER Logo" width="100">
+    </td>
+    <td align="center" valign="middle">
       <img src="images/Imperial_College_London_logo.png" alt="Imperial College Logo" width="200">
     </td>
     <td align="center" valign="middle">
