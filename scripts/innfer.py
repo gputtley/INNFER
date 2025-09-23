@@ -205,6 +205,110 @@ def main(args, default_args):
         )
 
 
+  # PreProcess the dataset - initial
+  if args.step == "PreProcessParallelInitial":
+    print("<< Running initial split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "initial",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{data_dir}/LoadData",
+            "data_output" : f"{data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - model
+  if args.step == "PreProcessParallelModel":
+    print("<< Running model split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg):
+        for model_type in [v for v in list(cfg["models"][file_name].keys()) if v != "yields"]:
+          for parameter_name in [value["parameter"] for value in cfg["models"][file_name][model_type]] if model_type != "density_models" else [None]:
+            module.Run(
+              module_name = "preprocess",
+              class_name = "PreProcess",
+              config = {
+                "partial": "model",
+                "model_type" : model_type,
+                "parameter_name" : parameter_name,
+                "cfg" : args.cfg,
+                "file_name" : file_name,
+                "data_input" : f"{data_dir}/LoadData",
+                "data_output" : f"{data_dir}/PreProcess/{file_name}/{category}",
+                "number_of_shuffles" : args.number_of_shuffles,
+                "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+                "category" : category,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "category" : category, "model_type" : model_type, "parameter_name" : parameter_name},
+            )
+
+
+  # PreProcess the dataset - validation
+  if args.step == "PreProcessParallelValidation":
+    print("<< Running validation split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg):
+        for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
+          module.Run(
+            module_name = "preprocess",
+            class_name = "PreProcess",
+            config = {
+              "partial": "validation",
+              "val_ind" : val_ind,
+              "cfg" : args.cfg,
+              "file_name" : file_name,
+              "data_input" : f"{data_dir}/LoadData",
+              "data_output" : f"{data_dir}/PreProcess/{file_name}/{category}",
+              "number_of_shuffles" : args.number_of_shuffles,
+              "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+              "category" : category,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "val_ind" : val_ind},
+          )
+
+
+  # PreProcess the dataset - Merge
+  if args.step == "PreProcessParallelMerge":
+    print("<< Running merge split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg):
+        param_models_names = [
+            f"model_type_{model_name}_{value['parameter']}" if model_name != "density_models" else f"model_type_{model_name}"
+            for model_name in cfg["models"][file_name].keys() if model_name != "yields"
+            for value in (cfg["models"][file_name][model_name] if model_name != "density_models" else [None])
+        ]
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "merge",
+            "merge_parameters" : ["initial"] + param_models_names + [f"validation_val_ind_{val_ind}" for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name))],
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{data_dir}/LoadData",
+            "data_output" : f"{data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
   # Create a "toy" dataset from oversampling the validation data for 0
   if args.step == "ResampleValidationForData":
     module.Run(
@@ -940,6 +1044,32 @@ def main(args, default_args):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             )
 
+  # Run approximate uncertainties
+  if args.step == "UncertaintyFromMinimisation":
+    print(f"<< Finding the uncertainties by minimisation>>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
+        for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+            module.Run(
+              module_name = "infer",
+              class_name = "Infer",
+              config = {
+                **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
+                "method" : "UncertaintyFromMinimisation",
+                "best_fit_input" : f"{data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+                "data_output" : f"{data_dir}/UncertaintyFromMinimisation{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
+                "column" : column,
+                "extra_file_name" : str(val_ind),
+                "freeze" : freeze["freeze"],
+                "val_ind" : val_ind,
+              },
+              loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
+            )
+
 
   # Get the Hessian matrix
   if args.step == "Hessian" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
@@ -1261,6 +1391,8 @@ def main(args, default_args):
                 "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
                 "regression_spline_input" : f"{data_dir}/EvaluateRegression",
+                "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
+                "classifier_spline_input" : f"{data_dir}/EvaluateClassifier",
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1343,7 +1475,7 @@ def main(args, default_args):
                 "sim_type" : args.sim_type,
                 "val_info" : {},
                 "plot_styles" : [1],
-                "data_label" : {"Data":"data", "Simulated":"sim", "Asimov":"asimov"}[args.data_type],
+                "data_label" : {"data":"Data", "sim":"Simulated", "asimov":"Asimov"}[args.data_type],
                 "stack_label" : "",
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
                 "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},

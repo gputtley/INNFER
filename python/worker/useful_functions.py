@@ -170,7 +170,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "minimisation_method" : args.minimisation_method,
     "sim_type" : args.sim_type,
     "X_columns" : cfg["variables"],
-    "Y_columns" : list(defaults_in_model.keys()),
+    "Y_columns" : sorted(list(defaults_in_model.keys())),
     "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "only_density" : args.only_density,
     "non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
@@ -693,11 +693,11 @@ def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False):
 def GetFilesInModel(file_name, cfg):
   parameters_in_model = []
   for v in cfg["models"][file_name]["density_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   for v in cfg["models"][file_name]["regression_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   for v in cfg["models"][file_name]["classifier_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   return parameters_in_model
 
 
@@ -705,13 +705,13 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
   parameters_in_model = []
   if not (only_regression or only_classification):
     for v in cfg["models"][file_name]["density_models"]:
-      parameters_in_model = list(set(parameters_in_model + v["parameters"]))
+      parameters_in_model = sorted(list(set(parameters_in_model + v["parameters"])))
   if not (only_density or only_classification):
     for v in cfg["models"][file_name]["regression_models"]:
-      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
+      parameters_in_model = sorted(list(set(parameters_in_model + [v["parameter"]])))
   if not (only_density or only_regression):
     for v in cfg["models"][file_name]["classifier_models"]:
-      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
+      parameters_in_model = sorted(list(set(parameters_in_model + [v["parameter"]])))
   if include_rate and file_name in cfg["inference"]["rate_parameters"]:
     parameters_in_model.append(f"mu_{file_name}")
   if include_lnN:

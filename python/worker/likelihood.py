@@ -433,6 +433,7 @@ class Likelihood():
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
 
+
     if 2 in gradient:
       if column_1 != column_2:
         first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
@@ -872,22 +873,22 @@ class Likelihood():
           elif grad == 2:
             log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
 
-        # Normalise predictions
-        for ind, grad in enumerate(gradient_loop):
-          if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
-            if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
-              if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
-                norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-                if grad == 0:
-                  log_probs[ind] += np.log(norm)                
-                elif grad == 1 and k in column_1:
-                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-                elif grad == 2 and column_1 == k and column_2 == k:
-                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
-        
+        ## Normalise predictions
+        #for ind, grad in enumerate(gradient_loop):
+        #  if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
+        #    if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
+        #      if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
+        #        norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+        #        if grad == 0:
+        #          log_probs[ind] += np.log(norm)                
+        #        elif grad == 1 and k in column_1:
+        #          norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+        #          log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+        #        elif grad == 2 and column_1 == k and column_2 == k:
+        #          norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+        #          norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+        #          log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+
     if not isinstance(gradient, list):
       log_probs = log_probs[0]
 
@@ -1109,6 +1110,8 @@ class Likelihood():
 
     """
 
+    initial_guess = initial_guess.loc[:,self.Y_columns]
+
     if method in ["scipy"]:
 
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=0)
@@ -1250,6 +1253,7 @@ class Likelihood():
 
         # Check if negative
         if nll < 0.0:
+          print("Found better best fit value during uncertainty scan. Restarting from new best fit.")
           self.best_fit[col_index] = Y[col_index]
           self.best_fit_nll += nll
           fin = False
@@ -1271,6 +1275,90 @@ class Likelihood():
 
     if self.verbose:
       print(f"Estimated result: {self.best_fit[col_index]} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
+
+    return m1p1_vals
+
+
+  def GetUncertaintyFromMinimisation(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1, max_iterations=10, stopping_precision=0.1):
+
+    # Find approximate value
+    col_index = self.Y_columns.index(column)
+
+    nll_could_be_neg = True
+    while nll_could_be_neg:
+
+      m1p1_vals = {}
+      restart = False
+
+      points_tried = [self.best_fit[col_index]]
+      nll_vals = [0.0]
+
+      first = True
+      Y = copy.deepcopy(self.best_fit)
+      interval_searches = [1,-1]
+
+      for sign in interval_searches:
+
+        if restart:
+          break
+
+        # Get initial guess for the column
+        if first:
+          first = False
+          step = max(self.best_fit[col_index]*initial_step_fraction,min_step)
+          Y[col_index] = self.best_fit[col_index] + sign*step
+        else:
+          Y[col_index] = self.best_fit[col_index] + sign*m1p1_vals[sign*-1]
+
+        # Set other parameters to best fit for initial guess
+        initial_guess = copy.deepcopy(Y)
+
+        for _ in range(max_iterations):
+
+          # Build minimisation function
+          def min_func(Y_input):
+            min_val = self.Run(X_dps, Y_input, multiply_by=-2) - self.best_fit_nll
+            if self.verbose:
+              print(f"  NLL Scan Value = {min_val}")
+            return min_val
+
+          # Do minimisation
+          func, initial_guess = self._HelperFreeze({column: Y[col_index]}, initial_guess, min_func)
+          result = self.Minimise(func, initial_guess, method="scipy")
+
+          # Check if negative
+          if result[1] < 0.0:
+            print("Found better best fit value during uncertainty scan. Restarting from new best fit.")
+            self.best_fit[col_index] = Y[col_index]
+            self.best_fit_nll += result[1]
+            restart = True
+            break
+
+          # Add to points tried
+          points_tried.append(Y[col_index])
+          nll_vals.append(result[1])
+
+          # Stop if the value is small
+          if (result[1] < (1+stopping_precision)) and (result[1] > (1-stopping_precision)):
+            break
+
+          # Update Y
+          m = (nll_vals[-1] - nll_vals[-2]) / (points_tried[-1] - points_tried[-2])
+          c = nll_vals[-1] - m*points_tried[-1]
+          Y[col_index] = (1 - c) / m
+
+          # Set initial guess to result[0]
+          initial_guess = result[0]
+
+        # Set m1p1_vals
+        if not restart:
+          m1p1_vals[sign] = abs(Y[col_index] - self.best_fit[col_index])
+
+      if not restart: 
+        nll_could_be_neg = False
+
+    if self.verbose:
+      print(f"Result: {self.best_fit[col_index]} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
 
     return m1p1_vals
 
@@ -1306,7 +1394,7 @@ class Likelihood():
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
-  def Minimise(self, func, initial_guess, method="scipy", initial_step_size=0.02, jac=None):
+  def Minimise(self, func, initial_guess, method="scipy", initial_step_size=0.02, constraint_step_size=1.0, jac=None):
     """
     Minimizes the given function using numerical optimization.
 
@@ -1329,8 +1417,12 @@ class Likelihood():
       initial_simplex = [initial_guess]
       for i in range(n):
         row = copy.deepcopy(initial_guess)
-        row[i] += initial_step_size * max(row[i], 1.0)
+        if self.Y_columns[i] in self.constraints:
+          row[i] += constraint_step_size
+        else:
+          row[i] += initial_step_size * max(row[i], 1.0)
         initial_simplex.append(row)
+
       # run minimisation
       minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
       res = minimisation.x, minimisation.fun
@@ -1397,6 +1489,38 @@ class NLLAndGradient():
   def GetAndWriteApproximateUncertaintyToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True):  
 
     uncerts = self.GetApproximateUncertainty(X_dps, col)
+
+    if symmetrise:
+      dev = (uncerts[1] + uncerts[-1])/2
+      uncerts = {
+        -1 : dev,
+        1 : dev
+      }
+
+    col_index = self.Y_columns.index(col)
+    dump = {
+      "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
+      "columns" : self.Y_columns, 
+      "varied_column" : col,
+      "crossings" : {
+        -2 : float(self.best_fit[col_index] - 2*uncerts[-1]),
+        -1 : float(self.best_fit[col_index] - 1*uncerts[-1]),
+        0  : float(self.best_fit[col_index]),
+        1  : float(self.best_fit[col_index] + 1*uncerts[1]),
+        2  : float(self.best_fit[col_index] + 2*uncerts[1]),
+      }
+    }
+    if self.verbose:
+      pprint(dump)
+    print(f"Created {filename}")
+    MakeDirectories(filename)
+    with open(filename, 'w') as yaml_file:
+      yaml.dump(dump, yaml_file, default_flow_style=False)
+
+
+  def GetAndWriteUncertaintyFromMinimisationToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True):  
+
+    uncerts = self.GetUncertaintyFromMinimisation(X_dps, col)
 
     if symmetrise:
       dev = (uncerts[1] + uncerts[-1])/2

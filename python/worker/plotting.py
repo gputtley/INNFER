@@ -159,6 +159,7 @@ def plot_histograms_with_ratio(
   first_ratio = False,
   anchor_y_at_0 = True,
   axis_text = None,
+  draw_error_bars = False,
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -172,10 +173,24 @@ def plot_histograms_with_ratio(
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax[0].transAxes, fontsize=22)
 
-  rgb_palette = sns.color_palette("Set2", 8)
+  rgb_palette = sns.color_palette("Set2", max(8,len(hists)))
 
   if anchor_y_at_0:
-    ax[0].set_ylim(bottom=0, top=1.2 * max(max(np.max(hist[0]),np.max(hist[1])) for hist in hists))
+    max_hist = None
+    for hist in hists:
+      if hist[0] is None and hist[1] is None:
+        continue
+      elif hist[0] is None:
+        max_hist_ind = copy.deepcopy(np.max(hist[1]))
+      elif hist[1] is None:
+        max_hist_ind = copy.deepcopy(np.max(hist[0]))
+      else:
+        max_hist_ind = max(np.max(hist[0]),np.max(hist[1]))
+      if max_hist is None:
+        max_hist = copy.deepcopy(max_hist_ind)
+      else:
+        max_hist = max(max_hist, max_hist_ind)
+    ax[0].set_ylim(bottom=0, top=1.2 * max_hist)
 
   # draw histograms
   legend = {}
@@ -188,18 +203,26 @@ def plot_histograms_with_ratio(
     elif not first_ratio:
       ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
 
-    ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
+    if not draw_error_bars:
+      ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
+      ax[0].fill_between(
+        bins,
+        np.append(hist_pairs[0],hist_pairs[0][-1])-np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+        np.append(hist_pairs[0],hist_pairs[0][-1])+np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+        color=colour,
+        alpha=0.2,
+        step='mid'
+        )
 
-
-    # add uncertainty
-    ax[0].fill_between(
-      bins,
-      np.append(hist_pairs[0],hist_pairs[0][-1])-np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
-      np.append(hist_pairs[0],hist_pairs[0][-1])+np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
-      color=colour,
-      alpha=0.2,
-      step='mid'
+    else:
+      non_empty_bins = (np.array(hist_pairs[0]) != 0)
+      ax[0].errorbar(
+        np.array(np.array(bins[:-1])[non_empty_bins]), np.array(hist_pairs[0])[non_empty_bins],
+        yerr=np.array(hist_uncerts[ind][0])[non_empty_bins],
+        label=hist_names[ind][0],
+        markerfacecolor='none', linestyle='None', fmt='+', color=colour, capsize=5, elinewidth=1, capthick=1
       )
+
     if first_ratio and (ind == 0):
       ax[0].fill_between(
         bins,
@@ -230,18 +253,38 @@ def plot_histograms_with_ratio(
     legend.get_frame().set_linewidth(0)  # Remove legend box border
     legend.get_frame().set_facecolor('none')  # Make legend background transparent
     legend.get_frame().set_edgecolor('none')  # Make legend edge transparent
-    max_label_length = 20  # Adjust the maximum length of each legend label
+    max_label_length = 22  # Adjust the maximum length of each legend label
     for text in legend.get_texts():
       text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
     # draw ratios
     denom = np.array([v if v !=0 else 1.0 for v in hist_pairs[1]])
     ratio = hist_pairs[0]/denom
-    ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="--", drawstyle="steps-mid")
+    if not draw_error_bars:
+      ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="--", drawstyle="steps-mid")
+      # add uncertainty ro ratio
+      ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
+      ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
+    else:
+      non_empty_bins = (ratio != 0)
+      ratio_uncert = hist_uncerts[ind][1]/denom
 
-    # add uncertainty ro ratio
-    ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
-    ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
+      #ax[-1].errorbar(
+      #  np.array(np.array(bins[:-1])[non_empty_bins]), np.array(ratio)[non_empty_bins],
+      #  yerr=np.array(((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom)[non_empty_bins],
+      #  markerfacecolor='none', linestyle='None', fmt='+', color=colour
+      #)
+      ax[-1].errorbar(
+        np.array(np.array(bins[:-1])[non_empty_bins]), np.array(ratio)[non_empty_bins],
+        yerr=(np.array(hist_uncerts[ind][0])/np.array(denom))[non_empty_bins],
+        markerfacecolor='none', linestyle='None', fmt='+', color=colour, capsize=5, elinewidth=1, capthick=1
+      )
+      #ax[-1].fill_between(bins,np.ones(len(np.append(ratio,ratio[-1])))-np.append(ratio_uncert,ratio_uncert[-1]),np.ones(len(np.append(ratio,ratio[-1])))+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.1,step='mid')
+      # Draw dashed line along edges of the fill between
+      ax[-1].plot(bins, np.ones(len(bins))-np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
+      ax[-1].plot(bins, np.ones(len(bins))+np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
+
+
 
   # ratio labels
   ax[-1].axhline(y=1, color='black', linestyle='-')  # Add a horizontal line at ratio=1
@@ -251,7 +294,6 @@ def plot_histograms_with_ratio(
   ax[-1].xaxis.get_major_formatter().set_useOffset(False)
   if axis_text is not None:
     ax[0].text(0.03, 0.96, axis_text, transform=ax[0].transAxes, va='top', ha='left', fontsize=18)
-
 
   # Adjust spacing between subplots
   plt.subplots_adjust(hspace=0.1, left=0.15)
