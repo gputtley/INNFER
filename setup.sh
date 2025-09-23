@@ -23,10 +23,10 @@ if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   conda config --set channel_priority flexible
   conda env create --file=configs/setup/environment.yaml
   conda activate innfer_env
-  #pip3 install tensorflow==2.15.1 wrapt==1.14.1 --no-deps
-  #pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
+  # Need to do this because of wrapt version conflict between tensorflow and snakemake
   pip3 install tensorflow[and-cuda]==2.15.1 wrapt==1.14.1
-  pip3 install snakemake snakemake-interface-storage-plugins wrapt --no-deps 
+  pip3 install --no-deps snakemake==9.9.0
+  pip3 install --no-deps snakemake-interface-common==1.21.0 snakemake-interface-executor-plugins==9.3.9 snakemake-interface-report-plugins==1.2.0 yte==1.9.0 snakemake-interface-storage-plugins==4.2.3 snakemake-interface-logger-plugins==1.2.4
   chmod +x scripts/innfer.py
   alias innfer="$PWD/scripts/innfer.py"
 fi

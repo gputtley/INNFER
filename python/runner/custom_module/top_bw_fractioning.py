@@ -332,8 +332,8 @@ class top_bw_fractioning():
           shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{density_dir}/wt_{data_split}.parquet")
           shift_columns["density"].append("wt")
 
-      tmp_files = []
       for value in cfg["models"][self.file_name]["regression_models"]:
+        tmp_files = []
         for k in regression_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
@@ -343,8 +343,8 @@ class top_bw_fractioning():
           shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
           shift_columns["regression"].append("wt")
 
-      tmp_files = []
       for value in cfg["models"][self.file_name]["classifier_models"]:
+        tmp_files = []
         for k in classifier_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{value['parameter']}/{k}_{data_split}.parquet"
           tmp_files.append(outfile)
@@ -586,7 +586,7 @@ class top_bw_fractioning():
 
       for k in files.keys():
 
-        for ind, splits_per_file in enumerate(files[k]): # This is the bug
+        for ind, splits_per_file in enumerate(files[k]):
 
           # Use copies or make copies
           for file in splits_per_file:
@@ -598,6 +598,7 @@ class top_bw_fractioning():
 
           # Apply weights
           self._DoReweighting(splines, splits_per_file, parameters, k, shift_files[k][ind], shift_columns[k][ind])
+
 
       # Get effective events of validation files
       for data_split in ["val","train_inf","test_inf","full"]:

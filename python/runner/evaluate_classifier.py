@@ -35,6 +35,7 @@ class EvaluateClassifier():
     self.verbose = True
     self.test_name = "test"
     self.model_type = "FCNN"
+    self.spline_from_asimov = False
 
   def _WriteDataset(self, df, file_name):
 
@@ -148,7 +149,7 @@ class EvaluateClassifier():
           method = "n_eff"
         )
         events_per_bin = 10000
-        bins = min(int(np.ceil(eff_events/events_per_bin)),100)
+        bins = min(int(np.ceil(eff_events/events_per_bin)),20)
 
         if self.verbose:
           print(f"- Number of bins: {bins}")

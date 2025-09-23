@@ -173,7 +173,7 @@ def plot_histograms_with_ratio(
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax[0].transAxes, fontsize=22)
 
-  rgb_palette = sns.color_palette("Set2", 8)
+  rgb_palette = sns.color_palette("Set2", max(8,len(hists)))
 
   if anchor_y_at_0:
     max_hist = None
