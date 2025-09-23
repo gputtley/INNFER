@@ -1120,71 +1120,71 @@ class PreProcess():
             os.system(f"mv {self.data_output}/{extra_dir}/{i}_{data_split}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{data_split}.parquet")
 
 
-      # regression models
-      if self.model_type is None or self.model_type == "regression_models":
+    # regression models
+    if self.model_type is None or self.model_type == "regression_models":
 
-        for value in cfg["models"][file_name]["regression_models"]:
-          name = value["parameter"]
+      for value in cfg["models"][file_name]["regression_models"]:
+        name = value["parameter"]
 
-          if self.parameter_name is None or self.parameter_name == name:
+        if self.parameter_name is None or self.parameter_name == name:
 
-            dp = DataProcessor(
-              [[f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet"]],
-              "parquet",
-              options = {
-                "parameters" : {"standardisation": standardisation_parameters["regression"][name]},
-              },
-              batch_size=self.batch_size,
-            )
+          dp = DataProcessor(
+            [[f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet"]],
+            "parquet",
+            options = {
+              "parameters" : {"standardisation": standardisation_parameters["regression"][name]},
+            },
+            batch_size=self.batch_size,
+          )
 
-            dp.GetFull(
-              method=None,
-              functions_to_apply = [
-                "transform",
-                partial(
-                  self._WriteSplitDataset, 
-                  extra_dir=f"regression/{name}", 
-                  extra_name=f"{data_split}_standardised", 
-                  split_dict={"X": cfg["variables"]+[value["parameter"]], "y": ["wt_shift"]}
-                )
-              ]
-            )
+          dp.GetFull(
+            method=None,
+            functions_to_apply = [
+              "transform",
+              partial(
+                self._WriteSplitDataset, 
+                extra_dir=f"regression/{name}", 
+                extra_name=f"{data_split}_standardised", 
+                split_dict={"X": cfg["variables"]+[value["parameter"]], "y": ["wt_shift"]}
+              )
+            ]
+          )
 
-            for i in ["X","y"]:
-              os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
+          for i in ["X","y"]:
+            os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
 
-      # classifier models
-      if self.model_type is None or self.model_type == "classifier_models":
+    # classifier models
+    if self.model_type is None or self.model_type == "classifier_models":
 
-        for value in cfg["models"][file_name]["classifier_models"]:
+      for value in cfg["models"][file_name]["classifier_models"]:
 
-          name = value["parameter"]
-          if self.parameter_name is None or self.parameter_name == name:
+        name = value["parameter"]
+        if self.parameter_name is None or self.parameter_name == name:
 
-            dp = DataProcessor(
-              [[f"{self.data_output}/classifier/{name}/X_{data_split}.parquet"]],
-              "parquet",
-              options = {
-                "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
-              },
-              batch_size=self.batch_size,
-            )
+          dp = DataProcessor(
+            [[f"{self.data_output}/classifier/{name}/X_{data_split}.parquet"]],
+            "parquet",
+            options = {
+              "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
+            },
+            batch_size=self.batch_size,
+          )
 
-            dp.GetFull(
-              method=None,
-              functions_to_apply = [
-                "transform",
-                partial(
-                  self._WriteSplitDataset, 
-                  extra_dir=f"classifier/{name}", 
-                  extra_name=f"{data_split}_standardised", 
-                  split_dict={"X": cfg["variables"]+[value["parameter"]]}
-                )
-              ]
-            )
+          dp.GetFull(
+            method=None,
+            functions_to_apply = [
+              "transform",
+              partial(
+                self._WriteSplitDataset, 
+                extra_dir=f"classifier/{name}", 
+                extra_name=f"{data_split}_standardised", 
+                split_dict={"X": cfg["variables"]+[value["parameter"]]}
+              )
+            ]
+          )
 
-            for i in ["X"]:
-              os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
+          for i in ["X"]:
+            os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
 
 
   def _DoShuffle(self, file_name, cfg):
