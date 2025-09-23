@@ -314,8 +314,8 @@ class Module():
       class_instance.Configure(config)
       self.input_store += class_instance.Inputs()
       self.output_store += class_instance.Outputs()
-      self.input_store = list(set(self.input_store))
-      self.output_store = list(set(self.output_store))
+      self.input_store = sorted(list(set(self.input_store)))
+      self.output_store = sorted(list(set(self.output_store)))
       # if output is in the inputs change to dummy file and add dummy file creation to cmd store
       
 

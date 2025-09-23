@@ -65,8 +65,8 @@ class InputPlotValidation():
     self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index)
 
     # plots varying one at a time and freezing others to the nominal
-    vary_ratio_index = None
     for vary_name in defaults.keys():
+      vary_ratio_index = None
       vary_val_loop = []
       vary_inds = []
       for ind, val_dict in enumerate(self.val_loop):
@@ -184,7 +184,8 @@ class InputPlotValidation():
           hist_errs = [hist_err/np.sum(hist) for hist_err in hist_errs[col]],
         )
 
-        # Make ratio plot
+        # Make ratio plots
+
         ratio_hist = hists[col][ratio_index] if ratio_index is not None else hists[col][0]
         ratio_hist_err = hist_errs[col][ratio_index] if ratio_index is not None else hist_errs[col][0]
         sum_ratio_hist = np.sum(ratio_hist)
@@ -198,10 +199,16 @@ class InputPlotValidation():
         if len(other_hists) == 0:
           continue
 
-        plot_hists = [[other_hists[0], ratio_hist]] + [[other_hists[ind], ratio_hist] for ind in range(1,len(other_hists))]
-        plot_errs = [[other_hists_err[0], ratio_hist_err]] + [[other_hists_err[ind], ratio_hist_err] for ind in range(1,len(other_hists_err))]
-        plot_names = [[hist_names[col][0], hist_names[col][ratio_index] if ratio_index is not None else hist_names[col][0]]]
-        plot_names += [[hist_names[col][ind], None] for ind in range(1,len(hist_names[col])) if ind != ratio_index]
+        plot_hists = [[other_hists[ind], ratio_hist] for ind in range(len(other_hists))]
+        plot_errs = [[other_hists_err[ind], ratio_hist_err] for ind in range(len(other_hists_err))]
+        plot_names = []
+        for ind in range(len(hist_names[col])):
+          if ratio_index is not None:
+            if ind == ratio_index: continue
+            plot_names.append([hist_names[col][ind], hist_names[col][ratio_index]])
+          else:
+            if ind == 0: continue
+            plot_names.append([hist_names[col][ind], hist_names[col][0]])
 
         plot_histograms_with_ratio(
           plot_hists,

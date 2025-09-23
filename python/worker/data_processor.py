@@ -798,7 +798,7 @@ class DataProcessor():
         if v is None or out[k] is None:
           out[k] = None
         else:
-          sets = list(set(out[k] + v))
+          sets = sorted(list(set(out[k] + v)))
           if len(sets) < unique_threshold:
             out[k] = copy.deepcopy(sets)
           else:
