@@ -31,6 +31,7 @@ class LoadData():
     self.batch_size = 10**7
     self.columns = []
 
+
   def _GetTokens(self, input):
     tokens = re.findall(r"[A-Za-z_]\w*", input)
     reserved = {"and", "or", "not", "cos", "sin", "sinh", "cosh", "tanh", "abs", "exp", "sqrt"}
@@ -59,6 +60,7 @@ class LoadData():
       for model_type, models in model_types.items():
         if model_type == "yields": continue
         for model in models:
+
           if "file" not in model.keys(): continue
           file_matched = (file_name == model["file"])
           yields_matched = (model_types["yields"]["file"] == file_name)
@@ -72,7 +74,7 @@ class LoadData():
           if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
             self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
 
-    calculated = list(set(calculated))
+    calculated = sorted(list(set(calculated)))
 
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
@@ -116,7 +118,7 @@ class LoadData():
       for k, v in cfg["categories"].items():
         self.columns += [i for i in self._GetTokens(v) if i not in calculated]
 
-    self.columns = list(set(self.columns))  # Remove duplicates
+    self.columns = sorted(list(set(self.columns)))  # Remove duplicates
 
 
   def _DoWriteDataset(self, df, file_name):
@@ -249,7 +251,7 @@ class LoadData():
       def apply_sum(df, sums, summed_col_info):
         unique_names = []
         for summed_col in summed_col_info:
-          unique_names = list(set(unique_names+[summed_col["name"]]))
+          unique_names = sorted(list(set(unique_names+[summed_col["name"]])))
         for col in unique_names:
           df.loc[:, col] = 0.0
         for ind, summed_col in enumerate(summed_col_info):

@@ -1,9 +1,10 @@
+import copy
 import yaml
 
 import numpy as np
 
 from data_processor import DataProcessor
-from plotting import plot_histograms
+from plotting import plot_histograms, plot_histograms_with_ratio
 from useful_functions import LoadConfig, GetDefaultsInModel, Translate
 
 class InputPlotValidation():
@@ -47,12 +48,25 @@ class InputPlotValidation():
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)   
 
+    # Get defaults
+    defaults = GetDefaultsInModel(parameters['file_name'], cfg)
+    ratio_index = None
+    for ind, val_dict in enumerate(self.val_loop):
+      default = True
+      for k, v in val_dict.items():
+        if k in defaults.keys():
+          if v != defaults[k]:
+            default = False
+      if default:
+        ratio_index = copy.deepcopy(ind)
+        break
+
     # Plots varying all validation parameters
-    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type])
+    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index)
 
     # plots varying one at a time and freezing others to the nominal
-    defaults = GetDefaultsInModel(parameters['file_name'], cfg)
     for vary_name in defaults.keys():
+      vary_ratio_index = None
       vary_val_loop = []
       vary_inds = []
       for ind, val_dict in enumerate(self.val_loop):
@@ -62,10 +76,13 @@ class InputPlotValidation():
           if v != defaults[k]:
             include = False
         if include:
+          if vary_ratio_index is None and ratio_index is not None:
+            if ind == ratio_index:
+              vary_ratio_index = len(vary_val_loop)
           vary_val_loop.append(val_dict)
           vary_inds.append(ind)      
 
-      self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type])
+      self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index)
 
       
   def Outputs(self):
@@ -110,7 +127,7 @@ class InputPlotValidation():
     return inputs
 
 
-  def _PlotVariations(self, variations, inds, X_columns, vary_name, n_bins=40, data_splits=["val"], extra_name_for_plot=""):
+  def _PlotVariations(self, variations, inds, X_columns, vary_name, n_bins=40, data_splits=["val"], extra_name_for_plot="", ratio_index=None):
 
     for data_split in data_splits:
 
@@ -152,6 +169,8 @@ class InputPlotValidation():
       for col in X_columns:
 
         plot_name = self.plots_output+f"/{vary_name}_{col}{extra_name_for_plot}"
+
+        # Make distribution plot
         plot_histograms(
           bins[col][:-1],
           [hist/np.sum(hist) for hist in hists[col]],
@@ -164,3 +183,44 @@ class InputPlotValidation():
           drawstyle = "steps-mid",
           hist_errs = [hist_err/np.sum(hist) for hist_err in hist_errs[col]],
         )
+
+        # Make ratio plots
+
+        ratio_hist = hists[col][ratio_index] if ratio_index is not None else hists[col][0]
+        ratio_hist_err = hist_errs[col][ratio_index] if ratio_index is not None else hist_errs[col][0]
+        sum_ratio_hist = np.sum(ratio_hist)
+        ratio_hist = ratio_hist/sum_ratio_hist
+        ratio_hist_err = ratio_hist_err/sum_ratio_hist
+        other_hists = [hists[col][ind] for ind in range(len(hists[col])) if ind != ratio_index] if ratio_index is not None else [hists[col][ind] for ind in range(1, len(hists[col]))]
+        other_hists_err = [hist_errs[col][ind] for ind in range(len(hists[col])) if ind != ratio_index] if ratio_index is not None else [hist_errs[col][ind] for ind in range(1, len(hists[col]))]
+        other_hists_err = [hist_err/np.sum(other_hists[ind]) for ind, hist_err in enumerate(other_hists_err)]
+        other_hists = [hist/np.sum(hist) for hist in other_hists]
+
+        if len(other_hists) == 0:
+          continue
+
+        plot_hists = [[other_hists[ind], ratio_hist] for ind in range(len(other_hists))]
+        plot_errs = [[other_hists_err[ind], ratio_hist_err] for ind in range(len(other_hists_err))]
+        plot_names = []
+        for ind in range(len(hist_names[col])):
+          if ratio_index is not None:
+            if ind == ratio_index: continue
+            plot_names.append([hist_names[col][ind], hist_names[col][ratio_index]])
+          else:
+            if ind == 0: continue
+            plot_names.append([hist_names[col][ind], hist_names[col][0]])
+
+        plot_histograms_with_ratio(
+          plot_hists,
+          plot_errs,
+          plot_names,
+          bins[col],
+          name = plot_name+"_ratio",
+          xlabel = Translate(col),
+          ylabel = "Density",
+          anchor_y_at_0 = True,
+          first_ratio = True,
+          ratio_range = [0.9,1.1]
+        )
+
+

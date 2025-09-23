@@ -140,7 +140,7 @@ class DensityPerformanceMetrics():
       if self.verbose:
         print("- Making asimov datasets")
 
-      for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+      for data_type in sorted(list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets))):
 
         ma = MakeAsimov()
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
@@ -245,7 +245,7 @@ class DensityPerformanceMetrics():
     # Tidy up asimov
     if self.verbose:
       print("- Tidying up asimov datasets")
-    for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+    for data_type in sorted(list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets))):
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
@@ -519,7 +519,7 @@ class DensityPerformanceMetrics():
         dataset += self.multidimensional_datasets
       if self.do_inference:
         dataset += self.inference_datasets
-      dataset = list(set(dataset))
+      dataset = sorted(list(set(dataset)))
 
       for data_type in dataset:
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):

@@ -116,6 +116,7 @@ class Infer():
       if self.verbose:
         print("- Likelihood output:")
 
+
       self.lkld.GetAndWriteBestFitToYaml(
         self.lkld_input, 
         self.initial_best_fit_guess, 
@@ -142,12 +143,37 @@ class Infer():
         print(f"- Finding approximate uncertainties")
         print("- Likelihood output:")
 
-      # Make scan ranges
+      # Get approximate uncertainties
       self.lkld.GetAndWriteApproximateUncertaintyToYaml(
         self.lkld_input, 
         self.column,
         row=self.true_Y,
         filename=f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"
+      )
+
+    elif self.method == "UncertaintyFromMinimisation":
+
+      if self.verbose:
+        print(f"- Loading best fit into likelihood")
+
+      # Open best fit yaml
+      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+      # Put best fit in class
+      self.lkld.best_fit = np.array(best_fit_info["best_fit"])
+      self.lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+
+      if self.verbose:
+        print(f"- Finding uncertainties from minimisation")
+        print("- Likelihood output:")
+
+      # Get uncertainties from minimisation
+      self.lkld.GetAndWriteUncertaintyFromMinimisationToYaml(
+        self.lkld_input, 
+        self.column,
+        row=self.true_Y,
+        filename=f"{self.data_output}/uncertaintyfromminimisation_results_{self.column}{self.extra_file_name}.yaml"
       )
 
     elif self.method in ["Hessian","HessianParallel","HessianNumerical"]:
@@ -443,6 +469,10 @@ class Infer():
     if self.method == "ApproximateUncertainty":
       outputs += [f"{self.data_output}/approximateuncertainty_results_{self.column}{self.extra_file_name}.yaml"]
 
+    # Add uncertainty from minimisation
+    if self.method == "UncertaintyFromMinimisation":
+      outputs += [f"{self.data_output}/uncertaintyfromminimisation_results_{self.column}{self.extra_file_name}.yaml"]
+
     # Add other outputs
     outputs += self.other_output_files
 
@@ -501,7 +531,7 @@ class Infer():
             ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
@@ -817,8 +847,16 @@ class Infer():
     else:
       constraints = []
 
+    if self.true_Y is not None and self.verbose:
+      print(f"- Using truth dataset for likelihood evaluation:")
+      print(self.true_Y)
+
     if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
       constraint_center = self.true_Y.loc[:,constraints]
+      if self.verbose:
+        print(f"- Using truth for constraint center:")
+        print(constraint_center)
+
     else:
       constraint_center = None
 

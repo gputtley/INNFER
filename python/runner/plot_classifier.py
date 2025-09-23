@@ -1,18 +1,12 @@
-import copy
 import os
 import pickle
 import yaml
-
-import numpy as np
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from functools import partial
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import LoadConfig, MakeDirectories, Translate, RoundToSF
+from useful_functions import LoadConfig, Translate, RoundToSF
 
 class PlotClassifier():
 
@@ -25,6 +19,7 @@ class PlotClassifier():
     self.cfg = None
 
     # other
+    self.n_plots = 10
     self.data_input = "data/"
     self.evaluate_input = "data/"
     self.plots_output = "plots/"
@@ -93,8 +88,7 @@ class PlotClassifier():
       for col in parameters["classifier"][self.parameter]["X_columns"]:
 
         # Get bins of conditional variables
-        n_plots = 5
-        cond_bins = pred_df.GetFull(method="bins_with_equal_stats", column=self.parameter, bins=n_plots, ignore_quantile=0.00, extra_sel="(classifier_truth == 0)")
+        cond_bins = pred_df.GetFull(method="bins_with_equal_stats", column=self.parameter, bins=self.n_plots, ignore_quantile=0.00, extra_sel="(classifier_truth == 0)")
 
         sels = {"Inclusive": "1==1"}
         names = {"Inclusive": "inclusive"}
@@ -106,7 +100,7 @@ class PlotClassifier():
         for sel_name, sel in sels.items():
 
           # get nominal sums
-          bins = pred_df.GetFull(method="bins_with_equal_spacing", column=col, bins=20, ignore_quantile=0.02, extra_sel=f"((classifier_truth == 0) & ({sel}))")
+          bins = pred_df.GetFull(method="bins_with_equal_spacing", column=col, bins=20, ignore_quantile=0.01, extra_sel=f"((classifier_truth == 0) & ({sel}))")
           nom_hist, nom_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, extra_sel=f"((classifier_truth == 0) & ({sel}))")
 
           # get shift applied histogram
@@ -145,7 +139,9 @@ class PlotClassifier():
     # Add plots
     for data_split in ["train", self.test_name]:
       for col in cfg["variables"]:
-        outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}.pdf"]
+        outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_inclusive.pdf"]
+        for i in range(self.n_plots):
+          outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_bin_{i}.pdf"]
 
     return outputs
 
