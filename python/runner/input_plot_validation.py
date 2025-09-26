@@ -82,7 +82,8 @@ class InputPlotValidation():
           vary_val_loop.append(val_dict)
           vary_inds.append(ind)      
 
-      self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index)
+      if len(vary_val_loop) > 1:
+        self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index)
 
       
   def Outputs(self):
@@ -100,7 +101,17 @@ class InputPlotValidation():
     for col in cfg["variables"]:
       outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
       for vary_name in defaults.keys():        
-        outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
+        vary_inds = []
+        for ind, val_dict in enumerate(self.val_loop):
+          include = True
+          for k, v in val_dict.items():
+            if k == vary_name: continue
+            if v != defaults[k]:
+              include = False
+          if include:
+            vary_inds.append(ind)      
+        if len(vary_inds) > 1:
+          outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
 
     return outputs
 

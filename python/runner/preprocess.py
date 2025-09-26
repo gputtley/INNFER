@@ -1077,19 +1077,20 @@ class PreProcess():
 
   def _DoStandardisation(self, file_name, cfg, standardisation_parameters):
 
-    if self.model_type is None or self.model_type == "density_models":
 
-      # Check if we need to split density models
-      split_density_model = False
-      if len(cfg["models"][file_name]["density_models"]) > 1:
-        split_density_model = True
+    for data_split in ["train","test"]:
 
-      if not split_density_model:
-        density_loop = ["density"]
-      else:
-        density_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][file_name]["density_models"]))]
+      if self.model_type is None or self.model_type == "density_models":
 
-      for data_split in ["train","test"]:
+        # Check if we need to split density models
+        split_density_model = False
+        if len(cfg["models"][file_name]["density_models"]) > 1:
+          split_density_model = True
+
+        if not split_density_model:
+          density_loop = ["density"]
+        else:
+          density_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][file_name]["density_models"]))]
 
         for ind, extra_dir in enumerate(density_loop):
 
@@ -1120,71 +1121,71 @@ class PreProcess():
             os.system(f"mv {self.data_output}/{extra_dir}/{i}_{data_split}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{data_split}.parquet")
 
 
-    # regression models
-    if self.model_type is None or self.model_type == "regression_models":
+      # regression models
+      if self.model_type is None or self.model_type == "regression_models":
 
-      for value in cfg["models"][file_name]["regression_models"]:
-        name = value["parameter"]
+        for value in cfg["models"][file_name]["regression_models"]:
+          name = value["parameter"]
 
-        if self.parameter_name is None or self.parameter_name == name:
+          if self.parameter_name is None or self.parameter_name == name:
 
-          dp = DataProcessor(
-            [[f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet"]],
-            "parquet",
-            options = {
-              "parameters" : {"standardisation": standardisation_parameters["regression"][name]},
-            },
-            batch_size=self.batch_size,
-          )
+            dp = DataProcessor(
+              [[f"{self.data_output}/regression/{name}/X_{data_split}.parquet", f"{self.data_output}/regression/{name}/y_{data_split}.parquet"]],
+              "parquet",
+              options = {
+                "parameters" : {"standardisation": standardisation_parameters["regression"][name]},
+              },
+              batch_size=self.batch_size,
+            )
 
-          dp.GetFull(
-            method=None,
-            functions_to_apply = [
-              "transform",
-              partial(
-                self._WriteSplitDataset, 
-                extra_dir=f"regression/{name}", 
-                extra_name=f"{data_split}_standardised", 
-                split_dict={"X": cfg["variables"]+[value["parameter"]], "y": ["wt_shift"]}
-              )
-            ]
-          )
+            dp.GetFull(
+              method=None,
+              functions_to_apply = [
+                "transform",
+                partial(
+                  self._WriteSplitDataset, 
+                  extra_dir=f"regression/{name}", 
+                  extra_name=f"{data_split}_standardised", 
+                  split_dict={"X": cfg["variables"]+[value["parameter"]], "y": ["wt_shift"]}
+                )
+              ]
+            )
 
-          for i in ["X","y"]:
-            os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
+            for i in ["X","y"]:
+              os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
 
-    # classifier models
-    if self.model_type is None or self.model_type == "classifier_models":
+      # classifier models
+      if self.model_type is None or self.model_type == "classifier_models":
 
-      for value in cfg["models"][file_name]["classifier_models"]:
+        for value in cfg["models"][file_name]["classifier_models"]:
 
-        name = value["parameter"]
-        if self.parameter_name is None or self.parameter_name == name:
+          name = value["parameter"]
+          if self.parameter_name is None or self.parameter_name == name:
 
-          dp = DataProcessor(
-            [[f"{self.data_output}/classifier/{name}/X_{data_split}.parquet"]],
-            "parquet",
-            options = {
-              "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
-            },
-            batch_size=self.batch_size,
-          )
+            dp = DataProcessor(
+              [[f"{self.data_output}/classifier/{name}/X_{data_split}.parquet"]],
+              "parquet",
+              options = {
+                "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
+              },
+              batch_size=self.batch_size,
+            )
 
-          dp.GetFull(
-            method=None,
-            functions_to_apply = [
-              "transform",
-              partial(
-                self._WriteSplitDataset, 
-                extra_dir=f"classifier/{name}", 
-                extra_name=f"{data_split}_standardised", 
-                split_dict={"X": cfg["variables"]+[value["parameter"]]}
-              )
-            ]
-          )
+            dp.GetFull(
+              method=None,
+              functions_to_apply = [
+                "transform",
+                partial(
+                  self._WriteSplitDataset, 
+                  extra_dir=f"classifier/{name}", 
+                  extra_name=f"{data_split}_standardised", 
+                  split_dict={"X": cfg["variables"]+[value["parameter"]]}
+                )
+              ]
+            )
 
-          for i in ["X"]:
-            os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
+            for i in ["X"]:
+              os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
 
 
   def _DoShuffle(self, file_name, cfg):
@@ -1223,30 +1224,98 @@ class PreProcess():
   def _DoShuffleDataset(self, files):
 
     for name in files:
+
       if not os.path.isfile(name): continue
-      shuffle_name = name.replace(".parquet", "_shuffled.parquet")
-      if os.path.isfile(shuffle_name):
-        os.system(f"rm {shuffle_name}")   
+      shuffle_name_iteration = name.replace(".parquet", "_shuffled_iteration.parquet")
+      if os.path.isfile(shuffle_name_iteration):
+        os.system(f"rm {shuffle_name_iteration}")   
       shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
-      for shuff in range(self.number_of_shuffles):
+
+      ## Check that number of shuffles is more than the number of batches
+      #total_events = shuffle_dp.GetFull(method="count")
+      #n_batches = int(np.ceil(total_events/self.batch_size))
+      #if self.number_of_shuffles < n_batches:
+      #  print(f"Warning: number_of_shuffles={self.number_of_shuffles} is less the number of batches={n_batches} for {name}. Setting number_of_shuffles={n_batches}.")
+      #  number_of_shuffles = int(n_batches)
+      #else:
+      #  number_of_shuffles = self.number_of_shuffles
+
+      number_of_shuffles = self.number_of_shuffles
+
+      for shuff in range(number_of_shuffles):
         #print(f" - name={name} shuffle={shuff}")
         shuffle_dp.GetFull(
           method = None,
           functions_to_apply = [
-            partial(self._DoShuffleIteration, iteration=shuff, total_iterations=self.number_of_shuffles, seed=42, dataset_name=shuffle_name)
+            partial(self._DoShuffleIteration, iteration=shuff, total_iterations=number_of_shuffles, seed=42, dataset_name=shuffle_name_iteration)
           ]
         )
-      if os.path.isfile(shuffle_name):
-        os.system(f"mv {shuffle_name} {name}")
+      if os.path.isfile(shuffle_name_iteration):
+        os.system(f"mv {shuffle_name_iteration} {name}")
+
+      shuffle_name_batch = name.replace(".parquet", "_shuffled_batch.parquet")
+      if os.path.isfile(shuffle_name_batch):
+        os.system(f"rm {shuffle_name_batch}")
       shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name)
+          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch)
         ]
       )
-      if os.path.isfile(shuffle_name):
-        os.system(f"mv {shuffle_name} {name}")
+      if os.path.isfile(shuffle_name_batch):
+        os.system(f"mv {shuffle_name_batch} {name}")
+
+      # Need to shuffle the final batch as otherwise it can be unsorted (as can be smaller than batch size)
+      # Move final batch to start
+      final_batch_name = name.replace(".parquet", "_final_batch_first.parquet")
+      if os.path.isfile(final_batch_name):
+        os.system(f"rm {final_batch_name}")
+      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      shuffle_dp.GetFull(
+        method = None,
+        functions_to_apply = [
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=False)
+        ]
+      )
+      shuffle_dp.GetFull(
+        method = None,
+        functions_to_apply = [
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=True)
+        ]
+      )
+
+      if os.path.isfile(final_batch_name):
+        os.system(f"mv {final_batch_name} {name}")
+
+      # Then shuffle
+      shuffle_name_batch_final = name.replace(".parquet", "_shuffled_batch_final.parquet")
+      if os.path.isfile(shuffle_name_batch_final):
+        os.system(f"rm {shuffle_name_batch_final}")
+      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      shuffle_dp.GetFull(
+        method = None,
+        functions_to_apply = [
+          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch_final)
+        ]
+      )
+      if os.path.isfile(shuffle_name_batch_final):
+        os.system(f"mv {shuffle_name_batch_final} {name}")
+
+
+  def _DoWriteWhetherBatchSize(self, df, do_batch_size=False, batch_size=100000, dataset_name="dataset.parquet"):
+
+    if ((len(df) != batch_size) and (not do_batch_size)) or (do_batch_size and (len(df) == batch_size)):
+
+      # Write to file
+      table = pa.Table.from_pandas(df, preserve_index=False)
+      if os.path.isfile(dataset_name):
+        combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
+        pq.write_table(combined_table, dataset_name, compression='snappy')
+      else:
+        pq.write_table(table, dataset_name, compression='snappy')
+
+    return df
 
 
   def _DoShuffleIteration(self, df, iteration=0, total_iterations=10, seed=42, dataset_name="dataset.parquet"):
