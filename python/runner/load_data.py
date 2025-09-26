@@ -189,6 +189,11 @@ class LoadData():
             else:
               raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
+        # Post add column selection
+        if "post_add_column_selection" in file_info.keys():
+          if file_info["post_add_column_selection"] is not None:
+            df = df.query(file_info["post_add_column_selection"])
+
         df = df.loc[:, self.columns]
     
         # Removing nans

@@ -1,12 +1,12 @@
 # Train classifier models
 - step: "TrainClassifier"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus.yaml"
   run_options: 
     disable_tqdm: True
 
 # Evaluate classifier models
 - step: "EvaluateClassifier"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus.yaml"
 
 # Plot classifier models
 - step: "PlotClassifier"
