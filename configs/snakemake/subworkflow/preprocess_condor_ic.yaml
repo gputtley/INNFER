@@ -4,8 +4,10 @@
 
 # Preprocess data
 - step: "PreProcessParallelInitial"
-  submit: "configs/submit/condor_4_cpus.yaml"
+  submit: "configs/submit/condor_gpu.yaml"
 - step: "PreProcessParallelModel"
+  submit: "configs/submit/condor_4_cpus.yaml"
+- step: "PreProcessParallelValidation"
   submit: "configs/submit/condor_4_cpus.yaml"
 - step: "PreProcessParallelMerge"
   submit: "configs/submit/condor.yaml"

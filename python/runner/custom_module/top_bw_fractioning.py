@@ -13,7 +13,7 @@ from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop
+from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop, GetSplitDensityModel, GetModelLoop
 
 data_dir = str(os.getenv("DATA_DIR"))
 plots_dir = str(os.getenv("PLOTS_DIR"))
@@ -104,7 +104,7 @@ class top_bw_fractioning():
     # calculate weight
     def apply_wt(df, wt_func):
       if self.bw_mass_name not in df.columns:
-        df.loc[:,self.bw_mass_name] = 172.5
+        df.loc[:,self.bw_mass_name] = 172.5*np.ones(len(df))
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
@@ -311,17 +311,25 @@ class top_bw_fractioning():
         classifier_loop += ["Extra"]
 
     # Check if we need to split density models
-    split_density_model = False
-    if len(cfg["models"][self.file_name]["density_models"]) > 1:
-      split_density_model = True
+    #split_density_model = False
+    #if len(cfg["models"][self.file_name]["density_models"]) > 1:
+    #  split_density_model = True
+    split_density_model = GetSplitDensityModel(cfg, self.file_name, category=category)
 
-    if not split_density_model:
-      density_dir_loop = ["density"]
-    else:
-      density_dir_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][self.file_name]["density_models"]))]
+    #if not split_density_model:
+    #  density_dir_loop = ["density"]
+    #else:
+    #  density_dir_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][self.file_name]["density_models"]))]
 
     for data_split in ["train","test"]:
-      for density_dir in density_dir_loop:
+      #for density_dir in density_dir_loop:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
+
+        if not split_density_model:
+          density_dir = "density"
+        else:
+          density_dir = f"density/split_{loop_value['split']}"
+
         tmp_files = []
         for k in density_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{density_dir}/{k}_{data_split}.parquet"
@@ -332,7 +340,9 @@ class top_bw_fractioning():
           shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{density_dir}/wt_{data_split}.parquet")
           shift_columns["density"].append("wt")
 
-      for value in cfg["models"][self.file_name]["regression_models"]:
+      #for value in cfg["models"][self.file_name]["regression_models"]:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=category):
+        value = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
         tmp_files = []
         for k in regression_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/{k}_{data_split}.parquet"
@@ -343,7 +353,9 @@ class top_bw_fractioning():
           shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
           shift_columns["regression"].append("wt")
 
-      for value in cfg["models"][self.file_name]["classifier_models"]:
+      #for value in cfg["models"][self.file_name]["classifier_models"]:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=category):
+        value = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
         tmp_files = []
         for k in classifier_loop:
           outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{value['parameter']}/{k}_{data_split}.parquet"
@@ -394,7 +406,7 @@ class top_bw_fractioning():
     # calculate weight
     def apply_wt(df, wt_func):
       if self.bw_mass_name not in df.columns:
-        df.loc[:,self.bw_mass_name] = 172.5
+        df.loc[:,self.bw_mass_name] = 172.5*np.ones(len(df))
       df.loc[:,"wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
@@ -543,7 +555,7 @@ class top_bw_fractioning():
       setattr(self, key, value)
 
     self.write = True if "write" not in self.options else self.options["write"].strip() == "True"
-    self.base_file_name = "base_ttbar" if "base_file_name" not in self.options else self.options["base_file_name"]
+    self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
     #self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
     self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
@@ -554,7 +566,7 @@ class top_bw_fractioning():
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
 
     cfg = LoadConfig(self.cfg)
-    self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
+    #self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
     self.plot_columns = [self.gen_mass] + cfg["variables"]
     if self.gen_mass_other is not None:
       self.plot_columns.append(self.gen_mass_other)
@@ -570,11 +582,14 @@ class top_bw_fractioning():
 
     for category in GetCategoryLoop(cfg):
 
+      base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
+
       # Calculate optimal fractions
-      normalised_fractions, splines = self._CalculateOptimalFractions(self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category])
+      normalised_fractions, splines = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category])
 
       # Plot reweighting
-      self._PlotReweighting(normalised_fractions, self.base_file, cfg["files"][self.base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
+      self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
 
       # Open parameters
       parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/parameters.yaml"
@@ -645,20 +660,28 @@ class top_bw_fractioning():
 
       # flatten training bw shapes
       do_density = False
-      for model in cfg["models"][self.file_name]["density_models"]:
+      #for model in cfg["models"][self.file_name]["density_models"]:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
+        model = cfg["models"][self.file_name]["density_models"][loop_value["loop_index"]]
         if self.bw_mass_name in model["parameters"]:
           do_density = True
       if do_density:
-        if len(cfg["models"][self.file_name]["density_models"]) == 1:
+        #if len(cfg["models"][self.file_name]["density_models"]) == 1:
+        if not GetSplitDensityModel(cfg, self.file_name, category=category):
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/", ["X","Y","wt","Extra"])
         else:
-          for ind, model in enumerate(cfg["models"][self.file_name]["density_models"]):
+          #for ind, model in enumerate(cfg["models"][self.file_name]["density_models"]):
+          for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
+            ind = loop_value["loop_index"]
+            model = cfg["models"][self.file_name]["density_models"][ind]
             if self.bw_mass_name in model["parameters"]:
               self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/split_{ind}", ["X","Y","wt","Extra"])
-      for model in cfg["models"][self.file_name]["regression_models"]:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=category):
+        model = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
         if model["parameter"] == self.bw_mass_name:
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{self.bw_mass_name}", ["X","y","wt","Extra"])
-      for model in cfg["models"][self.file_name]["classifier_models"]:
+      for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=category):
+        model = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
         if model["parameter"] == self.bw_mass_name:
           self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{self.bw_mass_name}", ["X","y","wt","Extra"])
 
@@ -706,13 +729,16 @@ class top_bw_fractioning():
     # Add config
     inputs = [
       self.cfg,
-      self.base_file,        
       ]
 
     # Load config
     cfg = LoadConfig(self.cfg)
 
     for category in GetCategoryLoop(cfg):
+
+      base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
+      inputs += [base_file]
 
       parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/parameters.yaml"
 

@@ -98,12 +98,12 @@ class Dim2():
               "shifts" : {}
             },
           ],
-          "yields" : {"file" : "base"}
+          "yields" : [{"file" : "base"}]
         }
       },
       "validation": {
         "loop" : [{"Y1" : i} for i in self.validation_y_vals],
-        "files" : {"Signal" : "base"}
+        "files" : {"Signal" : [{"file": "base"}]}
       },
       "preprocess" : {
         "train_test_val_split" : self.train_test_val_split,

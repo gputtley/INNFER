@@ -823,11 +823,6 @@ class Infer():
       print(f"- Building likelihood")
       print(f"- Y_columns={self.Y_columns}")
 
-    #parameters = {}
-    #for file_name in self.parameters.keys():
-    #  with open(self.parameters[file_name], 'r') as yaml_file:
-    #    parameters[file_name] = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
     if self.likelihood_type in ["unbinned", "unbinned_extended"]:
       likelihood_inputs = {
         "pdfs" : self._BuildDensityModels(),
@@ -853,10 +848,10 @@ class Infer():
 
     if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
       constraint_center = self.true_Y.loc[:,constraints]
-      if self.verbose:
-        print(f"- Using truth for constraint center:")
-        print(constraint_center)
-
+      if constraint_center.shape[0] > 1:
+        if self.verbose:
+          print(f"- Using truth for constraint center:")
+          print(constraint_center)
     else:
       constraint_center = None
 
