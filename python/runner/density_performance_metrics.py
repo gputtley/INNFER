@@ -33,6 +33,7 @@ class DensityPerformanceMetrics():
     self.cfg = None
     self.parameters = None
   
+    self.category = None
     self.file_name = None
     self.model_input = "models/"
     self.extra_model_dir = ""
@@ -160,7 +161,7 @@ class DensityPerformanceMetrics():
             ma = MakeAsimov()
             ma.Configure({
                 "cfg" : self.cfg,
-                "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
+                "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True, specific_category=self.category)[0],
                 "model_input" : self.model_input,
                 "model_extra_name" : self.save_extra_name,
                 "parameters" : self.parameters,

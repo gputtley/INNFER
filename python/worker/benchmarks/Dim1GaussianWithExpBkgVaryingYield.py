@@ -102,7 +102,7 @@ class Dim1GaussianWithExpBkgVaryingYield():
               "shifts" : {}
             },
           ],
-          "yields" : {"file" : "base_gaussian"}
+          "yields" : [{"file" : "base_gaussian"}]
         },
         "ExpBkg" : {
           "density_models" : [
@@ -112,12 +112,12 @@ class Dim1GaussianWithExpBkgVaryingYield():
               "shifts" : {}
             },
           ],
-          "yields" : {"file" : "base_expbkg"}
+          "yields" : [{"file" : "base_expbkg"}]
         }
       },
       "validation": {
         "loop" : [{"Y1" : i, "mu_Gaussian" : j} for i in self.validation_y_vals for j in [0.2,0.4]],
-        "files" : {"Gaussian" : "base_gaussian", "ExpBkg" : "base_expbkg"}
+        "files" : {"Gaussian" : [{"file": "base_gaussian"}], "ExpBkg" : [{"file": "base_expbkg"}]}
       },
       "preprocess" : {
         "train_test_val_split" : self.train_test_val_split,

@@ -26,6 +26,7 @@ class SummaryPerVal():
     self.verbose = True
     self.column_loop = []
     self.constraints = []
+    self.use_scenario_labels = False
 
   def Configure(self, options):
     """
@@ -55,7 +56,10 @@ class SummaryPerVal():
     names = {}
 
     if self.val_info is not None:
-      plot_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+      if not self.use_scenario_labels:
+        plot_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+      else:
+        plot_text = f"Scenario {self.val_ind+1}"
 
     # Find rows that are changing
     for col in self.column_loop:

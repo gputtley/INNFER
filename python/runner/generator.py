@@ -467,6 +467,9 @@ class Generator():
           column = unrolled_col,
         )      
 
+        #diff_bins = unrolled_col_bins[1:] - unrolled_col_bins[:-1]
+        # Set unrolled bins to sensible whole numbers
+
         synth_hists = {}
 
         for ind, file_name in enumerate(synth_dps.keys()):

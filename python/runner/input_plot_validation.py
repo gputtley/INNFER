@@ -24,6 +24,8 @@ class InputPlotValidation():
     self.data_input = "data/"
     self.plots_output = "plots/"
     self.sim_type = "val"
+    self.category = None
+    self.use_scenario_labels = False
 
   def Configure(self, options):
     """
@@ -49,7 +51,7 @@ class InputPlotValidation():
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)   
 
     # Get defaults
-    defaults = GetDefaultsInModel(parameters['file_name'], cfg)
+    defaults = GetDefaultsInModel(parameters['file_name'], cfg, category=self.category)
     ratio_index = None
     for ind, val_dict in enumerate(self.val_loop):
       default = True
@@ -62,7 +64,7 @@ class InputPlotValidation():
         break
 
     # Plots varying all validation parameters
-    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index)
+    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index, columns=list(defaults.keys()))
 
     # plots varying one at a time and freezing others to the nominal
     for vary_name in defaults.keys():
@@ -73,6 +75,9 @@ class InputPlotValidation():
         include = True
         for k, v in val_dict.items():
           if k == vary_name: continue
+          if k not in defaults.keys():
+            include = False
+            continue
           if v != defaults[k]:
             include = False
         if include:
@@ -83,7 +88,7 @@ class InputPlotValidation():
           vary_inds.append(ind)      
 
       if len(vary_val_loop) > 1:
-        self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index)
+        self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index, columns=list(defaults.keys()))
 
       
   def Outputs(self):
@@ -97,7 +102,7 @@ class InputPlotValidation():
     cfg = LoadConfig(self.cfg)
 
     # Add plots
-    defaults = GetDefaultsInModel(self.file_name, cfg)
+    defaults = GetDefaultsInModel(self.file_name, cfg, category=self.category)
     for col in cfg["variables"]:
       outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
       for vary_name in defaults.keys():        
@@ -106,6 +111,9 @@ class InputPlotValidation():
           include = True
           for k, v in val_dict.items():
             if k == vary_name: continue
+            if k not in defaults.keys():
+              include = False
+              continue
             if v != defaults[k]:
               include = False
           if include:
@@ -138,7 +146,7 @@ class InputPlotValidation():
     return inputs
 
 
-  def _PlotVariations(self, variations, inds, X_columns, vary_name, n_bins=40, data_splits=["val"], extra_name_for_plot="", ratio_index=None):
+  def _PlotVariations(self, variations, inds, X_columns, vary_name, n_bins=40, data_splits=["val"], extra_name_for_plot="", ratio_index=None, columns=None, scenario_inds=[]):
 
     for data_split in data_splits:
 
@@ -154,7 +162,7 @@ class InputPlotValidation():
           "parquet",
           options = {
             "wt_name" : "wt",
-            "selection" : " & ".join([f"({k}=={v})" for k, v in variation.items()]) if len(variation.keys()) > 0 else None
+            "selection" : " & ".join([f"({k}=={v})" for k, v in variation.items() if columns is None or k in columns]) if len(variation.keys()) > 0 else None
           }
         )
 
@@ -174,7 +182,10 @@ class InputPlotValidation():
 
           hists[col].append(hist)
           hist_errs[col].append(hist_uncert)
-          hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
+          if not self.use_scenario_labels:
+            hist_names[col].append(", ".join([f"{k}={v}" for k, v in variation.items()]))
+          else:
+            hist_names[col].append(f"Scenario {inds[ind]+1}")
 
 
       for col in X_columns:

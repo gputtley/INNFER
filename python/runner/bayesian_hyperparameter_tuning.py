@@ -24,6 +24,7 @@ class BayesianHyperparameterTuning():
     self.best_model_output = None
     self.metric = ""
 
+    self.category = None
     self.file_name = None
     self.file_loc = None
     self.val_file_loc = None
@@ -242,7 +243,10 @@ class BayesianHyperparameterTuning():
         "file_loc" : self.file_loc,
         "val_file_loc" : self.val_file_loc,
         "parameters" : self.parameters,
-        "model_input" : self.data_output,
+        "category" : self.category,
+        "model_input" : "/".join(self.data_output.split("/")[:-1]),
+        "extra_model_dir" : self.data_output.split("/")[-1],
+        "extra_model_name" : f"_{self.objective_ind}",
         "data_output" : self.data_output,
         "do_inference": "inference" in self.density_performance_metrics,
         "do_loss": True,
