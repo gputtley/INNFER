@@ -5,11 +5,15 @@ import textwrap
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import matplotlib as mpl
 import mplhep as hep
 import numpy as np
 import seaborn as sns
 
 from useful_functions import MakeDirectories, RoundToSF
+
+mpl.rcParams['axes.formatter.useoffset'] = False
+mpl.rcParams['axes.formatter.use_locale'] = False
 
 hep.style.use("CMS")
 
