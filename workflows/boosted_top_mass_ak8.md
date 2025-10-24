@@ -99,6 +99,12 @@ To test the performance of the density model, there is a module to get some perf
 innfer --step="DensityPerformanceMetrics" --cfg="${cfg}"
 ```
 
+Quick inference test:
+```bash
+--density-performance-metrics="loss,histogram,multidim,inference"
+```
+
+
 ### Running a bayesian hyperparameter optimisation of the density network
 
 To optimise the density model's hyperparameter, you can run a bayesian hyperparameter optimisation with the follow command.
