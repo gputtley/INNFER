@@ -10,6 +10,12 @@ python3 scripts/config_inputs.py -f "data/top_reco/230725/TT*.parquet" -ac "mass
 python3 scripts/config_inputs.py -f "data/top_reco/230725/W*.parquet,data/top_reco/230725/ST*.parquet,data/top_reco/230725/DY*.parquet" -ac "run,201,2" -ac "run,202,3"
 ```
 
+## Save to shared directory
+
+```bash
+export DATA_DIR="/vols/cms/sbi_top_mass/data"
+```
+
 ## Set configuration file
 
 Now we have made the config, lets set the configuration file.
