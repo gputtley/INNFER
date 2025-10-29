@@ -146,10 +146,18 @@ class Batch():
     Args:
         cmd_list (list): List of commands to be included in the batch job script.
     """
+
+    data_dir = os.getenv('DATA_DIR')
+    plots_dir = os.getenv('PLOTS_DIR')
+    models_dir = os.getenv('MODELS_DIR')
+
     base_cmds = [
       "#!/bin/bash",
       f"cd {os.getcwd()}",
       "source env.sh",
       "ulimit -s unlimited",
+      f"export DATA_DIR={data_dir}",
+      f"export PLOTS_DIR={plots_dir}",
+      f"export MODELS_DIR={models_dir}",
     ]
     self._CreateJob(base_cmds+cmd_list, self.job_name)

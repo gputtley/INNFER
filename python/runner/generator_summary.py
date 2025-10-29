@@ -1,12 +1,5 @@
-import copy
-import os
-import yaml
-
 import numpy as np
-import pandas as pd
 import seaborn as sns
-
-from functools import partial
 
 from plotting import plot_histograms
 from useful_functions import Translate, GetDefaultsInModel, LoadConfig
@@ -25,6 +18,7 @@ class GeneratorSummary():
     self.file_name = None
     self.n_bins = 20
     self.val_inds = None
+    self.use_scenario_labels = False
     self.verbose = True        
 
   def Configure(self, options):
@@ -138,8 +132,10 @@ class GeneratorSummary():
           column = col,
         )
 
-        names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
-
+        if not self.use_scenario_labels:
+          names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
+        else:
+          names.append(f"Scenario {val_ind+1}")
 
       # Plot ratio summary
       y_label = f"Ratio to Synthetic {names[default_val_ind]}"
@@ -155,7 +151,6 @@ class GeneratorSummary():
       error_bar_hists = [error_bar_hists[default_val_ind]] + error_bar_hists[:default_val_ind] + error_bar_hists[default_val_ind+1:]
       error_bar_hist_uncerts = [error_bar_hist_uncerts[default_val_ind]] + error_bar_hist_uncerts[:default_val_ind] + error_bar_hist_uncerts[default_val_ind+1:]
       error_bar_names = [f"Simulated ({names[default_val_ind]})"] + [None]*(len(error_bar_hists)-1)
-
 
       plot_histograms(
         np.array(bins[:-1]),
@@ -187,6 +182,7 @@ class GeneratorSummary():
       outputs += [f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}.pdf"]
     
     return outputs
+
 
   def Inputs(self):
     """

@@ -11,7 +11,7 @@ from functools import partial
 
 from data_loader import DataLoader
 from data_processor import DataProcessor
-from useful_functions import MakeDirectories, LoadConfig
+from useful_functions import GetCategoryLoop, GetParametersInModel, MakeDirectories, LoadConfig
 
 pd.options.mode.chained_assignment = None
 
@@ -28,8 +28,9 @@ class LoadData():
     # Other
     self.verbose = True
     self.data_output = "data/"
-    self.batch_size = 10**7
+    self.batch_size = None
     self.columns = []
+
 
   def _GetTokens(self, input):
     tokens = re.findall(r"[A-Za-z_]\w*", input)
@@ -54,26 +55,6 @@ class LoadData():
     # Add fitted variables
     self.columns = cfg["variables"]
 
-    # Add parameters and save extra columns from models
-    for actual_file_name, model_types in cfg["models"].items():
-      for model_type, models in model_types.items():
-        if model_type == "yields": continue
-        for model in models:
-          if "file" not in model.keys(): continue
-          file_matched = (file_name == model["file"])
-          yields_matched = (model_types["yields"]["file"] == file_name)
-          if not (file_matched or yields_matched): continue
-
-          if "parameters" in model.keys():
-            calculated += model["parameters"]
-          elif "parameter" in model.keys():
-            calculated += [model["parameter"]]
-
-          if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
-            self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
-
-    calculated = list(set(calculated))
-
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
       if file_name == v:
@@ -87,19 +68,61 @@ class LoadData():
     if "add_columns" in cfg["files"][file_name].keys():
       self.columns += list(cfg["files"][file_name]["add_columns"].keys())
 
+    # Add parameters and save extra columns from models
+    for actual_file_name, model_types in cfg["models"].items():
+      for model_type, models in model_types.items():
+        for model in models:
+
+          if "file" not in model.keys(): continue
+          file_matched = (file_name == model["file"])
+          if not file_matched: continue
+
+          categories = GetCategoryLoop(cfg)
+          if "categories" in model.keys():
+            categories = model["categories"]
+
+          if model_type == "yields":
+            parameters_in_model = []
+            for cat in categories:
+              parameters_in_model += GetParametersInModel(actual_file_name, cfg, category=cat)
+            parameters_in_model = sorted(list(set(parameters_in_model)))
+            calculated += [i for i in parameters_in_model if i not in existing]
+
+          if "parameters" in model.keys():
+            calculated += model["parameters"]
+          elif "parameter" in model.keys():
+            calculated += [model["parameter"]]
+
+          if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
+            self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
+
+    calculated = sorted(list(set(calculated)))
+
     # Get from weight
     weight = cfg["files"][file_name]["weight"]
     self.columns += self._GetTokens(weight)
 
-    # Get from selection
-    if "selection" in cfg["files"][file_name].keys():
-      if cfg["files"][file_name]["selection"] is not None:
-        self.columns += self._GetTokens(cfg["files"][file_name]["selection"])
+    ## Get from selection
+    #if "selection" in cfg["files"][file_name].keys():
+    #  if cfg["files"][file_name]["selection"] is not None:
+    #    self.columns += self._GetTokens(cfg["files"][file_name]["selection"])
 
     # Get from post selection
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
         self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+
+    ## Get from post_add_column_selection
+    #if "post_add_column_selection" in cfg["files"][file_name].keys():
+    #  if cfg["files"][file_name]["post_add_column_selection"] is not None:
+    #    self.columns += [i for i in self._GetTokens(cfg["files"][file_name]["post_add_column_selection"]) if i not in calculated]
+
+    ## Get from per_file_selection
+    #if "per_file_selection" in cfg["files"][file_name].keys():
+    #  if cfg["files"][file_name]["per_file_selection"] is not None:
+    #    for sel in cfg["files"][file_name]["per_file_selection"]:
+    #      if sel is not None:
+    #        self.columns += [i for i in self._GetTokens(sel) if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
@@ -116,7 +139,7 @@ class LoadData():
       for k, v in cfg["categories"].items():
         self.columns += [i for i in self._GetTokens(v) if i not in calculated]
 
-    self.columns = list(set(self.columns))  # Remove duplicates
+    self.columns = sorted(list(set(self.columns)))  # Remove duplicates
 
 
   def _DoWriteDataset(self, df, file_name):
@@ -143,7 +166,7 @@ class LoadData():
       if self.verbose:
         print(f"- Loading file {input_file}")
 
-      batch_size = int(os.getenv("EVENTS_PER_BATCH")) if self.batch_size is None else self.batch_size
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS")) if self.batch_size is None else self.batch_size
 
       if ".root" in input_file:
         # Initiate root file
@@ -187,6 +210,17 @@ class LoadData():
             else:
               raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
+        # Post add column selection
+        if "post_add_column_selection" in file_info.keys():
+          if file_info["post_add_column_selection"] is not None:
+            df = df.query(file_info["post_add_column_selection"])
+
+        # Selection per file
+        if "per_file_selection" in file_info.keys():
+          if file_info["per_file_selection"] is not None:
+            df = df.query(file_info["per_file_selection"][input_file_ind])
+
+        # Keep only required columns
         df = df.loc[:, self.columns]
     
         # Removing nans
@@ -197,14 +231,14 @@ class LoadData():
         # Set type
         df = df.astype(np.float64)
 
-        # Remove negative weights
-        if "remove_negative_weights" in file_info.keys():
-          if file_info["remove_negative_weights"]:
-            neg_weight_rows = (df.loc[:,"wt"] < 0)
-            if len(df[neg_weight_rows]) > 0:
-              if self.verbose: 
-                print(f"Total negative weights: {len(df[neg_weight_rows])}/{len(df)} = {round(len(df[neg_weight_rows])/len(df),4)}")
-              df = df[~neg_weight_rows]
+        ## Remove negative weights
+        #if "remove_negative_weights" in file_info.keys():
+        #  if file_info["remove_negative_weights"]:
+        #    neg_weight_rows = (df.loc[:,"wt"] < 0)
+        #    if len(df[neg_weight_rows]) > 0:
+        #      if self.verbose: 
+        #        print(f"Total negative weights: {len(df[neg_weight_rows])}/{len(df)} = {round(len(df[neg_weight_rows])/len(df),4)}")
+        #      df = df[~neg_weight_rows]
 
         # Write dataset
         self._DoWriteDataset(df, file_name)
@@ -249,7 +283,7 @@ class LoadData():
       def apply_sum(df, sums, summed_col_info):
         unique_names = []
         for summed_col in summed_col_info:
-          unique_names = list(set(unique_names+[summed_col["name"]]))
+          unique_names = sorted(list(set(unique_names+[summed_col["name"]])))
         for col in unique_names:
           df.loc[:, col] = 0.0
         for ind, summed_col in enumerate(summed_col_info):

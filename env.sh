@@ -15,7 +15,6 @@ if ! command -v nvidia-smi &> /dev/null ; then
   export EVENTS_PER_BATCH=10000
   export EVENTS_PER_BATCH_FOR_GRADIENTS=4000
   export EVENTS_PER_BATCH_FOR_HESSIAN=2000
-  ulimit -s unlimited
 else
   export EVENTS_PER_BATCH_FOR_PREPROCESS=10000000
   export EVENTS_PER_BATCH=50000
