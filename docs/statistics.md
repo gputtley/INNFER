@@ -36,6 +36,9 @@ For example, each element of $\vec{x}$ could be the event counts in different re
 
 In the case of the binned likelihood, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each bin $d$ is given by a Poisson distribution,
 
+For unbinned likelihoods, the exact PDF, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
+ß
+
 $$
   \mathcal{P}(n;\lambda) =  \lambda^{n}\frac{e^{-\lambda}}{n!},
 $$
