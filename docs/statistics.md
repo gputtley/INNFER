@@ -44,6 +44,7 @@ which models the number of observed events in that bin as a Poisson-distributed 
 
 
 For unbinned likelihoods, the exact PDF, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
+
 This describes the probability density of the continuous observable $\vec{x}_{d}$ given the parameters $\vec{\theta}$ and nuisance parameters $\vec{\nu}$.
 In the case where the total number of observed events is itself a Poisson-distributed observable, the unbinned likelihood can be extended to include a term that accounts for the total expected yield. 
 This extended likelihood formulation modifies the standard likelihood by incorporating a Poisson factor for the total number of observed events $n$, given the expected number $\lambda(\vec{\mu}, \vec{\theta})$
@@ -64,6 +65,7 @@ where the product over $d$ is only over the unbinned observables, and the catego
 
 
 It is common to split the contribution of $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ up into many contributing processes $p$.
+
 This allows for additional primary observables $\mu_p$, that scale the rate of individual processes.
 In the binned case, this amounts to a change in the expected yield for that bin, $\lambda_{d}(\vec{\theta}, \vec{\nu})$, to
 
