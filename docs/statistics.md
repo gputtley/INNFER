@@ -16,7 +16,7 @@ where $p(\vec{x};\vec{\theta},\vec{\nu})$ is the probability distribution of the
 The probability density terms associated with the auxiliary observables, $p_{k}(y_{k};\nu_{k})$, can also be reinterpreted as posterior distributions for the nuisance parameters, $p_{k}(\nu_{k}\|y_{k})$, resulting from the outcome of measurements of, or otherwise justified constraints on, the auxiliary observables $y_{k}$, through the relationship
 
 $$
-  p_{k}(\nu_{k}\|y_{k}) \propto p_{k}(y_{k};\nu_{k})\pi_{k}(\nu_{k}),
+  p_{k}(\nu_{k}|y_{k}) \propto p_{k}(y_{k};\nu_{k})\pi_{k}(\nu_{k}),
 $$
 
 where $\pi_{k}(\nu_{k})$ are the nuisance parameter priors. 
@@ -43,7 +43,7 @@ $$
 which models the number of observed events in that bin as a Poisson-distributed random variable with an expected value $\lambda_{d}(\vec{\theta},\vec{\nu})$.
 
 
-For unbinned likelihoods, the exact PDF, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
+For unbinned likelihoods, the exact PDF, $p(\vec{x}_{\!d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
 This describes the probability density of the continuous observable $\vec{x}_{d}$ given the parameters $\vec{\theta}$ and nuisance parameters $\vec{\nu}$.
 In the case where the total number of observed events is itself a Poisson-distributed observable, the unbinned likelihood can be extended to include a term that accounts for the total expected yield. 
 This extended likelihood formulation modifies the standard likelihood by incorporating a Poisson factor for the total number of observed events $n$, given the expected number $\lambda(\vec{\mu}, \vec{\theta})$
