@@ -5,35 +5,40 @@ title: "Steps"
 
 ## Available Steps
 
-- [MakeBenchmark](#makebenchmark)
+The page provides links to the description of every available step in **INNFER**.
+
+### PreProcessing
+- [MakeBenchmark](makebenchmark.md)
 - [LoadData](#loaddata)
 - [PreProcess](#preprocess)
 - [ResampleValidationForData](#resamplevalidationfordata)
 - [DataCategories](#datacategories)
-- [Custom](#custom)
 - [InputPlotTraining](#inputplottraining)
 - [InputPlotValidation](#inputplotvalidation)
+
+### Training and Validating Individual Models
 - [TrainDensity](#traindensity)
 - [EvaluateDensity](#evaluatedensity)
 - [PlotDensity](#plotdensity)
-- [SetupDensityFromBenchmark](#setupdensityfrombenchmark)
 - [TrainRegression](#trainregression)
 - [EvaluateRegression](#evaluateregression)
 - [PlotRegression](#plotregression)
 - [TrainClassifier](#trainclassifier)
 - [EvaluateClassifier](#evaluateclassifier)
 - [PlotClassifier](#plotclassifier)
-- [MakeAsimov](#makeasimov)
+- [Flow](#flow)
+- [HyperparameterScan](#hyperparameterscan)
+- [HyperparameterScanCollect](#hyperparameterscancollect)
+- [BayesianHyperparameterTuning](#bayesianhyperparametertuning)
 - [DensityPerformanceMetrics](#densityperformancemetrics)
 - [EpochPerformanceMetricsPlot](#epochperformancemetricsplot)
+
+### Combined Validation and Statistical Inference
+- [MakeAsimov](#makeasimov)
 - [PValueSimVsSynth](#pvaluesimvssynth)
 - [PValueSynthVsSynth](#pvaluesynthvssynth)
 - [PValueSynthVsSynthCollect](#pvaluesynthvssynthcollect)
 - [PValueDatasetComparisonPlot](#pvaluedatasetcomparisonplot)
-- [HyperparameterScan](#hyperparameterscan)
-- [HyperparameterScanCollect](#hyperparameterscancollect)
-- [BayesianHyperparameterTuning](#bayesianhyperparametertuning)
-- [Flow](#flow)
 - [Generator](#generator)
 - [GeneratorSummary](#generatorsummary)
 - [LikelihoodDebug](#likelihooddebug)
@@ -57,6 +62,10 @@ title: "Steps"
 - [SummaryAllButOneCollect](#summaryallbutonecollect)
 - [Summary](#summary)
 - [SummaryPerVal](#summaryperval)
+
+### Other
+- [SetupDensityFromBenchmark](#setupdensityfrombenchmark)
+- [Custom](#custom)
 
 ## MakeBenchmark
 
@@ -143,10 +152,11 @@ If training classifier models to shift the nominal densities with the likelihood
 
 - **Shuffle training and testing datasets**:
 
-The final manipulation of the `train` and `test` datasets is a shuffling. This can be a little slow as shuffling datasets that can only be loaded in batches, requires a few pass throughs of the data. The final training datasets are split depending on whether it is a nominal feature, a condition, a target or the weight.
+The final manipulation of the `train` and `test` datasets is a shuffling. This can be a little slow as shuffling datasets that can only be loaded in batches, requires a few pass throughs of the data. Shuffling a dataset whilst only loading batch at a time can be very tricky, if you are noticing that your datasets are not sufficiently shuffled, you can increase the `--number-of-shuffles` parameter which by default is set to 10.
 
 - **Make parameters file**:
 
+This is the final method in this step. It saves a yaml file under `PreProcess/$MODEL_NAME/parameters.yaml` which contains important metadata about the datasets created. This includes a number of important information such as the 
 
 
 ## ResampleValidationForData
