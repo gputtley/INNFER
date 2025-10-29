@@ -36,9 +36,6 @@ For example, each element of $\vec{x}$ could be the event counts in different re
 
 In the case of the binned likelihood, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each bin $d$ is given by a Poisson distribution,
 
-For unbinned likelihoods, the exact PDF, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
-ß
-
 $$
   \mathcal{P}(n;\lambda) =  \lambda^{n}\frac{e^{-\lambda}}{n!},
 $$
@@ -47,6 +44,7 @@ which models the number of observed events in that bin as a Poisson-distributed 
 
 
 For unbinned likelihoods, the exact PDF, $p(\vec{x}_{d};\vec{\theta},\vec{\nu})$ for each event $d$, is used.
+
 This describes the probability density of the continuous observable $\vec{x}_{d}$ given the parameters $\vec{\theta}$ and nuisance parameters $\vec{\nu}$.
 In the case where the total number of observed events is itself a Poisson-distributed observable, the unbinned likelihood can be extended to include a term that accounts for the total expected yield. 
 This extended likelihood formulation modifies the standard likelihood by incorporating a Poisson factor for the total number of observed events $n$, given the expected number $\lambda(\vec{\mu}, \vec{\theta})$
