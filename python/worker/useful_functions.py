@@ -101,14 +101,14 @@ def CamelToSnake(name):
   return s2.lower()
 
 
-def GetDataInput(data_type, cfg, file_name, val_ind, data_dir, sim_type="val", asimov_dir_name="MakeAsimov"):
+def GetDataInput(data_type, cfg, file_name, val_ind, data_dir, sim_type="val", asimov_dir_name="MakeAsimov", specific_category=None):
 
   if data_type == "sim":
-    data_input = {category:{k:[f"{data_dir}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+    data_input = {category:{k:[f"{data_dir}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
   elif data_type == "asimov":
-    data_input = {category:{k:[f"{data_dir}/{asimov_dir_name}/{k}/{category}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
+    data_input = {category:{k:[f"{data_dir}/{asimov_dir_name}/{k}/{category}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
   elif data_type == "data":
-    data_input = {category:{"data" : [f"{data_dir}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg)}
+    data_input = {category:{"data" : [f"{data_dir}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
 
   return data_input
 
@@ -122,17 +122,10 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
 
   data_input = GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type)
 
-  #if args.data_type == "sim":
-  #  data_input = {category:{k:[f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
-  #elif args.data_type == "asimov":
-  #  data_input = {category:{k:[f"{data_dir}/{cfg['name']}/MakeAsimov/{k}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg)}
-  #elif args.data_type == "data":
-  #  data_input = {category:{"data" : [f"{data_dir}/{cfg['name']}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg)}
-
   binned_data_input = {}
   if args.likelihood_type in ["binned","binned_extended"]:
 
-    for cat in GetCategoryLoop(cfg):
+    for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       binned_data_input[cat] = None
       if args.data_type in ["asimov","sim"]:
         first = True
@@ -154,12 +147,12 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
         raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {args.data_type}")
 
   common_config = {
-    "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
-    "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
-    "classifier_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg)},
+    "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+    "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+    "classifier_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "model_input" : models_dir,
     "extra_density_model_name" : args.extra_density_model_name,
-    "parameters" : {category:{k:f"{data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg)},
+    "parameters" : {category:{k:f"{data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "data_input" : data_input,
     "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
     "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
@@ -170,10 +163,11 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "minimisation_method" : args.minimisation_method,
     "sim_type" : args.sim_type,
     "X_columns" : cfg["variables"],
-    "Y_columns" : list(defaults_in_model.keys()),
+    "Y_columns" : sorted(list(defaults_in_model.keys())),
     "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "only_density" : args.only_density,
-    "non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
+    #"non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
+    "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
     "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
     "binned_data_input" : binned_data_input,
   }
@@ -393,7 +387,7 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
   for k, v in config.items():
     new_keys = keys+[k]
     if isinstance(v, dict):
-      results_keys, results_vals = FindKeysAndValuesInDictionaries(v, keys=new_keys, results_keys=results_keys, results_vals=results_vals)
+      results_keys, results_vals = FindKeysAndValuesInDictionaries(copy.deepcopy(v), keys=copy.deepcopy(new_keys), results_keys=copy.deepcopy(results_keys), results_vals=copy.deepcopy(results_vals))
     else:
       results_keys.append(new_keys)
       results_vals.append(v)
@@ -514,10 +508,12 @@ def GetBaseFileLoop(cfg):
   return list(cfg["files"].keys())
 
 
-def GetCategoryLoop(cfg):
+def GetCategoryLoop(cfg, specific_category=None):
   if "categories" not in cfg.keys():
     return ["inclusive"]
   else:
+    if specific_category is not None:
+      return [cat for cat in cfg["categories"].keys() if cat in specific_category]
     return list(cfg["categories"].keys())
 
 
@@ -552,6 +548,15 @@ def BuildBinYieldFunctions(binned_fit_input, rate_param=None):
     bin_funcs.append(BuildYieldFunctions(entry["yields"], rate_param=rate_param))
 
   return bin_funcs
+
+
+def GetYieldsBaseFile(cfg_input, category):
+  base_file_name = None
+  for v in cfg_input:
+    if "categories" not in v.keys() or category is None or category in v["categories"]:
+      base_file_name = v["file"]
+      break 
+  return base_file_name
 
 
 def GetBinValue(df, func_entry, col):
@@ -592,6 +597,9 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, only_classifica
 
   data_dir = str(os.getenv("DATA_DIR"))
 
+  if isinstance(specific_category, str):
+    specific_category = [specific_category]
+
   models = []
   for k, v in cfg["models"].items():
 
@@ -599,43 +607,57 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, only_classifica
       if model_file_name != k:
         continue
 
-    for category in GetCategoryLoop(cfg):
+    split_inds = {}
 
-      if specific_category is not None:
-        if specific_category != category:
-          continue
+    for category in GetCategoryLoop(cfg, specific_category=specific_category):
+
+      split_inds[category] = 0
 
       if not (only_regression or only_classification):
 
-        if len(v["density_models"]) == 1:
-          models.append(
-            {
-              "type" : "density",
-              "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density",
-              "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
-              "name" : f"density_{k}_{category}",
-              "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
-              "parameter" : None,
-              "file_name" : k,
-              "split" : None,
-            }
-          )
-        else:
-          for ind, value in enumerate(v["density_models"]):
+        for ind, value in enumerate(v["density_models"]):
+
+          if "categories" in value.keys() and category not in value["categories"]:
+            continue
+
+          if not GetSplitDensityModel(cfg, k, category):
+
             models.append(
               {
                 "type" : "density",
-                "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density/split_{ind}",
+                "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density",
                 "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
-                "name" : f"density_{k}_split{ind}_{category}",
+                "name" : f"density_{k}_{category}",
                 "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
                 "parameter" : None,
                 "file_name" : k,
-                "split" : ind,
+                "split" : None,
+                "loop_index" : ind,
+                "category" : category,
               }
             )
+          else:
+              models.append(
+                {
+                  "type" : "density",
+                  "file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/density/split_{ind}",
+                  "val_file_loc" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}",
+                  "name" : f"density_{k}_split{ind}_{category}",
+                  "parameters" : f"{data_dir}/{cfg['name']}/PreProcess/{k}/{category}/parameters.yaml",
+                  "parameter" : None,
+                  "file_name" : k,
+                  "split" : split_inds[category],
+                  "loop_index" : ind,
+                  "category" : category,
+                }
+              )
+              split_inds[category] += 1
 
-      for value in v["regression_models"]:
+      for ind, value in enumerate(v["regression_models"]):
+
+        if "categories" in value.keys() and category not in value["categories"]:
+          continue
+
         if not (only_density or only_classification):
           models.append(
             {
@@ -647,10 +669,16 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, only_classifica
               "parameter" : value['parameter'],
               "file_name" : k,
               "split" : None,
+              "loop_index" : ind,
+              "category" : category,
             }
           )
-      
-      for value in v["classifier_models"]:
+
+      for ind, value in enumerate(v["classifier_models"]):
+
+        if "categories" in value.keys() and category not in value["categories"]:
+          continue
+
         if not (only_density or only_regression):
           models.append(
             {
@@ -662,6 +690,8 @@ def GetModelLoop(cfg, only_density=False, only_regression=False, only_classifica
               "parameter" : value['parameter'],
               "file_name" : k,
               "split" : None,
+              "loop_index" : ind,
+              "category" : category,
             }
           )
 
@@ -682,43 +712,62 @@ def GetDefaults(cfg):
   return defaults
 
 
-def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False):
+def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False, category=None):
   defaults = GetDefaults(cfg)
   if file_name == "combined":
     return defaults
-  params_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  params_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, category=category)
   return {k:v for k, v in defaults.items() if k in params_in_model}
 
 
-def GetFilesInModel(file_name, cfg):
+def GetFilesInModel(file_name, cfg, category=None):
   parameters_in_model = []
   for v in cfg["models"][file_name]["density_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    if category is None or "categories" not in v.keys() or category in v["categories"]:
+      parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   for v in cfg["models"][file_name]["regression_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    if category is None or "categories" not in v.keys() or category in v["categories"]:
+      parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   for v in cfg["models"][file_name]["classifier_models"]:
-    parameters_in_model = list(set(parameters_in_model + [v["file"]]))
+    if category is None or "categories" not in v.keys() or category in v["categories"]:
+      parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   return parameters_in_model
 
 
-def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False):
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
   parameters_in_model = []
-  if not (only_regression or only_classification):
-    for v in cfg["models"][file_name]["density_models"]:
-      parameters_in_model = list(set(parameters_in_model + v["parameters"]))
-  if not (only_density or only_classification):
-    for v in cfg["models"][file_name]["regression_models"]:
-      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
-  if not (only_density or only_regression):
-    for v in cfg["models"][file_name]["classifier_models"]:
-      parameters_in_model = list(set(parameters_in_model + [v["parameter"]]))
-  if include_rate and file_name in cfg["inference"]["rate_parameters"]:
-    parameters_in_model.append(f"mu_{file_name}")
-  if include_lnN:
-    parameters_in_model += list(cfg["inference"]["lnN"].keys())
+
+  if file_name == "combined":
+    file_name_loop = GetModelFileLoop(cfg)
+  else:
+    file_name_loop = [file_name]
+
+  for fn in file_name_loop:
+
+    if not (only_regression or only_classification):
+      for v in cfg["models"][fn]["density_models"]:
+        if category is None or "categories" not in v.keys() or category in v["categories"]:
+          parameters_in_model = sorted(list(set(parameters_in_model + v["parameters"])))
+    if not (only_density or only_classification):
+      for v in cfg["models"][fn]["regression_models"]:
+        if category is None or "categories" not in v.keys() or category in v["categories"]:
+          parameters_in_model = sorted(list(set(parameters_in_model + [v["parameter"]])))
+    if not (only_density or only_regression):
+      for v in cfg["models"][fn]["classifier_models"]:
+        if category is None or "categories" not in v.keys() or category in v["categories"]:
+          parameters_in_model = sorted(list(set(parameters_in_model + [v["parameter"]])))
+    if include_rate and fn in cfg["inference"]["rate_parameters"]:
+      parameters_in_model.append(f"mu_{fn}")
+    if include_lnN:
+      if fn in cfg["inference"]["lnN"].keys():
+        for val in cfg["inference"]["lnN"][fn]:
+          if category is None or "categories" not in val.keys() or category in val["categories"]:
+            parameters_in_model += [val["parameter"]]
+
   if only_nuisances:
     parameters_in_model = [i for i in parameters_in_model if i in cfg["nuisances"]]
-  return parameters_in_model
+
+  return sorted(list(set(parameters_in_model)))
 
 
 def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False, inference=False):
@@ -754,6 +803,14 @@ def GetCombinedValdidationIndices(cfg, file_name, val_ind):
         indices[fn] = ind
         break
   return indices
+
+
+def GetSplitDensityModel(cfg, file_name, category=None):
+  density_model_count = 0
+  for v in cfg["models"][file_name]["density_models"]:
+    if category is None or "categories" not in v.keys() or category in v["categories"]:
+      density_model_count += 1
+  return density_model_count > 1
 
 
 def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):

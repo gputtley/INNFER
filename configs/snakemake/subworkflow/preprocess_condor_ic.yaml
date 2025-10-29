@@ -1,8 +1,13 @@
 # Load data
 - step: "LoadData"
-  submit: "configs/submit/condor_2_cpus.yaml"
+  submit: "configs/submit/condor_4_cpus.yaml"
 
 # Preprocess data
-- step: "PreProcess"
-  submit: "configs/submit/condor_2_cpus.yaml"
-
+- step: "PreProcessParallelInitial"
+  submit: "configs/submit/condor_gpu.yaml"
+- step: "PreProcessParallelModel"
+  submit: "configs/submit/condor_4_cpus.yaml"
+- step: "PreProcessParallelValidation"
+  submit: "configs/submit/condor_4_cpus.yaml"
+- step: "PreProcessParallelMerge"
+  submit: "configs/submit/condor.yaml"

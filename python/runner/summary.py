@@ -26,6 +26,7 @@ class Summary():
     self.verbose = True
     self.column_loop = []
     self.subtract = False
+    self.use_scenario_labels = False
 
   def Configure(self, options):
     """
@@ -55,7 +56,10 @@ class Summary():
       # Find rows that are changing
       for col in self.column_loop:
 
-        name = ", ".join([f"{Translate(k)}={v}" for k, v in info.items()])
+        if not self.use_scenario_labels:
+          name = ", ".join([f"{Translate(k)}={v}" for k, v in info.items()])
+        else:
+          name = f"Scenario {ind+1}"  
 
         translated_col = Translate(col)
         if col in self.freeze.keys():

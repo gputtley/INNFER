@@ -33,6 +33,7 @@ class DensityPerformanceMetrics():
     self.cfg = None
     self.parameters = None
   
+    self.category = None
     self.file_name = None
     self.model_input = "models/"
     self.extra_model_dir = ""
@@ -140,7 +141,7 @@ class DensityPerformanceMetrics():
       if self.verbose:
         print("- Making asimov datasets")
 
-      for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+      for data_type in sorted(list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets))):
 
         ma = MakeAsimov()
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
@@ -160,7 +161,7 @@ class DensityPerformanceMetrics():
             ma = MakeAsimov()
             ma.Configure({
                 "cfg" : self.cfg,
-                "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True)[0],
+                "density_model" : GetModelLoop(self.open_cfg, model_file_name=self.file_name, only_density=True, specific_category=self.category)[0],
                 "model_input" : self.model_input,
                 "model_extra_name" : self.save_extra_name,
                 "parameters" : self.parameters,
@@ -245,7 +246,7 @@ class DensityPerformanceMetrics():
     # Tidy up asimov
     if self.verbose:
       print("- Tidying up asimov datasets")
-    for data_type in list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets)):
+    for data_type in sorted(list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets))):
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
@@ -519,7 +520,7 @@ class DensityPerformanceMetrics():
         dataset += self.multidimensional_datasets
       if self.do_inference:
         dataset += self.inference_datasets
-      dataset = list(set(dataset))
+      dataset = sorted(list(set(dataset)))
 
       for data_type in dataset:
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):

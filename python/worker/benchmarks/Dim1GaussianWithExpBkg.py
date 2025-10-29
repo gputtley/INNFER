@@ -98,12 +98,12 @@ class Dim1GaussianWithExpBkg():
               "shifts" : {}
             },
           ],
-          "yields" : {"file" : "base"}
+          "yields" : [{"file" : "base"}]
         }
       },
       "validation": {
         "loop" : [{"Y1" : i} for i in self.validation_y_vals],
-        "files" : {"GaussianWithExpBkg" : "base"}
+        "files" : {"GaussianWithExpBkg" : [{"file": "base"}]}
       },
       "preprocess" : {
         "train_test_val_split" : self.train_test_val_split,

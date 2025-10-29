@@ -334,13 +334,15 @@ class FCNNNetwork():
 
           y_data = self.y_train.LoadNextBatch().to_numpy().astype("float32")
           wt_data = self.wt_train.LoadNextBatch().to_numpy().astype("float32")
-
           if self.task == "classification":
             y_data = tf.cast(y_data, tf.int32)
             y_data = tf.squeeze(y_data, axis=-1)  # removes that extra 1-dim
             y_data = tf.one_hot(y_data, depth=self.num_classes)
 
           loss = self._train_step(X_data, y_data, wt_data)
+
+          if loss is None or tf.math.is_nan(loss):
+            raise ValueError("Loss is NaN")
 
           ep_losses.append(loss.numpy())
           lr = extract_current_lr(self.model.optimizer)

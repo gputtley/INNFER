@@ -32,6 +32,7 @@ Generator: Uses the network as a generator to create plots comparing network out
 GeneratorSummary: Creates summary plots comparing simulations and network-generated outputs across all unique Y values.
 LikelihoodDebug: Debugs likelihood calculations for specific parameter values. It allows you to evaluate the likelihood with the parameter values given by the `--other-input` option.
 InitialFit: Performs minimization of the negative log-likelihood to find the best fit.  Whenever calling the infer module you can specify the `--likelihood-type`, `--data-type` and numerous other options. Supports specifying the minimization method with `--minimisation-method`.
+UncertaintyFromMinimisation: ~
 ApproximateUncertainty: Calculates approximate uncertainties by interpolating likelihood crossings.
 Hessian: Computes the Hessian matrix for the likelihood.
 HessianParallel: Computes the Hessian matrix in parallel for efficiency.
