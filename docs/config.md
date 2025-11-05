@@ -3,11 +3,7 @@ layout: page
 title: "Configuration File"
 ---
 
-# Building the Configuration
-
 This section shows how to define and customise your input configuration file. The configuration file may be parsed in two formats: one is a `.yaml` file, and the other is a `.py` file where the dictionary being parsed is stored as the `config` variable name.
-
-## Input Configuration File
 
 These instruction describes the structure and purpose of each key within the `config` dictionary. The configuration defines how to build, train and validate density, classifier and regression models, as well as how to combine them to build the likelihood functions. Examples of this is shown in the `configs/run` directory.
 
@@ -18,29 +14,35 @@ These instruction describes the structure and purpose of each key within the `co
 - **Description:** A unique identifier for the configuration or training run. This name will be used as the directory name that your data, models and plots are written to.
 - **Example:** `"BTM_241025`
 
+
 ### `variables`
 - **Type:** `list[str]`
 - **Description:** The list of observables/input features used in training and likelihood model evaluation.
 - **Example:** ```["CombinedSubJets_mass", "CombinedSubJets_pt"]```
+
 
 ### `pois`
 - **Type:** `list[str]`
 - **Description:** Parameters of interest (POIs) for the fit, typically physical quantities such as the top-quark mass.
 - **Example:** ```["bw_mass"]```
 
+
 ### `nuisances`
 - **Type:** `list[str]`
 - **Description:** Names of all nuisance parameters included in the model (e.g., systematic uncertainties).
 - **Example:** ```["jec"]```
+
 
 ### `categories`
 - **Type:** `dict[str, str]`
 - **Description:** A mapping of analysis categories to selection expressions strings. If there is no need for a selection, you can parse `None`
 - **Example:** ```{"run2": "(run==2.0)", "run3": "(run==3.0)"}```
 
+
 ### `data_file`
 - **Type:** `str` or `None`
 - **Description:** Path to the main data file, if applicable. `None` if data are not directly included in this configuration. Data can be parsed as a root or a parquet file.
+
 
 ### `inference`
 - **Type:** `dict`
@@ -51,26 +53,38 @@ These instruction describes the structure and purpose of each key within the `co
   - **lnN:** Dictionary of processes and lists of log-normal uncertainties to add to the fit.
   - **binned_fit:** Dictionary for binned fit configuration, if needed.
 
+
 ### `default_values`
 - **Type:** `dict[str,float]`
 - **Desciption:** Default central values for parameters of interest. Can also set default value of nuisances and rate parameters, but if not given, this is set to 0 for nuisances and 1 for rate parameters.
 - **Example:** ```{"bw_mass": 172.5}```
 
+
 ### `models`
 - **Type:** `dict`
-- **Description:** Definitions of all model components by process type. This is done per process.
-- **Structure:**
+- **Description of full structure:** Definitions of all model components by process type. This is done per process. These are divided into:
+  - **`density_models`:** Used as the nominal probability density function of the process.
+  - **`classifier_models`:** Shift the density with the learned probability density ratio between the parameter, defined between the parameter in the sublist entry and the default value.
+  - **`regression_models`:** Shift the density with the regressed weight variation, defined by the parameter in the sublist entry, treating the weight as a probability density ratio.
+  - **`yields`:** Used to define the total yield of the process.
+- **Example of full structure:** 
 ```python
 {
-  "PROCESS_NAME": {
+  "ttbar": {
     "density_models": [...],
     "classifier_models": [...],
     "regression_models": [...],
     "yields": [...]
-  }
+  },
+  "other": {
+    "density_models": [...],
+    "classifier_models": [...],
+    "regression_models": [...],
+    "yields": [...]
+  },
 }
 ```
-Each sublist (e.g., density_models) contains entries with dictionary defining the models with the following keys:
+- **Description of sublist structure:** Each sublist (e.g., density_models) contains entries with dictionary defining the models with the following keys:
 
 | Key          | Type      | Description                                                  |
 | ------------ | --------- | ------------------------------------------------------------ |
@@ -93,12 +107,13 @@ Each sublist (e.g., density_models) contains entries with dictionary defining th
 }
 ```
 
+
 ### `validation`
 - **Type:** `dict`
 - **Description:** Defines validation configurations and datasets for testing model predictions.
 - **Keys:** 
   - **loop:** List of parameter combinations to validate on.
-  - **files:** Mapping of process types to the files and categories used for validation.
+  - **files:** Mapping of process types to the base files and categories used for validation.
 - **Example:**
 ```python
 "validation": {
@@ -109,6 +124,7 @@ Each sublist (e.g., density_models) contains entries with dictionary defining th
   }
 }
 ```
+
 
 ### `preprocess`
 - **Type:** `dict`
@@ -135,19 +151,20 @@ Each sublist (e.g., density_models) contains entries with dictionary defining th
 }
 ```
 
+
 ### `files`
 - **Type:** `dict[str, dict]`
 - **Description:** Defines all base input datasets and their configurations for each category and process type. These are referenced by name in the models section. Each file entry includes:
-| Key                        | Type            | Description                                                        |
-| -------------------------- | --------------- | ------------------------------------------------------------------ |
-| `inputs`                   | list[str]       | Paths to Parquet files containing event data. Inputs can be root or a parquet file. |
-| `add_columns`              | dict[str, list] | Extra metadata columns such as `sim_mass`, `run`, and `year_ind`.  |
-| `selection`                | str             | Pre-selection cut applied before training.                         |
-| `weight`                   | str             | Name of the event weight column.                                   |
-| `parameters`               | list            | Parameters defined for the dataset (usually empty here).           |
-| `pre_calculate`            | dict            | Expressions for derived quantities calculated before training.     |
-| `post_calculate_selection` | str             | Additional selection applied after derived variables are computed. |
-| `weight_shifts`            | dict            | Expressions defining weight variations for systematic studies.     |
+| Key                        | Type            | Description                                                                          |
+| -------------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| `inputs`                   | list[str]       | Paths to files containing event data. Inputs can be root or a parquet file.          |
+| `add_columns`              | dict[str, list] | Extra metadata columns and their values for each input file.                         |
+| `selection`                | str             | Pre-selection cut applied before apply shifts.                                       |
+| `weight`                   | str             | Name of the event weight column or formula to be calculated after shifts.            |
+| `parameters`               | list            | Parameters defined already in the dataset (not including shifts or pre_calculate).   |
+| `pre_calculate`            | dict            | Expressions for derived quantities calculated after shifts.                          |
+| `post_calculate_selection` | str             | Additional selection applied after derived variables are computed.                   |
+| `weight_shifts`            | dict            | Expressions defining weight variations.                                              |
 - **Example:**
 ```python
 "base_ttbar_run2": {
