@@ -155,16 +155,18 @@ These instruction describes the structure and purpose of each key within the `co
 ### `files`
 - **Type:** `dict[str, dict]`
 - **Description:** Defines all base input datasets and their configurations for each category and process type. These are referenced by name in the models section. Each file entry includes:
-| Key                        | Type            | Description                                                                          |
-| -------------------------- | --------------- | ------------------------------------------------------------------------------------ |
-| `inputs`                   | list[str]       | Paths to files containing event data. Inputs can be root or a parquet file.          |
-| `add_columns`              | dict[str, list] | Extra metadata columns and their values for each input file.                         |
-| `selection`                | str             | Pre-selection cut applied before apply shifts.                                       |
-| `weight`                   | str             | Name of the event weight column or formula to be calculated after shifts.            |
-| `parameters`               | list            | Parameters defined already in the dataset (not including shifts or pre_calculate).   |
-| `pre_calculate`            | dict            | Expressions for derived quantities calculated after shifts.                          |
-| `post_calculate_selection` | str             | Additional selection applied after derived variables are computed.                   |
-| `weight_shifts`            | dict            | Expressions defining weight variations.                                              |
+
+| Key                        | Type            | Description                                                                         |
+| --------------------------- | ---------------- | ----------------------------------------------------------------------------------- |
+| `inputs`                   | list[str]       | Paths to files containing event data. Inputs can be ROOT or Parquet files.          |
+| `add_columns`              | dict[str, list] | Extra metadata columns and their values for each input file.                       |
+| `selection`                | str             | Pre-selection cut applied before applying shifts.                                  |
+| `weight`                   | str             | Name of the event weight column or formula to be calculated after shifts.          |
+| `parameters`               | list            | Parameters defined already in the dataset (not including shifts or pre_calculate). |
+| `pre_calculate`            | dict            | Expressions for derived quantities calculated after shifts.                        |
+| `post_calculate_selection` | str             | Additional selection applied after derived variables are computed.                 |
+| `weight_shifts`            | dict            | Expressions defining weight variations.                                            |
+
 - **Example:**
 ```python
 "base_ttbar_run2": {
