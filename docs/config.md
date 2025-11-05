@@ -5,132 +5,161 @@ title: "Configuration File"
 
 # Building the Configuration
 
-Here’s how to define and customize your configuration...
+This section shows how to define and customise your input configuration file. The configuration file may be parsed in two formats: one is a `.yaml` file, and the other is a `.py` file where the dictionary being parsed is stored as the `config` variable name.
 
 ## Input Configuration File
 
-The input configuration file is how you give key information to INNFER about the input datasets and their preprocessing, how you want to validate the models and how you want to build the likelihood. Examples of this is shown in the `configs/run` directory.
+These instruction describes the structure and purpose of each key within the `config` dictionary. The configuration defines how to build, train and validate density, classifier and regression models, as well as how to combine them to build the likelihood functions. Examples of this is shown in the `configs/run` directory.
 
-The structure of the config should be as noted below.
+## Top-Level Keys
 
-```yaml
-name: example_config # Name for all data, plot and model folders
+### `name`
+- **Type:** `str`
+- **Description:** A unique identifier for the configuration or training run. This name will be used as the directory name that your data, models and plots are written to.
+- **Example:** `"BTM_241025`
 
-variables: # Variables, parameters of interest (shape only - rates parameters added later) and nuisance parameters
-  - var_1
-  - var_2
-pois:
-  - poi_1
-nuisances:
-  - nui_1
-  - nui_2
-  - nui_3
+### `variables`
+- **Type:** `list[str]`
+- **Description:** The list of observables/input features used in training and likelihood model evaluation.
+- **Example:** ```["CombinedSubJets_mass", "CombinedSubJets_pt"]```
 
-data_file: data.root # Data file - this can be a root or a parquet file
+### `pois`
+- **Type:** `list[str]`
+- **Description:** Parameters of interest (POIs) for the fit, typically physical quantities such as the top-quark mass.
+- **Example:** ```["bw_mass"]```
 
-inference: # Settings for inference
-  nuisance_constraints: # Nuisance parameters to add Gaussian constraints
-    - nui_1
-    - nui_2
-    - nui_3
-  rate_parameters: # Processes to add rate parameters for
-    - signal
-  lnN: # Log normal uncertainties by name, rate (this can be asymmetric, parse as a [0.98,1.02] for example) and processes they effect
-    nui_1: 
-      rate: 1.02
-      files: ["signal", "background"]
+### `nuisances`
+- **Type:** `list[str]`
+- **Description:** Names of all nuisance parameters included in the model (e.g., systematic uncertainties).
+- **Example:** ```["jec"]```
 
-default_values: # Set default values - will set defaults of nuisances to 0 and rates to 1 if not set
-  poi_1: 125.0
+### `categories`
+- **Type:** `dict[str, str]`
+- **Description:** A mapping of analysis categories to selection expressions strings. If there is no need for a selection, you can parse `None`
+- **Example:** ```{"run2": "(run==2.0)", "run3": "(run==3.0)"}```
 
-models: # Define information about the models needed - this is split by process
-  signal:
-    density_models: # This is the nominal density model that is trained. This is parsed as a list but typically only the first element is used, as each element of the list is varied separately
-      - parameters: ["poi_1", "nui_2"] # Parameters in model
-        file: base_signal # Base file to load from
-        shifts: # Parameters to shift from base file
-          nui_2:
-            type: continuous # This can also be discrete or fixed
-            range: [-3.0,3.0] # Range to vary parameter in
-        n_copies: 10 # This is the number of copies to make of the base dataset
-    regression_models: # These are regression models to vary the nominal density for weight variations. This is parsed as a list and each element of the list will be a new regression model
-      - parameter: "nui_3"
-        file: base_signal
-        shifts:
-          nui_3:
-            type: continuous
-            range: [-3.0,3.0]
-        n_copies: 5
-    yields: {"file": "base_signal"} # This is the base file to calculate the yield for, the default yield is done for the defined default parameters
-  background:
-    density_models:
-      - parameters: ["nui_2"]
-        file: base_background
-        shifts:
-          nui_2:
-            type: continuous
-            range: [-3.0,3.0]
-        n_copies: 10
-    regression_models: []
-    yields: {"file": "base_background"}
+### `data_file`
+- **Type:** `str` or `None`
+- **Description:** Path to the main data file, if applicable. `None` if data are not directly included in this configuration. Data can be parsed as a root or a parquet file.
 
-validation: # This is the options for the validation files
-  loop: # Loop of sets of parameters to validate. This is done for all processes individually and combined. For an individual file with a subset of the parameters, a unique subset of the loop is formed.
-    - {"poi_1" : 125.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 124.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 125.0, "nui_1" : -1.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 125.0, "nui_1" : 1.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : -1.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 1.0, "nui_3" : 0.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : -1.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 1.0, "mu_signal" : 1.0}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 0.8}
-    - {"poi_1" : 126.0, "nui_1" : 0.0, "nui_2" : 0.0, "nui_3" : 0.0, "mu_signal" : 1.2}
-  files: # Base files to generate the validation datasets from
-    ttbar: base_signal
-    other: base_background
+### `inference`
+- **Type:** `dict`
+- **Description:** Configuration of the inference or statistical fitting stage.
+- **Keys:**
+  - **nuisance_constraints:** List of nuisances to add constraints to in the fit. This constaint will be a unit Gaussian.
+  - **rate_parameters:** Names of rate normalisation parameters.
+  - **lnN:** Dictionary of processes and lists of log-normal uncertainties to add to the fit.
+  - **binned_fit:** Dictionary for binned fit configuration, if needed.
 
-preprocess: # Preprocess parameters
-  train_test_val_split: 0.8:0.1:0.1 # How to train/test/val split the dataset
-  save_extra_columns: {} # Extra columns to save during preprocessing - useful for custom modules
+### `default_values`
+- **Type:** `dict[str,float]`
+- **Desciption:** Default central values for parameters of interest. Can also set default value of nuisances and rate parameters, but if not given, this is set to 0 for nuisances and 1 for rate parameters.
+- **Example:** ```{"bw_mass": 172.5}```
 
-files: # Base dataset inputs
-  base_signal: # Base dataset name
-    inputs: # Input files
-      - signal_123.root
-      - signal_124.root
-      - signal_125.root
-      - signal_126.root
-      - signal_127.root
-    add_columns: # Add extra columns to dataset
-      poi_1: 
-        - 123.0
-        - 124.0
-        - 125.0
-        - 126.0
-        - 127.0
-    tree_name: "tree" # Root ttree name
-    selection: "(var_1>50)" # Initial selecton
-    weight: "wt" # Name of event weights, scaled correctly
-    parameters: ["poi_1"] # Parameters in the dataset before any shifts
-    pre_calculate: # Extra variables to be calculated - including the ability to add feature morphing shifted variables
-      var_2: var_2_uncorr * (1 + (nui_3 * sigma_3))
-    post_calculate_selection: "(var_2 > 30)" # Selection after pre_calculate is calculated
-    weight_shifts: # Weight shifts
-      nui_3: "(1 + (nui_2 * sigma_2))"
-  base_background:
-    inputs:
-      - background.root
-    tree_name: "tree"
-    selection: "(var_1>50)"
-    weight: "wt"
-    parameters: []
-    pre_calculate: 
-      var_2: var_2_uncorr * (1 + (nui_3 * sigma_3))
-    post_calculate_selection: "(var_2 > 30)"
-    weight_shifts:
-      nui_3: "(1 + (nui_2 * sigma_2))"
+### `models`
+- **Type:** `dict`
+- **Description:** Definitions of all model components by process type. This is done per process.
+- **Structure:**
+```python
+{
+  "PROCESS_NAME": {
+    "density_models": [...],
+    "classifier_models": [...],
+    "regression_models": [...],
+    "yields": [...]
+  }
+}
+```
+Each sublist (e.g., density_models) contains entries with dictionary defining the models with the following keys:
+
+| Key          | Type      | Description                                                  |
+| ------------ | --------- | ------------------------------------------------------------ |
+| `parameters` | list[str] | Model parameters being learned or varied (e.g. `"bw_mass"`). |
+| `file`       | str       | Reference to a base file defined in `files`.                 |
+| `shifts`     | dict      | Specifies parameter variations (type, range, and options).   |
+| `n_copies`   | int       | Number of training copies of the dataset taken.              |
+| `categories` | list[str] | List of categories this model applies to.                    |
+
+- **Example of the sublist entry:**
+```python
+{
+  "parameters": ["bw_mass"],
+  "file": "base_ttbar_run2",
+  "shifts": {
+    "bw_mass": {"type": "flat_top", "range": [169.5, 175.5], "other": {"sigma_out": 1.0}}
+  },
+  "n_copies": 5,
+  "categories": ["run2"]
+}
+```
+
+### `validation`
+- **Type:** `dict`
+- **Description:** Defines validation configurations and datasets for testing model predictions.
+- **Keys:** 
+  - **loop:** List of parameter combinations to validate on.
+  - **files:** Mapping of process types to the files and categories used for validation.
+- **Example:**
+```python
+"validation": {
+  "loop": [{"bw_mass": 171.5}, {"bw_mass": 172.5}, {"bw_mass": 173.5}],
+  "files": {
+    "ttbar": [{"file": "base_ttbar_run2", "categories": ["run2"]}],
+    "other": [{"file": "base_other_run2", "categories": ["run2"]}]
+  }
+}
+```
+
+### `preprocess`
+- **Type:** `dict`
+- **Description:** Configuration for preprocessing and data preparation.
+- **Main keys:**
+  - **train_test_val_split:** Ratio for train/test/validation datasets (e.g. "0.8:0.1:0.1").
+  - **save_extra_columns:** Extra variables to save for different process types. This can be useful for custom modules.
+  - **standardisation:** Precomputed mean and standard deviation values for standardising features per category and process.
+- **Example:**
+```python
+"preprocess": {
+  "train_test_val_split": "0.8:0.1:0.1",
+  "save_extra_columns": {"ttbar": ["sim_mass","GenTop1_mass"], "other": []},
+  "standardisation": {
+    "ttbar": {
+      "run2": {
+        "density": {
+          "CombinedSubJets_mass": {"mean": 140.0, "std": 45.3},
+          "CombinedSubJets_pt": {"mean": 490.0, "std": 94.6}
+        }
+      }
+    }
+  }
+}
+```
+
+### `files`
+- **Type:** `dict[str, dict]`
+- **Description:** Defines all base input datasets and their configurations for each category and process type. These are referenced by name in the models section. Each file entry includes:
+| Key                        | Type            | Description                                                        |
+| -------------------------- | --------------- | ------------------------------------------------------------------ |
+| `inputs`                   | list[str]       | Paths to Parquet files containing event data. Inputs can be root or a parquet file. |
+| `add_columns`              | dict[str, list] | Extra metadata columns such as `sim_mass`, `run`, and `year_ind`.  |
+| `selection`                | str             | Pre-selection cut applied before training.                         |
+| `weight`                   | str             | Name of the event weight column.                                   |
+| `parameters`               | list            | Parameters defined for the dataset (usually empty here).           |
+| `pre_calculate`            | dict            | Expressions for derived quantities calculated before training.     |
+| `post_calculate_selection` | str             | Additional selection applied after derived variables are computed. |
+| `weight_shifts`            | dict            | Expressions defining weight variations for systematic studies.     |
+- **Example:**
+```python
+"base_ttbar_run2": {
+  "inputs": ["TTToSemiLeptonic_2018.parquet", "TTToSemiLeptonic_2022_preEE.parquet"],
+  "add_columns": {"sim_mass": [172.5, 172.5], "run": [2.0, 3.0]},
+  "selection": "((JetLepton_deltaR>0.25) & (JetLepton_ptrel>30))",
+  "weight": "weight",
+  "parameters": [],
+  "pre_calculate": {},
+  "post_calculate_selection": "(CombinedSubJets_pt > 400)",
+  "weight_shifts": {"bw_mass": "(...)"},
+}
 ```
 
 <br>
