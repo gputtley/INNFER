@@ -31,6 +31,29 @@ cfg="btm_180725.yaml"
 ```bash
 --specific="file_name=ttbar" --specific-category=run3
 ```
+## Scanning
+
+ScanPointsFromHessian,Scan,ScanCollect,ScanPlot
+
+```bash
+innfer --step="Hessian" --cfg="${cfg}" --data-type="sim" --specific="file_name=ttbar" --specific-category=run3`
+```
+
+```bash
+innfer --step="ScanPointsFromHessian" --cfg="${cfg}" --data-type="sim" --specific="file_name=ttbar" --specific-category=run3`
+```
+
+```bash
+innfer --step="Scan" --cfg="${cfg}" --data-type="sim" --specific="file_name=ttbar" --specific-category=run3`
+```
+
+```bash
+innfer --step="ScanCollect" --cfg="${cfg}" --data-type="sim" --specific="file_name=ttbar" --specific-category=run3
+```
+
+```bash
+innfer --step="ScanPlot" --cfg="${cfg}" --data-type="sim" --specific="file_name=ttbar" --specific-category=run3
+```
 
 ## SnakeMake running
 
