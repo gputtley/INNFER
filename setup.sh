@@ -3,6 +3,8 @@ export TMPDIR="./tmp/"
 export TEMP=$TMPDIR
 export TMP=$TMPDIR
 export CONDA_PKGS_DIRS=$TMPDIR
+export PIP_CACHE_DIR=$TMPDIR
+export XDG_CACHE_HOME=$TMPDIR
 
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   echo "Installing miniconda"
@@ -18,13 +20,15 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   source miniconda/files/etc/profile.d/conda.sh
 fi
 
+echo $TMPDIR
+
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
   source miniconda/files/etc/profile.d/conda.sh
   conda clean -a -y
   conda config --set channel_priority flexible
-  conda env create --file=configs/setup/environment.yaml
-  conda activate innfer_env
+  conda env create --file=configs/setup/environment_v2.yaml
+  conda activate innfer_env_fix_v2
   # Need to do this because of wrapt version conflict between tensorflow and snakemake
   pip3 install tensorflow[and-cuda]==2.15.1 wrapt==1.14.1
   pip3 install --no-deps snakemake==9.9.0
@@ -45,3 +49,5 @@ if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
   cookiecutter https://github.com/gputtley/htcondor.git
   popd
 fi
+
+rm -rf tmp/*

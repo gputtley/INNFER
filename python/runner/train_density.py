@@ -31,6 +31,7 @@ class TrainDensity():
     self.no_plot = False
     self.save_model_per_epoch = False
     self.model_type = "BayesFlow"
+    self.load_weights_for_training = None
 
   def Configure(self, options):
     """
@@ -82,7 +83,12 @@ class TrainDensity():
     )
 
     network.BuildModel()
-    
+
+    if self.load_weights_for_training is not None:
+      if self.verbose:
+        print(f"- Loading weights from {self.load_weights_for_training} for training")
+      network.Load(self.load_weights_for_training)
+
     if self.no_plot:
       network.plot_loss = False
       network.plot_lr = False
