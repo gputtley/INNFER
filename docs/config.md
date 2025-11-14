@@ -48,10 +48,11 @@ These instruction describes the structure and purpose of each key within the `co
 - **Type:** `dict`
 - **Description:** Configuration of the inference or statistical fitting stage.
 - **Keys:**
-  - **nuisance_constraints:** List of nuisances to add constraints to in the fit. This constaint will be a unit Gaussian.
-  - **rate_parameters:** Names of rate normalisation parameters.
+  - **nuisance_constraints:** List of nuisances to add constraints to in the fit. This constaint will be a unit Gaussian. If you add an parameter in the `nuisance` key but not here, it will be varied in the fit but not constrained.
+  - **rate_parameters:** List of processes which you would like to add a rate parameters for.
   - **lnN:** Dictionary of processes and lists of log-normal uncertainties to add to the fit.
-  - **binned_fit:** Dictionary for binned fit configuration, if needed.
+  - **binned_fit:** Dictionary for binned fit configuration. This is typically left as an empty dictionary. 
+- **Example:**
 
 
 ### `default_values`
@@ -84,7 +85,7 @@ These instruction describes the structure and purpose of each key within the `co
   },
 }
 ```
-- **Description of sublist structure:** Each sublist (e.g., density_models) contains entries with dictionary defining the models with the following keys:
+- **Description of sublist structure:** Each sublist (e.g., density_models) contains information telling the PreProcess step how to build the training datasets (and the yields). Shifts are defined telling the code how to define new columns within the dataset and how to distribute them. These can then be used to make feature shifts (`pre_calculate`) and weight shifts (`weight_shifts`) in the `files` key. Entries of the sublist, defining the models has the following keys:
 
 | Key          | Type      | Description                                                  |
 | ------------ | --------- | ------------------------------------------------------------ |
@@ -132,7 +133,7 @@ These instruction describes the structure and purpose of each key within the `co
 - **Main keys:**
   - **train_test_val_split:** Ratio for train/test/validation datasets (e.g. "0.8:0.1:0.1").
   - **save_extra_columns:** Extra variables to save for different process types. This can be useful for custom modules.
-  - **standardisation:** Precomputed mean and standard deviation values for standardising features per category and process.
+  - **standardisation:** Precomputed mean and standard deviation values for standardising features per category and process. If this is not provided, it will be calculated in the PreProcess step.
 - **Example:**
 ```python
 "preprocess": {
@@ -154,7 +155,7 @@ These instruction describes the structure and purpose of each key within the `co
 
 ### `files`
 - **Type:** `dict[str, dict]`
-- **Description:** Defines all base input datasets and their configurations for each category and process type. These are referenced by name in the models section. Each file entry includes:
+- **Description:** Defines all base input datasets and their configurations for each category and process type. Weight and feature shifting variations are all defined by the functions parsed in `pre_calculate` and `weight_shifts`. These are referenced by name in the models section. Each file entry includes:
 
 | Key                        | Type            | Description                                                                         |
 | --------------------------- | ---------------- | ----------------------------------------------------------------------------------- |
