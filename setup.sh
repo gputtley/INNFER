@@ -27,8 +27,8 @@ if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   source miniconda/files/etc/profile.d/conda.sh
   conda clean -a -y
   conda config --set channel_priority flexible
-  conda env create --file=configs/setup/environment_v2.yaml
-  conda activate innfer_env_fix_v2
+  conda env create --file=configs/setup/environment.yaml
+  conda activate innfer_env
   # Need to do this because of wrapt version conflict between tensorflow and snakemake
   pip3 install tensorflow[and-cuda]==2.15.1 wrapt==1.14.1
   pip3 install --no-deps snakemake==9.9.0
