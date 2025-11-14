@@ -13,9 +13,9 @@ from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop, GetSplitDensityModel, GetModelLoop
+from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop, GetSplitDensityModel, GetModelLoop, SampleFlatTop
 
-data_dir = str(os.getenv("DATA_DIR"))
+data_dir = str(os.getenv("PREP_DATA_DIR"))
 plots_dir = str(os.getenv("PLOTS_DIR"))
 models_dir = str(os.getenv("MODELS_DIR"))
 
@@ -152,12 +152,40 @@ class top_bw_fractioning():
           ]
         )
 
+    # Effective events
+    eff_events = {}
+    for transformed_to in self.transformed_to_masses:
+      eff_events[transformed_to] = {}
+      for transformed_from in unique:
+        if sum_wt_squared[transformed_to][transformed_from] > 0:
+          eff_events[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from]**2) / sum_wt_squared[transformed_to][transformed_from]
+        else:
+          eff_events[transformed_to][transformed_from] = 0.0
+
+    # Total effective events for transformed_to
+    total_eff_events = {}
+    for transformed_to in self.transformed_to_masses:
+      total_eff_events[transformed_to] = np.sum(np.array(list(eff_events[transformed_to].values())))
+
+    # Fraction of effective events
+    eff_events_fraction = {}
+    for transformed_to in self.transformed_to_masses:
+      eff_events_fraction[transformed_to] = {}
+      for transformed_from in unique:
+        if total_eff_events[transformed_to] > 0:
+          eff_events_fraction[transformed_to][transformed_from] = eff_events[transformed_to][transformed_from] / total_eff_events[transformed_to]
+        else:
+          eff_events_fraction[transformed_to][transformed_from] = 0.0
+
     # derive fractions
     fractions = {}
     for transformed_to in self.transformed_to_masses:
       fractions[transformed_to] = {}
       for transformed_from in unique:
-        fractions[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from] / sum_wt_squared[transformed_to][transformed_from])
+        if eff_events_fraction[transformed_to][transformed_from] > self.ignore_quantile:
+          fractions[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from] / sum_wt_squared[transformed_to][transformed_from])
+        else:
+          fractions[transformed_to][transformed_from] = 0.0
 
     # derive normalisation
     normalised_fractions = {}
@@ -173,7 +201,14 @@ class top_bw_fractioning():
     masses = list(normalised_fractions.keys())
     for transformed_from in unique:
       fractions_to = [normalised_fractions[transformed_to][transformed_from] for transformed_to in self.transformed_to_masses]
+      
       splines[transformed_from] = UnivariateSpline(masses, fractions_to, s=0, k=1)
+      # Cap spline function to a minimum of 0
+      def SplineWithMinZero(x, spline_func=splines[transformed_from]):
+        result = spline_func(x)
+        result[result < 0] = 0.0
+        return result
+      splines[transformed_from] = partial(SplineWithMinZero, spline_func=splines[transformed_from])
 
     return normalised_fractions, splines
 
@@ -195,15 +230,20 @@ class top_bw_fractioning():
     if file_type == "density":
       parameters_dict = parameters["density"]
       functions = ["untransform"]
+      after_function = ["transform"]
     elif file_type == "regression":
       parameters_dict = parameters["regression"][shift_file.split("/")[-2]]
       functions = ["untransform"]
+      after_function = ["transform"]
     elif file_type == "classifier":
       parameters_dict = parameters["classifier"][shift_file.split("/")[-2]]
       functions = ["untransform"]
+      after_function = ["transform"]
     elif file_type == "validation":
       parameters_dict = {}
       functions = []
+      after_function = []
+
 
     dp = DataProcessor(
       [files],
@@ -216,10 +256,28 @@ class top_bw_fractioning():
       batch_size=self.batch_size,
     )
 
-    wt_file = copy.deepcopy(shift_file)
-    wt_alt = shift_file.replace(".parquet","_bw_fractioning.parquet")
-    if os.path.isfile(wt_alt):
-      os.system(f"rm {wt_alt}")
+    #wt_file = copy.deepcopy(shift_file)
+    #wt_alt = shift_file.replace(".parquet","_bw_fractioning.parquet")
+    #if os.path.isfile(wt_alt):
+    #  os.system(f"rm {wt_alt}")
+
+    new_file_names = []
+    column_names = []
+    for shift_file in files:
+      new_file_name = shift_file.replace(".parquet","_bw_fractioning.parquet")
+      new_file_names.append(new_file_name)
+      column_dp = DataProcessor(
+        [shift_file],
+        "parquet",
+        options = {},
+        batch_size=self.batch_size,
+      )
+      column_names.append(column_dp.LoadNextBatch().columns.tolist())
+
+      
+      if os.path.isfile(new_file_name):
+        os.system(f"rm {new_file_name}")
+
 
     def ApplyFractions(df, fraction_splines={}, shift_column="wt"):
       if self.bw_mass_name not in df.columns:
@@ -227,20 +285,24 @@ class top_bw_fractioning():
       for k, v in fraction_splines.items():
         indices = (df.loc[:,self.mass_name]==k)
         df.loc[indices,shift_column] *= v(df.loc[indices,self.bw_mass_name].to_numpy())
-      return df.loc[:,[shift_column]]
+      #return df.loc[:,[shift_column]]
+      return df.loc[(df.loc[:,shift_column]!=0),:]
+
 
     dp.GetFull(
       method=None, 
-      functions_to_apply = [
-        partial(ApplyFractions, fraction_splines=splines, shift_column=shift_column),
-        partial(self._WriteDataset, file_name=wt_alt)
-      ]
+      functions_to_apply = [partial(ApplyFractions, fraction_splines=splines, shift_column=shift_column)] + after_function+ [partial(self._WriteDataset, file_name=fn, columns=column_names[ind]) for ind, fn in enumerate(new_file_names)],
     )
 
     if self.write:
-      os.system(f"mv {wt_alt} {wt_file}")
+      for ind, shift_file in enumerate(files):
+        col_file = shift_file
+        col_alt = new_file_names[ind]
+        if os.path.isfile(col_alt):
+          os.system(f"mv {col_alt} {col_file}")
 
 
+  '''
   def _FlattenTraining(self, file_loc, file_split):
     """
     Flatten the training data by applying a histogram reweighting.
@@ -286,6 +348,70 @@ class top_bw_fractioning():
       )
       if self.write:
         if os.path.isfile(wt_flat_file): os.system(f"mv {wt_flat_file} {wt_file}") 
+  '''
+
+  def _FlattenTraining(self, file_loc, file_split, parameters, distribution=None):
+    """
+    Flatten the training data by applying a histogram reweighting.
+    Args:
+        file_loc (str): The location of the files.
+        file_split (list): The list of files to flatten.
+    """
+
+    dp = DataProcessor(
+      [f"{file_loc}/{k}_train.parquet" for k in file_split if os.path.isfile(f"{file_loc}/{k}_train.parquet")],
+      "parquet",
+      batch_size=self.batch_size,
+      options = {
+        "wt_name" : "wt",
+        "functions" : ["untransform"],
+        "parameters" : parameters,
+      }      
+    )
+    hist, bins = dp.GetFull(method="histogram", column=self.bw_mass_name, bins=40, ignore_quantile=0.0)
+
+    # Check what distribution we want to flatten to
+    if distribution is None:
+      hist_to = (np.sum(hist)/len(hist))*np.ones(len(hist))
+    elif distribution["type"] == "continuous":
+      hist_to = (np.sum(hist)/len(hist))*np.ones(len(hist))
+    elif distribution["type"] == "flat_top":
+      samples = SampleFlatTop(10**7, (distribution["range"][0], distribution["range"][1]), distribution["other"]["sigma_out"])
+      hist_to, _ = np.histogram(samples, bins=bins)
+      hist_to = hist_to.astype(float)
+      hist_to *= np.sum(hist)/np.sum(hist_to)
+
+    for data_split in ["train","test"]:
+      wt_file = f"{file_loc}/wt_{data_split}.parquet"
+      wt_flat_file = wt_file.replace(".parquet","_flattened.parquet")
+      dp = DataProcessor(
+        [f"{file_loc}/{k}_{data_split}.parquet" for k in file_split],
+        "parquet",
+        batch_size=self.batch_size,
+        options = {
+          "wt_name" : "wt",
+          "functions" : ["untransform"],
+          "parameters" : parameters,
+        }      
+      ) 
+      def apply_flattening(df, hist, hist_to, bins):
+        if self.bw_mass_name not in df.columns:
+          df.loc[:,self.bw_mass_name] = 172.5
+        for ind in range(len(hist)):
+          if hist[ind] > 0:
+            df.loc[((df.loc[:,self.bw_mass_name]>=bins[ind]) & (df.loc[:,self.bw_mass_name]<bins[ind+1])),"wt"] *= hist_to[ind]/hist[ind]     
+        return df.loc[:,["wt"]]
+      apply_flattening_partial = partial(apply_flattening, hist=hist, hist_to=hist_to, bins=bins)
+      if os.path.isfile(wt_flat_file): os.system(f"rm {wt_flat_file}")
+      dp.GetFull(
+        method=None,
+        functions_to_apply = [
+          apply_flattening_partial,
+          partial(self._WriteDataset, file_name=wt_flat_file)
+        ]
+      )
+      if self.write:
+        if os.path.isfile(wt_flat_file): os.system(f"mv {wt_flat_file} {wt_file}") 
 
 
   def _GetFiles(self, cfg, category, skip_copy=False):
@@ -311,18 +437,9 @@ class top_bw_fractioning():
         classifier_loop += ["Extra"]
 
     # Check if we need to split density models
-    #split_density_model = False
-    #if len(cfg["models"][self.file_name]["density_models"]) > 1:
-    #  split_density_model = True
     split_density_model = GetSplitDensityModel(cfg, self.file_name, category=category)
 
-    #if not split_density_model:
-    #  density_dir_loop = ["density"]
-    #else:
-    #  density_dir_loop = [f"density/split_{ind}" for ind in range(len(cfg["models"][self.file_name]["density_models"]))]
-
     for data_split in ["train","test"]:
-      #for density_dir in density_dir_loop:
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
 
         if not split_density_model:
@@ -524,7 +641,7 @@ class top_bw_fractioning():
     return (0.0270*m) - 3.3455
 
 
-  def _WriteDataset(self, df, file_name):
+  def _WriteDataset(self, df, file_name, columns=None):
     """
     Write the dataset to a file.
     Args:
@@ -534,7 +651,7 @@ class top_bw_fractioning():
     # Write the dataset to a file
     file_path = f"{file_name}"
     MakeDirectories(file_path)
-    table = pa.Table.from_pandas(df, preserve_index=False)
+    table = pa.Table.from_pandas(df.loc[:,columns] if columns is not None else df, preserve_index=False)
     if os.path.isfile(file_path):
       combined_table = pa.concat_tables([pq.read_table(file_path), table])
       pq.write_table(combined_table, file_path, compression='snappy')
@@ -555,15 +672,17 @@ class top_bw_fractioning():
       setattr(self, key, value)
 
     self.write = True if "write" not in self.options else self.options["write"].strip() == "True"
+    self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
-    #self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
-    self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
+    self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
+    #self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     self.use_copies = False if "use_copies" not in self.options else self.options["use_copies"].strip() == "True"
     self.gen_mass = "mass_had_top" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
     self.gen_mass_other = None if "gen_mass_other" not in self.options else self.options["gen_mass_other"].strip()
     self.file_name = "ttbar" if "file_name" not in self.options else self.options["file_name"].strip()
     self.mass_name = "mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
+    self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
 
     cfg = LoadConfig(self.cfg)
     #self.base_file = f"{data_dir}/{cfg['name']}/LoadData/{self.base_file_name}.parquet"
@@ -589,7 +708,8 @@ class top_bw_fractioning():
       normalised_fractions, splines = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category])
 
       # Plot reweighting
-      self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
+      if self.plot:
+        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
 
       # Open parameters
       parameters_name = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/parameters.yaml"
@@ -660,30 +780,28 @@ class top_bw_fractioning():
 
       # flatten training bw shapes
       do_density = False
-      #for model in cfg["models"][self.file_name]["density_models"]:
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
         model = cfg["models"][self.file_name]["density_models"][loop_value["loop_index"]]
+        distribution = model["shifts"][self.bw_mass_name] if self.bw_mass_name in model["shifts"].keys() else None
         if self.bw_mass_name in model["parameters"]:
           do_density = True
       if do_density:
-        #if len(cfg["models"][self.file_name]["density_models"]) == 1:
         if not GetSplitDensityModel(cfg, self.file_name, category=category):
-          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/", ["X","Y","wt","Extra"])
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/", ["X","Y","wt","Extra"], parameters["density"], distribution=distribution)
         else:
-          #for ind, model in enumerate(cfg["models"][self.file_name]["density_models"]):
           for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_density=True, specific_category=category):
             ind = loop_value["loop_index"]
             model = cfg["models"][self.file_name]["density_models"][ind]
             if self.bw_mass_name in model["parameters"]:
-              self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/split_{ind}", ["X","Y","wt","Extra"])
+              self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/density/split_{ind}", ["X","Y","wt","Extra"], parameters["density"][ind], distribution=distribution)
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=category):
         model = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
         if model["parameter"] == self.bw_mass_name:
-          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{self.bw_mass_name}", ["X","y","wt","Extra"])
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{self.bw_mass_name}", ["X","y","wt","Extra"], parameters["regression"][model["parameter"]], distribution=distribution)
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=category):
         model = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
         if model["parameter"] == self.bw_mass_name:
-          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{self.bw_mass_name}", ["X","y","wt","Extra"])
+          self._FlattenTraining(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/classifier/{self.bw_mass_name}", ["X","y","wt","Extra"], parameters["classifier"][model["parameter"]], distribution=distribution)
 
       # Change parameters
       if self.write:
@@ -715,9 +833,10 @@ class top_bw_fractioning():
           outputs += [file]
 
       # Add plots
-      for cat in GetCategoryLoop(cfg):
-        for col in self.plot_columns:
-          outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
+      if self.plot:
+        for cat in GetCategoryLoop(cfg):
+          for col in self.plot_columns:
+            outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
 
     return outputs
 

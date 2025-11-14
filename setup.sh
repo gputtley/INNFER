@@ -3,6 +3,8 @@ export TMPDIR="./tmp/"
 export TEMP=$TMPDIR
 export TMP=$TMPDIR
 export CONDA_PKGS_DIRS=$TMPDIR
+export PIP_CACHE_DIR=$TMPDIR
+export XDG_CACHE_HOME=$TMPDIR
 
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   echo "Installing miniconda"
@@ -17,6 +19,8 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   popd
   source miniconda/files/etc/profile.d/conda.sh
 fi
+
+echo $TMPDIR
 
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
@@ -45,3 +49,5 @@ if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
   cookiecutter https://github.com/gputtley/htcondor.git
   popd
 fi
+
+rm -rf tmp/*

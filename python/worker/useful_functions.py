@@ -5,6 +5,9 @@ import pickle
 import re
 import textwrap
 import yaml
+import random
+import secrets
+import string
 
 import numpy as np
 import pandas as pd
@@ -117,10 +120,11 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
 
-  data_dir = f'{str(os.getenv("DATA_DIR"))}/{cfg["name"]}'
+  prep_data_dir = f'{str(os.getenv("PREP_DATA_DIR"))}/{cfg["name"]}'
+  eval_data_dir = f'{str(os.getenv("EVAL_DATA_DIR"))}/{cfg["name"]}'
   models_dir = f'{str(os.getenv("MODELS_DIR"))}/{cfg["name"]}'
 
-  data_input = GetDataInput(args.data_type, cfg, file_name, val_ind, data_dir, sim_type=args.sim_type)
+  data_input = GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir if args.data_type != "asimov" else eval_data_dir, sim_type=args.sim_type)
 
   binned_data_input = {}
   if args.likelihood_type in ["binned","binned_extended"]:
@@ -130,7 +134,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
       if args.data_type in ["asimov","sim"]:
         first = True
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          with open(f"{data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
+          with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
           if "validation_binned_fit" not in parameters.keys():
             continue
@@ -152,7 +156,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "classifier_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "model_input" : models_dir,
     "extra_density_model_name" : args.extra_density_model_name,
-    "parameters" : {category:{k:f"{data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+    "parameters" : {category:{k:f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "data_input" : data_input,
     "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
     "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
@@ -170,6 +174,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
     "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
     "binned_data_input" : binned_data_input,
+    "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
   }
 
   return common_config
@@ -595,7 +600,7 @@ def GetModelFileLoop(cfg, with_combined=False):
 
 def GetModelLoop(cfg, only_density=False, only_regression=False, only_classification=False, model_file_name=None, specific_category=None):
 
-  data_dir = str(os.getenv("DATA_DIR"))
+  data_dir = str(os.getenv("PREP_DATA_DIR"))
 
   if isinstance(specific_category, str):
     specific_category = [specific_category]
@@ -1294,6 +1299,11 @@ def OverwriteArchitecture(architecture_file, overwrite_architecture):
 
 
 
+def RandomString(length=8):
+  chars = string.ascii_letters + string.digits
+  return ''.join(secrets.choice(chars) for _ in range(length))
+
+
 def Resample(datasets, weights, n_samples=None, seed=42):
   """
   Resamples datasets based on provided weights.
@@ -1389,28 +1399,54 @@ def Resample(datasets, weights, n_samples=None, seed=42):
   return resampled_datasets, resampled_weights
 
 
-def RoundToSF(num, sig_figs):
-  """
-  Round a number to a specified number of significant figures.
+def RoundUnrolledBins(bins, extra_sf=1):
 
-  Parameters
-  ----------
-  num : float
-      The number to be rounded.
-  sig_figs : int
-      Number of significant figures to round to.
+  orders_of_magnitude = np.floor(np.log10(np.abs(bins))).astype(int)
+  bin_diffs = np.diff(bins)
+  bin_diff_orders_of_magnitude = np.floor(np.log10(np.abs(bin_diffs))).astype(int)
 
-  Returns
-  -------
-  float
-      The rounded number to the specified number of significant figures.
-  """
-  if num == 0:
+  min_oom = []
+  for ind, b in enumerate(bins):
+    if ind == 0:
+      min_oom.append(bin_diff_orders_of_magnitude[0])
+    elif ind == len(bins)-1:
+      min_oom.append(bin_diff_orders_of_magnitude[-1])
+    else:
+      min_oom.append(min(bin_diff_orders_of_magnitude[ind], bin_diff_orders_of_magnitude[ind-1]))
+  min_oom = np.array(min_oom)
+
+  round_to_sf = extra_sf - (min_oom - orders_of_magnitude)
+
+  new_bins = [RoundToSF(bins[ind], max(round_to_sf[ind],1)) for ind in range(len(bins))]
+
+  return new_bins
+
+
+def RoundToSF(x, n):
+  if x == 0:
     return 0
-  else:
-    rounded_number = round(num, sig_figs)
-    decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
-    return round(num, decimal_places)
+  return float(round(x, -int(np.floor(np.log10(abs(x)))) + (n - 1)))
+
+
+def SampleFlatTop(n_samples, in_range, out_std):
+
+  peak_of_normalised_gaussian = 1/(out_std * np.sqrt(2 * np.pi))
+  area_of_block = (in_range[1] - in_range[0]) * peak_of_normalised_gaussian
+  block_fraction = area_of_block / (area_of_block + 1)
+  n_uniform = int(np.ceil(block_fraction * n_samples))
+  n_gaussian = n_samples - n_uniform
+
+  uniform_samples = np.random.uniform(in_range[0], in_range[1], n_uniform)
+  gaussian_samples = np.random.normal(0, out_std, n_gaussian)
+  pos_gaussian_index = np.where((gaussian_samples >= 0))
+  neg_gaussian_index = np.where((gaussian_samples < 0))
+  gaussian_samples[pos_gaussian_index] += in_range[1]
+  gaussian_samples[neg_gaussian_index] += in_range[0]
+
+  total_samples = np.hstack((uniform_samples, gaussian_samples))
+  np.random.shuffle(total_samples)
+
+  return total_samples
 
 
 def SetupSnakeMakeFile(args, default_args, main):

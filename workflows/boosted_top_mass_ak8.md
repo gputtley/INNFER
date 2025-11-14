@@ -1,21 +1,20 @@
 # Boosted Top Mass
 
-## Find the files to go in the configuration files
-
-```
-python3 scripts/config_inputs.py -f "data/top_reco/230725/TT*.parquet" -ac "mass,166p5,166.5" -ac "mass,169p5,169.5" -ac "mass,171p5,171.5" -ac "mass,173p5,173.5" -ac "mass,175p5,175.5" -ac "mass,178p5,178.5" -ac "run,201,2" -ac "run,202,3" -dc "mass,172.5"
-```
-
-```
-python3 scripts/config_inputs.py -f "data/top_reco/230725/W*.parquet,data/top_reco/230725/ST*.parquet,data/top_reco/230725/DY*.parquet" -ac "run,201,2" -ac "run,202,3"
-```
-
 ## Set configuration file
 
 Now we have made the config, lets set the configuration file.
 
 ```
-cfg="btm_180725.yaml"
+cfg="btm.py"
+```
+
+## Set the storage locations
+
+As this project is worked on by many people we have central storage locations for the data and the models created.
+
+```
+export PREP_DATA_DIR="/vols/cms/sbi_top_mass/data"
+export MODELS_DIR="/vols/cms/sbi_top_mass/models"
 ```
 
 ## SnakeMake running
