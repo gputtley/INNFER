@@ -27,6 +27,7 @@ class Summary():
     self.column_loop = []
     self.subtract = False
     self.use_scenario_labels = False
+    self.no_lumi = False
 
   def Configure(self, options):
     """
@@ -102,6 +103,7 @@ class Summary():
       text = None if self.chi_squared is None else {col: r'$\chi^2/N_{dof}$ = ' + str(round(self.chi_squared[col]["all"],2)) for col in list(info["initial_best_fit_guess"].columns)},
       #y_label = f"Truth ({', '.join([Translate(i) for i in non_repeated_columns])})",
       y_label = "",
+      no_lumi = self.no_lumi
     )
 
   def Outputs(self):

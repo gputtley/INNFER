@@ -17,13 +17,13 @@ from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize
 
 from minimise import Minimise as CustomMinimise
-from useful_functions import MakeDirectories
+from useful_functions import MakeDirectories, RandomString
 
 class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}, categories=None):
+  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}, categories=None, simplex={}):
     """
     Initializes a Likelihood object.
 
@@ -44,6 +44,8 @@ class Likelihood():
     self.verbose = True
     self.constraints = constraints
     self.constraint_center = constraint_center
+    self.simplex = simplex
+    self.skip_nan_check = True
 
     # saved parameters
     self.best_fit = None
@@ -56,6 +58,19 @@ class Likelihood():
     self.D_matrix = None
     self.D_matrix_columns = None
     self.covariance = None
+
+    # Cache for density log probs
+    self.use_log_probs_cache = False
+    self.cache_only_non_minimised = False
+    self.cached_minimised_columns = []
+    self.cache_name = RandomString()
+    self.cached_list = []
+    self.cached_log_probs_batch_ind = 0
+    self.cached_log_probs_ind = 0
+    self.n_caches = 200
+    self.cache_dir = "tmp"
+    if not os.path.exists(self.cache_dir):
+      MakeDirectories(self.cache_dir)
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -258,6 +273,64 @@ class Likelihood():
     return ln_constraint
 
 
+  def _CreateCacheLogProbsDict(self, name, pdf, Y, gradient, category):
+
+    Y_columns_per_density_model = pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns # Temporary?
+
+    cache_dict = {
+      "name": name,
+      "Y": Y.loc[:, Y_columns_per_density_model].to_dict(),
+      "gradient": gradient,
+      "category": category,
+      "cache_file_name": f"{self.cache_dir}/{self.cache_name}_log_probs_{name}_{category}_{int(self.cached_log_probs_ind)}_{int(self.cached_log_probs_batch_ind)}",
+      "log_probs_ind": int(self.cached_log_probs_ind),
+      "log_probs_batch_ind": int(self.cached_log_probs_batch_ind)
+    }
+
+    return cache_dict
+
+
+  def _CheckIfInCacheLogProbs(self, cache_dict):
+
+    if not self.use_log_probs_cache:
+      return False
+
+    for value in self.cached_list:
+      if value == cache_dict:
+        return True
+      
+    return False
+
+
+
+  def _CheckIfWriteToCacheLogProbs(self, load_from_cache, pdf):
+
+    if self.cache_only_non_minimised:
+      Y_columns_per_density_model = pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns # Temporary?
+      minimised = False
+      for col in Y_columns_per_density_model:
+        if col in self.cached_minimised_columns:
+          minimised = True
+          break
+      if minimised:
+        return False
+
+    if self.use_log_probs_cache and not load_from_cache:
+      return True
+    
+    return False
+
+
+
+  def _ClearCache(self):
+    if not self.use_log_probs_cache:
+      return
+    for cache_dict in self.cached_list:
+      for grad in cache_dict["gradient"]:
+        os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+    self.cached_list = []
+
+
   def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None):
 
     # Initiate log probs
@@ -273,15 +346,46 @@ class Likelihood():
       rate_param = self._GetYield(name, Y, category=category)
       if rate_param == 0: continue
 
-      # Get rate times probability, get gradients simultaneously if required
-      log_probs[name] = pdf.Probability(
-        X.loc[:,self.X_columns], 
-        Y.loc[:,self.Y_columns], 
-        return_log_prob=True, 
-        order=gradient, 
-        column_1=column_1, 
-        column_2=column_2
-      )
+      # Check if we can load from cache
+      cache_dict = self._CreateCacheLogProbsDict(name, pdf, Y, gradient, category)
+      load_from_cache = self._CheckIfInCacheLogProbs(cache_dict)
+
+      if not load_from_cache:
+        # Get rate times probability, get gradients simultaneously if required
+        log_probs[name] = pdf.Probability(
+          X.loc[:,self.X_columns], 
+          Y.loc[:,self.Y_columns], 
+          return_log_prob=True, 
+          order=gradient, 
+          column_1=column_1, 
+          column_2=column_2
+        )
+      else:
+        # Load from cache
+        log_probs[name] = []
+        for ind, grad in enumerate(gradient):
+          df_loaded = pd.read_parquet(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+          log_probs[name].append(df_loaded.to_numpy(dtype=np.float64))
+          self.cached_list.remove(cache_dict)
+          self.cached_list.append(cache_dict)
+          del df_loaded
+          gc.collect()
+
+      # Check if I need to cache
+      if self._CheckIfWriteToCacheLogProbs(load_from_cache, pdf):
+        for value in copy.deepcopy(self.cached_list):
+          if cache_dict["cache_file_name"] == value["cache_file_name"]:
+            self.cached_list.remove(value)
+        for ind, grad in enumerate(gradient):
+          df_to_save = pd.DataFrame(log_probs[name][ind])
+          df_to_save.to_parquet(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+          self.cached_list.append(cache_dict)
+          del df_to_save
+          gc.collect()
+        if len(self.cached_list) > self.n_caches:
+          cache_to_remove = self.cached_list.pop(0)
+          for grad in cache_to_remove["gradient"]:
+            os.remove(f"{cache_to_remove['cache_file_name']}_grad{grad}.parquet")
 
       # Shift density with regression
       log_probs[name] = self._ShiftDensityByRegression(
@@ -308,7 +412,8 @@ class Likelihood():
       )
 
     # check for nans
-    log_probs = self._CheckLogProbsForNaNs(log_probs, gradient=gradient)
+    if not self.skip_nan_check:
+      log_probs = self._CheckLogProbsForNaNs(log_probs, gradient=gradient)
 
     return log_probs
 
@@ -433,7 +538,6 @@ class Likelihood():
       get_log_prob_gradients = [0]
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
 
-
     if 2 in gradient:
       if column_1 != column_2:
         first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
@@ -487,11 +591,14 @@ class Likelihood():
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
 
+    self.cached_log_probs_batch_ind += 1
+
     return ln_lkld
 
 
   def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
 
+    
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
       get_log_prob_gradients = [0,1,2]
@@ -499,6 +606,7 @@ class Likelihood():
       get_log_prob_gradients = [0,1]
     else:
       get_log_prob_gradients = [0]
+
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
 
     if 2 in gradient:
@@ -534,6 +642,8 @@ class Likelihood():
         # Product the events
         sum_ln_lkld = np.sum(ln_lklds, dtype=np.float128, axis=0)
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
+
+    self.cached_log_probs_batch_ind += 1
 
     return ln_lkld
 
@@ -767,13 +877,17 @@ class Likelihood():
     else:
       gradient_loop = gradient
 
-    # Make combined dataset
-    combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
-    del X, Y
-    gc.collect()
-
     # Loop through regression models
     if file_name in self.models["pdf_shifts_with_regression"][category].keys():
+
+      if self.models["pdf_shifts_with_regression"][category][file_name] == {}:
+        return log_probs
+
+      # Make combined dataset
+      combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
+      del X, Y
+      gc.collect()
+
       for k, v in self.models["pdf_shifts_with_regression"][category][file_name].items():
 
         # Get predictions
@@ -829,13 +943,17 @@ class Likelihood():
     else:
       gradient_loop = gradient
 
-    # Make combined dataset
-    combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
-    del X, Y
-    gc.collect()
-
     # Loop through classifier models
     if file_name in self.models["pdf_shifts_with_classifier"][category].keys():
+
+      if self.models["pdf_shifts_with_classifier"][category][file_name] == {}:
+        return log_probs
+
+      # Make combined dataset
+      combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
+      del X, Y
+      gc.collect()
+
       for k, v in self.models["pdf_shifts_with_classifier"][category][file_name].items():
 
         # Get predictions
@@ -1060,7 +1178,9 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
-    for X_dp in X_dps:
+    for ind, X_dp in enumerate(X_dps):
+      self.cached_log_probs_ind = ind*1
+      self.cached_log_probs_batch_ind = 0
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
@@ -1079,7 +1199,10 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
-    for X_dp in X_dps:
+    for ind, X_dp in enumerate(X_dps):
+      self.cached_log_probs_ind = ind*1
+      self.cached_log_probs_batch_ind = 0
+
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
@@ -1109,6 +1232,10 @@ class Likelihood():
         wts (array): The weights for the data points (optional).
 
     """
+
+    self.use_log_probs_cache = True
+    self.cache_only_non_minimised = True
+    self.cached_minimised_columns = [k for k in self.Y_columns if k not in freeze.keys()]
 
     initial_guess = initial_guess.loc[:,self.Y_columns]
 
@@ -1165,6 +1292,8 @@ class Likelihood():
     if save_best_fit:
       self.best_fit = result[0]
       self.best_fit_nll = result[1]
+
+    self._ClearCache()
 
     return result
 
@@ -1417,10 +1546,13 @@ class Likelihood():
       initial_simplex = [initial_guess]
       for i in range(n):
         row = copy.deepcopy(initial_guess)
-        if self.Y_columns[i] in self.constraints:
-          row[i] += constraint_step_size
+        if self.Y_columns[i] in self.simplex.keys():
+          row[i] += self.simplex[self.Y_columns[i]]
         else:
-          row[i] += initial_step_size * max(row[i], 1.0)
+          if self.Y_columns[i] in self.constraints:
+            row[i] += constraint_step_size
+          else:
+            row[i] += initial_step_size * max(row[i], 1.0)
         initial_simplex.append(row)
 
       # run minimisation
@@ -1727,7 +1859,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate"):
+  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate", scan_values=None):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -1739,7 +1871,8 @@ class NLLAndGradient():
         filename (str): The name of the YAML file (default is "scan_ranges.yaml").
     """
 
-    scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method)
+    if scan_values is None:
+      scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method)
 
     dump = {
       "columns" : self.Y_columns, 

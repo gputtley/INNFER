@@ -25,7 +25,8 @@ fi
 export PLOTTING_CMS_LABEL="Work In Progress"
 export PLOTTING_LUMINOSITY="\$138\ fb^{-1} (13\ TeV)\$"
 
-export DATA_DIR="data"
+export PREP_DATA_DIR="data"
+export EVAL_DATA_DIR="data"
 export MODELS_DIR="models"
 export PLOTS_DIR="plots"
 
@@ -33,3 +34,7 @@ ulimit -s unlimited
 source miniconda/files/etc/profile.d/conda.sh
 conda activate miniconda/files/envs/innfer_env
 alias innfer="$PWD/scripts/innfer.py"
+
+if [ -d tmp ]; then
+  rm -rf tmp/*
+fi

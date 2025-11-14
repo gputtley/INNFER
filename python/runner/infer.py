@@ -3,6 +3,7 @@ import pickle
 import yaml
 
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -14,7 +15,8 @@ from useful_functions import (
   InitiateDensityModel, 
   InitiateRegressionModel, 
   InitiateClassifierModel,
-  MakeDirectories
+  MakeDirectories,
+  Resample,
 )
 
 class Infer():
@@ -72,6 +74,9 @@ class Infer():
     self.non_nn_columns = []
     self.binned_fit_morph_col = None
     self.binned_data_input = None
+    self.simplex = {}
+    self.bootstrap_ind = None
+    self.scan_points_input = {}
 
   def Configure(self, options):
     """
@@ -125,6 +130,24 @@ class Infer():
         minimisation_method=self.minimisation_method, 
         freeze=self.freeze,
       )
+
+
+    elif self.method == "BootstrapFit":
+
+
+      if self.verbose:
+        print("- Likelihood output:")
+
+
+      self.lkld.GetAndWriteBestFitToYaml(
+        self.lkld_input, 
+        self.initial_best_fit_guess, 
+        row=self.true_Y, 
+        filename=f"{self.data_output}/best_fit{self.extra_file_name}.yaml", 
+        minimisation_method=self.minimisation_method, 
+        freeze=self.freeze,
+      )
+
 
     elif self.method == "ApproximateUncertainty":
 
@@ -387,6 +410,32 @@ class Infer():
         method="hessian",
       )
 
+    elif self.method == "ScanPointsFromInput":
+
+      if ":" in self.scan_points_input:
+        scan_points_dict = {i.split(':')[0]: i.split(':')[1] for i in self.scan_points_input.split(",")}
+        scan_points_for_col = scan_points_dict[self.column]
+      else:
+        scan_points_for_col = self.scan_points_input
+
+      if "(" in scan_points_for_col:
+        numbers = scan_points_for_col.replace("(","").replace(")","").split(",")
+      elif "[" in scan_points_for_col:
+        numbers = scan_points_for_col.replace("[","").replace("]","").split(",")
+
+      points = [float(i) for i in np.linspace(float(numbers[0]), float(numbers[1]), int(self.number_of_scan_points))]
+
+
+      # Make scan ranges
+      self.lkld.GetAndWriteScanRangesToYaml(
+        self.lkld_input, 
+        self.column,
+        row=self.true_Y,
+        filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
+        scan_values=points
+      )
+
+
     elif self.method == "Scan":
 
       if self.verbose:
@@ -458,7 +507,7 @@ class Infer():
         outputs += [f"{self.data_output}/covariancewithdmatrix_results_{col}{self.extra_file_name}.yaml"]
 
     # Add scan ranges
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput"]:
       outputs += [f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",]
 
     # Add scan values
@@ -531,7 +580,7 @@ class Infer():
             ]
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
@@ -584,14 +633,30 @@ class Infer():
 
     # Patch for memory use of gradients
     batch_size = None
-    if self.method in ["InitialFit","Scan"] and self.minimisation_method in ["minuit_with_gradients","scipy_with_gradients","custom"]:
+    if self.method in ["InitialFit","Scan","BootstrapFit"] and self.minimisation_method in ["minuit_with_gradients","scipy_with_gradients","custom"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
-    elif self.method in ["Hessian","HessianParallel","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
+    elif self.method in ["Hessian","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
-    if self.method == "HessianParallel" and self.hessian_parallel_column_1 in self.non_nn_columns and self.hessian_parallel_column_2 in self.non_nn_columns:
+    elif self.method == "HessianParallel" and self.hessian_parallel_column_1 in self.non_nn_columns and self.hessian_parallel_column_2 in self.non_nn_columns:
       batch_size = int(os.getenv("EVENTS_PER_BATCH"))
     elif self.method == "HessianParallel" and (self.hessian_parallel_column_2 in self.non_nn_columns or self.hessian_parallel_column_1 in self.non_nn_columns):
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
+    elif self.method == "HessianParallel":
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
+    else:
+      batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+
+    functions_to_apply = []
+    if self.bootstrap_ind is not None:
+      def bootstrap(df):
+        columns = [i for i in df.columns.tolist() if i != "wt"]
+        X, wt = df.drop(columns=["wt"]), df["wt"] 
+        X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), seed=self.bootstrap_ind)
+        df = pd.DataFrame(X, columns=columns)
+        df.loc[:,"wt"] = wt
+        return df
+      functions_to_apply = [bootstrap]
+    
 
     # Build dataprocessors
     dps = {}
@@ -622,6 +687,7 @@ class Infer():
             options = {
               "parameters" : parameters,
               "scale" : scale,
+              "functions" : functions_to_apply,
             }
           )
 
@@ -863,7 +929,8 @@ class Infer():
       X_columns = self.X_columns,
       Y_columns = self.Y_columns,
       Y_columns_per_model = self.Y_columns_per_model,
-      categories = list(self.parameters.keys())
+      categories = list(self.parameters.keys()),
+      simplex = self.simplex,
     )
 
     return lkld

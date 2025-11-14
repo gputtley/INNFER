@@ -1,8 +1,8 @@
 import yaml
 
 from data_processor import DataProcessor
-from plotting import plot_histograms
-from useful_functions import GetParametersInModel, LoadConfig, Translate
+from plotting import plot_histograms, plot_unrolled_2d_histogram
+from useful_functions import GetParametersInModel, LoadConfig, Translate, RoundUnrolledBins
 
 class InputPlotTraining():
 
@@ -24,6 +24,7 @@ class InputPlotTraining():
     self.verbose = True
     self.data_input = "data/"
     self.plots_output = "plots/"
+    self.plot_2d_unrolled = False
 
   def Configure(self, options):
     """
@@ -69,6 +70,8 @@ class InputPlotTraining():
 
     self._Plot1D(specific_parameters, specific_parameters["X_columns"]+Y_cols, data_splits=["train","test"])
 
+    if self.plot_2d_unrolled:
+      self._Plot2DUnrolled(specific_parameters, specific_parameters["X_columns"]+Y_cols, data_splits=["train","test"])
 
   def Outputs(self):
     """
@@ -99,6 +102,15 @@ class InputPlotTraining():
           f"{self.plots_output}/distributions_{col}_{data_split}.pdf",
           f"{self.plots_output}/distributions_{col}_{data_split}_transformed.pdf",
         ]
+    if self.plot_2d_unrolled:
+      for plot_col in columns:
+        for unrolled_col in columns:
+          if plot_col == unrolled_col: continue
+          for data_split in ["train","test"]:
+            outputs += [
+              f"{self.plots_output}/distributions_unrolled_2d_{plot_col}_{unrolled_col}_{data_split}.pdf",
+              f"{self.plots_output}/distributions_unrolled_2d_{plot_col}_{unrolled_col}_{data_split}_transformed.pdf",
+            ]
 
     return outputs
 
@@ -182,3 +194,70 @@ class InputPlotTraining():
             anchor_y_at_0 = True,
             drawstyle = "steps-mid",
           )
+
+
+  def _Plot2DUnrolled(self, parameters, columns, n_bins=10, n_unrolled_bins=5, data_splits=["train","test"]):
+
+    for data_split in data_splits:
+
+      dp = DataProcessor(
+        [[f"{self.data_input}/X_{data_split}.parquet", f"{self.data_input}/{self.condition_target}_{data_split}.parquet", f"{self.data_input}/wt_{data_split}.parquet"]], 
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+          "selection" : None,
+          "parameters" : parameters
+        }
+      )
+
+      if dp.GetFull(method="count") == 0: continue
+      for transform in [False, True]:
+        functions_to_apply = []
+        if not transform:
+          functions_to_apply = ["untransform"]
+
+        for plot_col_ind, plot_col in enumerate(columns):
+
+          # Get bins for plot_col
+          plot_col_bins = dp.GetFull(
+            method = "bins_with_equal_spacing", 
+            functions_to_apply = functions_to_apply,
+            bins = n_bins,
+            column = plot_col,
+          )
+
+          for unrolled_col_ind, unrolled_col in enumerate(columns):
+
+            # Skip if the same column
+            if plot_col == unrolled_col: continue
+
+            # Get bins for plot_col
+            unrolled_col_bins = dp.GetFull(
+              method = "bins_with_equal_stats", 
+              functions_to_apply = functions_to_apply,
+              bins = n_unrolled_bins,
+              column = unrolled_col,
+            )
+            unrolled_col_bins = RoundUnrolledBins(unrolled_col_bins)
+
+            # Make histograms
+            hist, hist_uncert, bins = dp.GetFull(
+              method = "histogram_2d_and_uncert",
+              functions_to_apply = functions_to_apply,
+              bins = [unrolled_col_bins, plot_col_bins],
+              column = [unrolled_col, plot_col],
+              )
+
+            extra_name_for_plot = f"{data_split}"
+            if transform:
+              extra_name_for_plot += "_transformed"
+            plot_unrolled_2d_histogram(
+              {Translate(self.file_name) : hist},
+              bins[1],
+              bins[0], 
+              Translate(unrolled_col),
+              xlabel=Translate(plot_col),
+              ylabel="Events",
+              name=f"{self.plots_output}/distributions_unrolled_2d_{plot_col}_{unrolled_col}_{extra_name_for_plot}", 
+              hists_errors={Translate(self.file_name) : hist_uncert}, 
+            )

@@ -20,6 +20,8 @@ class ScanPlot():
     self.verbose = True
     self.extra_plot_name = ""
     self.val_info = None
+    self.nominal_name = "Nominal"
+    self.stat_syst_breakdown = False
 
   def Configure(self, options):
     """
@@ -54,12 +56,15 @@ class ScanPlot():
     row = scan_results["row"]
     ind = scan_results["columns"].index(self.column)
 
+  
     other_lklds = {}
+    other_crossings = {}
     for key, val in self.other_input.items():
       other_scan_file = f"{val}/scan_results_{self.column}{self.extra_file_name}.yaml"
       with open(other_scan_file, 'r') as yaml_file:
         other_scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
       other_lklds[key] = [other_scan_results["scan_values"], other_scan_results["nlls"]]
+      other_crossings[key] = other_scan_results["crossings"]
 
     if row is not None:
       plot_extra_name = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
@@ -77,9 +82,10 @@ class ScanPlot():
       xlabel = Translate(self.column), 
       true_value = row[ind] if row is not None else None,
       under_result = f"Truth: {plot_extra_name}" if plot_extra_name != "" else "",
-      cap_at = 9,
-      label = None if len(list(other_lklds.keys())) == 0 else "Nominal",
+      label = None if len(list(other_lklds.keys())) == 0 else self.nominal_name,
       other_lklds=other_lklds,
+      other_crossings=other_crossings,
+      stat_syst_breakdown=self.stat_syst_breakdown,
     )
 
   def Outputs(self):
