@@ -147,7 +147,9 @@ class Batch():
         cmd_list (list): List of commands to be included in the batch job script.
     """
 
-    data_dir = os.getenv('DATA_DIR')
+    #data_dir = os.getenv('DATA_DIR')
+    prep_data_dir = os.getenv('PREP_DATA_DIR')
+    eval_data_dir = os.getenv('EVAL_DATA_DIR')
     plots_dir = os.getenv('PLOTS_DIR')
     models_dir = os.getenv('MODELS_DIR')
 
@@ -156,7 +158,8 @@ class Batch():
       f"cd {os.getcwd()}",
       "source env.sh",
       "ulimit -s unlimited",
-      f"export DATA_DIR={data_dir}",
+      f"export PREP_DATA_DIR={prep_data_dir}",
+      f"export EVAL_DATA_DIR={eval_data_dir}",
       f"export PLOTS_DIR={plots_dir}",
       f"export MODELS_DIR={models_dir}",
     ]

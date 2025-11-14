@@ -4,7 +4,7 @@ import numpy as np
 
 from data_processor import DataProcessor
 from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_many_comparisons, plot_histograms_with_ratio
-from useful_functions import Translate, LoadConfig
+from useful_functions import Translate, LoadConfig, RoundUnrolledBins
 
 class Generator():
 
@@ -361,7 +361,7 @@ class Generator():
       if 1 in self.plot_styles:
         plot_stacked_histogram_with_ratio(
           sim_hist_total, 
-          {Translate(k):v for k,v in synth_hists.items()}, 
+          {" ".join([Translate(kc) for kc in k.split(" ")]) : v for k,v in synth_hists.items()}, 
           bins, 
           data_name = sim_plot_name, 
           xlabel=Translate(col),
@@ -421,6 +421,21 @@ class Generator():
             name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",       
             )
 
+      if 5 in self.plot_styles:
+
+        plot_histograms_with_ratio(
+          [[sim_hists[list(sim_hists.keys())[ind]], synth_hists[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+          [[sim_hist_uncerts[list(sim_hists.keys())[ind]], synth_hist_uncerts[list(synth_hists.keys())[ind]]] for ind in range(len(sim_hists.keys()))],
+          [[" ".join([Translate(i) for i in list(sim_hists.keys())[ind].split(" ")]), " ".join([Translate(i) for i in list(synth_hists.keys())[ind].split(" ")])] for ind in range(len(sim_hists.keys()))],
+          bins,
+          xlabel = Translate(col),
+          ylabel="Events" if not density else "Density",
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_5",
+          draw_error_bars = True,
+          draw_error_bar_caps = False,
+        )
+
+
   def _Plot2DUnrolledGeneration(
     self, 
     synth_dps, 
@@ -466,9 +481,7 @@ class Generator():
           bins = n_unrolled_bins,
           column = unrolled_col,
         )      
-
-        #diff_bins = unrolled_col_bins[1:] - unrolled_col_bins[:-1]
-        # Set unrolled bins to sensible whole numbers
+        unrolled_col_bins = RoundUnrolledBins(unrolled_col_bins)
 
         synth_hists = {}
 
@@ -498,7 +511,7 @@ class Generator():
             sim_hist_uncert_squared += (sim_hist_uncert**2)
             sim_hist_total += sim_hist
 
-          synth_hists[f"{file_name}{synth_plot_name}"] = synth_hist
+          synth_hists[f"{Translate(file_name)}{synth_plot_name}"] = synth_hist
 
         plot_stacked_unrolled_2d_histogram_with_ratio(
           sim_hist_total, 
