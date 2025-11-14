@@ -26,7 +26,8 @@ from useful_functions import (
     GetYieldsBaseFile,
     LoadConfig,
     MakeDictionaryEntry,
-    MakeDirectories
+    MakeDirectories,
+    SampleFlatTop
 )
 
 from yields import Yields
@@ -60,7 +61,7 @@ class PreProcess():
     self.verbose = True
     self.data_input = "data/"
     self.data_output = "data/"
-    self.seed = 2
+    self.seed = 234
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
     self.binned_fit_input = None
     self.validation_binned = None
@@ -86,6 +87,12 @@ class PreProcess():
           tmp.loc[:,k] = np.random.choice(v["values"], size=len(tmp))
         elif v["type"] == "fixed":
           tmp.loc[:,k] = v["value"]*np.ones(len(tmp))
+        elif v["type"] == "flat_top":
+          sigma_out = 0.1*(v["range"][1]-v["range"][0])
+          if "other" in v.keys():
+            if "sigma_out" in v["other"].keys():
+              sigma_out = v["other"]["sigma_out"]
+          tmp.loc[:,k] = SampleFlatTop(len(tmp), (v["range"][0], v["range"][1]), sigma_out)
       if first:
         df = copy.deepcopy(tmp)
         first = False
@@ -119,7 +126,6 @@ class PreProcess():
     weight_shift_function = nominal_weight
     for k, v in weight_shifts.items():
       weight_shift_function += f"*({v})"
-
     df.loc[:,"wt"] = df.eval(weight_shift_function)
     df.loc[:,"wt_shift"] = df.loc[:,"wt"]/df.loc[:,"old_wt"]
 
@@ -167,6 +173,8 @@ class PreProcess():
       post_calculate_selection = None
     
     # Get nominal
+    if self.verbose:
+      print(" - Getting nominal yield")
     yields["nominal"] = dp.GetFull(
       method="sum",
       functions_to_apply = [
@@ -174,7 +182,6 @@ class PreProcess():
           self._CalculateDatasetWithVariations, 
           shifts=nominal_shifts, 
           pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-          #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"],
           post_calculate_selection=post_calculate_selection,
           weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
           n_copies=1,
@@ -211,6 +218,10 @@ class PreProcess():
           up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
           down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
 
+
+        if self.verbose:
+          print(f" - Getting yield for nuisance {nui}")
+
         up_yield = dp.GetFull(
           method="sum",
           functions_to_apply = [
@@ -218,7 +229,6 @@ class PreProcess():
               self._CalculateDatasetWithVariations, 
               shifts=up_shifts, 
               pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-              #post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
               post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
@@ -272,9 +282,11 @@ class PreProcess():
 
     # If don't split return as validation dataset
     if validation_only:
+
       val_df = copy.deepcopy(df)
 
     elif train_test_only:
+
       if drop_for_training_selection is not None:
         train_test_df = df.loc[(df.eval(drop_for_training_selection)),:]
       else:
@@ -468,53 +480,53 @@ class PreProcess():
 
   def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict):
 
-      dp = DataProcessor(
-        [f"{directory}/{file_name}.parquet"],
-        "parquet",
-        options = {
-          "wt_name" : "wt",
-        },
-        batch_size=int(np.ceil(self.batch_size/value["n_copies"])),
+    dp = DataProcessor(
+      [f"{directory}/{file_name}.parquet"],
+      "parquet",
+      options = {
+        "wt_name" : "wt",
+      },
+      batch_size=int(np.ceil(self.batch_size/value["n_copies"])),
+    )
+
+    if np.sum(dp.num_batches) == 0:
+
+      columns = []
+      for val in split_dict.values():
+        columns += val
+      columns = sorted(list(set(columns)))
+
+      self._WriteSplitDataset(
+        pd.DataFrame(columns=columns),
+        extra_dir=extra_dir, 
+        extra_name=extra_name, 
+        split_dict=split_dict          
       )
 
-      if np.sum(dp.num_batches) == 0:
+    else:
 
-        columns = []
-        for val in split_dict.values():
-          columns += val
-        columns = sorted(list(set(columns)))
-
-        self._WriteSplitDataset(
-          pd.DataFrame(columns=columns),
-          extra_dir=extra_dir, 
-          extra_name=extra_name, 
-          split_dict=split_dict          
-        )
-
-      else:
-
-        base_file_name = value['file']
-        dp.GetFull(
-          method=None,
-          functions_to_apply = [
-            partial(
-              self._CalculateDatasetWithVariations, 
-              shifts=value["shifts"], 
-              pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
-              post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
-              weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-              n_copies=value["n_copies"],
-              nominal_weight=cfg["files"][base_file_name]["weight"],
-              post_shifts=value["post_shifts"] if "post_shifts" in value.keys() else {}
-            ),
-            partial(
-              self._WriteSplitDataset, 
-              extra_dir=extra_dir, 
-              extra_name=extra_name, 
-              split_dict=split_dict
-            )
-          ]
-        )
+      base_file_name = value['file']
+      dp.GetFull(
+        method=None,
+        functions_to_apply = [
+          partial(
+            self._CalculateDatasetWithVariations, 
+            shifts=value["shifts"], 
+            pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
+            post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
+            weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+            n_copies=value["n_copies"],
+            nominal_weight=cfg["files"][base_file_name]["weight"],
+            post_shifts=value["post_shifts"] if "post_shifts" in value.keys() else {}
+          ),
+          partial(
+            self._WriteSplitDataset, 
+            extra_dir=extra_dir, 
+            extra_name=extra_name, 
+            split_dict=split_dict
+          )
+        ]
+      )
 
 
   def _DoModelVariations(self, file_name, cfg, do_clear=True):
@@ -572,6 +584,8 @@ class PreProcess():
       # Do density models
       if self.model_type is None or self.model_type == "density_models":
         for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          if self.verbose:
+            print(f" - Processing density model variation for {file_name}, split: {data_split}, model index: {loop_value['loop_index']}")
           value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
           value_copy = copy.deepcopy(value)
           for k, v in defaults.items():
@@ -586,10 +600,11 @@ class PreProcess():
 
       # Do regression models
       if self.model_type is None or self.model_type == "regression_models":
-        #for value in cfg["models"][file_name]["regression_models"]:
         for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
+            if self.verbose:
+              print(f" - Processing regression model variation for {file_name}, split: {data_split}, parameter: {value['parameter']}")
             value_copy = copy.deepcopy(value)
             for k, v in defaults.items():
               if k != value["parameter"]:
@@ -601,10 +616,11 @@ class PreProcess():
 
       # Do classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        #for value in cfg["models"][file_name]["classifier_models"]:
         for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
+            if self.verbose:
+              print(f" - Processing classifier model variation for {file_name}, split: {data_split}, parameter: {value['parameter']}")
             value_copy = copy.deepcopy(value)
             for k, v in defaults.items():
               if k != value["parameter"]:
@@ -650,7 +666,7 @@ class PreProcess():
             if os.path.isfile(outfile):
               os.system(f"rm {outfile}")      
 
-    # Loop through validation files - NEED TO CHANGE THIS FOR CATEGORIES
+    # Loop through validation files
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind, val in enumerate(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)):
         if self.val_ind is None or self.val_ind == ind:
@@ -1235,15 +1251,6 @@ class PreProcess():
         os.system(f"rm {shuffle_name_iteration}")   
       shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
 
-      ## Check that number of shuffles is more than the number of batches
-      #total_events = shuffle_dp.GetFull(method="count")
-      #n_batches = int(np.ceil(total_events/self.batch_size))
-      #if self.number_of_shuffles < n_batches:
-      #  print(f"Warning: number_of_shuffles={self.number_of_shuffles} is less the number of batches={n_batches} for {name}. Setting number_of_shuffles={n_batches}.")
-      #  number_of_shuffles = int(n_batches)
-      #else:
-      #  number_of_shuffles = self.number_of_shuffles
-
       number_of_shuffles = self.number_of_shuffles
 
       for shuff in range(number_of_shuffles):
@@ -1664,7 +1671,6 @@ class PreProcess():
 
     if self.model_type is None or self.model_type == "classifier_models":
 
-      #for value in cfg["models"][file_name]["classifier_models"]:
       for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
         value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
 
@@ -1812,10 +1818,10 @@ class PreProcess():
         print("- Normalising train and test in given selections")
       self._DoNormaliseIn(self.file_name, cfg)
 
-      ## Normalise the conditions of the classifier
-      #if self.verbose:
-      #  print("- Reweighting the classifier conditions so they are equal")
-      #self._DoConditionalClassifierReweighting(self.file_name, cfg)
+      # Normalise the conditions of the classifier
+      if self.verbose:
+        print("- Reweighting the classifier conditions so they are equal")
+      self._DoConditionalClassifierReweighting(self.file_name, cfg)
 
       # Standardise
       if self.verbose:
