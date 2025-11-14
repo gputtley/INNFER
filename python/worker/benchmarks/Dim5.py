@@ -12,7 +12,7 @@ from scipy.stats import beta
 
 from useful_functions import MakeDirectories
 
-data_dir = str(os.getenv("DATA_DIR"))
+data_dir = str(os.getenv("PREP_DATA_DIR"))
 plots_dir = str(os.getenv("PLOTS_DIR"))
 models_dir = str(os.getenv("MODELS_DIR"))
 

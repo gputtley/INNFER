@@ -26,6 +26,8 @@ class InputPlotValidation():
     self.sim_type = "val"
     self.category = None
     self.use_scenario_labels = False
+    self.compare_data_splits = False
+    self.plot_weight_distribution = False
 
   def Configure(self, options):
     """
@@ -90,6 +92,15 @@ class InputPlotValidation():
       if len(vary_val_loop) > 1:
         self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index, columns=list(defaults.keys()))
 
+
+    if self.compare_data_splits:
+      for ind, val_dict in enumerate(self.val_loop):
+        self._PlotDataSplits(val_dict, ind, cfg["variables"], n_bins=20)
+
+    if self.plot_weight_distribution:
+      for ind, val_dict in enumerate(self.val_loop):
+        self._PlotWeightDistribution(val_dict, ind, n_bins=40, data_splits=[self.sim_type])
+
       
   def Outputs(self):
     """
@@ -120,6 +131,16 @@ class InputPlotValidation():
             vary_inds.append(ind)      
         if len(vary_inds) > 1:
           outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
+
+    if self.compare_data_splits:
+      for ind, _ in enumerate(self.val_loop):
+        for col in cfg["variables"]:
+          outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}.pdf"]
+          outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}_ratio.pdf"]
+
+    if self.plot_weight_distribution:
+      for ind, _ in enumerate(self.val_loop):
+        outputs += [f"{self.plots_output}/weight_distribution_val_ind_{ind}_{self.sim_type}.pdf"]
 
     return outputs
 
@@ -245,4 +266,102 @@ class InputPlotValidation():
           ratio_range = [0.9,1.1]
         )
 
+
+  def _PlotDataSplits(self, val_dict, val_ind, X_columns, n_bins=40, data_splits=["full", "train_inf", "test_inf", "val"]):
+
+    # Load data processors
+    dps = {}
+    for data_split in data_splits:
+      dps[data_split] = DataProcessor(
+        [[f"{self.data_input}/val_ind_{val_ind}/X_{data_split}.parquet", f"{self.data_input}/val_ind_{val_ind}/Y_{data_split}.parquet", f"{self.data_input}/val_ind_{val_ind}/wt_{data_split}.parquet"]], 
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+          "selection" : " & ".join([f"({k}=={v})" for k, v in val_dict.items()]) if len(val_dict.keys()) > 0 else None
+        }
+      )
+
+
+    for col in X_columns:
+
+      bins = dps["full"].GetFull(
+        method = "bins_with_equal_spacing",
+        bins = n_bins,
+        column = col,
+        ignore_quantile = 0.01,
+        ignore_discrete = False
+      )
+
+      hists = []
+      hist_errs = []
+      hist_names = []
+      for data_split in data_splits:
+        hist, hist_uncert, _ = dps[data_split].GetFull(method="histogram_and_uncert", bins=bins, column=col)
+        hists.append(hist)
+        hist_errs.append(hist_uncert)
+        hist_names.append(data_split)
+
+      plot_name = self.plots_output+f"/X_distributions_data_splits_{col}_val_ind_{val_ind}"
+      # Make distribution plot
+      plot_histograms(
+        bins[:-1],
+        hists,
+        hist_names,
+        title_right = "",
+        name = plot_name,
+        x_label = Translate(col),
+        y_label = "Density",
+        anchor_y_at_0 = True,
+        drawstyle = "steps-mid",
+        hist_errs = hist_errs,
+      )
+
+      plot_histograms_with_ratio(
+        [[hists[ind], hists[0]] for ind in range(1, len(hists))],
+        [[hist_errs[ind], hist_errs[0]] for ind in range(1, len(hist_errs))],
+        [[hist_names[ind], hist_names[0]] for ind in range(1, len(hist_names))],
+        bins,
+        name = plot_name+"_ratio",
+        xlabel = Translate(col),
+        ylabel = "Density",
+        anchor_y_at_0 = True,
+        first_ratio = True,
+        ratio_range = [0.9,1.1]
+      )
+
+
+  def _PlotWeightDistribution(self, val_dict, val_ind, n_bins=40, data_splits=["val"]):
+
+    for data_split in data_splits:
+
+      dp = DataProcessor(
+        [[f"{self.data_input}/val_ind_{val_ind}/X_{data_split}.parquet", f"{self.data_input}/val_ind_{val_ind}/Y_{data_split}.parquet", f"{self.data_input}/val_ind_{val_ind}/wt_{data_split}.parquet"]], 
+        "parquet",
+        options = {
+          "selection" : " & ".join([f"({k}=={v})" for k, v in val_dict.items()]) if len(val_dict.keys()) > 0 else None
+        }
+      )
+
+      bins = dp.GetFull(
+        method = "bins_with_equal_spacing",
+        bins = n_bins,
+        column = "wt",
+        ignore_quantile = 0.0
+      )
+
+      hist, _ = dp.GetFull(method="histogram", bins=bins, column="wt")
+
+      plot_name = self.plots_output+f"/weight_distribution_val_ind_{val_ind}_{data_split}"
+      # Make distribution plot
+      plot_histograms(
+        bins[:-1],
+        [hist],
+        [f"Weight Distribution ({data_split})"],
+        title_right = "",
+        name = plot_name,
+        x_label = "Event Weight",
+        y_label = "Counts",
+        anchor_y_at_0 = True,
+        drawstyle = "steps-mid",
+      )
 
