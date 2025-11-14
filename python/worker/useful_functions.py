@@ -1327,9 +1327,6 @@ def Resample(datasets, weights, n_samples=None, seed=42):
           - resampled_weights (np.ndarray): Weights corresponding to the resampled datasets.
   """
 
-  # print min and max weights
-  #print(f"Resampling with weights: min={np.min(weights)}, max={np.max(weights)}")
-
   # Set up datasets as lists
   if not isinstance(datasets, list):
     datasets = [datasets]
@@ -1424,29 +1421,6 @@ def RoundUnrolledBins(bins, extra_sf=1):
 
   return new_bins
 
-
-#def RoundToSF(num, sig_figs):
-#  """
-#  Round a number to a specified number of significant figures.
-#
-#  Parameters
-#  ----------
-#  num : float
-#      The number to be rounded.
-#  sig_figs : int
-#      Number of significant figures to round to.
-#
-#  Returns
-#  -------
-#  float
-#      The rounded number to the specified number of significant figures.
-#  """
-#  if num == 0:
-#    return 0
-#  else:
-#    rounded_number = round(num, sig_figs)
-#    decimal_places = len(str(rounded_number).rstrip('0').split(".")[1])
-#    return round(num, decimal_places)
 
 def RoundToSF(x, n):
   if x == 0:

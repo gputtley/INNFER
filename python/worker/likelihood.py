@@ -644,14 +644,6 @@ class Likelihood():
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
 
     self.cached_log_probs_batch_ind += 1
-    #print("--------------------")
-    #print("Min LogLkhd:", np.min(ln_lklds))
-    #print("Max LogLkhd:", np.max(ln_lklds))
-    #print("Mean LogLkhd:", np.mean(ln_lklds))
-    #print("Std LogLkhd:", np.std(ln_lklds))
-    #print("Sum LogLkhd:", np.sum(ln_lklds))
-    #print(np.sum(ln_lklds))
-    #print(np.min(ln_lklds))
 
     return ln_lkld
 
