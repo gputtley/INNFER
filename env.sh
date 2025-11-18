@@ -34,7 +34,3 @@ ulimit -s unlimited
 source miniconda/files/etc/profile.d/conda.sh
 conda activate miniconda/files/envs/innfer_env
 alias innfer="$PWD/scripts/innfer.py"
-
-if [ -d tmp ]; then
-  rm -rf tmp/*
-fi
