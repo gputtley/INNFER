@@ -76,10 +76,17 @@ class PreProcess():
     # Distribute the shifts
     tmp_copy = copy.deepcopy(df)
     first = True
+    
+    print("----------")
+    print(df.columns)
 
     for _ in range(n_copies):
       tmp = copy.deepcopy(tmp_copy)
+      
+      print(shifts.items())
+
       for k, v in shifts.items():
+    
         if v["type"] == "continuous":
           tmp.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(tmp))   
         elif v["type"] == "discrete":
@@ -95,7 +102,9 @@ class PreProcess():
     # do precalculate
     for pre_calc_col_name, pre_calc_col_value in pre_calculate.items():
       df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)          
-
+    
+    # print(post_calculate_selection)
+    print(df.columns)
     # Apply post selection
     if post_calculate_selection is not None:
       df = df.loc[df.eval(post_calculate_selection),:]

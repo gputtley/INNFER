@@ -3,4 +3,7 @@ options:
   extra_lines:
     - "+MaxRuntime = 36000"
     - "RequestGpus = 1"
+    - "notification = always"
+    - "notify_user = yh4823@ic.ac.uk"
+
 

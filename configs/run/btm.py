@@ -17,7 +17,7 @@ variables = [
 ]
 pois = ["bw_mass"]
 categories = {
-  "run2": "(run==2.0)",
+  # "run2": "(run==2.0)",
   "run3": "(run==3.0)"
 }
 years_per_category = {

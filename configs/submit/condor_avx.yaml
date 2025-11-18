@@ -1,7 +1,9 @@
 name: condor
 options:
   extra_lines:
-    - "+MaxRuntime = 10800"
-    - "RequestCpus = 1"
+    - "+MaxRuntime = 108000"
+    - "RequestCpus = 8"
+    - "notification = always"
+    - "notify_user = yh4823@ic.ac.uk"
     - "requirements = has_avx"
 

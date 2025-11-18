@@ -1,6 +1,6 @@
 name: condor
 options:
   extra_lines:
-    - "+MaxRuntime = 10800"
-    - "RequestCpus = 2"
+    - "+MaxRuntime = 72000"
+    - "RequestCpus = 3"
     - "requirements = has_avx"

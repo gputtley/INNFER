@@ -31,18 +31,17 @@ class LoadData():
     self.batch_size = None
     self.columns = []
 
-
   def _GetTokens(self, input):
     tokens = re.findall(r"[A-Za-z_]\w*", input)
     reserved = {"and", "or", "not", "cos", "sin", "sinh", "cosh", "tanh", "abs", "exp", "sqrt"}
     return [t for t in tokens if t not in reserved]
-
 
   def _FindColumns(self, file_name, cfg):
 
     # Set up calculated
     calculated = []
     existing = []
+    
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
         if k not in self._GetTokens(v) and k not in existing:
@@ -52,8 +51,9 @@ class LoadData():
     if "weight_shifts" in cfg["files"][file_name].keys():
       calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
 
-    # Add fitted variables
-    self.columns = cfg["variables"]
+    # # Add fitted variables
+    # self.columns = cfg["variables"]
+    self.columns = []
 
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
@@ -97,6 +97,7 @@ class LoadData():
             self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
 
     calculated = sorted(list(set(calculated)))
+    self.columns += [i for i in cfg["variables"] if i not in calculated]
 
     # Get from weight
     weight = cfg["files"][file_name]["weight"]
@@ -219,7 +220,7 @@ class LoadData():
         if "per_file_selection" in file_info.keys():
           if file_info["per_file_selection"] is not None:
             df = df.query(file_info["per_file_selection"][input_file_ind])
-
+      
         # Keep only required columns
         df = df.loc[:, self.columns]
     

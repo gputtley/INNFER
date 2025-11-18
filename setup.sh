@@ -1,8 +1,17 @@
+# mkdir -p tmp
+# export TMPDIR="./tmp/"
+# export TEMP=$TMPDIR
+# export TMP=$TMPDIR
+# export CONDA_PKGS_DIRS=$TMPDIR
+# export PIP_CACHE_DIR=$TMPDIR
+# export XDG_CACHE_HOME=$TMPDIR
+
 mkdir -p tmp
-export TMPDIR="./tmp/"
+export TMPDIR=$PWD/tmp
 export TEMP=$TMPDIR
 export TMP=$TMPDIR
 export CONDA_PKGS_DIRS=$TMPDIR
+
 
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   echo "Installing miniconda"
@@ -21,6 +30,7 @@ fi
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
   source miniconda/files/etc/profile.d/conda.sh
+  conda config --add pkgs_dirs ./tmp/
   conda clean -a -y
   conda config --set channel_priority flexible
   conda env create --file=configs/setup/environment.yaml
