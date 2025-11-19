@@ -941,6 +941,7 @@ def main(args, default_args):
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
           module.Run(
@@ -948,7 +949,7 @@ def main(args, default_args):
             class_name = "Generator",
             config = {
               "cfg" : args.cfg,
-              "data_input" : GetDataInput("sim", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
+              "data_input" : GetDataInput("sim" if args.data_type != "data" else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
               "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
               "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
@@ -956,8 +957,8 @@ def main(args, default_args):
               "sim_type" : args.sim_type,
               "val_info" : val_info,
               "plot_styles" : [5] if file_name != "combined" else [1],
-              "no_text" : False,
-              "data_label" : "Simulated",
+              "no_text" : args.data_type == "data",
+              "data_label" : "Simulated" if args.data_type != "data" else "Data",
               "stack_label" : "Synthetic",
               "verbose" : not args.quiet,
             },
@@ -1454,7 +1455,7 @@ def main(args, default_args):
                 "data_input" : f"{eval_data_dir}/ScanCollect{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
                 "plots_output" : f"{plots_dir}/ScanPlot{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}", 
                 "extra_file_name" : str(val_ind),
-                "other_input" : {other_input.split(':')[0] : f"{eval_data_dir}/{other_input.split(':')[1]}/{file_name}" for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+                "other_input" : {other_input.split(':')[0] : f"{eval_data_dir}/{other_input.split(':')[1]}/{file_name}" for other_input in args.other_input.split(";")} if args.other_input is not None else {},
                 "extra_plot_name" : args.extra_plot_name,
                 "val_info" : val_info,
                 "nominal_name" : args.scan_nominal_name,

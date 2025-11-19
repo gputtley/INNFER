@@ -452,10 +452,16 @@ def plot_likelihood(
     decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
     decimal_places = min(decimal_places_down,decimal_places_up)
 
+    if show_other_results and not stat_syst_breakdown and len(other_crossings) > 0:
+      color = "blue"
+    else:
+      color = "black"
 
+    next_position = 0.9
     if not stat_syst_breakdown:
       text = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
               rf"$^{{+{round(crossings[1]-crossings[0], decimal_places)}}}_{{-{round(crossings[0]-crossings[-1], decimal_places)}}}$"
+      ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
     else:
       up_total = crossings[1]-crossings[0]
       down_total = crossings[0]-crossings[-1]
@@ -463,19 +469,18 @@ def plot_likelihood(
       down_stat = other_crossings[ list(other_crossings.keys())[0] ][0] - other_crossings[ list(other_crossings.keys())[0] ][-1]
       up_syst = (up_total**2 - up_stat**2)**0.5
       down_syst = (down_total**2 - down_stat**2)**0.5
-      text = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
+      text_up = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
+              rf"$^{{+{round(crossings[1]-crossings[0], decimal_places)}}}_{{-{round(crossings[0]-crossings[-1], decimal_places)}}}$"
+      text_down = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
               rf"$^{{+{round(up_stat, decimal_places)}}}_{{-{round(down_stat, decimal_places)}}}$" \
               rf" (stat) " \
               rf"$^{{+{round(up_syst, decimal_places)}}}_{{-{round(down_syst, decimal_places)}}}$" \
               rf" (syst)"
       
-    if show_other_results and not stat_syst_breakdown and len(other_crossings) > 0:
-      color = "blue"
-    else:
-      color = "black"
-    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+      ax.text(0.03, 0.96, text_up, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+      ax.text(0.03, 0.90, text_down, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+      next_position -= 0.06
 
-    next_position = 0.9
     if show_other_results and not stat_syst_breakdown:
       color_ind = 0
       for k, v in other_crossings.items():

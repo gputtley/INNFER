@@ -484,7 +484,6 @@ class Generator():
         unrolled_col_bins = RoundUnrolledBins(unrolled_col_bins)
 
         synth_hists = {}
-
         for ind, file_name in enumerate(synth_dps.keys()):
 
           # Make histograms
@@ -495,6 +494,17 @@ class Generator():
             column = [unrolled_col, plot_col],
             )
 
+          if ind == 0:
+            synth_hist_uncert_squared = synth_hist_uncert**2
+          else:
+            synth_hist_uncert_squared += (synth_hist_uncert**2)
+
+          synth_hists[f"{Translate(file_name)}{synth_plot_name}"] = synth_hist
+
+
+        for ind, file_name in enumerate(sim_dps.keys()):
+
+          # Make histograms
           sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
             method = "histogram_2d_and_uncert",
             functions_to_apply = functions_to_apply,
@@ -503,15 +513,12 @@ class Generator():
             )
 
           if ind == 0:
-            synth_hist_uncert_squared = synth_hist_uncert**2
             sim_hist_uncert_squared = sim_hist_uncert**2
             sim_hist_total = copy.deepcopy(sim_hist)
           else:
-            synth_hist_uncert_squared += (synth_hist_uncert**2)
             sim_hist_uncert_squared += (sim_hist_uncert**2)
             sim_hist_total += sim_hist
 
-          synth_hists[f"{Translate(file_name)}{synth_plot_name}"] = synth_hist
 
         plot_stacked_unrolled_2d_histogram_with_ratio(
           sim_hist_total, 
