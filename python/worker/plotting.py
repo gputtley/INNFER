@@ -10,6 +10,7 @@ import mplhep as hep
 import numpy as np
 import seaborn as sns
 
+from scipy.interpolate import UnivariateSpline
 from useful_functions import MakeDirectories, RoundToSF
 
 mpl.rcParams['axes.formatter.useoffset'] = False
@@ -47,6 +48,7 @@ def plot_histograms(
     fill_between_alpha = 0.7,
     legend_right=False,  # New option to move legend to the right
     y_lim = None,
+    spline_hists = False,
 ):
   """
   Plot histograms with optional error bars and an optional right-side legend.
@@ -94,10 +96,15 @@ def plot_histograms(
               )
   else:
       for ind, hist in enumerate(hists):
-          ax.plot(
-              bins, hist, label=hist_names[ind], color=colors[ind], 
-              linestyle=linestyles[ind], drawstyle=drawstyle[ind]
-          )
+          if not spline_hists:
+            ax.plot(
+                bins, hist, label=hist_names[ind], color=colors[ind], 
+                linestyle=linestyles[ind], drawstyle=drawstyle[ind]
+            )
+          else:
+            spline = np.linspace(min(bins), max(bins), num=500)
+            spline_hist = UnivariateSpline(bins, hist, s=0)
+            ax.plot(spline, spline_hist(spline), label=hist_names[ind], color=colors[ind], linestyle=linestyles[ind])
 
   if fill_between_hist is not None:
       ax.fill_between(fill_between_bins, fill_between_hist, step=fill_between_step, 
@@ -164,6 +171,7 @@ def plot_histograms_with_ratio(
   anchor_y_at_0 = True,
   axis_text = None,
   draw_error_bars = False,
+  draw_error_bar_caps = True
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -224,7 +232,7 @@ def plot_histograms_with_ratio(
         np.array(np.array(bins[:-1])[non_empty_bins]), np.array(hist_pairs[0])[non_empty_bins],
         yerr=np.array(hist_uncerts[ind][0])[non_empty_bins],
         label=hist_names[ind][0],
-        markerfacecolor='none', linestyle='None', fmt='+', color=colour, capsize=5, elinewidth=1, capthick=1
+        linestyle='None', fmt='+' if draw_error_bar_caps else 'o', color=colour, capsize=5 if draw_error_bar_caps else 0, elinewidth=1, capthick=1
       )
 
     if first_ratio and (ind == 0):
@@ -281,12 +289,12 @@ def plot_histograms_with_ratio(
       ax[-1].errorbar(
         np.array(np.array(bins[:-1])[non_empty_bins]), np.array(ratio)[non_empty_bins],
         yerr=(np.array(hist_uncerts[ind][0])/np.array(denom))[non_empty_bins],
-        markerfacecolor='none', linestyle='None', fmt='+', color=colour, capsize=5, elinewidth=1, capthick=1
+        linestyle='None', fmt='+' if draw_error_bar_caps else 'o', color=colour, capsize=5 if draw_error_bar_caps else 0, elinewidth=1, capthick=1
       )
-      #ax[-1].fill_between(bins,np.ones(len(np.append(ratio,ratio[-1])))-np.append(ratio_uncert,ratio_uncert[-1]),np.ones(len(np.append(ratio,ratio[-1])))+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.1,step='mid')
+      ax[-1].fill_between(bins,np.ones(len(np.append(ratio,ratio[-1])))-np.append(ratio_uncert,ratio_uncert[-1]),np.ones(len(np.append(ratio,ratio[-1])))+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.1,step='mid')
       # Draw dashed line along edges of the fill between
-      ax[-1].plot(bins, np.ones(len(bins))-np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
-      ax[-1].plot(bins, np.ones(len(bins))+np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
+      #ax[-1].plot(bins, np.ones(len(bins))-np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
+      #ax[-1].plot(bins, np.ones(len(bins))+np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
 
 
 
@@ -315,10 +323,17 @@ def plot_likelihood(
     name="lkld", 
     xlabel="", 
     true_value=None, 
-    cap_at=9, 
-    other_lklds={}, 
+    cap_at=7,
+    y_max=9,
+    other_lklds={},
+    other_crossings={},
     label=None, 
-    under_result=""
+    under_result="",
+    stat_syst_breakdown=False,
+    spline=True,
+    draw_1sigma_crossings = True,
+    draw_2sigma_crossings = False,
+    show_other_results = True
   ):
   """
   Plot likelihood curve.
@@ -345,52 +360,85 @@ def plot_likelihood(
       Label for the likelihood curve.
   """
 
+  if stat_syst_breakdown and len(other_lklds) != 1:
+    raise ValueError("To do the stat and syst breakdown, exactly one other input must be provided representing the stat only scan.")
+
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
   lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   if cap_at != None:
-    sel_inds = []
     x_plot = []
     y_plot = []
     for ind, i in enumerate(y):
       if i < cap_at:
         x_plot.append(x[ind])
         y_plot.append(i)
-        sel_inds.append(ind)
     x = x_plot
     y = y_plot
-    y_max = cap_at
+    if y_max is None:
+      y_max = cap_at
   else:
-    y_max = max(y)
-    sel_inds = range(len(y))
+    if y_max is None:
+      y_max = max(y)
 
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
-  plt.plot(x, y, label=label)
+
+  if spline:
+    spline_x = np.linspace(min(x), max(x), num=500)
+    spline_y = UnivariateSpline(x, y, s=0)
+    plt.plot(spline_x, spline_y(spline_x), label=label, color="blue")
+  else:
+    plt.plot(x, y, label=label, color="blue")
 
   ax.xaxis.get_major_formatter().set_useOffset(False)
 
-  colors = rgb_palette = sns.color_palette("Set2", len(list(other_lklds.keys())))
+  colors = sns.color_palette("Set2", len(list(other_lklds.keys())))
   color_ind = 0
   for k, v in other_lklds.items():
-    plt.plot(v[0], v[1], label=k, color=colors[color_ind])
-    color_ind += 1
+
+    if spline:
+      spline_x = np.linspace(min(v[0]), max(v[0]), num=500)
+      spline_y = UnivariateSpline(v[0], v[1], s=0)
+      v[0] = spline_x
+      v[1] = spline_y(spline_x)
+
+    x_vals = [i for ind, i in enumerate(v[0]) if v[1][ind] < cap_at]
+    y_vals = [i for i in v[1] if i < cap_at]
+
+    if not stat_syst_breakdown:
+      plt.plot(x_vals, y_vals, label=k, color=colors[color_ind])
+      color_ind += 1
+    else:
+      plt.plot(x_vals, y_vals, label=k, linestyle='--', color="blue")
 
   if true_value != None:
-    plt.plot([true_value,true_value], [0,y_max], linestyle='--', color='black')
+    plt.plot([true_value,true_value], [0,cap_at], linestyle='--', color='black')
 
     ax.text(1.0, 1.0, lumi_label,
         verticalalignment='bottom', horizontalalignment='right',
         transform=ax.transAxes)
 
-  if -1 in crossings.keys():  
+  if -1 in crossings.keys() and draw_1sigma_crossings:  
     plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
-  if -2 in crossings.keys():  
+  if -2 in crossings.keys() and draw_2sigma_crossings:  
     plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
-  if 1 in crossings.keys():  
+  if 1 in crossings.keys() and draw_1sigma_crossings:  
     plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
-  if 2 in crossings.keys():  
+  if 2 in crossings.keys() and draw_2sigma_crossings:  
     plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
+
+
+  for other_key, other_val in other_crossings.items():
+    if -1 in other_val.keys() and draw_1sigma_crossings:  
+      plt.plot([other_val[-1],other_val[-1]], [0,1], linestyle='--', color='orange')
+    if 1 in other_val.keys() and draw_1sigma_crossings:  
+      plt.plot([other_val[1],other_val[1]], [0,1], linestyle='--', color='orange')
+    if -2 in other_val.keys() and draw_2sigma_crossings:  
+      plt.plot([other_val[-2],other_val[-2]], [0,4], linestyle='--', color='orange')
+    if 2 in other_val.keys() and draw_2sigma_crossings:  
+      plt.plot([other_val[2],other_val[2]], [0,4], linestyle='--', color='orange')
+
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
   
@@ -404,11 +452,46 @@ def plot_likelihood(
     decimal_places_down = sig_figs - int(np.floor(np.log10(abs(crossings[0]-crossings[-1])))) - 1
     decimal_places = min(decimal_places_down,decimal_places_up)
 
-    text = f'{xlabel} = {round(crossings[0],decimal_places)} + {round(crossings[1]-crossings[0],decimal_places)} - {round(crossings[0]-crossings[-1],decimal_places)}'
-    ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20)
+    if show_other_results and not stat_syst_breakdown and len(other_crossings) > 0:
+      color = "blue"
+    else:
+      color = "black"
+
+    next_position = 0.9
+    if not stat_syst_breakdown:
+      text = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
+              rf"$^{{+{round(crossings[1]-crossings[0], decimal_places)}}}_{{-{round(crossings[0]-crossings[-1], decimal_places)}}}$"
+      ax.text(0.03, 0.96, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+    else:
+      up_total = crossings[1]-crossings[0]
+      down_total = crossings[0]-crossings[-1]
+      up_stat = other_crossings[ list(other_crossings.keys())[0] ][1] - other_crossings[ list(other_crossings.keys())[0] ][0]
+      down_stat = other_crossings[ list(other_crossings.keys())[0] ][0] - other_crossings[ list(other_crossings.keys())[0] ][-1]
+      up_syst = (up_total**2 - up_stat**2)**0.5
+      down_syst = (down_total**2 - down_stat**2)**0.5
+      text_up = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
+              rf"$^{{+{round(crossings[1]-crossings[0], decimal_places)}}}_{{-{round(crossings[0]-crossings[-1], decimal_places)}}}$"
+      text_down = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
+              rf"$^{{+{round(up_stat, decimal_places)}}}_{{-{round(down_stat, decimal_places)}}}$" \
+              rf" (stat) " \
+              rf"$^{{+{round(up_syst, decimal_places)}}}_{{-{round(down_syst, decimal_places)}}}$" \
+              rf" (syst)"
+      
+      ax.text(0.03, 0.96, text_up, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+      ax.text(0.03, 0.90, text_down, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=color)
+      next_position -= 0.06
+
+    if show_other_results and not stat_syst_breakdown:
+      color_ind = 0
+      for k, v in other_crossings.items():
+        text = rf"{xlabel} = {round(v[0], decimal_places)}" \
+                rf"$^{{+{round(v[1]-v[0], decimal_places)}}}_{{-{round(v[0]-v[-1], decimal_places)}}}$"
+        ax.text(0.03, next_position, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=colors[color_ind])
+        color_ind += 1
+        next_position -= 0.06
 
   if under_result != "":
-    ax.text(0.03, 0.9, under_result, transform=ax.transAxes, va='top', ha='left', fontsize=20)
+    ax.text(0.03, next_position, under_result, transform=ax.transAxes, va='top', ha='left', fontsize=20)
 
   plt.xlim(x[0],x[-1])
   plt.ylim(0,y_max)
@@ -911,17 +994,15 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     unrolled_bin = [unrolled_bins[i], unrolled_bins[i+1]]
     unrolled_bin = [int(i) if i.is_integer() else i for i in unrolled_bin]
 
-    significant_figures = sf_diff - int(np.floor(np.log10(abs(unrolled_bin[-1]-unrolled_bin[0])))) - 1
-
     if "$" in unrolled_bin_name:
       unrolled_bin_name = unrolled_bin_name.replace("$","").replace("\\","")
 
     if unrolled_bin[0] == -np.inf:
-      unrolled_bin_string = rf"${unrolled_bin_name} < {RoundToSF(unrolled_bin[1],significant_figures)}$"
+      unrolled_bin_string = rf"${unrolled_bin_name} < {unrolled_bin[1]}$"
     elif unrolled_bin[1] == np.inf:
-      unrolled_bin_string = rf"${unrolled_bin_name} \geq {RoundToSF(unrolled_bin[0],significant_figures)}$"
+      unrolled_bin_string = rf"${unrolled_bin_name} \geq {unrolled_bin[0]}$"
     else:
-      unrolled_bin_string = rf"${RoundToSF(unrolled_bin[0],significant_figures)} \leq {unrolled_bin_name} < {RoundToSF(unrolled_bin[1],significant_figures)}$"
+      unrolled_bin_string = rf"${unrolled_bin[0]} \leq {unrolled_bin_name} < {unrolled_bin[1]}$"
 
     ax1.text(text_x, text_y, unrolled_bin_string, verticalalignment='center', horizontalalignment='center', fontsize=12)
 
@@ -1017,6 +1098,167 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   plt.savefig(name+".pdf", bbox_inches='tight')
   plt.close()
 
+
+def plot_unrolled_2d_histogram(
+    hists_dict, 
+    bin_edges_1d,
+    unrolled_bins,
+    unrolled_bin_name,
+    xlabel="",
+    ylabel="Events",
+    name="fig", 
+    hists_errors=None, 
+    use_stat_err=False,
+    axis_text="",
+    sf_diff=2,
+  ):
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+
+  #fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(15,10))
+
+  fig, ax1 = plt.subplots(figsize=(15,10))
+  hep.cms.text(cms_label,ax=ax1)
+
+  bin_edges = []
+  first_hist = hists_dict[list(hists_dict.keys())[0]]
+  for unrolled_ind in range(len(first_hist)):
+    for plot_ind in range(len(bin_edges_1d)-1):
+      bin_edges.append(((bin_edges_1d[-1]-bin_edges_1d[0])*unrolled_ind) + (bin_edges_1d[plot_ind] - bin_edges_1d[0]))
+  bin_edges.append((len(first_hist))*(bin_edges_1d[-1]-bin_edges_1d[0]))
+  bin_edges = [be/(bin_edges_1d[-1]-bin_edges_1d[0]) for be in bin_edges]
+
+  # combine hists
+  hist_dict = {}
+  hist_dict_errors = {}
+  for k in list(hists_dict.keys())[::-1]:
+    v = hists_dict[k]
+
+    for ind, hist in enumerate(v):
+
+      if hists_errors is None:
+        hist_dict_errors[k] = 0*hists_errors[k][ind]
+      if use_stat_err:
+        hists_errors[k][ind] = np.sqrt(hist)
+
+      if ind == 0:
+        hist_dict[k] = copy.deepcopy(hist.astype(np.float64))
+        hist_dict_errors[k] = copy.deepcopy(hists_errors[k][ind].astype(np.float64))
+      else:
+        hist_dict[k] = np.concatenate((hist_dict[k], hist.astype(np.float64)))
+        hist_dict_errors[k] = np.concatenate((hist_dict_errors[k], hists_errors[k][ind].astype(np.float64)))
+
+
+  # Plot the histograms on the pad
+  rgb_palette = sns.color_palette("Set2", 8)
+  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
+  for ind, (k, v) in enumerate(hist_dict.items()):
+
+    if ind == 0:
+      max_hist = copy.deepcopy(v)
+    else:
+      max_hist = np.maximum(max_hist, copy.deepcopy(v))
+
+    ax1.step(
+      step_edges, 
+      np.append(np.insert(v,0,0.0),0.0), 
+      where='post',
+      alpha=1.0,
+      label=k,
+      color=tuple(x for x in rgb_palette[ind]),
+    )
+    ax1.fill_between(step_edges,np.append(np.insert(v,0,0.0),0.0)-np.append(np.insert(hist_dict_errors[k],0,0.0),0.0),np.append(np.insert(v,0,0.0),0.0)+np.append(np.insert(hist_dict_errors[k],0,0.0),0.0),color=tuple(x for x in rgb_palette[ind]),alpha=0.3,step='post')
+
+
+  ax1.set_xlim([bin_edges[0],bin_edges[-1]])
+  ax1.set_ylim(0, 1.2*max(max_hist))
+
+  # Draw lines showing unrolled bin splits
+  for i in range(1,len(first_hist)):
+    ax1.axvline(x=i, color='black', linestyle='-', linewidth=4)
+
+  # Draw text showing unrolled bin splits
+  text_y = 1.05*max(max_hist)
+  unrolled_bin_name = unrolled_bin_name.replace("_","\_")
+  for i in range(len(first_hist)):
+    text_x = i + 0.5
+
+    unrolled_bin = [unrolled_bins[i], unrolled_bins[i+1]]
+    unrolled_bin = [int(i) if i.is_integer() else i for i in unrolled_bin]
+
+    if "$" in unrolled_bin_name:
+      unrolled_bin_name = unrolled_bin_name.replace("$","").replace("\\","")
+
+    if unrolled_bin[0] == -np.inf:
+      unrolled_bin_string = rf"${unrolled_bin_name} < {unrolled_bin[1]}$"
+    elif unrolled_bin[1] == np.inf:
+      unrolled_bin_string = rf"${unrolled_bin_name} \geq {unrolled_bin[0]}$"
+    else:
+      unrolled_bin_string = rf"${unrolled_bin[0]} \leq {unrolled_bin_name} < {unrolled_bin[1]}$"
+
+    ax1.text(text_x, text_y, unrolled_bin_string, verticalalignment='center', horizontalalignment='center', fontsize=12)
+
+  # Change x axis labels
+  x_locator = ticker.MaxNLocator(integer=True, nbins=3, prune='both', min_n_ticks=3)
+  x_tick_positions = x_locator.tick_values(bin_edges_1d[0], bin_edges_1d[-1])
+  new_tick_positions = []
+  new_tick_labels = []
+  for unrolled_ind in range(len(first_hist)):
+    for plot_ind in range(len(x_tick_positions)):
+      new_tick_positions.append(unrolled_ind + ((x_tick_positions[plot_ind]-bin_edges_1d[0])/(bin_edges_1d[-1] - bin_edges_1d[0])))
+      new_tick_labels.append(x_tick_positions[plot_ind])
+  new_tick_labels = [int(i) if i.is_integer() else i for i in new_tick_labels]
+
+  ax1.set_xticks(new_tick_positions)
+  ax1.set_xticklabels(new_tick_labels)
+
+  minor_tick_positions = []
+  for i in range(len(new_tick_positions) - 1):
+    minor_tick_positions.extend(np.linspace(new_tick_positions[i], new_tick_positions[i+1], num=4, endpoint=False)[1:])
+
+  while ((2*minor_tick_positions[0])-minor_tick_positions[1]) > 0:
+    minor_tick_positions = [((2*minor_tick_positions[0])-minor_tick_positions[1])] + minor_tick_positions
+
+  while (2*minor_tick_positions[-1]) - minor_tick_positions[-2] < len(first_hist):
+    minor_tick_positions += [(2*minor_tick_positions[-1]) - minor_tick_positions[-2]]
+
+  ax1.set_xticks(minor_tick_positions, minor=True)
+
+  # Get the current handles and labels of the legend
+  handles, labels = ax1.get_legend_handles_labels()
+
+  # Reverse the order of handles and labels
+  handles = handles[::-1]
+  labels = labels[::-1]
+
+  # Create the reversed legend
+  legend = ax1.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5), frameon=True, framealpha=1, facecolor='white', edgecolor="white")
+
+  max_label_length = 15  # Adjust the maximum length of each legend label
+  for text in legend.get_texts():
+    text.set_text(textwrap.fill(text.get_text(), max_label_length))
+
+  ax1.legend()
+  ax1.set_ylabel(ylabel)
+  hep.cms.text(cms_label,ax=ax1)
+
+  ax1.text(0.03, 0.98, axis_text, transform=ax1.transAxes, 
+      va='top', ha='left', fontsize=18,
+      bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.3'))
+
+  ax1.set_xticks(new_tick_positions)
+  ax1.set_xticklabels(new_tick_labels)
+
+  ax1.set_xlabel(xlabel)
+
+
+  # Show the plot
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf", bbox_inches='tight')
+  plt.close()
+
+
 def plot_summary(
     crossings, 
     name="summary", 
@@ -1027,6 +1269,7 @@ def plot_summary(
     subtract = False,
     text = "",
     y_label = "",
+    no_lumi = False,
   ):
   """
   Plot a validation summary.
@@ -1046,7 +1289,8 @@ def plot_summary(
   """
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
-  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+  if not no_lumi:
+    lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
 
   if nominal_name != "":
     nominal_name += " "
@@ -1188,7 +1432,11 @@ def plot_summary(
     else:
       ax[ind].axvline(x=0, color='black', linestyle='--') 
 
-    ax[ind].set_xlabel(col)
+    label = col
+    if subtract:
+      label = "$\Delta$" + col
+
+    ax[ind].set_xlabel(label)
     if ind == 0:
       ax[ind].set_yticks([-1*i for i in range(len(list(vals.keys())))])
       ax[ind].set_yticklabels(list(vals.keys()))
@@ -1197,9 +1445,10 @@ def plot_summary(
     ax[ind].set_ylim((-1*len(list(vals.keys())))+0.5, 0.5)
     ax[ind].xaxis.get_major_formatter().set_useOffset(False)
 
-  ax[-2].text(1.0, 1.0, lumi_label,
-      verticalalignment='bottom', horizontalalignment='right',
-      transform=ax[-2].transAxes, fontsize=22)
+  if not no_lumi:
+    ax[-2].text(1.0, 1.0, lumi_label,
+        verticalalignment='bottom', horizontalalignment='right',
+        transform=ax[-2].transAxes, fontsize=22)
 
   # y title
   ax[0].set_ylabel(y_label)

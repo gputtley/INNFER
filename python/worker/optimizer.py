@@ -36,7 +36,7 @@ class Optimizer():
       lr_scheduler = ExponentialDecayWithConstant(
           initial_learning_rate=default_lr,
           decay_rate=options["decay_rate"] if "decay_rate" in options.keys() else 0.9,
-          decay_steps=int(num_rows/batch_size),
+          decay_steps=int(np.ceil(num_rows/batch_size)),
           minimum_learning_rate=options["min_lr"] if "min_lr" in options.keys() else 0.0001
       )
 
@@ -44,7 +44,7 @@ class Optimizer():
 
       lr_scheduler = tf.keras.optimizers.schedules.PolynomialDecay(
           initial_learning_rate=default_lr,
-          decay_steps=options["decay_steps"] if "decay_steps" in options.keys() else epochs*int(num_rows/batch_size),
+          decay_steps=options["decay_steps"] if "decay_steps" in options.keys() else epochs*int(np.ceil(num_rows/batch_size)),
           end_learning_rate=options["end_lr"] if "end_lr" in options.keys() else 0.0,
           power=options["power"] if "power" in options.keys() else 1.0,
       )
@@ -53,7 +53,7 @@ class Optimizer():
 
       lr_scheduler = tf.keras.experimental.CosineDecay(
           initial_learning_rate=default_lr,
-          decay_steps=options["decay_steps"] if "decay_steps" in options.keys() else epochs*int(num_rows/batch_size),
+          decay_steps=options["decay_steps"] if "decay_steps" in options.keys() else epochs*int(np.ceil(num_rows/batch_size)),
           alpha=options["alpha"] if "alpha" in options.keys() else 0.0
       )
 
@@ -272,6 +272,24 @@ class Optimizer():
         batches_per_epoch=int(np.ceil(num_rows/batch_size)),
         cosine_decay_length=options["cosine_decay_length"] if "cosine_decay_length" in options.keys() else 10,
         exponential_switch=options["exponential_switch"] if "exponential_switch" in options.keys() else 5,
+      )
+
+    elif name == "HalfGaussian":
+      
+      class HalfGaussianDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, initial_learning_rate, stddev):
+          super(HalfGaussianDecay, self).__init__()
+          self.initial_learning_rate = tf.convert_to_tensor(initial_learning_rate, dtype=tf.float32)
+          self.stddev = tf.convert_to_tensor(stddev, dtype=tf.float32)
+        def __call__(self, step):
+          learning_rate = self.initial_learning_rate * tf.math.exp(
+              -0.5 * tf.math.pow(tf.cast(step, tf.float32) / self.stddev, 2)
+          )
+          return learning_rate
+
+      lr_scheduler = HalfGaussianDecay(
+        initial_learning_rate=default_lr,
+        stddev=options["stddev_epochs"] if "stddev_epochs" in options.keys() else epochs*int(np.ceil(num_rows/batch_size))/4, # Travels 4 standard deviations
       )
 
     else:

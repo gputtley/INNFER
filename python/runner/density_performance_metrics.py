@@ -466,6 +466,10 @@ class DensityPerformanceMetrics():
         # Do initial fit
         lkld.GetBestFit({"inclusive":[dps]}, pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}))
 
+        # Add best fit values to metrics
+        for col_index, col in enumerate(params_in_model):
+          self.metrics[f"inference_best_fit_{data_type}_val_ind_{val_ind}_{col}"] = float(lkld.best_fit[col_index])
+
         # Get approximate uncertainty
         for col_index, col in enumerate(params_in_model):
           if self.verbose:

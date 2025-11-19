@@ -51,9 +51,8 @@ class LoadData():
     if "weight_shifts" in cfg["files"][file_name].keys():
       calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
 
-    # # Add fitted variables
-    # self.columns = cfg["variables"]
-    self.columns = []
+    # Add fitted variables
+    self.columns = cfg["variables"]
 
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
@@ -97,33 +96,15 @@ class LoadData():
             self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
 
     calculated = sorted(list(set(calculated)))
-    self.columns += [i for i in cfg["variables"] if i not in calculated]
 
     # Get from weight
     weight = cfg["files"][file_name]["weight"]
     self.columns += self._GetTokens(weight)
 
-    ## Get from selection
-    #if "selection" in cfg["files"][file_name].keys():
-    #  if cfg["files"][file_name]["selection"] is not None:
-    #    self.columns += self._GetTokens(cfg["files"][file_name]["selection"])
-
     # Get from post selection
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
         self.columns += [i for i in self._GetTokens(v) if i not in calculated]
-
-    ## Get from post_add_column_selection
-    #if "post_add_column_selection" in cfg["files"][file_name].keys():
-    #  if cfg["files"][file_name]["post_add_column_selection"] is not None:
-    #    self.columns += [i for i in self._GetTokens(cfg["files"][file_name]["post_add_column_selection"]) if i not in calculated]
-
-    ## Get from per_file_selection
-    #if "per_file_selection" in cfg["files"][file_name].keys():
-    #  if cfg["files"][file_name]["per_file_selection"] is not None:
-    #    for sel in cfg["files"][file_name]["per_file_selection"]:
-    #      if sel is not None:
-    #        self.columns += [i for i in self._GetTokens(sel) if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
