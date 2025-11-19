@@ -13,7 +13,8 @@ python3 scripts/config_inputs.py -f "data/top_reco/230725/W*.parquet,data/top_re
 ## Save to shared directory
 
 ```bash
-export DATA_DIR="/vols/cms/sbi_top_mass/data"
+export PREP_DATA_DIR="/vols/cms/sbi_top_mass/data"
+export MODELS_DIR="/vols/cms/sbi_top_mass/models"
 ```
 
 ## Set configuration file
