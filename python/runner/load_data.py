@@ -51,8 +51,7 @@ class LoadData():
     if "weight_shifts" in cfg["files"][file_name].keys():
       calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
 
-    # Add fitted variables
-    self.columns = cfg["variables"]
+    self.columns = []
 
     # Add save extra columns from validation
     for k, v in cfg["validation"]["files"].items():
@@ -96,6 +95,10 @@ class LoadData():
             self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
 
     calculated = sorted(list(set(calculated)))
+    # self.columns += [i for i in cfg["variables"] if i not in calculated]
+
+    # Get from variables
+    self.columns += [i for i in cfg["variables"] if i not in calculated]
 
     # Get from weight
     weight = cfg["files"][file_name]["weight"]
