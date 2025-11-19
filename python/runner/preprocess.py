@@ -93,6 +93,8 @@ class PreProcess():
             if "sigma_out" in v["other"].keys():
               sigma_out = v["other"]["sigma_out"]
           tmp.loc[:,k] = SampleFlatTop(len(tmp), (v["range"][0], v["range"][1]), sigma_out)
+        else:
+          raise ValueError(f"Shift type {v['type']} not recognised")
       if first:
         df = copy.deepcopy(tmp)
         first = False
@@ -1684,7 +1686,7 @@ class PreProcess():
               "selection" : None,
             }
           )
-          n_bins=50
+          n_bins=20
           nom_hist, bins = dp.GetFull(method="histogram", column=value["parameter"], bins=n_bins, extra_sel="(classifier_truth == 0)")
           shift_hist, _ = dp.GetFull(method="histogram", column=value["parameter"], bins=bins, extra_sel="(classifier_truth == 1)")
           ratio = nom_hist/shift_hist
@@ -1693,10 +1695,16 @@ class PreProcess():
           spline = CubicSpline(bin_centers, ratio, bc_type="clamped", extrapolate=False)
 
           def class_balancing(df, spline):
-            df.loc[(df["classifier_truth"] == 1), "wt"] *= spline(df.loc[(df["classifier_truth"] == 1), value["parameter"]])
+            #slice = (df["classifier_truth"] == 1)
+            #df.loc[slice, "wt"] *= spline(df.loc[slice, value["parameter"]])
+            #return df
+            mask = (df["classifier_truth"] == 1)
+            x = df.loc[mask, value["parameter"]].to_numpy()   # fast array
+            df.loc[mask, "wt"] *= spline(x)
             return df
 
           for dt in ["train", "test"]:
+            print(f" - Doing conditional reweighting for classifier {value['parameter']} dataset {dt}")
 
             balanced_name = f"classifier/{value['parameter']}/wt_{dt}_conditional_reweighting.parquet"
             if os.path.isfile(f"{self.data_output}/{balanced_name}"):
