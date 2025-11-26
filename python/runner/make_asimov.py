@@ -35,7 +35,6 @@ class MakeAsimov():
     self.n_asimov_events = 10**7
     self.seed = 42
     self.val_info = {}
-    self.val_ind = None
     self.only_density = False
     self.Y = None
     self.add_truth = False

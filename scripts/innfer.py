@@ -27,6 +27,7 @@ from useful_functions import (
     GetParametersInModel,
     GetParameterLoop,
     GetScanArchitectures,
+    GetValidationDefaultIndex,
     GetValidationLoop,
     ListSteps,
     LoadConfig,
@@ -289,6 +290,32 @@ def main(args, default_args):
           )
 
 
+  # PreProcess the dataset - nuisance variations
+  if args.step == "PreProcessParallelNuisanceVariations":
+    print("<< Running nuisance variations split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
+          for shift in ["up","down"]:
+            module.Run(
+              module_name = "preprocess",
+              class_name = "PreProcess",
+              config = {
+                "partial": "nuisance_variations",
+                "cfg" : args.cfg,
+                "file_name" : file_name,
+                "data_input" : f"{prep_data_dir}/LoadData",
+                "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+                "number_of_shuffles" : args.number_of_shuffles,
+                "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+                "category" : category,
+                "nuisance_shift" : f"{nuisance}_{shift}",
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
+            )
+
+
   # PreProcess the dataset - Merge
   if args.step == "PreProcessParallelMerge":
     print("<< Running merge split of preprocess step >>")
@@ -401,7 +428,7 @@ def main(args, default_args):
             "file_name" : file_name,
             "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
             "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
-            "plots_output" : f"{plots_dir}/InputPlotValidation{args.extra_input_dir_name}/{file_name}/{category}",
+            "plots_output" : f"{plots_dir}/InputPlotValidation{args.extra_output_dir_name}/{file_name}/{category}",
             "val_loop" : GetValidationLoop(cfg, file_name),
             "sim_type" : args.sim_type,
             "category" : category,
@@ -413,6 +440,28 @@ def main(args, default_args):
           loop = {"file_name" : file_name, "category" : category},
         )
 
+
+  # Plot the input nuisance variations
+  if args.step == "InputPlotNuisanceVariations":
+    print("<< Plotting input nuisance variations >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
+          module.Run(
+            module_name = "input_plot_nuisance_variations",
+            class_name = "InputPlotNuisanceVariations",
+            config = {
+              "cfg" : args.cfg,
+              "file_name" : file_name,
+              "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
+              "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+              "plots_output" : f"{plots_dir}/InputPlotNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
+              "nuisance" : nuisance,
+              "sim_type" : args.sim_type,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
+          )
 
   # Train density network
   if args.step == "TrainDensity":
@@ -666,7 +715,6 @@ def main(args, default_args):
               "n_asimov_events" : args.number_of_asimov_events,
               "seed" : args.asimov_seed,
               "val_info" : val_info,
-              "val_ind" : val_ind,
               "only_density" : args.only_density,
               "verbose" : not args.quiet,
               "file_name" : file_name,
@@ -674,6 +722,41 @@ def main(args, default_args):
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
+
+
+  # Make asimov for nuisance variations
+  if args.step == "MakeAsimovNuisanceVariations":
+    print(f"<< Making the asimov datasets for nuisance variations >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
+          for shift in ["up","down"]:
+            module.Run(
+              module_name = "make_asimov",
+              class_name = "MakeAsimov",
+              config = {
+                "cfg" : args.cfg,
+                "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
+                "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
+                "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
+                "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+                "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
+                "model_input" : f"{models_dir}",
+                "extra_density_model_name" : args.extra_density_model_name,
+                "extra_regression_model_name" : args.extra_regression_model_name,
+                "extra_classifier_model_name" : args.extra_classifier_model_name,
+                "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
+                "data_output" : f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}/{nuisance}_{shift}",
+                "n_asimov_events" : args.number_of_asimov_events,
+                "seed" : args.asimov_seed,
+                "val_info" : {nuisance: 1.0 if shift=="up" else -1.0},
+                "only_density" : args.only_density,
+                "verbose" : not args.quiet,
+                "file_name" : file_name,
+                "use_asimov_scaling" : args.use_asimov_scaling,
+              },
+              loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
+            )
 
 
   # Get performance metrics
@@ -991,6 +1074,33 @@ def main(args, default_args):
           loop = {"file_name" : file_name, "category" : category},
         )
 
+
+  # Make plots of nuisances shifts and what has been learned
+  if args.step == "GeneratorNuisanceVariations":
+    for file_name in GetModelFileLoop(cfg, with_combined=False):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        default_val_ind = GetValidationDefaultIndex(cfg, file_name)
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
+          module.Run(
+            module_name = "generator_nuisance_variations",
+            class_name = "GeneratorNuisanceVariations",
+            config = {
+              "cfg" : args.cfg,
+              "nominal_sim_input" : GetDataInput("sim", cfg, file_name, default_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
+              "up_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
+              "down_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
+              "nominal_asimov_input": GetDataInput("asimov", cfg, file_name, default_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
+              "up_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_up/asimov.parquet"],
+              "down_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_down/asimov.parquet"],
+              "plots_output" : f"{plots_dir}/GeneratorNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
+              "nuisance" : nuisance,
+              "extra_plot_name" : args.extra_plot_name,
+              "file_name" : file_name,
+              "category" : category,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
+          )
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":

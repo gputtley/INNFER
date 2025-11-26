@@ -275,6 +275,7 @@ class Generator():
 
       # Make sim hists
       for ind, file_name in enumerate(sim_dps.keys()):
+
         sim_hist, sim_hist_uncert, bins = sim_dps[file_name].GetFull(
           method = "histogram_and_uncert",
           functions_to_apply = functions_to_apply,

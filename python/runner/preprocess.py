@@ -1,4 +1,5 @@
 import copy
+import importlib
 import os
 import warnings
 import yaml
@@ -22,6 +23,7 @@ from useful_functions import (
     GetModelLoop,
     GetParametersInModel,
     GetSplitDensityModel,
+    GetValidationDefaultIndex,
     GetValidationLoop,
     GetYieldsBaseFile,
     LoadConfig,
@@ -67,9 +69,28 @@ class PreProcess():
     self.validation_binned = None
     self.extra_selection = None
     self.category = None
+    self.nuisance_shift = None
 
     # Stores
     self.parameters = {}
+
+  def _ApplyShifts(self, tmp, shifts):
+    for k, v in shifts.items():
+      if v["type"] == "continuous":
+        tmp.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(tmp))   
+      elif v["type"] == "discrete":
+        tmp.loc[:,k] = np.random.choice(v["values"], size=len(tmp))
+      elif v["type"] == "fixed":
+        tmp.loc[:,k] = v["value"]*np.ones(len(tmp))
+      elif v["type"] == "flat_top":
+        sigma_out = 0.1*(v["range"][1]-v["range"][0])
+        if "other" in v.keys():
+          if "sigma_out" in v["other"].keys():
+            sigma_out = v["other"]["sigma_out"]
+        tmp.loc[:,k] = SampleFlatTop(len(tmp), (v["range"][0], v["range"][1]), sigma_out)
+      else:
+        raise ValueError(f"Shift type {v['type']} not recognised")
+    return tmp
 
 
   def _CalculateDatasetWithVariations(self, df, shifts, pre_calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1, post_shifts={}):
@@ -79,22 +100,7 @@ class PreProcess():
     first = True
 
     for _ in range(n_copies):
-      tmp = copy.deepcopy(tmp_copy)
-      for k, v in shifts.items():
-        if v["type"] == "continuous":
-          tmp.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(tmp))   
-        elif v["type"] == "discrete":
-          tmp.loc[:,k] = np.random.choice(v["values"], size=len(tmp))
-        elif v["type"] == "fixed":
-          tmp.loc[:,k] = v["value"]*np.ones(len(tmp))
-        elif v["type"] == "flat_top":
-          sigma_out = 0.1*(v["range"][1]-v["range"][0])
-          if "other" in v.keys():
-            if "sigma_out" in v["other"].keys():
-              sigma_out = v["other"]["sigma_out"]
-          tmp.loc[:,k] = SampleFlatTop(len(tmp), (v["range"][0], v["range"][1]), sigma_out)
-        else:
-          raise ValueError(f"Shift type {v['type']} not recognised")
+      tmp = self._ApplyShifts(copy.deepcopy(tmp_copy), shifts)
       if first:
         df = copy.deepcopy(tmp)
         first = False
@@ -103,7 +109,16 @@ class PreProcess():
 
     # do precalculate
     for pre_calc_col_name, pre_calc_col_value in pre_calculate.items():
-      df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)          
+      if isinstance(pre_calc_col_value, str):
+        df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)
+      elif isinstance(pre_calc_col_value, dict):
+        if pre_calc_col_value["type"] == "function":
+          module = importlib.import_module(pre_calc_col_value["file"])
+          func = getattr(module, pre_calc_col_value["name"])
+          df = func(df, **pre_calc_col_value["args"])
+      else:
+        raise ValueError(f"Pre calculate type {type(pre_calc_col_value)} not recognised")
+
 
     # Apply post selection
     if post_calculate_selection is not None:
@@ -113,13 +128,7 @@ class PreProcess():
       df = df.loc[df.eval(self.extra_selection),:]
 
     # Post shifts
-    for k, v in post_shifts.items():
-      if v["type"] == "continuous":
-        df.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(df))   
-      elif v["type"] == "discrete":
-        df.loc[:,k] = np.random.choice(v["values"], size=len(df))
-      elif v["type"] == "fixed":
-        df.loc[:,k] = v["value"]*np.ones(len(df))
+    df = self._ApplyShifts(copy.deepcopy(df), post_shifts)
 
     # store old weight before doing weight shift
     df.loc[:,"old_wt"] = df.eval(nominal_weight)
@@ -127,9 +136,21 @@ class PreProcess():
     # do weight shift
     weight_shift_function = nominal_weight
     for k, v in weight_shifts.items():
-      weight_shift_function += f"*({v})"
+      if isinstance(v, str):
+        weight_shift_function += f"*({v})"        
     df.loc[:,"wt"] = df.eval(weight_shift_function)
+    for k, v in weight_shifts.items():
+      if isinstance(v, dict):
+        if v["type"] == "function":
+          module = importlib.import_module(v["file"])
+          func = getattr(module, v["name"])
+          df = func(df, **v["args"])
+        else:
+          raise ValueError(f"Weight shift type {v['type']} not recognised")
     df.loc[:,"wt_shift"] = df.loc[:,"wt"]/df.loc[:,"old_wt"]
+
+    # Remove events with 0 weight
+    df = df.loc[(df["wt"] != 0), :]
 
     return df
 
@@ -531,6 +552,70 @@ class PreProcess():
       )
 
 
+  def _DoReweightToShift(self, col_files, wt_file, shifts, selection=None, n_bins=40, samples=10**7):
+
+    rdp = DataProcessor(
+      [[f"{self.data_output}/{i}" for i in col_files] + [f"{self.data_output}/{wt_file}"]],
+      "parquet",
+      batch_size=self.batch_size,
+      options = {
+        "wt_name" : "wt",
+      }      
+    )
+
+    for k,v in shifts.items():
+
+      if v["type"] not in ["continuous","flat_top"]:
+        continue
+    
+      bins = rdp.GetFull(method="bins_with_equal_stats", column=k, bins=n_bins, ignore_quantile=0.0)
+      hist, _ = rdp.GetFull(method="histogram", column=k, bins=bins, ignore_quantile=0.0, extra_sel=selection)
+
+      # Check what distribution we want to flatten to
+      if v["type"] == "continuous":
+        hist_to = (np.sum(hist)/len(hist))*np.ones(len(hist))
+      elif v["type"] == "flat_top":
+        samples = SampleFlatTop(samples, (v["range"][0], v["range"][1]), v["other"]["sigma_out"])
+        hist_to, _ = np.histogram(samples, bins=bins)
+        hist_to = hist_to.astype(float)
+        hist_to *= np.sum(hist)/np.sum(hist_to)
+
+      # Cap spline to boundaries
+      spline = CubicSpline((bins[1:]+bins[:-1])/2, hist_to/hist, extrapolate=True, bc_type='clamped')
+
+      wt_reweight_name = wt_file.replace(".parquet",f"_{k}_reweight.parquet")
+
+      if os.path.isfile(f"{self.data_output}/{wt_reweight_name}"):
+        os.system(f"rm {self.data_output}/{wt_reweight_name}")
+
+      def ApplySpline(df, spline, k, selection=None):
+        if selection is not None:
+          mask = df.eval(selection)
+        else:
+          mask = np.ones(len(df), dtype=bool)
+        df.loc[mask,"wt"] *= spline(df.loc[mask,k])
+        return df.loc[:,["wt"]]
+
+
+      rdp.GetFull(
+        method=None,
+        functions_to_apply = [
+          partial(
+            ApplySpline, 
+            spline=spline, 
+            k=k,
+            selection=selection
+          ),
+          partial(
+            self._WriteDataset, 
+            file_name=wt_reweight_name
+          )
+        ],
+      )
+
+      os.system(f"mv {self.data_output}/{wt_reweight_name} {self.data_output}/{wt_file}")
+
+
   def _DoModelVariations(self, file_name, cfg, do_clear=True):
 
     # Check if we need to split density models
@@ -649,6 +734,54 @@ class PreProcess():
             os.system(f"rm {outfile}")
   
 
+  def _DoShiftReweighting(self, file_name, cfg):
+
+    # Check if we need to split density models
+    split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
+
+    # Get defaults
+    defaults = GetDefaults(cfg)
+
+    # Loop through the train and test
+    for data_split in ["train","test"]:
+
+      # Do density models
+      if self.model_type is None or self.model_type == "density_models":
+        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+          value_copy = copy.deepcopy(value)
+          for k, v in defaults.items():
+            if k not in value["parameters"]:
+              value_copy["shifts"][k] = {"type":"fixed","value":v}
+          if not split_density_model:
+            self._DoReweightToShift([f"density/{i}_{data_split}.parquet" for i in ["X","Y"]], f"density/wt_{data_split}.parquet", value_copy["shifts"])
+          else:
+            self._DoReweightToShift([f"density/split_{value['split']}/{i}_{data_split}.parquet" for i in ["X","Y"]], f"density/split_{value['split']}/wt_{data_split}.parquet", value_copy["shifts"])
+
+      # Do regression models
+      if self.model_type is None or self.model_type == "regression_models":
+        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+          value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
+          if self.parameter_name is None or self.parameter_name == value["parameter"]:
+            value_copy = copy.deepcopy(value)
+            for k, v in defaults.items():
+              if k != value["parameter"]:
+                value_copy["shifts"][k] = {"type":"fixed","value":v}
+            self._DoReweightToShift([f"regression/{value['parameter']}/{i}_{data_split}.parquet" for i in ["X","y"]], f"regression/{value['parameter']}/wt_{data_split}.parquet", value_copy["shifts"])
+
+      # Do classifier models
+      if self.model_type is None or self.model_type == "classifier_models":
+        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+          value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
+          if self.parameter_name is None or self.parameter_name == value["parameter"]:
+            value_copy = copy.deepcopy(value)
+            for k, v in defaults.items():
+              if k != value["parameter"]:
+                value_copy["shifts"][k] = {"type":"fixed","value":v}
+            value_copy["shifts"]["classifier_truth"] = {"type":"fixed","value":1.0}
+            self._DoReweightToShift([f"classifier/{value['parameter']}/{i}_{data_split}.parquet" for i in ["X","y"]], f"classifier/{value['parameter']}/wt_{data_split}.parquet", value_copy["shifts"], selection="(classifier_truth==0.0)")
+            self._DoReweightToShift([f"classifier/{value['parameter']}/{i}_{data_split}.parquet" for i in ["X","y"]], f"classifier/{value['parameter']}/wt_{data_split}.parquet", value_copy["shifts"], selection="(classifier_truth==1.0)")
+
   def _DoValidationVariations(self, file_name, cfg, do_clear=True):
 
     # Get extra columns
@@ -700,9 +833,11 @@ class PreProcess():
 
     if do_clear:
       # Clear up old files
+      default_index = GetValidationDefaultIndex(cfg, file_name)
       for k in cfg["files"].keys():
         for data_split in ["val","train_inf","test_inf","full"]:
           for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
+            if ind == default_index: continue
             if self.val_ind is None or self.val_ind == ind:
               outfile = f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"
               if os.path.isfile(outfile):
@@ -772,6 +907,79 @@ class PreProcess():
           os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
     
 
+
+  def _DoNuisanceNormalisation(self, file_name, cfg, yields):
+
+    for data_split in ["val","train_inf","test_inf","full"]:
+
+      # Get defaults
+      params_in_model = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True, category=self.category)
+
+      for nui in cfg["nuisances"]:
+
+        if nui not in params_in_model.keys():
+          continue
+
+        for shift in ["up","down"]:
+          
+          val_key = f"{nui}_{shift}"
+
+          if self.nuisance_shift is None or self.nuisance_shift == val_key:
+
+            outfile = f"{val_key}/wt_{data_split}_norm.parquet"
+            nomfile = f"{val_key}/wt_{data_split}.parquet"
+
+            # Delete file
+            if os.path.isfile(outfile):
+              os.system(f"rm {outfile}")
+
+            # Build dataprocessor
+            dp = DataProcessor(
+              [[f"{self.data_output}/{nomfile}"]],
+              "parquet",
+              options = {
+                "wt_name" : "wt",
+              },
+              batch_size=self.batch_size,
+            )
+
+            # Get normalisation
+            if np.sum(dp.num_batches) == 0:
+              continue
+
+            norm = dp.GetFull(method="sum")
+
+            def normalisation(df, norm):
+              if len(df) == 0: 
+                return df
+              df.loc[:,"wt"] /= norm
+              return df
+
+            yield_class = Yields(
+              yields["nominal"],
+              lnN = yields["lnN"],
+              physics_model = None,
+              rate_param = f"mu_{file_name}" if file_name in cfg["inference"]["rate_parameters"] else None,
+            )
+
+            Y_vals = copy.deepcopy(params_in_model)
+            Y_vals[nui] = 1.0 if shift == "up" else -1.0
+
+            scaler = yield_class.GetYield(pd.DataFrame({k:[v] for k, v in Y_vals.items()}))
+            # Normalise dataset
+            dp.GetFull(
+              method=None,
+              functions_to_apply = [
+                partial(normalisation, norm=norm/scaler),
+                partial(self._WriteDataset, file_name=outfile)
+              ]
+            )
+
+            # Move over
+            os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
+
+
+
   def _GetBinnedFitInputs(self, file_name, cfg, yields):
 
     # Check if binned fit is needed
@@ -840,6 +1048,7 @@ class PreProcess():
           inputs_for_binned_fit[-1]["yields"][poi_val]["nominal"] *= total_scales[poi_val]
 
     self.binned_fit_input = inputs_for_binned_fit
+
 
 
   def _GetValidationBinned(self, file_name, cfg):
@@ -1224,6 +1433,8 @@ class PreProcess():
       # density model
       if self.model_type is None or self.model_type == "density_models":
         for extra_dir in density_loop:
+          if self.verbose:
+            print(f" - Shuffling density model variation for {file_name}, split: {data_split}, directory: {extra_dir}")
           self._DoShuffleDataset([f"{self.data_output}/{extra_dir}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
 
       # regression models
@@ -1232,6 +1443,8 @@ class PreProcess():
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
+            if self.verbose:
+              print(f" - Shuffling regression model variation for {file_name}, split: {data_split}, parameter: {name}")
             self._DoShuffleDataset([f"{self.data_output}/regression/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
 
       # classifier models
@@ -1240,6 +1453,8 @@ class PreProcess():
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
+            if self.verbose:
+              print(f" - Shuffling classifier model variation for {file_name}, split: {data_split}, parameter: {name}")
             self._DoShuffleDataset([f"{self.data_output}/classifier/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
 
 
@@ -1412,7 +1627,6 @@ class PreProcess():
         parameters_file["density"]["split_Y_columns"].append(v["parameters"])
       parameters_file["density"]["split_Y_columns"] = sorted(list(set(parameters_file["density"]["split_Y_columns"])))
 
-    #for v in cfg["models"][file_name]["regression_models"]:
     for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
       v = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
       name = v["parameter"]
@@ -1424,7 +1638,6 @@ class PreProcess():
       parameters_file["regression"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
       parameters_file["regression"][name]["y_columns"] = ["wt_shift"]
 
-    #for v in cfg["models"][file_name]["classifier_models"]:
     for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
       v = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
       name = v["parameter"]
@@ -1627,11 +1840,11 @@ class PreProcess():
           os.system(f"mv {self.data_output}/{normalised_name} {self.data_output}/{edit_files[data_split][file_ind]}")  
 
 
+
   def _DoClassBalancing(self, file_name, cfg):
 
     if self.model_type is None or self.model_type == "classifier_models":
 
-      #for value in cfg["models"][file_name]["classifier_models"]:
       for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
         value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
 
@@ -1643,7 +1856,8 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
               "selection" : None,
-            }
+            },
+            batch_size=self.batch_size,
           )
           sum_zero = dp.GetFull(method="sum", extra_sel="(classifier_truth == 0)")
           sum_one = dp.GetFull(method="sum", extra_sel="(classifier_truth == 1)")
@@ -1652,73 +1866,33 @@ class PreProcess():
           def class_balancing(df):
             df.loc[(df["classifier_truth"] == 0), "wt"] *= scale_to / sum_zero
             df.loc[(df["classifier_truth"] == 1), "wt"] *= scale_to / sum_one
-            return df
+            return df.loc[:,["wt"]]
 
-          balanced_name = f"classifier/{value['parameter']}/wt_train_balanced.parquet"
-          if os.path.isfile(f"{self.data_output}/{balanced_name}"):
-            os.system(f"rm {self.data_output}/{balanced_name}")
+          for tt in ["train","test"]:
 
-          dp.GetFull(
-            method = None,
-            functions_to_apply = [
-              class_balancing,
-              partial(self._WriteDataset, file_name=balanced_name)
-            ]
-          )
-          if os.path.isfile(f"{self.data_output}/{balanced_name}"):
-            os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_train.parquet")
-
-
-  def _DoConditionalClassifierReweighting(self, file_name, cfg):
-
-    if self.model_type is None or self.model_type == "classifier_models":
-
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
-        value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
-
-        if self.parameter_name is None or self.parameter_name == value["parameter"]:
-
-          dp = DataProcessor(
-            [[f"{self.data_output}/classifier/{value['parameter']}/X_train.parquet", f"{self.data_output}/classifier/{value['parameter']}/y_train.parquet", f"{self.data_output}/classifier/{value['parameter']}/wt_train.parquet"]],
-            "parquet",
-            options = {
-              "wt_name" : "wt",
-              "selection" : None,
-            }
-          )
-          n_bins=20
-          nom_hist, bins = dp.GetFull(method="histogram", column=value["parameter"], bins=n_bins, extra_sel="(classifier_truth == 0)")
-          shift_hist, _ = dp.GetFull(method="histogram", column=value["parameter"], bins=bins, extra_sel="(classifier_truth == 1)")
-          ratio = nom_hist/shift_hist
-
-          bin_centers = (bins[:-1] + bins[1:]) / 2
-          spline = CubicSpline(bin_centers, ratio, bc_type="clamped", extrapolate=False)
-
-          def class_balancing(df, spline):
-            #slice = (df["classifier_truth"] == 1)
-            #df.loc[slice, "wt"] *= spline(df.loc[slice, value["parameter"]])
-            #return df
-            mask = (df["classifier_truth"] == 1)
-            x = df.loc[mask, value["parameter"]].to_numpy()   # fast array
-            df.loc[mask, "wt"] *= spline(x)
-            return df
-
-          for dt in ["train", "test"]:
-            print(f" - Doing conditional reweighting for classifier {value['parameter']} dataset {dt}")
-
-            balanced_name = f"classifier/{value['parameter']}/wt_{dt}_conditional_reweighting.parquet"
+            balanced_name = f"classifier/{value['parameter']}/wt_{tt}_balanced.parquet"
             if os.path.isfile(f"{self.data_output}/{balanced_name}"):
               os.system(f"rm {self.data_output}/{balanced_name}")
 
-            dp.GetFull(
+            wdp = DataProcessor(
+              [[f"{self.data_output}/classifier/{value['parameter']}/y_{tt}.parquet", f"{self.data_output}/classifier/{value['parameter']}/wt_{tt}.parquet"]],
+              "parquet",
+              options = {
+                "wt_name" : "wt",
+                "selection" : None,
+              },
+              batch_size=self.batch_size,
+            )
+
+            wdp.GetFull(
               method = None,
               functions_to_apply = [
-                partial(class_balancing, spline=spline),
+                class_balancing,
                 partial(self._WriteDataset, file_name=balanced_name)
               ]
             )
             if os.path.isfile(f"{self.data_output}/{balanced_name}"):
-              os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_{dt}.parquet")
+              os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_{tt}.parquet")
 
 
   def _DoMergeParametersFile(self, file_name, cfg):
@@ -1748,6 +1922,82 @@ class PreProcess():
     # write parameters file
     with open(f"{self.data_output}/parameters.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
+
+
+  def _DoNuisanceVariations(self, file_name, cfg, do_clear=True):
+    
+    if len(cfg["nuisances"]) == 0:
+      return
+    
+    # Get parameters in model
+    parameters_in_model = GetParametersInModel(file_name, cfg, category=self.category)
+
+    # Get extra columns
+    extra_cols = None
+    if "save_extra_columns" in cfg["preprocess"]:
+      if file_name in cfg["preprocess"]["save_extra_columns"]:
+        extra_cols = cfg["preprocess"]["save_extra_columns"][file_name]
+
+    # Get defaults
+    defaults = GetDefaults(cfg)
+    default_index = GetValidationDefaultIndex(cfg, file_name)
+
+    for nui in cfg["nuisances"]:
+
+      if nui not in parameters_in_model:
+        continue
+
+      for shift in ["up","down"]:
+        
+        val_key = f"{nui}_{shift}"
+
+        if self.nuisance_shift is None or self.nuisance_shift == val_key:
+
+          # Get base file from validation
+          base_file_name = None
+          for value in cfg["validation"]["files"][file_name]:
+            if "categories" not in value.keys() or self.category is None or self.category in value["categories"]:
+              base_file_name = value["file"]
+              break
+
+          # Setup shift dictionary
+          parameters_in_file = cfg["files"][base_file_name]["parameters"]
+          shifts = {}
+          for k, v in defaults.items():
+            if k not in parameters_in_file:
+              shifts[k] = {"type":"fixed","value":v}
+          shifts[nui] = {"type":"fixed", "value": 1.0 if shift=="up" else -1.0}
+          val_shift = {
+            "parameters" : parameters_in_model,
+            "file" : base_file_name,
+            "n_copies" : 1,
+            "shifts" : shifts
+          }
+
+          # Loop through validation types
+          for data_split in ["val","train_inf","test_inf","full"]:
+            
+            # Clear previous files
+            for k in ["X","Y","wt","Extra"]:
+              outfile = f"{self.data_output}/{val_key}/{k}_{data_split}.parquet"
+              if os.path.isfile(outfile):
+                os.system(f"rm {outfile}")      
+
+            # Do variations            
+            val_split_model = {"X":cfg["variables"], "Y":val_shift["parameters"], "wt":["wt"]}
+            if extra_cols is not None:
+              val_split_model["Extra"] = extra_cols 
+            self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{default_index}/{base_file_name}_{data_split}", cfg, f"{val_key}", data_split, split_dict=val_split_model)
+
+    if do_clear:
+      # Clear up old files
+      for k in cfg["files"].keys():
+        for data_split in ["val","train_inf","test_inf","full"]:
+          for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
+            if ind != default_index: continue
+            outfile = f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"
+            if os.path.isfile(outfile):
+              os.system(f"rm {outfile}")  
 
 
   def Configure(self, options):
@@ -1821,15 +2071,15 @@ class PreProcess():
         print("- Flattening train and test dataset")
       self._DoFlattenByYields(self.file_name, cfg, yields)
 
+      # Do shift reweighting
+      if self.verbose:
+        print("- Reweighting shifts in train and test datasets back to chosen distributions")
+      self._DoShiftReweighting(self.file_name, cfg)
+
       # Normalise yields in certain bins
       if self.verbose:
         print("- Normalising train and test in given selections")
       self._DoNormaliseIn(self.file_name, cfg)
-
-      # Normalise the conditions of the classifier
-      if self.verbose:
-        print("- Reweighting the classifier conditions so they are equal")
-      self._DoConditionalClassifierReweighting(self.file_name, cfg)
 
       # Standardise
       if self.verbose:
@@ -1871,9 +2121,23 @@ class PreProcess():
         print("- Get validation binned fit inputs")
       self._GetValidationBinned(self.file_name, cfg)
 
- 
+
+    # Make nuisance variation samples
+    if self.partial is None or self.partial == "nuisance_variations":
+      
+      # Make nuisance variation datasets
+      if self.verbose:
+        print("- Calculating nuisance variation datasets")
+      self._DoNuisanceVariations(self.file_name, cfg, do_clear=(self.partial is None))
+
+      # Normalise nuisance variation datasets to correct yield
+      if self.verbose:
+        print("- Normalising nuisance variation datasets to correct yield")
+      self._DoNuisanceNormalisation(self.file_name, cfg, yields)
+
+
     # Write parameters
-    if self.partial is None or self.partial != "merge":
+    if self.partial is None or self.partial not in ["merge","nuisance_variations"]:
       if self.verbose:
         print("- Writing parameters")
       self._DoParametersFile(self.file_name, cfg, yields=yields, eff_events=eff_events, standardisation=standardisation_parameters)
@@ -1897,7 +2161,8 @@ class PreProcess():
     cfg = LoadConfig(self.cfg)
 
     # Add parameters file
-    outputs += [f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml"]
+    if self.partial is None or self.partial in ["initial", "model", "validation","merge"]:
+      outputs += [f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml"]
       
     # Check if we output Extra
     density_loop = ["X","Y","wt"]
@@ -1955,6 +2220,19 @@ class PreProcess():
           for ind in val_ind_loop:
             outputs += [f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"]
 
+    # Do nuisance variations
+    if self.partial is None or self.partial == "nuisance_variations":
+      
+      for nui in cfg["nuisances"]:
+        parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
+        if nui not in parameters_in_model: continue
+        for shift in ["up","down"]:
+          val_key = f"{nui}_{shift}"
+          if self.nuisance_shift is None or self.nuisance_shift == val_key:
+            for data_split in ["val","train_inf","test_inf","full"]:
+              for k in density_loop:
+                outputs += [f"{self.data_output}/{val_key}/{k}_{data_split}.parquet"]
+
     return outputs
 
 
@@ -1985,7 +2263,7 @@ class PreProcess():
         inputs += [file_name]
 
     # Add initial parameters
-    if self.partial in ["model", "validation"]:
+    if self.partial in ["model", "validation", "nuisance_variations"]:
       inputs += [f"{self.data_output}/parameters_initial.yaml"]
 
     # Add merge parameters

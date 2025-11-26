@@ -795,6 +795,20 @@ def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, onl
   return loop_with_unique_parameters
 
 
+def GetValidationDefaultIndex(cfg, file_name, category=None):
+  defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True, category=category)
+  val_loop = GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)
+  for ind, val in enumerate(val_loop):
+    default = True
+    for k,v in val.items():
+      if v != defaults[k]:
+        default = False
+        break
+    if default:
+      return ind
+  raise ValueError("Default value needs to be in the validation loop")
+
+
 def GetCombinedValdidationIndices(cfg, file_name, val_ind):
   if file_name != "combined":
     return {file_name : val_ind}
@@ -1216,6 +1230,23 @@ def LoadConfig(config_name):
     if "weight_shifts" not in v.keys():
       cfg["files"][k]["weight_shifts"] = {}
 
+  # Check default value is in validation loop
+  defaults = GetDefaults(cfg)
+  found_default = False
+  for val in cfg["validation"]["loop"]:
+    all_default = True
+    for k,v in val.items():
+      if k not in defaults.keys():
+        raise ValueError(f"Parameter {k} in validation loop not in default values")
+      if defaults[k] != v:
+        all_default = False
+        break
+    if all_default:
+      found_default = True
+      break
+  if not found_default:
+    raise ValueError("Default value needs to be in the validation loop")
+  
   return cfg
 
 
