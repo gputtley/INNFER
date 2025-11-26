@@ -870,18 +870,18 @@ class Likelihood():
     if "pdf_shifts_with_regression" not in self.models.keys():
       return log_probs
 
-    # Make gradient loop
-    if not isinstance(gradient, list):
-      gradient_loop = [gradient]
-      log_probs = [log_probs]
-    else:
-      gradient_loop = gradient
-
     # Loop through regression models
     if file_name in self.models["pdf_shifts_with_regression"][category].keys():
 
       if self.models["pdf_shifts_with_regression"][category][file_name] == {}:
         return log_probs
+
+      # Make gradient loop
+      if not isinstance(gradient, list):
+        gradient_loop = [gradient]
+        log_probs = [log_probs]
+      else:
+        gradient_loop = gradient
 
       # Make combined dataset
       combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
@@ -925,6 +925,7 @@ class Likelihood():
                   norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
                   log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
         
+
     if not isinstance(gradient, list):
       log_probs = log_probs[0]
 
@@ -936,18 +937,18 @@ class Likelihood():
     if "pdf_shifts_with_classifier" not in self.models.keys():
       return log_probs
 
-    # Make gradient loop
-    if not isinstance(gradient, list):
-      gradient_loop = [gradient]
-      log_probs = [log_probs]
-    else:
-      gradient_loop = gradient
-
     # Loop through classifier models
     if file_name in self.models["pdf_shifts_with_classifier"][category].keys():
 
       if self.models["pdf_shifts_with_classifier"][category][file_name] == {}:
         return log_probs
+
+      # Make gradient loop
+      if not isinstance(gradient, list):
+        gradient_loop = [gradient]
+        log_probs = [log_probs]
+      else:
+        gradient_loop = gradient
 
       # Make combined dataset
       combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
@@ -991,21 +992,21 @@ class Likelihood():
           elif grad == 2:
             log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
 
-        ## Normalise predictions
-        #for ind, grad in enumerate(gradient_loop):
-        #  if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
-        #    if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
-        #      if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
-        #        norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-        #        if grad == 0:
-        #          log_probs[ind] += np.log(norm)                
-        #        elif grad == 1 and k in column_1:
-        #          norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-        #          log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-        #        elif grad == 2 and column_1 == k and column_2 == k:
-        #          norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-        #          norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-        #          log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+        # Normalise predictions
+        for ind, grad in enumerate(gradient_loop):
+          if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
+            if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
+              if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
+                norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+                if grad == 0:
+                  log_probs[ind] += np.log(norm)                
+                elif grad == 1 and k in column_1:
+                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+                elif grad == 2 and column_1 == k and column_2 == k:
+                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                  norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
 
     if not isinstance(gradient, list):
       log_probs = log_probs[0]

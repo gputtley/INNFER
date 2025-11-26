@@ -45,15 +45,15 @@ class LoadData():
     existing = []
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if k not in self._GetTokens(v) and k not in existing:
-          calculated += [k]
+        if isinstance(v, str):
+          if k not in self._GetTokens(v) and k not in existing:
+            calculated += [k]
+          else:
+            existing += [k]
         else:
-          existing += [k]
-    if "weight_shifts" in cfg["files"][file_name].keys():
-      calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
+          calculated += v.get("outputs", [])
 
     # Add fitted variables
-    #self.columns = cfg["variables"]
     self.columns = []
 
     # Add save extra columns from validation
@@ -109,7 +109,11 @@ class LoadData():
     # Get from post selection
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        if isinstance(v, str):
+          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        else:
+          inputs = v.get("inputs", [])
+          self.columns += [i for i in inputs if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
@@ -119,7 +123,11 @@ class LoadData():
     # Get from weight shifts
     if "weight_shifts" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["weight_shifts"].items():
-        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        if isinstance(v, str):
+          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        else:
+          inputs = v.get("inputs", [])
+          self.columns += [i for i in inputs if i not in calculated]
 
     # Add categories
     if "categories" in cfg.keys():

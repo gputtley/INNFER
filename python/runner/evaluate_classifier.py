@@ -36,6 +36,8 @@ class EvaluateClassifier():
     self.test_name = "test"
     self.model_type = "FCNN"
     self.spline_from_asimov = False
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+
 
   def _WriteDataset(self, df, file_name):
 
@@ -100,6 +102,7 @@ class EvaluateClassifier():
       pred_df = DataProcessor(
         [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","y"]]],
         "parquet",
+        batch_size = self.batch_size,
         options = {
           "parameters" : parameters['classifier'][self.parameter],
         },
@@ -136,7 +139,7 @@ class EvaluateClassifier():
           print("- Getting normalisation spline")
 
         reweight_df = DataProcessor(
-          [f"{parameters['classifier'][self.parameter]['file_loc']}/X_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{self.model_input}/{self.model_name}/wt_condition_normalised_{data_split}.parquet", pred_name],
+          [f"{parameters['classifier'][self.parameter]['file_loc']}/X_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/wt_{data_split}.parquet", pred_name],
           "parquet",
           wt_name = "wt",
           options = {

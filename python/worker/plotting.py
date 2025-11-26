@@ -1716,3 +1716,183 @@ def plot_summary_per_val(
   MakeDirectories(plot_name+".pdf")
   plt.savefig(plot_name+".pdf")
   plt.close()
+
+def plot_learned_nuisance_variations(
+  nominal_line_hist,
+  up_line_hist,
+  down_line_hist,
+  nominal_errorbar_hist,
+  up_errorbar_hist,
+  down_errorbar_hist,
+  nominal_errorbar_uncert,
+  up_errorbar_uncert,
+  down_errorbar_uncert,
+  bins,
+  xlabel="",
+  output_name="learned_nuisance_variation",
+  ratio_range_line_vs_errorbar=(0.9,1.1),
+  ratio_range_variations=(0.9,1.1),
+  line_caption="Synth",
+  errorbar_caption="Sim",
+  axis_text = ""
+):
+  
+  # Build 3 vertical pads
+  fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1, 1]}, figsize=(10, 12))
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label,ax=ax1)
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+  ax1.text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes, fontsize=22)
+
+  # Put axis text in top left corner of pad
+  ax1.text(0.03, 0.98, axis_text, transform=ax1.transAxes, 
+      va='top', ha='left', fontsize=18,
+      bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.3'))
+
+  # Plot sim as solid lines on top pad
+  bin_edges = np.append(bins, 2*bins[-1]-bins[-2])
+  ax1.step(
+    bin_edges, 
+    np.append(np.insert(nominal_line_hist,0,0.0),0.0), 
+    where='pre',
+    alpha=1.0,
+    label=f"{line_caption} Nominal",
+    color='black',
+  )
+  ax1.step(
+    bin_edges, 
+    np.append(np.insert(up_line_hist,0,0.0),0.0), 
+    where='pre',
+    alpha=1.0,
+    label=f"{line_caption} Up",
+    color='red',
+  )
+  ax1.step(
+    bin_edges, 
+    np.append(np.insert(down_line_hist,0,0.0),0.0), 
+    where='pre',
+    alpha=1.0,
+    label=f"{line_caption} Down",
+    color='blue',
+  )
+
+  # Plot asimov as error bars
+  bin_centers = (bins[:-1] + bins[1:])/2
+  ax1.errorbar(
+    bin_centers, 
+    nominal_errorbar_hist, 
+    yerr=nominal_errorbar_uncert, 
+    fmt='o', 
+    color='black', 
+    label=f"{errorbar_caption} Nominal",
+    capsize=5,
+  )
+  ax1.errorbar(
+    bin_centers, 
+    up_errorbar_hist, 
+    yerr=up_errorbar_uncert, 
+    fmt='o', 
+    color='red', 
+    label=f"{errorbar_caption} Up",
+    capsize=5,
+  )
+  ax1.errorbar(
+    bin_centers, 
+    down_errorbar_hist, 
+    yerr=down_errorbar_uncert, 
+    fmt='o', 
+    color='blue', 
+    label=f"{errorbar_caption} Down",
+    capsize=5,
+  )
+
+  ax1.set_ylabel("Events")
+  ax1.legend(fontsize=18, loc='upper right')
+
+  # Set y range as 1.1 times the max of all histograms
+  max_y = max(
+    max(nominal_line_hist),
+    max(up_line_hist),
+    max(down_line_hist),
+    max(nominal_errorbar_hist + nominal_errorbar_uncert),
+    max(up_errorbar_hist + up_errorbar_uncert),
+    max(down_errorbar_hist + down_errorbar_uncert),
+  )
+  ax1.set_ylim(0, 1.1*max_y)
+
+
+  # Draw ratio of sim to asimov on middle pad
+  ax2.errorbar(
+    bin_centers, 
+    nominal_errorbar_hist/nominal_line_hist, 
+    yerr=(nominal_errorbar_uncert/nominal_line_hist), 
+    fmt='o', 
+    color='black', 
+    capsize=5,
+  )
+  ax2.errorbar(
+    bin_centers, 
+    up_errorbar_hist/up_line_hist, 
+    yerr=(up_errorbar_uncert/up_line_hist), 
+    fmt='o', 
+    color='red', 
+    capsize=5,
+  )
+  ax2.errorbar(
+    bin_centers, 
+    down_errorbar_hist/down_line_hist, 
+    yerr=(down_errorbar_uncert/down_line_hist), 
+    fmt='o', 
+    color='blue', 
+    capsize=5,
+  )
+  ax2.axhline(y=1.0, color='black', linestyle='--')
+
+  ax2.set_ylabel(f"$\\frac{{\\mathrm{{{errorbar_caption}}}}}{{\\mathrm{{{line_caption}}}}}$")
+  ax2.set_ylim(ratio_range_line_vs_errorbar)
+
+
+  # Draw ratios of up/down to nominal on bottom pad for sim (lines) and synth (points)
+  ax3.step(
+    bin_edges, 
+    np.append(np.insert(up_line_hist/nominal_line_hist,0,1.0),1.0), 
+    where='pre',
+    alpha=1.0,
+    color='red',
+  )
+  ax3.step(
+    bin_edges, 
+    np.append(np.insert(down_line_hist/nominal_line_hist,0,1.0),1.0), 
+    where='pre',
+    alpha=1.0,
+    color='blue',
+  )
+  ax3.errorbar(
+    bin_centers, 
+    up_errorbar_hist/nominal_errorbar_hist, 
+    yerr=up_errorbar_uncert/nominal_errorbar_hist, 
+    fmt='o', 
+    color='red', 
+    capsize=5,
+  )
+  ax3.errorbar(
+    bin_centers, 
+    down_errorbar_hist/nominal_errorbar_hist, 
+    yerr=down_errorbar_uncert/nominal_errorbar_hist, 
+    fmt='o', 
+    color='blue', 
+    capsize=5,
+  )
+  ax3.axhline(y=1.0, color='black', linestyle='--')
+  #ax3.set_ylabel("Variation / Nominal", fontsize=18)
+  ax3.set_ylabel(f"$\\frac{{\\mathrm{{Variation}}}}{{\\mathrm{{Nominal}}}}$")
+  ax3.set_xlabel(xlabel)
+  ax3.set_ylim(ratio_range_variations)
+
+  # save figure
+  print("Created "+output_name+".pdf")
+  MakeDirectories(output_name+".pdf")
+  plt.savefig(output_name+".pdf", bbox_inches='tight')
+  plt.close()

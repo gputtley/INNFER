@@ -28,6 +28,7 @@ class PlotClassifier():
     self.verbose = True
     self.test_name = "test"
     self.model_input = None
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
 
   def Configure(self, options):
     """
@@ -62,12 +63,13 @@ class PlotClassifier():
 
       nominal_files = [f"{self.data_input}/{i}_{data_split}.parquet" for i in ["X","y"]]
       pred_file = f"{self.evaluate_input}/pred_{data_split}.parquet"
-      wt_norm_file = f"{self.model_input}/{self.model_name}/wt_condition_normalised_{data_split}.parquet"
+      wt_norm_file = f"{self.data_input}/wt_{data_split}.parquet"
 
       pred_df = DataProcessor(
         [nominal_files + [pred_file] + [wt_norm_file]],
         "parquet",
         wt_name = "wt",
+        batch_size = self.batch_size,
         options = {
           "parameters" : parameters['classifier'][self.parameter],
           "functions" : ["untransform"],

@@ -164,7 +164,6 @@ class InputPlotTraining():
         }
       )
 
-
       if dp.GetFull(method="count") == 0: continue
       for transform in [False, True]:
         functions_to_apply = []
@@ -172,7 +171,6 @@ class InputPlotTraining():
           functions_to_apply = ["untransform"]
 
         for col in columns:
-
 
           bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
           bins = [(2*bins[0])-bins[1]] + list(bins) + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
