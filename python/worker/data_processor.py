@@ -1,3 +1,5 @@
+import time
+
 import copy
 import os
 import pickle
@@ -86,6 +88,9 @@ class DataProcessor():
     self.file_ind = 0
     self.batch_ind = 0
     self.finished = False
+    self.total_columns = None
+    self.sort_columns = True
+
 
   def _SetOptions(
       self, 
@@ -113,15 +118,17 @@ class DataProcessor():
   def LoadNextBatch(
       self, 
       extra_sel = None, 
-      functions_to_apply = []
+      functions_to_apply = [],
+      print_dataset = False,
     ):
 
     functions_to_apply = self.functions + functions_to_apply
 
     self.finished = False
     df = None
-    for column_ind in range(len(self.datasets[self.file_ind])):
 
+    for column_ind in range(len(self.datasets[self.file_ind])):
+    
       # Get dataset
       if self.dataset_type == "dataset":
         tmp = self.datasets[self.file_ind][column_ind]
@@ -135,17 +142,25 @@ class DataProcessor():
 
       # Combine columns into a full batch
       if df is None:
-        df = copy.deepcopy(tmp)
+
+        #df = tmp.copy()
+        #df = copy.deepcopy(tmp)
+        #df = pd.DataFrame({col: tmp[col] for col in tmp.columns})
+        df = tmp.reindex(tmp.index, copy=False)
+
       else:
         
-        # remove non unique columns
-        for col in tmp.columns:
-          if col in df.columns:
-            tmp = tmp.drop(columns=[col])
-            
-        df = pd.concat([df, tmp], axis=1)
+        df = pd.concat([df, tmp.loc[:, ~tmp.columns.isin(df.columns)]], axis=1)
 
-      del tmp
+
+        ## remove non unique columns
+        #for col in tmp.columns:
+        #  if col in df.columns:
+        #    tmp = tmp.drop(columns=[col])
+        #    
+        #df = pd.concat([df, tmp], axis=1)
+
+      #del tmp
 
     if df is None: 
       self.finished = True
@@ -153,7 +168,8 @@ class DataProcessor():
 
     # Set data type
     if len(df) > 0 and len(df.columns) > 0:
-      df = df.astype(float)
+      if not all(df.dtypes == "float"):
+        df = df.astype("float", copy=False)
 
     # Scale weights
     if self.scale[self.file_ind] is not None:
@@ -204,7 +220,13 @@ class DataProcessor():
       df = df.drop(columns=[col for col in self.drop_columns if col in df.columns])
 
     # Sort columns
-    df = df.loc[:, sorted(list(df.columns))]
+    #df = df.loc[:, sorted(list(df.columns))]
+    #df = df[df.columns.sort_values()]
+    #df = df.reindex(sorted(df.columns), axis=1)
+    if self.sort_columns:
+      if self.total_columns is None:
+        self.total_columns = sorted(list(df.columns))
+      df = df[self.total_columns]
 
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
@@ -218,6 +240,7 @@ class DataProcessor():
       self.batch_ind += 1
 
     return df
+
 
   def GetFull(
       self, 
@@ -291,10 +314,11 @@ class DataProcessor():
       tmp = self.LoadNextBatch(
         extra_sel = extra_sel,
         functions_to_apply = functions_to_apply,
+        print_dataset = print_dataset,
       )
 
-      if print_dataset:
-        print(tmp)
+      #if print_dataset:
+      #  print(tmp)
 
       # Run method
       if method in ["dataset"]: # get full dataset
@@ -341,7 +365,7 @@ class DataProcessor():
         out = None
 
       # Remove tmp from memory
-      del tmp
+      #del tmp
 
     self.finished = False
 
@@ -576,7 +600,7 @@ class DataProcessor():
 
   def _method_dataset(self, tmp, out):
     if out is None:
-      out = copy.deepcopy(tmp)
+      out = tmp.reindex(tmp.index, copy=False)
     else:
       out = pd.concat([out, tmp], axis=0, ignore_index=True)
     return out

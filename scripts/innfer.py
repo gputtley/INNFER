@@ -463,6 +463,7 @@ def main(args, default_args):
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
           )
 
+
   # Train density network
   if args.step == "TrainDensity":
     print("<< Training the density networks >>")
@@ -1308,7 +1309,7 @@ def main(args, default_args):
         if SkipNonData(cfg, file_name, args.data_type, val_ind): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
-          columns = [col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()]
+          columns = sorted([col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()])
           for column_1_ind, column_1 in enumerate(columns):
             for column_2_ind, column_2 in enumerate(columns):
               if column_1_ind > column_2_ind: continue

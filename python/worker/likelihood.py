@@ -60,15 +60,21 @@ class Likelihood():
     self.covariance = None
 
     # Cache for density log probs
-    self.use_log_probs_cache = False
+    self.use_density_cache = False
+    self.use_classifier_cache = False
+    self.use_regression_cache = False
     self.cache_only_non_minimised = False
-    self.cached_minimised_columns = []
+    self.cached_density_minimised_columns = []
     self.cache_name = RandomString()
-    self.cached_list = []
+    self.cached_list_density = []
+    self.cached_list_classifier = []
+    self.cached_list_regression = []
     self.cached_log_probs_batch_ind = 0
     self.cached_log_probs_ind = 0
-    self.n_caches = 200
+    self.n_caches = 500
     self.cache_dir = "tmp"
+    self.save_cache_to_memory = True
+    self.cache_memory = {}
     if not os.path.exists(self.cache_dir):
       MakeDirectories(self.cache_dir)
 
@@ -194,6 +200,7 @@ class Likelihood():
 
     return out
 
+
   def _GetBinned(self, bin_values, Y, category=None):
 
     predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
@@ -205,6 +212,7 @@ class Likelihood():
 
     return ln_lkld
 
+
   def _GetBinnedExtended(self, bin_values, Y, category=None):
 
     predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
@@ -214,6 +222,7 @@ class Likelihood():
     ln_lkld = np.sum([(bin_value*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index, bin_value in enumerate(bin_values)])
 
     return ln_lkld
+
 
   def _GetConstraint(self, Y, derivative=0, column_1=None, column_2=None):
 
@@ -273,62 +282,171 @@ class Likelihood():
     return ln_constraint
 
 
-  def _CreateCacheLogProbsDict(self, name, pdf, Y, gradient, category):
+  def _CreateCacheDict(self, name, model, Y, gradient, category, model_type="density", extra_options={}, parameter_name=None, extra_save_name=""):
 
-    Y_columns_per_density_model = pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns # Temporary?
+    if model_type == "density":
+      Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
+    else:
+      Y_columns_per_model = [parameter_name] if parameter_name is not None else self.Y_columns # Temporary?
 
     cache_dict = {
       "name": name,
-      "Y": Y.loc[:, Y_columns_per_density_model].to_dict(),
+      "Y": Y.loc[:, Y_columns_per_model].to_dict(),
       "gradient": gradient,
       "category": category,
-      "cache_file_name": f"{self.cache_dir}/{self.cache_name}_log_probs_{name}_{category}_{int(self.cached_log_probs_ind)}_{int(self.cached_log_probs_batch_ind)}",
+      "cache_file_name": f"{self.cache_dir}/{self.cache_name}_log_probs_{name}_{model_type}_{category}_{int(self.cached_log_probs_ind)}_{int(self.cached_log_probs_batch_ind)}{extra_save_name}",
       "log_probs_ind": int(self.cached_log_probs_ind),
-      "log_probs_batch_ind": int(self.cached_log_probs_batch_ind)
+      "log_probs_batch_ind": int(self.cached_log_probs_batch_ind),
+      "model_type": model_type,
     }
+    cache_dict.update(extra_options)
 
     return cache_dict
 
 
-  def _CheckIfInCacheLogProbs(self, cache_dict):
+  def _CheckIfInCacheLogProbs(self, cache_dict, model_type="density"):
 
-    if not self.use_log_probs_cache:
-      return False
+      # Quickly reject disabled caches
+      cache_enabled = {
+          "density": self.use_density_cache,
+          "classifier": self.use_classifier_cache,
+          "regression": self.use_regression_cache,
+      }
 
-    for value in self.cached_list:
-      if value == cache_dict:
-        return True
-      
-    return False
+      if not cache_enabled.get(model_type, False):
+        return False
+
+      lists = {
+        "density": self.cached_list_density,
+        "classifier": self.cached_list_classifier,
+        "regression": self.cached_list_regression,
+      }
+
+      list_to_check = lists[model_type]
+
+      return cache_dict in list_to_check
 
 
-
-  def _CheckIfWriteToCacheLogProbs(self, load_from_cache, pdf):
+  def _CheckIfWriteToCache(self, load_from_cache, model, model_type="density"):
 
     if self.cache_only_non_minimised:
-      Y_columns_per_density_model = pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns # Temporary?
+      Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
       minimised = False
-      for col in Y_columns_per_density_model:
-        if col in self.cached_minimised_columns:
+
+      if model_type == "density":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+      elif model_type == "classifier":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+      elif model_type == "regression":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+
+      for col in Y_columns_per_model:
+        if col in cached_density_minimised_columns:
           minimised = True
           break
       if minimised:
         return False
 
-    if self.use_log_probs_cache and not load_from_cache:
+    if self.use_density_cache and (not load_from_cache) and model_type == "density":
+      return True
+    if self.use_regression_cache and (not load_from_cache) and model_type == "regression":
+      return True
+    if self.use_classifier_cache and (not load_from_cache) and model_type == "classifier":
       return True
     
     return False
 
 
-
   def _ClearCache(self):
-    if not self.use_log_probs_cache:
+
+    if self.save_cache_to_memory:
+      self.cache_memory = {}
+    else:
+      for cache_dict in self.cached_list_density:
+        for grad in cache_dict["gradient"]:
+          os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+      for cache_dict in self.cached_list_classifier:
+        for grad in cache_dict["gradient"]:
+          os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+      for cache_dict in self.cached_list_regression:
+        for grad in cache_dict["gradient"]:
+          os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+    self.cached_list_density = []
+    self.cached_list_classifier = []
+    self.cached_list_regression = []
+
+
+  def _WriteCache(self, input, gradient, cache_dict, load_from_cache, model, model_type="density"):
+
+    if not self._CheckIfWriteToCache(load_from_cache, model, model_type=model_type):
       return
-    for cache_dict in self.cached_list:
-      for grad in cache_dict["gradient"]:
-        os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
-    self.cached_list = []
+    
+    # Pick correct list depending on model_type
+    if model_type == "density":
+        cache_list = self.cached_list_density
+    elif model_type == "classifier":
+        cache_list = self.cached_list_classifier
+    elif model_type == "regression":
+        cache_list = self.cached_list_regression
+
+    # Remove old cache entry with same name (fast)
+    cache_list[:] = [
+        item for item in cache_list
+        if item["cache_file_name"] != cache_dict["cache_file_name"]
+    ]
+
+    for ind, grad in enumerate(gradient):
+
+      if not self.save_cache_to_memory:
+        df_to_save = pd.DataFrame(input[ind])
+        df_to_save.to_parquet(
+            f"{cache_dict['cache_file_name']}_grad{grad}.parquet",
+            engine="pyarrow",
+            compression="snappy"
+        )
+      else:
+        self.cache_memory[f"{cache_dict['cache_file_name']}_grad{grad}"] = input[ind]
+
+    # Add new cache entry
+    cache_list.append(cache_dict)
+
+    # Enforce cache length limit
+    if len(cache_list) > self.n_caches:
+        cache_to_remove = cache_list.pop(0)
+        for grad in cache_to_remove["gradient"]:
+          if not self.save_cache_to_memory:
+            try:
+              os.remove(f"{cache_to_remove['cache_file_name']}_grad{grad}.parquet")
+            except FileNotFoundError:
+              pass
+          else:
+            try:
+              del self.cache_memory[f"{cache_to_remove['cache_file_name']}_grad{grad}"]
+            except KeyError:
+              pass
+
+
+  def _LoadFromCache(self, cache_dict, gradient, model_type="density"):
+
+    ll = []
+    for ind, grad in enumerate(gradient):
+      if not self.save_cache_to_memory:
+        df_loaded = pd.read_parquet(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+        ll.append(df_loaded.to_numpy(dtype=np.float64))
+      else:
+        ll.append(self.cache_memory[f"{cache_dict['cache_file_name']}_grad{grad}"])
+
+    if model_type == "density":
+      self.cached_list_density.remove(cache_dict)
+      self.cached_list_density.append(cache_dict)
+    elif model_type == "regression":
+      self.cached_list_regression.remove(cache_dict)
+      self.cached_list_regression.append(cache_dict)
+    elif model_type == "classifier":
+      self.cached_list_classifier.remove(cache_dict)
+      self.cached_list_classifier.append(cache_dict)
+
+    return ll
 
 
   def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None):
@@ -346,11 +464,13 @@ class Likelihood():
       rate_param = self._GetYield(name, Y, category=category)
       if rate_param == 0: continue
 
-      # Check if we can load from cache
-      cache_dict = self._CreateCacheLogProbsDict(name, pdf, Y, gradient, category)
-      load_from_cache = self._CheckIfInCacheLogProbs(cache_dict)
+      ### Density ###
 
-      if not load_from_cache:
+      # Check if we can load from cache for density
+      cache_dict_density = self._CreateCacheDict(name, pdf, Y, gradient, category, model_type="density")
+      load_from_cache_density = self._CheckIfInCacheLogProbs(cache_dict_density, model_type="density")
+
+      if not load_from_cache_density:
         # Get rate times probability, get gradients simultaneously if required
         log_probs[name] = pdf.Probability(
           X.loc[:,self.X_columns], 
@@ -362,54 +482,84 @@ class Likelihood():
         )
       else:
         # Load from cache
-        log_probs[name] = []
-        for ind, grad in enumerate(gradient):
-          df_loaded = pd.read_parquet(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
-          log_probs[name].append(df_loaded.to_numpy(dtype=np.float64))
-          self.cached_list.remove(cache_dict)
-          self.cached_list.append(cache_dict)
-          del df_loaded
-          gc.collect()
+        log_probs[name] = self._LoadFromCache(cache_dict_density, gradient, model_type="density")
 
       # Check if I need to cache
-      if self._CheckIfWriteToCacheLogProbs(load_from_cache, pdf):
-        for value in copy.deepcopy(self.cached_list):
-          if cache_dict["cache_file_name"] == value["cache_file_name"]:
-            self.cached_list.remove(value)
-        for ind, grad in enumerate(gradient):
-          df_to_save = pd.DataFrame(log_probs[name][ind])
-          df_to_save.to_parquet(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
-          self.cached_list.append(cache_dict)
-          del df_to_save
-          gc.collect()
-        if len(self.cached_list) > self.n_caches:
-          cache_to_remove = self.cached_list.pop(0)
-          for grad in cache_to_remove["gradient"]:
-            os.remove(f"{cache_to_remove['cache_file_name']}_grad{grad}.parquet")
+      self._WriteCache(log_probs[name], gradient, cache_dict_density, load_from_cache_density, pdf, model_type="density")
 
-      # Shift density with regression
-      log_probs[name] = self._ShiftDensityByRegression(
-        log_probs[name],
-        X.loc[:,self.X_columns], 
-        Y.loc[:,self.Y_columns],
-        name,
-        gradient=gradient, 
-        column_1=column_1, 
-        column_2=column_2,
-        category=category        
-      )
 
-      # Shift density with classification
-      log_probs[name] = self._ShiftDensityByClassifier(
-        log_probs[name],
-        X.loc[:,self.X_columns], 
-        Y.loc[:,self.Y_columns],
-        name,
-        gradient=gradient, 
-        column_1=column_1, 
-        column_2=column_2,
-        category=category        
-      )
+      ### Regression ###
+
+      do_shift = False
+      if "pdf_shifts_with_regression" in self.models.keys():
+        if name in self.models["pdf_shifts_with_regression"][category].keys():
+          if len(self.models["pdf_shifts_with_regression"][category][name]) > 0:
+            do_shift = True
+
+      if do_shift:
+
+        vals = Y[self.Y_columns].iloc[0].to_dict()
+        combined = X[self.X_columns].assign(**vals)
+
+        for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
+
+          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
+          load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="regression")
+
+          if not load_from_cache_classifier:
+            regression_shift = self._ShiftDensityByRegression(
+              [np.zeros_like(i) for i in log_probs[name]],
+              combined,
+              name,
+              k,
+              v,
+              gradient=gradient, 
+              column_1=column_1, 
+              column_2=column_2,
+              category=category        
+            )
+          else:
+            regression_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="regression")
+          log_probs[name] = [log_probs[name][i] + regression_shift[i] for i in range(len(gradient))]
+
+          self._WriteCache(regression_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="regression")
+
+
+      ### Classification ###
+
+      do_shift = False
+      if "pdf_shifts_with_classifier" in self.models.keys():
+        if name in self.models["pdf_shifts_with_classifier"][category].keys():
+          if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
+            do_shift = True
+
+      if do_shift:
+
+        vals = Y[self.Y_columns].iloc[0].to_dict()
+        combined = X[self.X_columns].assign(**vals)
+
+        for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+
+          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, model_type="classifier", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
+          load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="classifier")
+
+          if not load_from_cache_classifier:
+            classifier_shift = self._ShiftDensityByClassifier(
+              [np.zeros_like(i) for i in log_probs[name]],
+              combined,
+              name,
+              k,
+              v,
+              gradient=gradient, 
+              column_1=column_1, 
+              column_2=column_2,
+              category=category        
+            )
+          else:
+            classifier_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="classifier")
+          log_probs[name] = [log_probs[name][i] + classifier_shift[i] for i in range(len(gradient))]
+
+          self._WriteCache(classifier_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="classifier")
 
     # check for nans
     if not self.skip_nan_check:
@@ -865,65 +1015,49 @@ class Likelihood():
     return np.array(grads)
 
 
-  def _ShiftDensityByRegression(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None, category=None):
+  def _ShiftDensityByRegression(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None):
 
-    if "pdf_shifts_with_regression" not in self.models.keys():
-      return log_probs
+    # Make gradient loop
+    if not isinstance(gradient, list):
+      gradient_loop = [gradient]
+      log_probs = [log_probs]
+    else:
+      gradient_loop = gradient
 
-    # Loop through regression models
-    if file_name in self.models["pdf_shifts_with_regression"][category].keys():
+    # Get predictions
+    if max(gradient_loop) == 0:
+      get_gradient = [0]
+    elif max(gradient_loop) == 1:
+      get_gradient = [0,1]
+    elif max(gradient_loop) == 2:
+      get_gradient = [0,1,2]
 
-      if self.models["pdf_shifts_with_regression"][category][file_name] == {}:
-        return log_probs
+    pred = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2)
 
-      # Make gradient loop
-      if not isinstance(gradient, list):
-        gradient_loop = [gradient]
-        log_probs = [log_probs]
-      else:
-        gradient_loop = gradient
+    # Update log prob
+    for ind, grad in enumerate(gradient_loop):
+      if grad == 0:
+        log_probs[ind] += np.log(pred[0])                
+      elif grad == 1:
+        log_probs[ind] += pred[1]/pred[0]
+      elif grad == 2:
+        log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
 
-      # Make combined dataset
-      combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
-      del X, Y
-      gc.collect()
-
-      for k, v in self.models["pdf_shifts_with_regression"][category][file_name].items():
-
-        # Get predictions
-        if max(gradient_loop) == 0:
-          get_gradient = [0]
-        elif max(gradient_loop) == 1:
-          get_gradient = [0,1]
-        elif max(gradient_loop) == 2:
-          get_gradient = [0,1,2]
-
-        pred = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2)
-
-        # Update log prob
-        for ind, grad in enumerate(gradient_loop):
-          if grad == 0:
-            log_probs[ind] += np.log(pred[0])                
-          elif grad == 1:
-            log_probs[ind] += pred[1]/pred[0]
-          elif grad == 2:
-            log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
-
-        # Normalise predictions
-        for ind, grad in enumerate(gradient_loop):
-          if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
-            if file_name in self.models["pdf_shifts_with_regression_norm_spline"][category].keys():
-              if k in self.models["pdf_shifts_with_regression_norm_spline"][category][file_name].keys():
-                norm = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-                if grad == 0:
-                  log_probs[ind] += np.log(norm)                
-                elif grad == 1 and k in column_1:
-                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-                elif grad == 2 and column_1 == k and column_2 == k:
-                  norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+    # Normalise predictions
+    for ind, grad in enumerate(gradient_loop):
+      if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
+        if file_name in self.models["pdf_shifts_with_regression_norm_spline"][category].keys():
+          if k in self.models["pdf_shifts_with_regression_norm_spline"][category][file_name].keys():
+            norm = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+            if grad == 0:
+              log_probs[ind] += np.log(norm)                
+            elif grad == 1 and k in column_1:
+              norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+              log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+            elif grad == 2 and column_1 == k and column_2 == k:
+              norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+              norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+              log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
         
 
     if not isinstance(gradient, list):
@@ -931,82 +1065,53 @@ class Likelihood():
 
     return log_probs
 
+ 
+  def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None):
 
-  def _ShiftDensityByClassifier(self, log_probs, X, Y, file_name, gradient=0, column_1=None, column_2=None, category=None):
 
-    if "pdf_shifts_with_classifier" not in self.models.keys():
-      return log_probs
+    # Make gradient loop
+    if not isinstance(gradient, list):
+      gradient_loop = [gradient]
+      log_probs = [log_probs]
+    else:
+      gradient_loop = gradient
 
-    # Loop through classifier models
-    if file_name in self.models["pdf_shifts_with_classifier"][category].keys():
+    # Get predictions
+    if max(gradient_loop) == 0:
+      get_gradient = [0]
+    elif max(gradient_loop) == 1:
+      get_gradient = [0,1]
+    elif max(gradient_loop) == 2:
+      get_gradient = [0,1,2]
 
-      if self.models["pdf_shifts_with_classifier"][category][file_name] == {}:
-        return log_probs
+    probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
 
-      # Make gradient loop
-      if not isinstance(gradient, list):
-        gradient_loop = [gradient]
-        log_probs = [log_probs]
-      else:
-        gradient_loop = gradient
+    for ind, grad in enumerate(gradient_loop):
+      if grad == 0:
+        log_probs[ind] += np.log(probs[0]/(1-probs[0]))
+      elif grad == 1: # derivative of ln(f(x)/(1-f(x))) where f'(x) is probs[1] and f'(x) if probs[0][:,[1]]
+        denom = (probs[0] - (probs[0]**2))
+        log_probs[ind] += probs[1] / denom
+      elif grad == 2:
+        num = probs[2] * (probs[0] * (1 - probs[0])) - probs[1]**2 * (1 - 2*probs[0])
+        den = (probs[0] * (1 - probs[0]))**2
+        log_probs[ind] += num / den
 
-      # Make combined dataset
-      combined = pd.concat([X, pd.DataFrame([Y.iloc[0]] * len(X)).reset_index(drop=True)], axis=1)
-      del X, Y
-      gc.collect()
-
-      for k, v in self.models["pdf_shifts_with_classifier"][category][file_name].items():
-
-        # Get predictions
-        if max(gradient_loop) == 0:
-          get_gradient = [0]
-        elif max(gradient_loop) == 1:
-          get_gradient = [0,1]
-        elif max(gradient_loop) == 2:
-          get_gradient = [0,1,2]
-
-        probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
-        pred = []
-        for ind, grad in enumerate(get_gradient):
-          if grad == 0:
-            pred += [probs[0]/(1-probs[0])]
-          elif grad == 1: # derivative of f(x)/(1-f(x)) where f'(x) is probs[1] and f'(x) if probs[0][:,[1]]
-            f = probs[0]
-            fprime = probs[1]
-            denom = (1.0 - f)**2
-            pred += [fprime / denom]
-          elif grad == 2:
-            f = probs[0]      # (N,1)
-            fprime = probs[1]          # (N,n_features)
-            fsecond = probs[2]         # (N,n_features)
-            denom1 = (1.0 - f)**2
-            denom2 = (1.0 - f)**3
-            pred += [fsecond / denom1 + 2.0 * (fprime**2) / denom2]
-
-        # Update log prob
-        for ind, grad in enumerate(gradient_loop):
-          if grad == 0:
-            log_probs[ind] += np.log(pred[0])                
-          elif grad == 1:
-            log_probs[ind] += pred[1]/pred[0]
-          elif grad == 2:
-            log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
-
-        # Normalise predictions
-        for ind, grad in enumerate(gradient_loop):
-          if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
-            if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
-              if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
-                norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-                if grad == 0:
-                  log_probs[ind] += np.log(norm)                
-                elif grad == 1 and k in column_1:
-                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-                elif grad == 2 and column_1 == k and column_2 == k:
-                  norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-                  norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-                  log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+    # Normalise predictions
+    for ind, grad in enumerate(gradient_loop):
+      if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
+        if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
+          if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
+            norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+            if grad == 0:
+              log_probs[ind] += np.log(norm)                
+            elif grad == 1 and k in column_1:
+              norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+              log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+            elif grad == 2 and column_1 == k and column_2 == k:
+              norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+              norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+              log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
 
     if not isinstance(gradient, list):
       log_probs = log_probs[0]
@@ -1114,6 +1219,9 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
+    #if self.minimisation_step == 2:
+    #  exit()
+
     return lkld_val
 
 
@@ -1195,6 +1303,7 @@ class Likelihood():
 
     return ln_lkld
 
+
   def LikelihoodUnbinnedExtended(self, X_dps, Y, gradient=[0], column_1=None, column_2=None, category=None):
 
     # Get event loop value
@@ -1234,9 +1343,10 @@ class Likelihood():
 
     """
 
-    self.use_log_probs_cache = True
-    self.cache_only_non_minimised = True
-    self.cached_minimised_columns = [k for k in self.Y_columns if k not in freeze.keys()]
+    self.use_density_cache = True
+    self.use_classifier_cache = True
+    self.cache_only_non_minimised = False
+    self.cached_density_minimised_columns = [k for k in self.Y_columns if k not in freeze.keys()]
 
     initial_guess = initial_guess.loc[:,self.Y_columns]
 
@@ -1523,6 +1633,7 @@ class Likelihood():
     upper_scan_vals = [float(self.best_fit[col_index] + estimated_sigma_step*ind*m1p1_vals[1]) for ind in range(1,int(np.ceil(estimated_sigmas_shown/estimated_sigma_step))+1)]
 
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
+
 
   def Minimise(self, func, initial_guess, method="scipy", initial_step_size=0.02, constraint_step_size=1.0, jac=None):
     """
@@ -1811,15 +1922,30 @@ class NLLAndGradient():
     # Get hessian entries
     if numerical:
 
+      self.use_classifier_cache = True
+      self.use_density_cache = True
+      self.use_regression_cache = True
+
       minuit_func_input = ",".join(['p'+str(ind) for ind in range(len(scan_over))])
-      pd_func_input = ",".join([minuit_func_input] + list(freeze.values()))
-      pd_func_cols = ",".join([f'"{k}"' for k in scan_over + list(freeze.keys())])
+
+      col_vals = ['p'+str(ind) for ind in range(len(scan_over))] + [str(i) for i in freeze.values()]
+      col_names = scan_over + list(freeze.keys())
+      sorted_col_names = []
+      sorted_col_vals = []
+      for col in self.Y_columns:
+        if col in col_names:
+          sorted_col_names.append(col)
+          sorted_col_vals.append(col_vals[col_names.index(col)])
+
+      pd_func_input = ",".join(sorted_col_vals)
+      pd_func_cols = ",".join([f'"{k}"' for k in sorted_col_names])
       run_func_input = f"pd.DataFrame([[{pd_func_input}]], columns=[{pd_func_cols}])"
-      best_fit_input = ",".join([f"p{ind}={self.best_fit[ind]}" for ind in range(len(self.Y_columns))])
+      best_fit_input = ",".join([f"p{ind}={self.best_fit[self.Y_columns.index(col)]}" for ind, col in enumerate(scan_over)])
+
       minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
       minuit_class = eval(f"Minuit(minuit_func, {best_fit_input})", {"Minuit": Minuit, "minuit_func": minuit_func, "self": self, 'pd': pd})
-      for params in range(len(self.Y_columns)):
-        minuit_class.values[f"p{params}"] = self.best_fit[params]
+      for params in range(len(scan_over)):
+        minuit_class.values[f"p{params}"] = self.best_fit[self.Y_columns.index(scan_over[params])]
       minuit_class.hesse()
       cov = minuit_class.covariance
       hessian = np.linalg.inv(cov)

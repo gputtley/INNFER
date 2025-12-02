@@ -334,10 +334,10 @@ class top_bw_fractions():
     self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
     self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
-    self.gen_mass = "mass_had_top" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
-    self.gen_mass_other = None if "gen_mass_other" not in self.options else self.options["gen_mass_other"].strip()
+    self.gen_mass = "GenTop1_mass" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
+    self.gen_mass_other = "GenTop2_mass" if "gen_mass_other" not in self.options else self.options["gen_mass_other"].strip()
     self.file_name = "ttbar" if "file_name" not in self.options else self.options["file_name"].strip()
-    self.mass_name = "mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
+    self.mass_name = "sim_mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
     self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
 

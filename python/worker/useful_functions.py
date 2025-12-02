@@ -170,11 +170,11 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "Y_columns" : sorted(list(defaults_in_model.keys())),
     "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
     "only_density" : args.only_density,
-    #"non_nn_columns" : [k for k in defaults_in_model.keys() if k in list(cfg["inference"]["lnN"].keys()) or k.startswith("mu_")],
     "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
     "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
     "binned_data_input" : binned_data_input,
     "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
+    "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
   }
 
   return common_config
@@ -998,10 +998,18 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
   val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
 
   freeze_loop = []
-  if not (freeze == "all-but-one"):
+
+  if not freeze in ["all-but-one","all-nuisances"]:
 
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
+      "extra_name" : "",
+    }]
+
+  elif freeze == "all-nuisances":
+
+    freeze_loop += [{
+      "freeze" : {k: v for k, v in val_info_with_defaults.items() if k in cfg["nuisances"]},
       "extra_name" : "",
     }]
 

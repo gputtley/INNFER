@@ -77,6 +77,7 @@ class Infer():
     self.simplex = {}
     self.bootstrap_ind = None
     self.scan_points_input = {}
+    self.remove_lnN_if_rate_param = True
 
   def Configure(self, options):
     """
@@ -233,7 +234,7 @@ class Infer():
     elif self.method == "HessianCollect":
 
       first = True
-      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      columns = sorted([i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()])
 
       for column_1_ind, column_1 in enumerate(columns):
         for column_2_ind, column_2 in enumerate(columns):
@@ -736,9 +737,14 @@ class Infer():
       yields[cat] = {}
       yields_class[cat] = {}
       for k, v in parameters[cat].items():
+
+        lnN_yields = v["yields"]["lnN"]
+        if self.remove_lnN_if_rate_param and k in self.inference_options["rate_parameters"]:
+          lnN_yields = {}
+
         yields_class[cat][k] = Yields(
           scale_to[k],
-          lnN = v["yields"]["lnN"],
+          lnN = lnN_yields,
           physics_model = None,
           rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
         )
