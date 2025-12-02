@@ -2049,7 +2049,7 @@ class PreProcess():
 
 
     # Load yields
-    if self.partial is not None and self.partial in ["model", "validation"]:
+    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations"]:
       if self.verbose:
         print("- Loading in yields")
       # load initial parameters file

@@ -51,6 +51,9 @@ def btm_jec(df, years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","
       if syst_names[ind] not in nuisances:
         continue
 
+      if df[syst_names[ind]].eq(0).all():
+        continue
+
       df.loc[:, f"SubJet1_corrFactor_{syst_names[ind]}"] = 1.0 + (scalings*df.loc[:,syst_names[ind]]*df.loc[:,f"SubJet1_corrFactor_{name}"]/df.loc[:,f"SubJet1_corrFactor"])
       df.loc[:, f"SubJet2_corrFactor_{syst_names[ind]}"] = 1.0 + (scalings*df.loc[:,syst_names[ind]]*df.loc[:,f"SubJet2_corrFactor_{name}"]/df.loc[:,f"SubJet2_corrFactor"])
       df.loc[:, "SubJet1_pt"] *= df.loc[:, f"SubJet1_corrFactor_{syst_names[ind]}"]
