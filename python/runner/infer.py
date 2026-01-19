@@ -72,11 +72,17 @@ class Infer():
     self.hessian_parallel_column_2 = None
     self.extra_density_model_name = ""
     self.non_nn_columns = []
+    self.nn_columns = []
     self.binned_fit_morph_col = None
     self.binned_data_input = None
     self.simplex = {}
     self.bootstrap_ind = None
     self.scan_points_input = {}
+    self.remove_lnN_if_rate_param = True
+    self.prune_classifier_models = None
+    self.classifier_pruning_files = {}
+    self.collect_skip_diagonal = False
+
 
   def Configure(self, options):
     """
@@ -199,7 +205,7 @@ class Infer():
         filename=f"{self.data_output}/uncertaintyfromminimisation_results_{self.column}{self.extra_file_name}.yaml"
       )
 
-    elif self.method in ["Hessian","HessianParallel","HessianNumerical"]:
+    elif self.method in ["Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel"]:
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -216,7 +222,7 @@ class Infer():
         print(f"- Calculating the Hessian matrix")
 
       extra_col_name = ""
-      if self.method == "HessianParallel":
+      if self.method in ["HessianParallel", "HessianNumericalParallel"]:
         extra_col_name = f"_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}"
 
       # Get Hessian
@@ -227,17 +233,19 @@ class Infer():
         freeze=self.freeze,
         specific_column_1=self.hessian_parallel_column_1,
         specific_column_2=self.hessian_parallel_column_2,
-        numerical = (self.method == "HessianNumerical"),
+        numerical = (self.method in ["HessianNumerical", "HessianNumericalParallel"]),
+        numerical_method="numdifftools"
       )    
 
     elif self.method == "HessianCollect":
 
       first = True
-      columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
+      columns = sorted([i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()])
 
       for column_1_ind, column_1 in enumerate(columns):
         for column_2_ind, column_2 in enumerate(columns):
           if column_1_ind > column_2_ind: continue
+          if self.collect_skip_diagonal and column_1 == column_2: continue
           # load in the hessian
           if self.verbose:
             print(f"- Loading hessian for {column_1} and {column_2}")
@@ -248,6 +256,10 @@ class Infer():
             total_hessian = np.array(hessian["hessian"])
             first = False
           else:
+            for i in range(len(hessian["hessian"])):
+              for j in range(len(hessian["hessian"])):
+                if hessian["hessian"][i][j] != 0 and total_hessian[i][j] != 0:
+                  hessian["hessian"][i][j] = 0
             total_hessian = np.add(total_hessian, np.array(hessian["hessian"]))
       hessian_metadata["hessian"] = total_hessian.tolist()
 
@@ -485,7 +497,7 @@ class Infer():
       outputs += [f"{self.data_output}/hessian{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
-    if self.method == "HessianParallel":
+    if self.method in ["HessianParallel", "HessianNumericalParallel"]:
       outputs += [f"{self.data_output}/hessian{self.extra_file_name}_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}.yaml"]
 
     # Add dmatrix
@@ -578,9 +590,13 @@ class Infer():
               f"{self.model_input}/{vi['name']}/{k}.h5",
               f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
             ]
+            if self.prune_classifier_models is not None:
+              if k in self.prune_classifier_models.keys():
+                inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
+          
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
@@ -589,6 +605,7 @@ class Infer():
       for column_1_ind, column_1 in enumerate(columns):
         for column_2_ind, column_2 in enumerate(columns):
           if column_1_ind > column_2_ind: continue
+          if self.collect_skip_diagonal and column_1 == column_2: continue
           inputs += [f"{self.hessian_input}/hessian{self.extra_file_name}_{column_1}_{column_2}.yaml"]
 
     # Add hessian 
@@ -633,9 +650,9 @@ class Infer():
 
     # Patch for memory use of gradients
     batch_size = None
-    if self.method in ["InitialFit","Scan","BootstrapFit"] and self.minimisation_method in ["minuit_with_gradients","scipy_with_gradients","custom"]:
+    if self.method in ["InitialFit","Scan","BootstrapFit"] and self.minimisation_method in ["minuit-with-gradients","scipy-with-gradients","custom"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_GRADIENTS"))
-    elif self.method in ["Hessian","DMatrix","HessianAndCovariance","HessianDMatrixAndCovariance"]:
+    elif self.method in ["Hessian","DMatrix"]:
       batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_HESSIAN"))
     elif self.method == "HessianParallel" and self.hessian_parallel_column_1 in self.non_nn_columns and self.hessian_parallel_column_2 in self.non_nn_columns:
       batch_size = int(os.getenv("EVENTS_PER_BATCH"))
@@ -736,9 +753,14 @@ class Infer():
       yields[cat] = {}
       yields_class[cat] = {}
       for k, v in parameters[cat].items():
+
+        lnN_yields = v["yields"]["lnN"]
+        if self.remove_lnN_if_rate_param and k in self.inference_options["rate_parameters"]:
+          lnN_yields = {}
+
         yields_class[cat][k] = Yields(
           scale_to[k],
-          lnN = v["yields"]["lnN"],
+          lnN = lnN_yields,
           physics_model = None,
           rate_param = f"mu_{k}" if k in self.inference_options["rate_parameters"] else None,
         )
@@ -779,6 +801,10 @@ class Infer():
         )
 
         networks[cat][k].Load(name=f"{density_model_name}.h5")
+
+        # Add neural network parameters
+        self.nn_columns += parameters[cat][k]["density"]["Y_columns"]
+        self.nn_columns = list(set(self.nn_columns))
 
     return networks
 
@@ -829,6 +855,10 @@ class Infer():
             with open(spline_name, 'rb') as f:
               splines[cat][k][vi["parameter"]] = pickle.load(f)
 
+          # Add neural network parameters
+          self.nn_columns += [vi["parameter"]]
+          self.nn_columns = list(set(self.nn_columns))
+
     return networks, splines
 
 
@@ -851,6 +881,20 @@ class Infer():
         parameters[cat][k] = {}
 
         for vi in v:
+
+          # Check if we need to prune this model
+          prune = False
+          if self.prune_classifier_models is not None:
+            with open(self.classifier_pruning_files[cat][k][vi['parameter']], 'r') as yaml_file:
+              pruning_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+            prune = True
+            for pruning_key, pruning_val in self.prune_classifier_models.items():
+              if pruning_info[pruning_key] > pruning_val:
+                prune = False
+          if prune: 
+            if self.verbose:
+              print(f"- Pruning classifier model for category {cat}, model {k}, parameter {vi['parameter']}")
+            continue
 
           # Open parameters
           with open(vi["parameters"], 'r') as yaml_file:
@@ -878,7 +922,31 @@ class Infer():
             with open(spline_name, 'rb') as f:
               splines[cat][k][vi["parameter"]] = pickle.load(f)
 
-    return networks, splines
+          # Add neural network parameters
+          self.nn_columns += [vi["parameter"]]
+          self.nn_columns = list(set(self.nn_columns))
+
+    if self.verbose:
+      print(f"- Columns using neural networks: {self.nn_columns}")
+
+    # Cap spline ranges to avoid issues in likelihood
+    def capped_spline(x, spline, x_min, x_max):
+      x = np.asarray(x)
+      y = np.empty_like(x, dtype=float)
+      mask = (x >= x_min) & (x <= x_max)
+      y[mask] = spline(x[mask])
+      y[~mask] = np.nan
+      return y
+
+    capped_splines = {}
+    for cat in splines.keys():
+      capped_splines[cat] = {}
+      for k in splines[cat].keys():
+        capped_splines[cat][k] = {}
+        for vi in splines[cat][k].keys():
+          capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].x[0], x_max=splines[cat][k][vi].x[-1])
+
+    return networks, capped_splines
 
 
   def _BuildLikelihood(self):
@@ -931,6 +999,7 @@ class Infer():
       Y_columns_per_model = self.Y_columns_per_model,
       categories = list(self.parameters.keys()),
       simplex = self.simplex,
+      nn_columns = self.nn_columns,
     )
 
     return lkld

@@ -2,9 +2,10 @@ current_directory=$(pwd)
 worker_pp="$current_directory/python/worker"
 benchmarks_pp="$current_directory/python/worker/benchmarks"
 custom_pp="$current_directory/python/runner/custom_module"
+custom_func_pp="$current_directory/python/worker/custom"
 runner_pp="$current_directory/python/runner"
 bfp="$current_directory/python/BayesFlow"
-export PYTHONPATH=${worker_pp}:${benchmarks_pp}:${runner_pp}:${bfp}:${custom_pp}:${PYTHONPATH}
+export PYTHONPATH=${worker_pp}:${benchmarks_pp}:${runner_pp}:${bfp}:${custom_pp}:${custom_func_pp}:${PYTHONPATH}
 if ! command -v nvidia-smi &> /dev/null ; then
   ulimit -s unlimited
   echo "Number of threads available $(nproc)"
@@ -31,6 +32,11 @@ export MODELS_DIR="models"
 export PLOTS_DIR="plots"
 
 ulimit -s unlimited
-source miniconda/files/etc/profile.d/conda.sh
-conda activate miniconda/files/envs/innfer_env
+
+# if option is no_conda, skip conda activation
+if [ "$1" != "no_conda" ]; then
+  source miniconda/files/etc/profile.d/conda.sh
+  conda activate innfer_env
+fi
+
 alias innfer="$PWD/scripts/innfer.py"

@@ -329,6 +329,18 @@ class InputPlotValidation():
         ratio_range = [0.9,1.1]
       )
 
+      # print chi squared per dof for all histogram combinations
+      print(f"Chi-squared per dof:")
+      for ind1 in range(len(hists)):
+        for ind2 in range(len(hists)):
+          if ind1 == ind2: continue
+          chi_squared, dof = self._chi2_histograms(hists[ind1], hists[ind2], hist_errs[ind1], hist_errs[ind2])
+          print(f"  - sim_type={hist_names[ind1]} vs {hist_names[ind2]}")
+          print(f"  - val_ind={val_ind}")
+          print(f"  - column={col}")
+          print(f"    chi-squared/dof = {chi_squared/dof:.2f}")
+
+
 
   def _PlotWeightDistribution(self, val_dict, val_ind, n_bins=40, data_splits=["val"]):
 
@@ -365,3 +377,22 @@ class InputPlotValidation():
         drawstyle = "steps-mid",
       )
 
+
+  def _chi2_histograms(self, h1, h2, err1, err2):
+
+    h1 = np.asarray(h1)
+    h2 = np.asarray(h2)
+    err1 = np.asarray(err1)
+    err2 = np.asarray(err2)
+
+    if not (h1.shape == h2.shape == err1.shape == err2.shape):
+        raise ValueError("All inputs must have the same shape")
+
+    var = err1**2 + err2**2
+
+    mask = var > 0  # avoid division by zero
+
+    chi2 = np.sum((h1[mask] - h2[mask])**2 / var[mask])
+    ndof = np.count_nonzero(mask)
+
+    return chi2, ndof

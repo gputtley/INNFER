@@ -45,15 +45,15 @@ class LoadData():
     existing = []
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if k not in self._GetTokens(v) and k not in existing:
-          calculated += [k]
+        if isinstance(v, str):
+          if k not in self._GetTokens(v) and k not in existing:
+            calculated += [k]
+          else:
+            existing += [k]
         else:
-          existing += [k]
-    if "weight_shifts" in cfg["files"][file_name].keys():
-      calculated += list(cfg["files"][file_name]["weight_shifts"].keys())
+          calculated += v.get("outputs", [])
 
     # Add fitted variables
-    #self.columns = cfg["variables"]
     self.columns = []
 
     # Add save extra columns from validation
@@ -109,7 +109,11 @@ class LoadData():
     # Get from post selection
     if "pre_calculate" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        if isinstance(v, str):
+          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        else:
+          inputs = v.get("inputs", [])
+          self.columns += [i for i in inputs if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
@@ -119,7 +123,11 @@ class LoadData():
     # Get from weight shifts
     if "weight_shifts" in cfg["files"][file_name].keys():
       for k, v in cfg["files"][file_name]["weight_shifts"].items():
-        self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        if isinstance(v, str):
+          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+        else:
+          inputs = v.get("inputs", [])
+          self.columns += [i for i in inputs if i not in calculated]
 
     # Add categories
     if "categories" in cfg.keys():
@@ -184,16 +192,18 @@ class LoadData():
           if file_info.get("selection", False):
             df = df.loc[df.eval(file_info["selection"]),:]
 
+
         # Skip if dataframe is empty
         if len(df) == 0: continue
 
         # Add extra columns
         if "add_columns" in file_info.keys():
+          new_cols = {}
           for extra_col_name, extra_col_value in file_info["add_columns"].items():
             if isinstance(extra_col_value, list):
-              df.loc[:,extra_col_name] = extra_col_value[input_file_ind]
-            elif isinstance(extra_col_value, float) or isinstance(extra_col_value, int):
-              df.loc[:,extra_col_name] = extra_col_value
+              df = df.assign(**{extra_col_name: extra_col_value[input_file_ind]})
+            elif isinstance(extra_col_value, (float, int)):
+              df = df.assign(**{extra_col_name: extra_col_value})
             else:
               raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
@@ -213,6 +223,9 @@ class LoadData():
         # Removing nans
         nan_rows = df[df.isna().any(axis=1)]
         if len(nan_rows) > 0:
+          if self.verbose:
+            print(f"Removing {len(nan_rows)}/{len(df)} rows with NaNs")
+            print(nan_rows.head())
           df = df.dropna()
 
         # Set type

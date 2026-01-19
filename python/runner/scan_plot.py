@@ -56,7 +56,6 @@ class ScanPlot():
     row = scan_results["row"]
     ind = scan_results["columns"].index(self.column)
 
-  
     other_lklds = {}
     other_crossings = {}
     for key, val in self.other_input.items():

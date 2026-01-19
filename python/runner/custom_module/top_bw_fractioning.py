@@ -13,6 +13,7 @@ from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
+from python.worker.useful_functions import GetParametersInModel
 from useful_functions import MakeDirectories, LoadConfig, GetValidationLoop, GetCategoryLoop, GetSplitDensityModel, GetModelLoop, SampleFlatTop
 
 data_dir = str(os.getenv("PREP_DATA_DIR"))
@@ -457,7 +458,6 @@ class top_bw_fractioning():
           shift_files["density"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{density_dir}/wt_{data_split}.parquet")
           shift_columns["density"].append("wt")
 
-      #for value in cfg["models"][self.file_name]["regression_models"]:
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=category):
         value = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
         tmp_files = []
@@ -470,7 +470,6 @@ class top_bw_fractioning():
           shift_files["regression"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/regression/{value['parameter']}/wt_{data_split}.parquet")
           shift_columns["regression"].append("wt")
 
-      #for value in cfg["models"][self.file_name]["classifier_models"]:
       for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=category):
         value = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
         tmp_files = []
@@ -484,6 +483,8 @@ class top_bw_fractioning():
           shift_columns["classifier"].append("wt")
 
     for data_split in ["val","train_inf","test_inf","full"]:
+
+      # Do validation loop
       for ind in range(len(GetValidationLoop(cfg, self.file_name))):
         tmp_files = []
         for k in density_loop:
@@ -494,6 +495,19 @@ class top_bw_fractioning():
           files["validation"].append(tmp_files)
           shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/val_ind_{ind}/wt_{data_split}.parquet")
           shift_columns["validation"].append("wt")
+
+      # Do nuisance variation loop
+      for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=category)]:
+        for shift in ["up", "down"]:
+          tmp_files = []
+          for k in density_loop:
+            outfile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{nuisance}_{shift}/{k}_{data_split}.parquet"
+            tmp_files.append(outfile)
+            if not skip_copy: os.system(f"cp {outfile} {outfile.replace('.parquet','_copy.parquet')}")
+          if len(tmp_files) > 0:
+            files["validation"].append(tmp_files)
+            shift_files["validation"].append(f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{nuisance}_{shift}/wt_{data_split}.parquet")
+            shift_columns["validation"].append("wt")
 
     return files, shift_files, shift_columns
 
@@ -777,6 +791,53 @@ class top_bw_fractioning():
             ]
           )
           if os.path.isfile(outfile): os.system(f"mv {outfile} {infile}")    
+
+
+      # Normalise nuisance variations in validation files
+      for data_split in ["val","train_inf","test_inf","full"]:
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=category)]:
+          for shift in ["up", "down"]:
+            outfile = [f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{nuisance}_{shift}/{k}_{data_split}.parquet" for k in ["X","Y","wt"]]
+            dp = DataProcessor(
+              [outfile],
+              "parquet",
+              batch_size=self.batch_size,
+              options = {
+                "wt_name" : "wt"
+              }
+            )
+            parameters["eff_events"][f"{nuisance}_{shift}"][data_split] = dp.GetFull(method="n_eff")
+
+            # normalise in nuisance variation file
+            copy_outfile = [f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{nuisance}_{shift}/{k}_{data_split}_copy.parquet" for k in ["X","Y","wt"]]
+            copy_dp = DataProcessor(
+              [copy_outfile],
+              "parquet",
+              batch_size=self.batch_size,
+              options = {
+                "wt_name" : "wt"
+              }
+            )
+            prev_sum_wt = copy_dp.GetFull(method="sum")
+            sum_wt = dp.GetFull(method="sum")
+            infile = f"{data_dir}/{cfg['name']}/PreProcess/{self.file_name}/{category}/{nuisance}_{shift}/wt_{data_split}.parquet"
+            outfile = infile.replace('.parquet','_normalised.parquet')
+            if os.path.isfile(outfile): os.system(f"rm {outfile}")
+            def normalise(df, sum_wt):
+              if self.bw_mass_name not in df.columns:
+                df.loc[:,self.bw_mass_name] = 172.5
+              df.loc[:,"wt"] /= sum_wt
+              return df.loc[:,["wt"]]
+            dp.GetFull(
+              method = None,
+              functions_to_apply = [
+                partial(normalise, sum_wt=sum_wt/prev_sum_wt),
+                partial(self._WriteDataset, file_name=outfile)
+              ]
+            )
+            if os.path.isfile(outfile): os.system(f"mv {outfile} {infile}")
+
+
 
       # flatten training bw shapes
       do_density = False
