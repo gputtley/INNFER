@@ -32,6 +32,11 @@ export MODELS_DIR="models"
 export PLOTS_DIR="plots"
 
 ulimit -s unlimited
-source miniconda/files/etc/profile.d/conda.sh
-conda activate miniconda/files/envs/innfer_env
+
+# if option is no_conda, skip conda activation
+if [ "$1" != "no_conda" ]; then
+  source miniconda/files/etc/profile.d/conda.sh
+  conda activate innfer_env
+fi
+
 alias innfer="$PWD/scripts/innfer.py"

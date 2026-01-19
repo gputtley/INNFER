@@ -104,19 +104,50 @@ def CamelToSnake(name):
   return s2.lower()
 
 
-def GetDataInput(data_type, cfg, file_name, val_ind, data_dir, sim_type="val", asimov_dir_name="MakeAsimov", specific_category=None):
+def GetDataInput(data_type, cfg, file_name, val_ind, data_dir, sim_type="val", asimov_dir_name="MakeAsimov", specific_category=None, asimov_extra_dir=None):
+
+  if asimov_extra_dir is None:
+    extra_dir_string = ""
+  else:
+    extra_dir_string=f"{asimov_extra_dir}/"
 
   if data_type == "sim":
     data_input = {category:{k:[f"{data_dir}/PreProcess/{k}/{category}/val_ind_{v}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
   elif data_type == "asimov":
-    data_input = {category:{k:[f"{data_dir}/{asimov_dir_name}/{k}/{category}/val_ind_{v}/asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
+    data_input = {category:{k:[f"{data_dir}/{asimov_dir_name}/{k}/{category}/val_ind_{v}/{extra_dir_string}asimov.parquet"] for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
   elif data_type == "data":
     data_input = {category:{"data" : [f"{data_dir}/DataCategories/{category}/data.parquet"]} for category in GetCategoryLoop(cfg, specific_category=specific_category)}
 
   return data_input
 
 
-def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
+def CombineObjects(obj1, obj2):
+
+  # Convert everything to arrays if not already
+  pt1, eta1, phi1, m1 = obj1["pt"], obj1["eta"], obj1["phi"], obj1["mass"]
+  pt2, eta2, phi2, m2 = obj2["pt"], obj2["eta"], obj2["phi"], obj2["mass"]
+
+  # Compute 4-momenta
+  px = pt1 * np.cos(phi1) + pt2 * np.cos(phi2)
+  py = pt1 * np.sin(phi1) + pt2 * np.sin(phi2)
+  pz = pt1 * np.sinh(eta1) + pt2 * np.sinh(eta2)
+  e  = np.sqrt(m1**2 + pt1**2 * np.cosh(eta1)**2) + np.sqrt(m2**2 + pt2**2 * np.cosh(eta2)**2)
+
+  # Compute final kinematics
+  pt   = np.sqrt(px**2 + py**2)
+  mass = np.sqrt(np.maximum(e**2 - px**2 - py**2 - pz**2, 0))
+  eta  = 0.5 * np.log((e + pz) / np.maximum(e - pz, 1e-12))
+  phi  = np.arctan2(py, px)
+
+  return {"pt": pt, "eta": eta, "phi": phi, "mass": mass}
+
+
+def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name="MakeAsimov", asimov_extra_dir=None, force_asimov=False):
+
+  if force_asimov:
+    data_type = "asimov"
+  else:
+    data_type = args.data_type
 
   defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
 
@@ -124,14 +155,17 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
   eval_data_dir = f'{str(os.getenv("EVAL_DATA_DIR"))}/{cfg["name"]}'
   models_dir = f'{str(os.getenv("MODELS_DIR"))}/{cfg["name"]}'
 
-  data_input = GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir if args.data_type != "asimov" else eval_data_dir, sim_type=args.sim_type)
+  if "/" not in asimov_name:
+    asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
+
+  data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
 
   binned_data_input = {}
   if args.likelihood_type in ["binned","binned_extended"]:
 
     for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       binned_data_input[cat] = None
-      if args.data_type in ["asimov","sim"]:
+      if data_type in ["asimov","sim"]:
         first = True
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
           with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
@@ -148,7 +182,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
           else:
             binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
       else:
-        raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {args.data_type}")
+        raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -175,7 +209,16 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind):
     "binned_data_input" : binned_data_input,
     "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
     "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
+    "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
   }
+
+  common_config["classifier_pruning_files"] = {}
+  for k1, v1 in common_config["classifier_models"].items():
+    common_config["classifier_pruning_files"][k1] = {}
+    for k2, v2 in v1.items():
+      common_config["classifier_pruning_files"][k1][k2] = {}
+      for v3 in v2:
+        common_config["classifier_pruning_files"][k1][k2][v3["parameter"]] = f"{prep_data_dir}/EvaluateClassifier/{v3['name']}/performance_metrics.yaml"
 
   return common_config
 
@@ -497,12 +540,12 @@ def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_
     if prefit_nuisance_values:
       shift = 1.0
     else:
-      shift = intervals['crossings'][1]
+      shift = intervals['crossings'][1] - intervals['crossings'][0]
   elif nuisance_value == "down":
     if prefit_nuisance_values:
       shift = -1.0
     else:
-      shift = intervals['crossings'][-1]
+      shift = intervals['crossings'][-1] - intervals['crossings'][-2]
 
   best_fit = {k: v + shift if k == intervals['varied_column'] else v for k, v in best_fit.items()}
 

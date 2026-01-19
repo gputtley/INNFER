@@ -1,4 +1,5 @@
 import copy
+import gc
 import importlib
 import os
 import warnings
@@ -70,24 +71,27 @@ class PreProcess():
     self.extra_selection = None
     self.category = None
     self.nuisance_shift = None
+    self.stratify_bins = 20
 
     # Stores
     self.parameters = {}
 
   def _ApplyShifts(self, tmp, shifts):
+
+    n = len(tmp)
     for k, v in shifts.items():
       if v["type"] == "continuous":
-        tmp.loc[:,k] = np.random.uniform(v["range"][0], v["range"][1], size=len(tmp))   
+        tmp[k] = np.random.uniform(v["range"][0], v["range"][1], size=n)   
       elif v["type"] == "discrete":
-        tmp.loc[:,k] = np.random.choice(v["values"], size=len(tmp))
+        tmp[k] = np.random.choice(v["values"], size=n)
       elif v["type"] == "fixed":
-        tmp.loc[:,k] = v["value"]*np.ones(len(tmp))
+        tmp[k] = v["value"]
       elif v["type"] == "flat_top":
         sigma_out = 0.1*(v["range"][1]-v["range"][0])
         if "other" in v.keys():
           if "sigma_out" in v["other"].keys():
             sigma_out = v["other"]["sigma_out"]
-        tmp.loc[:,k] = SampleFlatTop(len(tmp), (v["range"][0], v["range"][1]), sigma_out)
+        tmp[k] = SampleFlatTop(n, (v["range"][0], v["range"][1]), sigma_out)
       else:
         raise ValueError(f"Shift type {v['type']} not recognised")
     return tmp
@@ -95,22 +99,19 @@ class PreProcess():
 
   def _CalculateDatasetWithVariations(self, df, shifts, pre_calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1, post_shifts={}):
 
-    # Distribute the shifts
-    tmp_copy = copy.deepcopy(df)
-    first = True
 
+    # Distribute the shifts
+    dfs = []
+    tmp_copy = df.copy(deep=True)
     for _ in range(n_copies):
-      tmp = self._ApplyShifts(copy.deepcopy(tmp_copy), shifts)
-      if first:
-        df = copy.deepcopy(tmp)
-        first = False
-      else:
-        df = pd.concat([df, tmp], axis=0, ignore_index=True)
+      tmp = self._ApplyShifts(tmp_copy.copy(deep=False), shifts)
+      dfs.append(tmp)
+    df = pd.concat(dfs, axis=0, ignore_index=True)
 
     # do precalculate
     for pre_calc_col_name, pre_calc_col_value in pre_calculate.items():
       if isinstance(pre_calc_col_value, str):
-        df.loc[:,pre_calc_col_name] = df.eval(pre_calc_col_value)
+        df[pre_calc_col_name] = df.eval(pre_calc_col_value)
       elif isinstance(pre_calc_col_value, dict):
         if pre_calc_col_value["type"] == "function":
           module = importlib.import_module(pre_calc_col_value["file"])
@@ -119,26 +120,27 @@ class PreProcess():
       else:
         raise ValueError(f"Pre calculate type {type(pre_calc_col_value)} not recognised")
 
-
     # Apply post selection
     if post_calculate_selection is not None:
-      df = df.loc[df.eval(post_calculate_selection),:]
+      #df = df.loc[df.eval(post_calculate_selection),:]
+      df = df.query(post_calculate_selection)
 
     if self.extra_selection is not None:
-      df = df.loc[df.eval(self.extra_selection),:]
+      #df = df.loc[df.eval(self.extra_selection),:]
+      df = df.query(self.extra_selection)
 
     # Post shifts
     df = self._ApplyShifts(copy.deepcopy(df), post_shifts)
 
     # store old weight before doing weight shift
-    df.loc[:,"old_wt"] = df.eval(nominal_weight)
+    df["old_wt"] = df.eval(nominal_weight)
 
     # do weight shift
     weight_shift_function = nominal_weight
     for k, v in weight_shifts.items():
       if isinstance(v, str):
         weight_shift_function += f"*({v})"        
-    df.loc[:,"wt"] = df.eval(weight_shift_function)
+    df["wt"] = df.eval(weight_shift_function)
     for k, v in weight_shifts.items():
       if isinstance(v, dict):
         if v["type"] == "function":
@@ -147,7 +149,7 @@ class PreProcess():
           df = func(df, **v["args"])
         else:
           raise ValueError(f"Weight shift type {v['type']} not recognised")
-    df.loc[:,"wt_shift"] = df.loc[:,"wt"]/df.loc[:,"old_wt"]
+    df["wt_shift"] = df["wt"]/df["old_wt"]
 
     # Remove events with 0 weight
     df = df.loc[(df["wt"] != 0), :]
@@ -198,6 +200,7 @@ class PreProcess():
     # Get nominal
     if self.verbose:
       print(" - Getting nominal yield")
+
     yields["nominal"] = dp.GetFull(
       method="sum",
       functions_to_apply = [
@@ -218,7 +221,7 @@ class PreProcess():
     yields["lnN"] = {}
 
     # Loop through nuisances
-    for nui in cfg["nuisances"]:
+    for nui in list(sorted(cfg["nuisances"])):
 
       # If yield is 0 then skip
       if yields["nominal"] == 0:
@@ -291,7 +294,21 @@ class PreProcess():
     return yields
 
 
-  def _CalculateTrainTestValSplit(self, df, file_name="file", splitting="0.8:0.1:0.1", train_test_only=False, validation_only=False, drop_for_training_selection=None, validation_loop_selections={}):
+  def _GetStrata(self, df, stratify_to):
+    if stratify_to not in df.columns:
+      return None
+    print(f" - Stratifying to {stratify_to}")
+    values = df[stratify_to].values
+    unique_values = np.unique(values)
+    if len(unique_values) < self.stratify_bins:
+      bins = unique_values
+    else:
+      bins = np.quantile(values, np.linspace(0, 1, self.stratify_bins)) 
+    strata = np.digitize(values, bins[1:-1])
+    return strata
+
+
+  def _CalculateTrainTestValSplit(self, df, file_name="file", splitting="0.8:0.1:0.1", train_test_only=False, validation_only=False, drop_for_training_selection=None, validation_loop_selections={}, stratify_to=None):
 
     train_df = None
     test_df = None
@@ -306,16 +323,21 @@ class PreProcess():
     # If don't split return as validation dataset
     if validation_only:
 
-      val_df = copy.deepcopy(df)
+      val_df = df.copy()
 
     elif train_test_only:
 
       if drop_for_training_selection is not None:
         train_test_df = df.loc[(df.eval(drop_for_training_selection)),:]
       else:
-        train_test_df = copy.deepcopy(df)
-      train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)))
+        train_test_df = df.copy()
 
+      if stratify_to is not None:
+        strata = self._GetStrata(train_test_df, stratify_to)
+      train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
+      print(len(train_df), len(test_df))
+      print(np.sum(train_df["weight"]), np.sum(test_df["weight"]))
+      
     else:
 
       # get potential val df
@@ -324,12 +346,24 @@ class PreProcess():
         potential_val_df = df.loc[(df.eval(total_val_selection)),:]
         train_test_df = df.loc[~(df.eval(total_val_selection)),:]
       else:
-        potential_val_df = copy.deepcopy(df)
+        potential_val_df = df.copy()
     
       # make split
       if len(potential_val_df) > 0:
-        train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio)          
+        if stratify_to is not None:
+          strata = self._GetStrata(potential_val_df, stratify_to)
+          potential_val_df.loc[:,"strata"] = strata
+        train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio, stratify=strata if stratify_to is not None else None)     
+        print(len(train_test_from_val_df), len(val_df))
+        print(np.sum(train_test_from_val_df["weight"]), np.sum(val_df["weight"]))    
+        print("Strata information:")
+        for s in range(np.unique(strata).shape[0]):
+          stratum_df = train_test_from_val_df.loc[train_test_from_val_df["strata"]==s,:]
+          print(f" Stratum {s}: Train/Test - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
+          stratum_df = val_df.loc[val_df["strata"]==s,:]
+          print(f" Stratum {s}: Val        - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
         del potential_val_df
+
 
         # dump out unused train and add to val if possible
         if drop_for_training_selection is not None:
@@ -352,7 +386,20 @@ class PreProcess():
 
       # split train and test
       if train_test_df is not None:
-        train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)))
+        if stratify_to is not None:
+          strata = self._GetStrata(train_test_df, stratify_to)
+          train_test_df.loc[:,"strata"] = strata
+        train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
+        print(len(train_df), len(test_df))
+        print(np.sum(train_df["weight"]), np.sum(test_df["weight"]))
+        # get length and sum of weights in each strata
+        print("Strata information:")
+        for s in range(np.unique(strata).shape[0]):
+          stratum_df = train_df.loc[train_df["strata"]==s,:]
+          print(f" Stratum {s}: Train - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
+          stratum_df = test_df.loc[test_df["strata"]==s,:]
+          print(f" Stratum {s}: Test  - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
+
         
     # Write train and test dataset
     if train_df is not None: self._WriteDataset(train_df, f"{file_name}_train.parquet")
@@ -366,6 +413,8 @@ class PreProcess():
         else:
           val_ind_df = val_df.copy()
         self._WriteDataset(val_ind_df, f"val_ind_{ind}/{file_name}_val.parquet")
+        del val_ind_df
+        gc.collect()
         if train_df is not None:
           if sel is not None:
             train_ind_df = train_df.loc[(train_df.eval(sel)),:]
@@ -374,6 +423,8 @@ class PreProcess():
         else:
           train_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
         self._WriteDataset(train_ind_df, f"val_ind_{ind}/{file_name}_train_inf.parquet")
+        del train_ind_df
+        gc.collect()
         if test_df is not None:
           if sel is not None:
             test_ind_df = test_df.loc[(test_df.eval(sel)),:]
@@ -382,12 +433,15 @@ class PreProcess():
         else:
           test_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
         self._WriteDataset(test_ind_df, f"val_ind_{ind}/{file_name}_test_inf.parquet")
+        del test_ind_df
+        gc.collect()
         if sel is not None:
           full_ind_df = df.loc[(df.eval(sel)),:]
         else:
-          full_ind_df = df.copy()
+          full_ind_df = df
         self._WriteDataset(full_ind_df, f"val_ind_{ind}/{file_name}_full.parquet")
-        del val_ind_df, train_ind_df, test_ind_df, full_ind_df
+        del full_ind_df
+        gc.collect()
 
     return df
     
@@ -475,7 +529,8 @@ class PreProcess():
             validation_only=(base_file_name not in model_base_files),
             train_test_only=(base_file_name not in validation_base_files), 
             drop_for_training_selection=unused_training_selection, 
-            validation_loop_selections=selections
+            validation_loop_selections=selections,
+            stratify_to=cfg["preprocess"]["stratify_to"] if "stratify_to" in cfg["preprocess"].keys() else None
           )
         ]
       )
@@ -488,7 +543,7 @@ class PreProcess():
     for k, v in split_dict.items():
       file_name = f"{file_path}/{k}_{extra_name}.parquet"
 
-      skimmed_df = df.loc[:,v]
+      skimmed_df = df[v]
       if k == "wt":
         skimmed_df = skimmed_df.rename(columns={v[0]:"wt"})
 
@@ -569,14 +624,15 @@ class PreProcess():
         continue
     
       bins = rdp.GetFull(method="bins_with_equal_stats", column=k, bins=n_bins, ignore_quantile=0.0)
+
       hist, _ = rdp.GetFull(method="histogram", column=k, bins=bins, ignore_quantile=0.0, extra_sel=selection)
 
       # Check what distribution we want to flatten to
       if v["type"] == "continuous":
         hist_to = (np.sum(hist)/len(hist))*np.ones(len(hist))
       elif v["type"] == "flat_top":
-        samples = SampleFlatTop(samples, (v["range"][0], v["range"][1]), v["other"]["sigma_out"])
-        hist_to, _ = np.histogram(samples, bins=bins)
+        out_samples = SampleFlatTop(samples, (v["range"][0], v["range"][1]), v["other"]["sigma_out"])
+        hist_to, _ = np.histogram(out_samples, bins=bins)
         hist_to = hist_to.astype(float)
         hist_to *= np.sum(hist)/np.sum(hist_to)
 
@@ -594,7 +650,7 @@ class PreProcess():
         else:
           mask = np.ones(len(df), dtype=bool)
         df.loc[mask,"wt"] *= spline(df.loc[mask,k])
-        return df.loc[:,["wt"]]
+        return df[["wt"]]
 
 
       rdp.GetFull(
@@ -878,7 +934,7 @@ class PreProcess():
           def normalisation(df, norm):
             if len(df) == 0: 
               return df
-            df.loc[:,"wt"] /= norm
+            df["wt"] = df["wt"]/norm
             return df
 
           yield_class = Yields(
@@ -952,7 +1008,7 @@ class PreProcess():
             def normalisation(df, norm):
               if len(df) == 0: 
                 return df
-              df.loc[:,"wt"] /= norm
+              df["wt"] = df["wt"]/norm
               return df
 
             yield_class = Yields(
@@ -1675,10 +1731,10 @@ class PreProcess():
       tmp_df = copy.deepcopy(df)
       for k, v in defaults.items():
         if k not in df.columns:
-          tmp_df.loc[:,k] = v
-      df.loc[:,"yields"] = func(tmp_df.loc[:,list(defaults.keys())])
-      df.loc[:,"wt"] /= df.loc[:,"yields"]
-      return df.loc[:,["wt"]]
+          tmp_df[k] = v
+      df["yields"] = func(tmp_df[list(defaults.keys())])
+      df["wt"] = df["wt"]/df["yields"]
+      return df[["wt"]]
     
     scale_func = partial(scale_down_by_func, func=yield_class.GetYield, defaults=defaults)
 
@@ -1824,8 +1880,8 @@ class PreProcess():
           if len(df) == 0: 
             return df
           for ind, sel in enumerate(selections):
-            df.loc[(df.eval(sel)),"wt"] /= normalisations[ind]
-          return df.loc[:,["wt"]]
+            df.loc[(df.eval(sel)),"wt"] = df.loc[(df.eval(sel)),"wt"]/normalisations[ind]
+          return df[["wt"]]
 
 
         normalised_dp.GetFull(
@@ -1866,7 +1922,7 @@ class PreProcess():
           def class_balancing(df):
             df.loc[(df["classifier_truth"] == 0), "wt"] *= scale_to / sum_zero
             df.loc[(df["classifier_truth"] == 1), "wt"] *= scale_to / sum_one
-            return df.loc[:,["wt"]]
+            return df[["wt"]]
 
           for tt in ["train","test"]:
 

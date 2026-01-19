@@ -79,6 +79,7 @@ class MultiDimMetrics():
 
     return X, wt
 
+
   def _GetWasserstein(self, data1, weights1, data2, weights2):
 
     # Sort data and weights for both datasets

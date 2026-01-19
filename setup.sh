@@ -20,8 +20,6 @@ if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   source miniconda/files/etc/profile.d/conda.sh
 fi
 
-echo $TMPDIR
-
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
   source miniconda/files/etc/profile.d/conda.sh
@@ -49,5 +47,13 @@ if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
   cookiecutter https://github.com/gputtley/htcondor.git
   popd
 fi
+
+if [ $# -eq 0 ] || [ "$1" == "container" ]; then
+  echo "Making container of conda environment"
+  #conda install -c conda-forge conda-pack
+  conda activate innfer_env
+  conda-pack -n innfer_env -o innfer_env_container.tar.gz
+fi
+
 
 rm -rf tmp/*
