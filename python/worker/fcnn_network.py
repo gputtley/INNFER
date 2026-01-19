@@ -446,11 +446,12 @@ class FCNNNetwork():
     elif self.task == "classification":
       return self._GraphPredictSoftMax(X)
 
-  def Predict(self, X, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
+
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
 
     # Preprocess inputs
     X_dp = DataProcessor(
-      [[X]],
+      [[input]],
       "dataset",
       options = {
         "parameters" : self.data_parameters,
@@ -458,6 +459,7 @@ class FCNNNetwork():
       },
       batch_size = self.transform_batch_size
     )
+
     X = X_dp.GetFull(
       method="dataset",
       functions_to_apply = ["transform"] if transform_X else [],

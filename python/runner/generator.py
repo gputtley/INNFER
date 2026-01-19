@@ -247,6 +247,7 @@ class Generator():
         functions_to_apply = functions_to_apply,
         bins = n_bins,
         column = col,
+        ignore_quantile = 0.001,
       )      
 
       # Make synth hists

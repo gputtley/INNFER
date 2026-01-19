@@ -171,7 +171,9 @@ def plot_histograms_with_ratio(
   anchor_y_at_0 = True,
   axis_text = None,
   draw_error_bars = False,
-  draw_error_bar_caps = True
+  draw_error_bar_caps = True,
+  draw_error_bars_first = False,
+  ignore_error_in_ratio = False
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -215,12 +217,20 @@ def plot_histograms_with_ratio(
     elif not first_ratio:
       ax[0].plot(bins[:-1], hist_pairs[1], label=hist_names[ind][1], color=colour, linestyle="-", drawstyle="steps-mid")
 
-    if not draw_error_bars:
+    if not (draw_error_bars or (draw_error_bars_first and ind == 0)):
       ax[0].plot(bins[:-1], hist_pairs[0], label=hist_names[ind][0], color=colour, linestyle="--", drawstyle="steps-mid")
+      #ax[0].fill_between(
+      #  bins,
+      #  np.append(hist_pairs[0],hist_pairs[0][-1])-np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+      #  np.append(hist_pairs[0],hist_pairs[0][-1])+np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+      #  color=colour,
+      #  alpha=0.2,
+      #  step='mid'
+      #  )
       ax[0].fill_between(
-        bins,
-        np.append(hist_pairs[0],hist_pairs[0][-1])-np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
-        np.append(hist_pairs[0],hist_pairs[0][-1])+np.append(hist_uncerts[ind][0],hist_uncerts[ind][0][-1]),
+        bins[:-1],
+        hist_pairs[0]-hist_uncerts[ind][0],
+        hist_pairs[0]+hist_uncerts[ind][0],
         color=colour,
         alpha=0.2,
         step='mid'
@@ -235,24 +245,41 @@ def plot_histograms_with_ratio(
         linestyle='None', fmt='+' if draw_error_bar_caps else 'o', color=colour, capsize=5 if draw_error_bar_caps else 0, elinewidth=1, capthick=1
       )
 
-    if first_ratio and (ind == 0):
-      ax[0].fill_between(
-        bins,
-        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-        color="black",
-        alpha=0.2,
-        step='mid'
-        )
-    elif not first_ratio:
-      ax[0].fill_between(
-        bins,
-        np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-        np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
-        color=colour,
-        alpha=0.5,
-        step='mid'
-        )
+    if not ignore_error_in_ratio:
+      if first_ratio and (ind == 0):
+        #ax[0].fill_between(
+        #  bins,
+        #  np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        #  np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        #  color="black",
+        #  alpha=0.2,
+        #  step='mid'
+        #  )
+        ax[0].fill_between(
+          bins[:-1],
+          hist_pairs[1]-hist_uncerts[ind][1],
+          hist_pairs[1]+hist_uncerts[ind][1],
+          color="black",
+          alpha=0.2,
+          step='mid'
+          )
+      elif not first_ratio:
+        #ax[0].fill_between(
+        #  bins,
+        #  np.append(hist_pairs[1],hist_pairs[1][-1])-np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        #  np.append(hist_pairs[1],hist_pairs[1][-1])+np.append(hist_uncerts[ind][1],hist_uncerts[ind][1][-1]),
+        #  color=colour,
+        #  alpha=0.5,
+        #  step='mid'
+        #  )
+        ax[0].fill_between(
+          bins[:-1],
+          hist_pairs[1]-hist_uncerts[ind][1],
+          hist_pairs[1]+hist_uncerts[ind][1],
+          color=colour,
+          alpha=0.2,
+          step='mid'
+          )
 
     # y label
     ax[0].set_ylabel(ylabel)
@@ -272,11 +299,12 @@ def plot_histograms_with_ratio(
     # draw ratios
     denom = np.array([v if v !=0 else 1.0 for v in hist_pairs[1]])
     ratio = hist_pairs[0]/denom
-    if not draw_error_bars:
+    if not (draw_error_bars or (draw_error_bars_first and ind == 0)):
       ax[-1].plot(bins[:-1], ratio, color=colour, linestyle="--", drawstyle="steps-mid")
       # add uncertainty ro ratio
-      ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
-      ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
+      if not ignore_error_in_ratio:
+        ratio_uncert = ((hist_uncerts[ind][0]**2 + hist_uncerts[ind][1]**2)**0.5)/denom
+        ax[-1].fill_between(bins,np.append(ratio,ratio[-1])-np.append(ratio_uncert,ratio_uncert[-1]),np.append(ratio,ratio[-1])+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.2,step='mid')
     else:
       non_empty_bins = (ratio != 0)
       ratio_uncert = hist_uncerts[ind][1]/denom
@@ -291,7 +319,16 @@ def plot_histograms_with_ratio(
         yerr=(np.array(hist_uncerts[ind][0])/np.array(denom))[non_empty_bins],
         linestyle='None', fmt='+' if draw_error_bar_caps else 'o', color=colour, capsize=5 if draw_error_bar_caps else 0, elinewidth=1, capthick=1
       )
-      ax[-1].fill_between(bins,np.ones(len(np.append(ratio,ratio[-1])))-np.append(ratio_uncert,ratio_uncert[-1]),np.ones(len(np.append(ratio,ratio[-1])))+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.1,step='mid')
+      #ax[-1].fill_between(bins,np.ones(len(np.append(ratio,ratio[-1])))-np.append(ratio_uncert,ratio_uncert[-1]),np.ones(len(np.append(ratio,ratio[-1])))+np.append(ratio_uncert,ratio_uncert[-1]),color=colour,alpha=0.1,step='mid')
+      if not ignore_error_in_ratio:
+        ax[-1].fill_between(
+          bins[:-1],
+          np.ones(len(bins[:-1])) - ratio_uncert,
+          np.ones(len(bins[:-1])) + ratio_uncert,
+          color=colour,
+          alpha=0.2,
+          step='mid'
+          )
       # Draw dashed line along edges of the fill between
       #ax[-1].plot(bins, np.ones(len(bins))-np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
       #ax[-1].plot(bins, np.ones(len(bins))+np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
@@ -1543,7 +1580,8 @@ def plot_summary_per_val(
 
 
   # Create the figure and axes
-  fig, ax = plt.subplots(n_pads, 1, gridspec_kw={'height_ratios': pad_sizes}, figsize=(8.27, 11.69), constrained_layout=True)
+  #fig, ax = plt.subplots(n_pads, 1, gridspec_kw={'height_ratios': pad_sizes}, figsize=(8.27, 11.69), constrained_layout=True)
+  fig, ax = plt.subplots(n_pads, 1, gridspec_kw={'height_ratios': pad_sizes}, figsize=(10.0, 11.69), constrained_layout=True)
   hep.cms.text(cms_label,ax=ax[0], fontsize=22)
 
   # Draw lumi label
@@ -1598,13 +1636,13 @@ def plot_summary_per_val(
 
   # Write y labels (names) on non constraint pads
   for i, name in enumerate(results_without_constraints.keys()):
-    ax[i+1].text(-0.02, 0.5, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[i+1].transAxes)
+    ax[i+1].text(-0.02, 0.5, name, verticalalignment='center', horizontalalignment='right', fontsize=12, transform=ax[i+1].transAxes)
 
   # Write y labels (names) on constraint pad
   if len(results_with_constraints.keys()) > 0:
     for i, name in enumerate(results_with_constraints.keys()):
       y_coord = ((1/(2*len(results_with_constraints.keys())))) + (i/(len(results_with_constraints.keys())))
-      ax[constraint_pad].text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=16, transform=ax[constraint_pad].transAxes)
+      ax[constraint_pad].text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=12, transform=ax[constraint_pad].transAxes)
 
   # Draw vertical lines on non constraint pads for the truth values
   for i in range(1, constraint_pad):
@@ -1708,14 +1746,25 @@ def plot_summary_per_val(
 
   # Draw legend on the top right of the top axis
   handles, labels = ax[1].get_legend_handles_labels()
-  handles = handles[::-1]
-  labels = labels[::-1]
+
+  # Only keep unique labels
+  unique_labels = []
+  unique_handles = []
+  for handle, label in zip(handles, labels):
+    if label not in unique_labels:
+      unique_labels.append(label)
+      unique_handles.append(handle)
+
+  handles = unique_handles[::-1]
+  labels = unique_labels[::-1]
+
   legend = ax[0].legend(handles, labels, loc='upper right', frameon=True, framealpha=1, facecolor='white', edgecolor="white", fontsize=16)
 
   print("Created "+plot_name+".pdf")
   MakeDirectories(plot_name+".pdf")
   plt.savefig(plot_name+".pdf")
   plt.close()
+
 
 def plot_learned_nuisance_variations(
   nominal_line_hist,

@@ -1,3 +1,4 @@
+import importlib
 import os
 
 import pyarrow as pa
@@ -19,6 +20,7 @@ class DataCategories():
     self.data_output = None
     self.verbose = True
     self.add_columns = {}
+    self.calculate = {}
 
   def Configure(self, options):
     """
@@ -33,13 +35,31 @@ class DataCategories():
     if isinstance(self.data_input,str):
       self.data_input = [self.data_input]
 
+
   def _AddColumns(self, df, ind):
     for col, value in self.add_columns.items():
       if isinstance(value, list):
-        df[col] = value[ind]
+        #df[col] = value[ind]
+        df = df.assign(**{col: value[ind]})
       else:
-        df[col] = value
+        #df[col] = value
+        df = df.assign(**{col: value})
     return df
+
+
+  def _Calculate(self, df):
+    for name, value in self.calculate.items():
+      if isinstance(value, str):
+        df[name] = df.eval(value)
+      elif isinstance(value, dict):
+        if value["type"] == "function":
+          module = importlib.import_module(value["file"])
+          func = getattr(module, value["name"])
+          df = func(df, **value["args"])
+      else:
+        raise ValueError(f"Calculate type {type(value)} not recognised")
+    return df
+
 
   def Run(self):
     """
@@ -79,6 +99,7 @@ class DataCategories():
         method=None,
         functions_to_apply=[
           partial(self._AddColumns, ind=ind),
+          self._Calculate,
           "selection",
           partial(self._WriteDataset, file_name="data.parquet"),
         ]

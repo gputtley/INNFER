@@ -6,6 +6,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
 import yaml
 
+import numdifftools as nd
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -23,7 +24,7 @@ class Likelihood():
   """
   A class representing a likelihood function.
   """
-  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}, categories=None, simplex={}):
+  def __init__(self, models, likelihood_type="unbinned_extended", constraints=[], constraint_center=None, X_columns=[], Y_columns=[], Y_columns_per_model={}, categories=None, simplex={}, nn_columns=[]):
     """
     Initializes a Likelihood object.
 
@@ -46,6 +47,8 @@ class Likelihood():
     self.constraint_center = constraint_center
     self.simplex = simplex
     self.skip_nan_check = True
+    self.nn_columns = nn_columns
+    self.constraint_range=[-3.0,3.0]
 
     # saved parameters
     self.best_fit = None
@@ -77,6 +80,7 @@ class Likelihood():
     self.cache_memory = {}
     if not os.path.exists(self.cache_dir):
       MakeDirectories(self.cache_dir)
+    self.precalculated_yields = {}
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -282,7 +286,7 @@ class Likelihood():
     return ln_constraint
 
 
-  def _CreateCacheDict(self, name, model, Y, gradient, category, model_type="density", extra_options={}, parameter_name=None, extra_save_name=""):
+  def _CreateCacheDict(self, name, model, Y, gradient, category, column_1=None, column_2=None, model_type="density", extra_options={}, parameter_name=None, extra_save_name=""):
 
     if model_type == "density":
       Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
@@ -298,6 +302,8 @@ class Likelihood():
       "log_probs_ind": int(self.cached_log_probs_ind),
       "log_probs_batch_ind": int(self.cached_log_probs_batch_ind),
       "model_type": model_type,
+      "column_1": column_1,
+      "column_2": column_2
     }
     cache_dict.update(extra_options)
 
@@ -377,6 +383,9 @@ class Likelihood():
 
 
   def _WriteCache(self, input, gradient, cache_dict, load_from_cache, model, model_type="density"):
+
+    if isinstance(gradient, int):
+      gradient = [gradient]
 
     if not self._CheckIfWriteToCache(load_from_cache, model, model_type=model_type):
       return
@@ -467,7 +476,7 @@ class Likelihood():
       ### Density ###
 
       # Check if we can load from cache for density
-      cache_dict_density = self._CreateCacheDict(name, pdf, Y, gradient, category, model_type="density")
+      cache_dict_density = self._CreateCacheDict(name, pdf, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="density")
       load_from_cache_density = self._CheckIfInCacheLogProbs(cache_dict_density, model_type="density")
 
       if not load_from_cache_density:
@@ -503,7 +512,7 @@ class Likelihood():
 
         for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
 
-          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
+          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
           load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="regression")
 
           if not load_from_cache_classifier:
@@ -535,13 +544,21 @@ class Likelihood():
 
       if do_shift:
 
-        vals = Y[self.Y_columns].iloc[0].to_dict()
-        combined = X[self.X_columns].assign(**vals)
+        cache_dict_classifiers = {}
+        load_from_cache_classifiers = {}
+        for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+          cache_dict_classifiers[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
+          load_from_cache_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_classifiers[k], model_type="classifier")
+
+        # if all of load from cache is true, skip combining
+        if not all(load_from_cache_classifiers.values()):
+          vals = Y[self.Y_columns].iloc[0].to_dict()
+          combined = X[self.X_columns].assign(**vals)
 
         for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
 
-          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, model_type="classifier", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
-          load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="classifier")
+          cache_dict_classifier = cache_dict_classifiers[k]
+          load_from_cache_classifier = load_from_cache_classifiers[k]
 
           if not load_from_cache_classifier:
             classifier_shift = self._ShiftDensityByClassifier(
@@ -584,7 +601,8 @@ class Likelihood():
 
       # Sum together probabilities of different files
       if first_loop:
-        H1 = copy.deepcopy(ln_lklds_with_rate_params)
+        #H1 = copy.deepcopy(ln_lklds_with_rate_params)
+        H1 = ln_lklds_with_rate_params.copy()
         first_loop = False
       else:
         H1 = self._HelperLogSumExpTrick(H1,ln_lklds_with_rate_params)
@@ -607,7 +625,8 @@ class Likelihood():
 
       # Sum together probabilities of different files
       if first_loop:
-        H1FirstDerivative = copy.deepcopy(ln_lklds_with_rate_params)
+        #H1FirstDerivative = copy.deepcopy(ln_lklds_with_rate_params)
+        H1FirstDerivative = ln_lklds_with_rate_params.copy()
         first_loop = False
       else:
         H1FirstDerivative += ln_lklds_with_rate_params
@@ -626,7 +645,8 @@ class Likelihood():
 
       # Sum together probabilities of different files
       if first_loop:
-        H1SecondDerivative = copy.deepcopy(ln_lklds_with_rate_params)
+        #H1SecondDerivative = copy.deepcopy(ln_lklds_with_rate_params)
+        H1SecondDerivative = ln_lklds_with_rate_params.copy()
         first_loop = False
       else:
         H1SecondDerivative += ln_lklds_with_rate_params
@@ -680,12 +700,7 @@ class Likelihood():
   def _GetEventLoopUnbinned(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
 
     # Get probabilities and other first derivative if needed
-    if 2 in gradient:
-      get_log_prob_gradients = [0,1,2]
-    elif 1 in gradient:
-      get_log_prob_gradients = [0,1]
-    else:
-      get_log_prob_gradients = [0]
+    get_log_prob_gradients = list(range(max(gradient) + 1))
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
 
     if 2 in gradient:
@@ -747,7 +762,6 @@ class Likelihood():
 
 
   def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
-
     
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
@@ -757,10 +771,20 @@ class Likelihood():
     else:
       get_log_prob_gradients = [0]
 
+    #st = time.time()
+
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
+
+    #print("Time to get log probs:", time.time()-st)
+
+    #st = time.time()
 
     if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
+
+    #print("Time to get other first derivative:", time.time()-st)
+
+    #st = time.time()
 
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True, category=category)
@@ -769,6 +793,8 @@ class Likelihood():
     if 2 in get_log_prob_gradients:
       H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2, category=category)
       H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2, category=category)
+
+    #print("Time to get H1 and derivatives:", time.time()-st)
 
     # Calculate and weight sum loop terms
     ln_lkld = []
@@ -795,16 +821,21 @@ class Likelihood():
 
     self.cached_log_probs_batch_ind += 1
 
+
     return ln_lkld
 
 
   def _GetYield(self, file_name, Y, category=None):
 
-    yd = 1.0
-    if "yields" in self.models.keys():
-      if category in self.models["yields"].keys():
-        if file_name in self.models["yields"][category].keys():
-          yd = self.models["yields"][category][file_name](Y)
+    if file_name not in self.precalculated_yields.keys():
+      yd = 1.0
+      if "yields" in self.models.keys():
+        if category in self.models["yields"].keys():
+          if file_name in self.models["yields"][category].keys():
+            yd = self.models["yields"][category][file_name](Y)
+    else:
+      yd = self.precalculated_yields[file_name]
+
       
     return yd
 
@@ -921,7 +952,7 @@ class Likelihood():
     out[indices] = b_sign[indices]*np.exp(ln_a[indices] + np.log(np.abs(b[indices])))
     return out
 
-
+    
   def _HelperNumericalGradientFromLinear(self, func, val, column, file_name, gradient=1, shift=1e-5):
 
     if column is None:
@@ -1032,7 +1063,7 @@ class Likelihood():
     elif max(gradient_loop) == 2:
       get_gradient = [0,1,2]
 
-    pred = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2)
+    pred = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2)
 
     # Update log prob
     for ind, grad in enumerate(gradient_loop):
@@ -1068,7 +1099,6 @@ class Likelihood():
  
   def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None):
 
-
     # Make gradient loop
     if not isinstance(gradient, list):
       gradient_loop = [gradient]
@@ -1084,7 +1114,7 @@ class Likelihood():
     elif max(gradient_loop) == 2:
       get_gradient = [0,1,2]
 
-    probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
+    probs = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
 
     for ind, grad in enumerate(gradient_loop):
       if grad == 0:
@@ -1119,6 +1149,17 @@ class Likelihood():
     return log_probs
 
 
+  def _CheckYInRange(self, Y):
+
+    col_vals = Y.iloc[0].to_dict()
+    for ind, col in enumerate(self.Y_columns):
+      if col in self.constraints:
+        if col_vals[col] < self.constraint_range[0] or col_vals[col] > self.constraint_range[1]:
+          return False
+    return True
+
+
+
   def Run(self, inputs, Y, multiply_by=1, gradient=0, column_1=None, column_2=None, numerical_gradient=False):
     """
     Evaluates the likelihood for given data.
@@ -1139,6 +1180,10 @@ class Likelihood():
     if not isinstance(Y, pd.DataFrame):
       Y = pd.DataFrame([Y], columns=self.Y_columns, dtype=np.float64)
 
+    # Check Y is in range
+    if not self._CheckYInRange(Y):
+      return np.nan
+    
     # Check type of gradient
     convert_back = False
     if isinstance(gradient,int):
@@ -1157,10 +1202,11 @@ class Likelihood():
     if numerical_gradient and gradient != [0]:
       raise NotImplementedError("Numerical gradients are not implemented yet for this class. Please use analytical gradients or scans.")
 
+
     # Run likelihood
     first = True
+    #st = time.time()
     for category in self.categories:
-
       if self.type == "unbinned":
         cat_val = self.LikelihoodUnbinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
       elif self.type == "unbinned_extended":
@@ -1175,6 +1221,8 @@ class Likelihood():
       else:
         for grad_ind, grad in enumerate(gradient):
           lkld_val[grad_ind] += cat_val[grad_ind]
+
+    #print("Time to get likelihood:", time.time()-st)
 
     # Add constraint
     for grad_ind, grad in enumerate(gradient):
@@ -1193,9 +1241,10 @@ class Likelihood():
         print(f"Step={self.minimisation_step}")
 
     # Print Y
-    print(f"  Y: ")
-    for ind, Y_col in enumerate(self.Y_columns):
-      print(f"    {Y_col} = {float(Y.to_numpy().flatten()[ind])}")
+    if len(self.Y_columns) < 5:
+      print(f"  Y: ")
+      for ind, Y_col in enumerate(self.Y_columns):
+        print(f"    {Y_col} = {float(Y.to_numpy().flatten()[ind])}")
 
     # Print result
     print(f"  Result: ")
@@ -1309,17 +1358,27 @@ class Likelihood():
     # Get event loop value
     first_loop = True
     self._HelperSetSeed()
+
+    # Precalculate yields
+    self.precalculated_yields = {}
+    for name, _ in self.models["yields"][category].items():
+      self.precalculated_yields[name] = self._GetYield(name, Y, category=category)
+
+    # Loop over data processors
     for ind, X_dp in enumerate(X_dps):
       self.cached_log_probs_ind = ind*1
       self.cached_log_probs_batch_ind = 0
 
+      X_dp.cache_to_memory = True
       dps_ln_lkld = X_dp.GetFull(
         method = "custom",
         custom = self._CustomDPMethod,
-        custom_options = {"function": self._GetEventLoopUnbinnedExtended, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2, "category":category}}
+        custom_options = {"function": self._GetEventLoopUnbinnedExtended, "Y": Y, "options": {"wt_name":X_dp.wt_name, "gradient":gradient, "column_1":column_1, "column_2":column_2, "category":category}},
       )
+
       if first_loop:
-        ln_lkld = copy.deepcopy(dps_ln_lkld)
+        #ln_lkld = copy.deepcopy(dps_ln_lkld)
+        ln_lkld = dps_ln_lkld.copy()
         first_loop = False
       else:
         ln_lkld = [ln_lkld[ind]+dps_ln_lkld[ind] for ind in range(len(ln_lkld))]
@@ -1332,7 +1391,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.2, save_best_fit=True):
+  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.2, constraint_step_size=1.0, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -1343,30 +1402,28 @@ class Likelihood():
 
     """
 
+    # Set up caching information
     self.use_density_cache = True
     self.use_classifier_cache = True
-    self.cache_only_non_minimised = False
+    self.use_regression_cache = True
     self.cached_density_minimised_columns = [k for k in self.Y_columns if k not in freeze.keys()]
 
+    # Set up initial guess
     initial_guess = initial_guess.loc[:,self.Y_columns]
 
-    if method in ["scipy"]:
+    # Unfrozen columns
+    columns_to_minimise = [k for k in self.Y_columns if k not in freeze.keys()]
 
+    # Define function to minimise
+    if method in ["scipy", "one-at-a-time", "scipy-non-nn-profiled"]:
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=0)
       func, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), func_to_minimise)
-      result = self.Minimise(func, initial_guess, initial_step_size=initial_step_size, method=method)
-      
     elif method in ["minuit"]:
-
       inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
       func_to_minimise = eval(f"lambda {inputs}: self.Run(X_dps, np.array([{inputs}]), multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'np': np})
       func, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), func_to_minimise, non_list_input=True)
-      result = self.Minimise(func, initial_guess, method=method, initial_step_size=initial_step_size)
-
-    elif method in ["scipy_with_gradients","minuit_with_gradients","custom"]:
-
+    elif method in ["scipy-with-gradients","minuit-with-gradients","custom"]:
       func_val_and_jac = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=[0,1])
-
       class NLLAndGradient():
         def __init__(self):
           self.jac = 0.0
@@ -1385,28 +1442,114 @@ class Likelihood():
             _, jac = func_val_and_jac(Y)
             return jac
       nllgrad = NLLAndGradient()
-
-      if method in ["scipy_with_gradients","custom"]:
+      if method in ["scipy-with-gradients","custom"]:
         func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nllgrad.GetNLL, jac=nllgrad.GetJac)
-        result = self.Minimise(func, initial_guess, initial_step_size=initial_step_size, method=method, jac=jac)
-      elif method in ["minuit_with_gradients"]:
+      elif method in ["minuit-with-gradients"]:
         inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess.to_numpy().flatten()))])
         nll_func = eval(f"lambda {inputs}: nllgrad.GetNLL(np.array([{inputs}]))", {"nllgrad": nllgrad, 'np': np})
         nll_jac = eval(f"lambda {inputs}: nllgrad.GetJac(np.array([{inputs}]))", {"nllgrad": nllgrad, 'np': np})
         func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nll_func, jac=nll_jac, non_list_input=True)
-        result = self.Minimise(func, initial_guess, method=method, jac=jac)
 
-    else:
+    # Define initial simplex
+    if method in ["scipy", "scipy-with-gradients", "one-at-a-time", "scipy-non-nn-profiled", "custom"]:
+      initial_simplex = [initial_guess]
+      for i in range(len(columns_to_minimise)):
+        row = copy.deepcopy(initial_guess)
+        if columns_to_minimise[i] in self.simplex.keys():
+          row[i] += self.simplex[columns_to_minimise[i]]
+        else:
+          if columns_to_minimise[i] in self.constraints:
+            row[i] += constraint_step_size
+          else:
+            row[i] += initial_step_size * max(row[i], 1.0)
+        initial_simplex.append(row)
+    elif method in ["minuit", "minuit-with-gradients"]:
+      errors = []
+      for i in range(len(columns_to_minimise)):
+        if columns_to_minimise[i] in self.simplex.keys():
+          errors.append(abs(self.simplex[columns_to_minimise[i]]-initial_guess[i]))
+        else:
+          if columns_to_minimise[i] in self.constraints:
+            errors.append(constraint_step_size)
+          else:
+            errors.append(initial_step_size * max(initial_guess[i], 1.0))
 
-      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'minuit', 'scipy_with_gradients', 'minuit_with_gradients' or 'custom'.")
+    # Minimise
+    if method in ["scipy"]:
+      result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex)
+    elif method in ["scipy-with-gradients"]:
+      result = self.Minimise(func, initial_guess, method="scipy-with-gradients", jac=jac, initial_simplex=initial_simplex)
+    elif method in ["minuit"]:
+      result = self.Minimise(func, initial_guess, method="minuit", errors=errors)
+    elif method in ["minuit-with-gradients"]:
+      result = self.Minimise(func, initial_guess, method="minuit-with-gradients", jac=jac, errors=errors)
+    elif method in ["custom"]:
+      result = self.Minimise(func, initial_guess, method="custom", jac=jac, initial_simplex=initial_simplex)
+    elif method in ["one-at-a-time"]:
+      loops_through_parameters = len(initial_guess)
+      #loops_through_parameters = 1
+      for loop_ind in range(loops_through_parameters):
+        for par in range(len(initial_guess)):
+          print(f"Minimising parameter {self.Y_columns[par]} for the loop {loop_ind+1}...")
+          def min_func_single_param(x, initial_guess):
+            params = initial_guess.copy()
+            params[par] = x[0]
+            return func(params)
+          initial_param_guess = [initial_guess[par]]
+          simplex_scale = 1/(loop_ind+1)
+          initial_param_simplex = [initial_param_guess, [initial_param_guess[0] + ((initial_simplex[par+1][par]-initial_param_guess[0])*simplex_scale)]]
+          result = self.Minimise(partial(min_func_single_param, initial_guess=initial_guess), initial_param_guess, method="scipy", initial_simplex=initial_param_simplex)
+          initial_guess[par] = result[0][0]
+      result = (initial_guess, result[1])
+    elif method in ["scipy-non-nn-profiled"]:
+      profiled_columns = [ind for ind, col in enumerate(columns_to_minimise) if col not in self.nn_columns]
+      other_columns = [ind for ind, col in enumerate(columns_to_minimise) if col in self.nn_columns]
+      def func_profiled(x, initial_guess):
+        params = initial_guess.copy()
+        for ind, col_ind in enumerate(profiled_columns):
+          params[col_ind] = x[ind]
+        return func(params)
+      class func_to_minimise():
+        def __init__(self, initial_guess, inner_columns, outer_columns, minimise_func):
+          self.inner_columns = inner_columns
+          self.outer_columns = outer_columns
+          self.initial_guess = initial_guess
+          self.Minimise = minimise_func
+        def __call__(self, x):
+          for ind, col_ind in enumerate(self.outer_columns):
+            self.initial_guess[col_ind] = x[ind]
+          profiled_initial_guess = [self.initial_guess[ind] for ind in self.inner_columns]
+          partial_func = partial(func_profiled, initial_guess=initial_guess)
+          presult = self.Minimise(partial_func, profiled_initial_guess, method="scipy")
+          for ind, col_ind in enumerate(self.inner_columns):
+            self.initial_guess[col_ind] = presult[0][ind]
+          return presult[1]
+      ftm = func_to_minimise(initial_guess, profiled_columns, other_columns, minimise_func=self.Minimise)
+      other_initial_guess = [initial_guess[ind] for ind in other_columns]
+      other_initial_simplex = [other_initial_guess]
+      for ind in range(len(initial_simplex)):
+        if ind == 0: continue
+        if ind-1 not in other_columns: continue
+        row = []
+        for col_ind in other_columns:
+          row.append(initial_simplex[ind][col_ind])
+        other_initial_simplex.append(row)
+      dfresult = self.Minimise(ftm, other_initial_guess, method="scipy", initial_simplex=other_initial_simplex)
+      result = (ftm.initial_guess, dfresult[1])
+      for ind, col_ind in enumerate(other_columns):
+        result[0][col_ind] = dfresult[0][ind]
 
+    # Save best fit
     if save_best_fit:
       self.best_fit = result[0]
       self.best_fit_nll = result[1]
 
+    # Clear cache
     self._ClearCache()
 
     return result
+
+
 
   def GetCovariance(self):
 
@@ -1442,7 +1585,6 @@ class Likelihood():
 
 
   def GetDMatrix(self, X_dps, scan_over):
-
 
     # Get the D matrix
     if self.type in ["unbinned","unbinned_extended"]:
@@ -1635,13 +1777,15 @@ class Likelihood():
     return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
 
 
-  def Minimise(self, func, initial_guess, method="scipy", initial_step_size=0.02, constraint_step_size=1.0, jac=None):
+  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None):
     """
     Minimizes the given function using numerical optimization.
 
     Args:
         func (callable): The objective function to be minimized.
         initial_guess (array): Initial values for the parameters.
+        jac (callable, optional): Jacobian (gradient) of the objective function.
+        initial_simplex (array, optional): Initial simplex for the Nelder-Mead method.
 
     Returns:
         tuple: Best-fit parameters and the corresponding function value.
@@ -1653,31 +1797,26 @@ class Likelihood():
 
     # scipy
     if method == "scipy":
-      # get initial simplex
-      n = len(initial_guess)
-      initial_simplex = [initial_guess]
-      for i in range(n):
-        row = copy.deepcopy(initial_guess)
-        if self.Y_columns[i] in self.simplex.keys():
-          row[i] += self.simplex[self.Y_columns[i]]
-        else:
-          if self.Y_columns[i] in self.constraints:
-            row[i] += constraint_step_size
-          else:
-            row[i] += initial_step_size * max(row[i], 1.0)
-        initial_simplex.append(row)
 
-      # run minimisation
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options={'xatol': 0.001, 'fatol': 0.01, 'initial_simplex': initial_simplex})
+      options = {'xatol': 0.001, 'fatol': 0.01}
+      if initial_simplex is not None:
+        options['initial_simplex'] = initial_simplex
+
+      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options=options)
       res = minimisation.x, minimisation.fun
     
     # scipy with gradients
-    elif method == "scipy_with_gradients":
-      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.001, options={'ftol': 1e-9, 'gtol':1e-8})
+    elif method == "scipy-with-gradients":
+
+      options = {'ftol': 1e-9, 'gtol':1e-8}
+      if initial_simplex is not None:
+        options['initial_simplex'] = initial_simplex      
+      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.001, options=options)
       res = minimisation.x, minimisation.fun
 
     # minuit
     elif method == "minuit":
+
       minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
       m = Minuit(func, **minuit_initial_guess)
       for params in range(len(initial_guess)):
@@ -1690,7 +1829,8 @@ class Likelihood():
       res = m.values, m.fval
 
     # minuit with gradients
-    elif method == "minuit_with_gradients":
+    elif method == "minuit-with-gradients":
+
       minuit_initial_guess = {f"p{ind}":val for ind, val in enumerate(initial_guess)}
       inputs = ",".join(['p'+str(ind) for ind in range(len(initial_guess))])
       class_code = f"""
@@ -1710,7 +1850,10 @@ class NLLAndGradient():
 
       m = Minuit(cost, **minuit_initial_guess)
       for params in range(len(initial_guess)):
-        m.errors[f"p{params}"] *= 10
+        if errors is not None:
+          m.errors[f"p{params}"] = errors[params]
+        else:
+          m.errors[f"p{params}"] *= 10
       m.errordef = Minuit.LIKELIHOOD
       m.strategy = 0
       m.tol = 0.01
@@ -1722,7 +1865,7 @@ class NLLAndGradient():
       res = CustomMinimise(func, jac, initial_guess)
 
     else:
-      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy_with_gradients', 'minuit', 'minuit_with_gradients' or 'custom'.")
+      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy-with-gradients', 'minuit', 'minuit-with-gradients' or 'custom'.")
 
     # Set minimisation_step
     self.minimisation_step = None
@@ -1904,7 +2047,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml", specific_column_1=None, specific_column_2=None, numerical=False):
+  def GetAndWriteHessianToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="hessian.yaml", specific_column_1=None, specific_column_2=None, numerical=False, numerical_method="minuit"):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -1919,6 +2062,7 @@ class NLLAndGradient():
       scan_over = self.Y_columns
     scan_over = [col for col in scan_over if col not in freeze.keys()]
 
+
     # Get hessian entries
     if numerical:
 
@@ -1926,33 +2070,90 @@ class NLLAndGradient():
       self.use_density_cache = True
       self.use_regression_cache = True
 
-      minuit_func_input = ",".join(['p'+str(ind) for ind in range(len(scan_over))])
+      if specific_column_1 is None or specific_column_2 is None:
+        columns_to_run = scan_over
+        save_diagonal = True
+      else:
+        columns_to_run = [specific_column_1, specific_column_2]
+        if specific_column_1 == scan_over[0] and specific_column_2 == scan_over[1]:
+          save_diagonal = True
+        else:
+          save_diagonal = False
 
-      col_vals = ['p'+str(ind) for ind in range(len(scan_over))] + [str(i) for i in freeze.values()]
-      col_names = scan_over + list(freeze.keys())
-      sorted_col_names = []
-      sorted_col_vals = []
-      for col in self.Y_columns:
-        if col in col_names:
-          sorted_col_names.append(col)
-          sorted_col_vals.append(col_vals[col_names.index(col)])
 
-      pd_func_input = ",".join(sorted_col_vals)
-      pd_func_cols = ",".join([f'"{k}"' for k in sorted_col_names])
-      run_func_input = f"pd.DataFrame([[{pd_func_input}]], columns=[{pd_func_cols}])"
-      best_fit_input = ",".join([f"p{ind}={self.best_fit[self.Y_columns.index(col)]}" for ind, col in enumerate(scan_over)])
+      if numerical_method == "minuit":
 
-      minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
-      minuit_class = eval(f"Minuit(minuit_func, {best_fit_input})", {"Minuit": Minuit, "minuit_func": minuit_func, "self": self, 'pd': pd})
-      for params in range(len(scan_over)):
-        minuit_class.values[f"p{params}"] = self.best_fit[self.Y_columns.index(scan_over[params])]
-      minuit_class.hesse()
-      cov = minuit_class.covariance
-      hessian = np.linalg.inv(cov)
+        minuit_func_input = ",".join(['p'+str(ind) for ind in range(len(columns_to_run))])
 
+        col_vals = ['p'+str(ind) for ind in range(len(scan_over))]
+        col_names = list(scan_over)
+
+        col_vals += [str(i) for i in freeze.values()]
+        col_names += list(freeze.keys())
+
+        col_vals += [self.best_fit[self.Y_columns.index(col)] for col in self.Y_columns if col not in col_names]
+        col_names += [col for col in self.Y_columns if col not in col_names]
+
+        sorted_col_names = []
+        sorted_col_vals = []
+        for col in self.Y_columns:
+          if col in col_names:
+            sorted_col_names.append(col)
+            sorted_col_vals.append(col_vals[col_names.index(col)])
+
+        pd_func_input = ",".join(sorted_col_vals)
+        pd_func_cols = ",".join([f'"{k}"' for k in sorted_col_names])
+        run_func_input = f"pd.DataFrame([[{pd_func_input}]], columns=[{pd_func_cols}])"
+        best_fit_input = ",".join([f"p{ind}={self.best_fit[self.Y_columns.index(col)]}" for ind, col in enumerate(scan_over)])
+
+        minuit_func = eval(f"lambda {minuit_func_input}: self.Run(X_dps, {run_func_input}, multiply_by=-2, gradient=0)", {"self": self, "X_dps": X_dps, 'pd': pd})
+        minuit_class = eval(f"Minuit(minuit_func, {best_fit_input})", {"Minuit": Minuit, "minuit_func": minuit_func, "self": self, 'pd': pd})
+        for params in range(len(scan_over)):
+          minuit_class.values[f"p{params}"] = self.best_fit[self.Y_columns.index(scan_over[params])]
+        minuit_class.tol = 1.0
+        h = minuit_class.hesse()
+
+        cov = minuit_class.covariance
+        if cov is None:
+          raise ValueError("Hessian calculation failed. Covariance matrix is None.")
+        hessian_partial = np.linalg.inv(cov)
+
+      elif numerical_method == "numdifftools":
+
+        def grad_func(x):
+          Y = self.best_fit.copy()
+          for ind, col in enumerate(columns_to_run):
+            Y[self.Y_columns.index(col)] = x[ind]
+          return self.Run(X_dps, Y, multiply_by=-1, gradient=0)
+        H = nd.Hessian(grad_func, method='central')
+        hessian_partial = H([self.best_fit[self.Y_columns.index(col)] for col in columns_to_run])
+
+      else:
+
+        raise NotImplementedError(f"Numerical method '{numerical_method}' is not implemented.")
+
+
+      hessian = np.zeros((len(scan_over),len(scan_over)))
+      for ind, col in enumerate(columns_to_run):
+
+        hessian_index = scan_over.index(col)
+
+        if save_diagonal:
+          hessian[hessian_index, hessian_index] = float(hessian_partial[ind, ind])
+
+        for ind_other, col_other in enumerate(columns_to_run):
+          hessian_other_index = scan_over.index(col_other)
+          hessian[hessian_index, hessian_other_index] = float(hessian_partial[ind, ind_other])
+          hessian[hessian_other_index, hessian_index] = float(hessian_partial[ind_other, ind])
+
+
+        
     else:
 
       hessian = np.zeros((len(scan_over),len(scan_over)))
+      self.use_classifier_cache = True
+      self.use_density_cache = True
+      self.use_regression_cache = True
       for index_1, column_1 in enumerate(scan_over):
         for index_2, column_2 in enumerate(scan_over):
           if index_1 <= index_2:

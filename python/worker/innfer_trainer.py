@@ -14,6 +14,8 @@ from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
 from useful_functions import Resample, MakeDirectories
 
+import time 
+
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 seed = 42
@@ -125,7 +127,6 @@ class InnferTrainer(bf.trainers.Trainer):
 
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
-
                loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
 
                if adaptive_lr_scheduler is not None:

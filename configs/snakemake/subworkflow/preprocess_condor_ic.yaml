@@ -8,14 +8,14 @@
 - step: "PreProcessParallelModel"
   submit: "configs/submit/condor_gpu.yaml"
   run_options:
-    points_per_job: 4
+    points_per_job: 10
 - step: "PreProcessParallelValidation"
   submit: "configs/submit/condor_gpu.yaml"
   run_options:
-    points_per_job: 4
+    points_per_job: 10
 - step: "PreProcessParallelNuisanceVariations"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus.yaml"
   run_options:
-    points_per_job: 4
+    points_per_job: 1
 - step: "PreProcessParallelMerge"
   submit: "configs/submit/condor.yaml"

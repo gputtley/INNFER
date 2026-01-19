@@ -22,6 +22,7 @@ class Batch():
 
     self.job_name = "job.sh"
     self.dry_run = False
+    self.use_environment_container = False
     self._SetOptions(options)
 
   def _SetOptions(self, options):
@@ -84,10 +85,17 @@ class Batch():
     
     exc_and_out = [
       f"executable = {os.getcwd()}/{self.job_name}",
-      f"output                = {os.getcwd()}/{output_log}",
-      f"error                 = {os.getcwd()}/{error_log}",
-      f"log                   = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
+      f"output     = {os.getcwd()}/{output_log}",
+      f"error      = {os.getcwd()}/{error_log}",
+      f"log        = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
     ]
+
+    if self.use_environment_container:
+      exc_and_out += [
+        "transfer_input_files     = innfer_env_container.tar.gz",
+        "should_transfer_files    = YES",
+        "when_to_transfer_output  = ON_EXIT",
+      ]
 
     if "extra_lines" in self.options.keys():
       extra_lines = self.options["extra_lines"]
@@ -119,6 +127,7 @@ class Batch():
 
     if not self.dry_run:
       os.system(f"condor_submit {self.job_name.replace('.sh','.sub')}")
+
 
   def _CreateJob(self, cmd_list, job_name, delete_job=True):
     """
@@ -155,8 +164,31 @@ class Batch():
 
     base_cmds = [
       "#!/bin/bash",
+    ]
+
+    if self.use_environment_container:
+      base_cmds += [
+        "echo 'Setting up environment from container...'",
+        "mkdir -p innfer_env_container",
+        "tar -xf innfer_env_container.tar.gz -C innfer_env_container",
+        "innfer_env_container/bin/conda-unpack",
+        "source innfer_env_container/bin/activate",
+      ]
+
+    base_cmds += [
       f"cd {os.getcwd()}",
-      "source env.sh",
+    ]
+
+    if not self.use_environment_container:
+      base_cmds += [
+        "source env.sh",
+      ]
+    else:
+      base_cmds += [
+        "source env.sh no_conda",
+      ]
+
+    base_cmds += [
       "ulimit -s unlimited",
       f"export PREP_DATA_DIR={prep_data_dir}",
       f"export EVAL_DATA_DIR={eval_data_dir}",

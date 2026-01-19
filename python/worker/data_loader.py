@@ -34,7 +34,7 @@ class DataLoader():
       if self.batch_num == 0:
         self.generator = self.parquet_file.iter_batches(batch_size=self.batch_size)
       self.batch_num = (self.batch_num + 1) % self.num_batches
-      return next(self.generator).to_pandas()
+      return next(self.generator).to_pandas(split_blocks=True, self_destruct=True)
     else:
       return pd.DataFrame(index=range(self.batch_size))
 
