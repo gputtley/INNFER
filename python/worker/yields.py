@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+import time
+
 class Yields():
 
   def __init__(
@@ -15,6 +17,8 @@ class Yields():
     self.physics_model = physics_model
     self.rate_param = rate_param
     self.q = 0.5
+    self.cache = {'log_asym_kappa': {}}
+
 
   def _LogAsymKappa(self, nu, kappa_low, kappa_high):
 
@@ -42,12 +46,29 @@ class Yields():
     # Reindex Y
     Y = Y.reset_index(drop=True)
 
+    # determine if we can use cache
+    use_cache = (len(Y) == 1)
+
+    # start with nominal yield
     if len(Y) == 0:
-      # Fix empty Y
       out = pd.DataFrame({"yield" : [self.nominal_yield]})
     else:
-      # Set yield to nominal yield using a dataframe the same size as Y
       out = pd.DataFrame(self.nominal_yield*np.ones(len(Y)), columns=["yield"])
+
+    # do lnN
+    if not ignore_lnN:
+      lnN_columns = [i for i in self.lnN.keys() if i in Y.columns]
+      yield_arr = out["yield"].to_numpy()
+      for k in lnN_columns:
+        yk = Y[k].to_numpy()
+        if k in self.cache['log_asym_kappa'] and use_cache:
+          logk = self.cache['log_asym_kappa'][k]
+        else:
+          k_lo, k_hi = self.lnN[k]
+          logk = self._LogAsymKappa(yk, k_lo, k_hi)
+          if use_cache:
+            self.cache['log_asym_kappa'][k] = logk
+        yield_arr *= np.exp(logk * yk)   # updates out["yield"]
 
     # do rate parameter
     if not ignore_rate_param:
@@ -59,12 +80,6 @@ class Yields():
     if not ignore_physics_model:
       if self.physics_model is not None:
         out.loc[:,"yield"] *= self.physics_model(Y)
-
-    # do lnN
-    if not ignore_lnN:
-      for k, v in self.lnN.items():
-        if k in Y.columns:
-          out.loc[:,"yield"] *= np.exp(self._LogAsymKappa(Y.loc[:,k].to_numpy(), v[0], v[1])) ** Y.loc[:,k].to_numpy()
 
     # return
     if len(out) == 1:

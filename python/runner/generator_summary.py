@@ -16,7 +16,7 @@ class GeneratorSummary():
     self.plots_output = "plots/"
     self.extra_plot_name = ""
     self.file_name = None
-    self.n_bins = 20
+    self.n_bins = 10
     self.val_inds = None
     self.use_scenario_labels = False
     self.verbose = True        

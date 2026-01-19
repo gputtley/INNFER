@@ -1,3 +1,5 @@
+import time
+
 import copy
 import gc
 import os
@@ -62,6 +64,7 @@ class FCNNNetwork():
     self.use_wandb = False
     self.save_model_per_epoch = False
     self.only_X_columns = None
+    self.transform_batch_size = 10**7
 
     # Running parameters
     self.plot_loss = True
@@ -443,25 +446,36 @@ class FCNNNetwork():
     elif self.task == "classification":
       return self._GraphPredictSoftMax(X)
 
-  def Predict(self, X, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
+
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
 
     # Preprocess inputs
     X_dp = DataProcessor(
-      [[X]],
+      [[input]],
       "dataset",
       options = {
         "parameters" : self.data_parameters,
-      }
+        "sort_columns" : False,
+      },
+      batch_size = self.transform_batch_size
     )
+
     X = X_dp.GetFull(
       method="dataset",
-      functions_to_apply = ["transform"] if transform_X else []
+      functions_to_apply = ["transform"] if transform_X else [],
+      print_dataset=True,
     )
+
+    #if self.only_X_columns is not None:
+    #  X = X.loc[:,self.only_X_columns]
+    #else:
+    #  X = X.loc[:,self.data_parameters["X_columns"]]
+    #X = X.to_numpy()
+
     if self.only_X_columns is not None:
-      X = X.loc[:,self.only_X_columns]
+      X = X[self.only_X_columns].values
     else:
-      X = X.loc[:,self.data_parameters["X_columns"]]
-    X = X.to_numpy()
+      X = X[self.data_parameters["X_columns"]].values
 
     # Check type of gradient
     if isinstance(order,int):
@@ -494,6 +508,7 @@ class FCNNNetwork():
     if order == 0 or order == [0]:
 
       pred = self._GraphPredictTotal(X)
+
       if prob_ind is not None:
         pred = pred[:, prob_ind]
       if self.task == "regression":

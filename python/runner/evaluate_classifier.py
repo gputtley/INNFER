@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from sklearn.metrics import roc_auc_score
 
 from functools import partial
 from scipy.interpolate import CubicSpline
@@ -36,6 +37,9 @@ class EvaluateClassifier():
     self.test_name = "test"
     self.model_type = "FCNN"
     self.spline_from_asimov = False
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
+    self.get_auc = True
+
 
   def _WriteDataset(self, df, file_name):
 
@@ -93,6 +97,8 @@ class EvaluateClassifier():
     if self.test_name is not None:
       loop.append(self.test_name)
 
+    performance_metrics = {}
+
     for data_split in loop:
       if self.verbose:
         print(f"- Getting to the predictions for the {data_split} dataset")
@@ -100,6 +106,7 @@ class EvaluateClassifier():
       pred_df = DataProcessor(
         [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","y"]]],
         "parquet",
+        batch_size = self.batch_size,
         options = {
           "parameters" : parameters['classifier'][self.parameter],
         },
@@ -129,6 +136,29 @@ class EvaluateClassifier():
         ]
       )
 
+
+      # Get ROC AUC from predictions
+      if self.get_auc:
+
+        if self.verbose:
+          print("- Getting ROC AUC")
+
+        pred_df = DataProcessor(
+          [f"{self.data_output}/pred_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/wt_{data_split}.parquet"],
+          "parquet",
+          wt_name = "wt",
+          options = {
+            "parameters" : parameters['classifier'][self.parameter],
+          }
+        )
+        df = pred_df.GetFull(method="dataset")
+        df = df[(df["wt"] > 0)]
+        auc = roc_auc_score(df["classifier_truth"], df["probs"], sample_weight=df["wt"])
+        performance_metrics[f"roc_auc_{data_split}"] = float(auc)
+        print(f"ROC AUC for {data_split} dataset: {auc:.4f}")
+
+
+
       # Get normalisation spline
       if data_split == "train":
 
@@ -136,7 +166,7 @@ class EvaluateClassifier():
           print("- Getting normalisation spline")
 
         reweight_df = DataProcessor(
-          [f"{parameters['classifier'][self.parameter]['file_loc']}/X_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{self.model_input}/{self.model_name}/wt_condition_normalised_{data_split}.parquet", pred_name],
+          [f"{parameters['classifier'][self.parameter]['file_loc']}/X_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/wt_{data_split}.parquet", pred_name],
           "parquet",
           wt_name = "wt",
           options = {
@@ -149,7 +179,7 @@ class EvaluateClassifier():
           method = "n_eff"
         )
         events_per_bin = 10000
-        bins = min(int(np.ceil(eff_events/events_per_bin)),20)
+        bins = min(int(np.ceil(eff_events/events_per_bin)),10)
 
         if self.verbose:
           print(f"- Number of bins: {bins}")
@@ -199,6 +229,14 @@ class EvaluateClassifier():
           y_label="Yield ratio to before",
         )
 
+    # Write out performance metrics
+    if self.verbose:
+      print("- Writing out performance metrics")
+    metrics_name = f"{self.data_output}/performance_metrics.yaml"
+    MakeDirectories(metrics_name)
+    with open(metrics_name, 'w') as yaml_file:
+      yaml.dump(performance_metrics, yaml_file)
+
 
   def Outputs(self):
     """
@@ -215,7 +253,11 @@ class EvaluateClassifier():
     # Add normalisation spline
     outputs += [f"{self.model_input}/{self.model_name}/{self.file_name}_norm_spline.pkl"]
 
+    # Add performance metrics
+    outputs += [f"{self.data_output}/performance_metrics.yaml"]
+
     return outputs
+
 
   def Inputs(self):
     """

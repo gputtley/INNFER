@@ -35,7 +35,6 @@ class MakeAsimov():
     self.n_asimov_events = 10**7
     self.seed = 42
     self.val_info = {}
-    self.val_ind = None
     self.only_density = False
     self.Y = None
     self.add_truth = False
@@ -302,9 +301,9 @@ class MakeAsimov():
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
           probs = func(df.loc[:,X_columns])
-          df.loc[:,"wt"] *= probs[:,1]/probs[:,0]
+          df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
           if spl is not None:
-            df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
+            df["wt"] = df["wt"] *spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
         wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter_classifier.parquet')

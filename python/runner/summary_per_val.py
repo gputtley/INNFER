@@ -93,22 +93,74 @@ class SummaryPerVal():
     if self.verbose:
       print("- Plotting the summary")
 
-    plot_summary_per_val(
-      results_with_constraints,
-      results_without_constraints,
-      truth_without_constraints,
-      names,
-      show2sigma = self.show2sigma,
-      plot_text = plot_text,
-      plot_name = f"{self.plots_output}/summary_per_val_{self.val_ind}{self.extra_plot_name}",
-    )
+    # Split into pages
+    lines_per_axis = 2
+    total_lines_per_page = 25
+
+    page_number = 1
+    page_results = {}
+
+    lines_on_this_page = 0
+    for name, results in {"without_constraints": results_without_constraints, "with_constraints": results_with_constraints}.items():
+
+      for k, v in results.items():
+
+        for v1 in v:
+
+          lines_to_add = 1 + lines_per_axis
+
+          # If adding this would go over the page limit, start a new page
+          if lines_on_this_page + lines_to_add > total_lines_per_page:
+            page_number += 1
+            lines_on_this_page = 0
+
+          # Add the lines
+          if page_number not in page_results.keys():
+            page_results[page_number] = {}
+          if name not in page_results[page_number].keys():
+            page_results[page_number][name] = {}
+          if k not in page_results[page_number][name].keys():
+            page_results[page_number][name][k] = []
+          page_results[page_number][name][k].append(v1)
+
+          lines_on_this_page += 1
+
+        if name == "without_constraints":
+          lines_on_this_page += lines_per_axis
+
+    # Now plot each page
+    for pagenum, page_result in page_results.items():
+
+      plot_summary_per_val(
+        page_result["with_constraints"] if "with_constraints" in page_result.keys() else {},
+        page_result["without_constraints"] if "without_constraints" in page_result.keys() else {},
+        truth_without_constraints,
+        names,
+        show2sigma = self.show2sigma,
+        plot_text = plot_text,
+        plot_name = f"{self.plots_output}/summary_per_val_{self.val_ind}{self.extra_plot_name}_page{pagenum}",
+      ) 
+
+
+
+
+
+    #plot_summary_per_val(
+    #  results_with_constraints,
+    #  results_without_constraints,
+    #  truth_without_constraints,
+    #  names,
+    #  show2sigma = self.show2sigma,
+    #  plot_text = plot_text,
+    #  plot_name = f"{self.plots_output}/summary_per_val_{self.val_ind}{self.extra_plot_name}",
+    #)
 
 
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    outputs = [f"{self.plots_output}/summary_per_val_{self.val_ind}{self.extra_plot_name}.pdf"]
+    outputs = [f"{self.plots_output}/summary_per_val_{self.val_ind}{self.extra_plot_name}_page1.pdf"]
     return outputs
 
   def Inputs(self):
