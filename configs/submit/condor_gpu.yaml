@@ -1,6 +1,6 @@
 name: condor
 options:
   extra_lines:
-    - "+MaxRuntime = 36000"
+    - "+MaxRuntime = 86400"
     - "RequestGpus = 1"
 

@@ -335,8 +335,6 @@ class PreProcess():
       if stratify_to is not None:
         strata = self._GetStrata(train_test_df, stratify_to)
       train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
-      print(len(train_df), len(test_df))
-      print(np.sum(train_df["weight"]), np.sum(test_df["weight"]))
       
     else:
 
@@ -354,14 +352,6 @@ class PreProcess():
           strata = self._GetStrata(potential_val_df, stratify_to)
           potential_val_df.loc[:,"strata"] = strata
         train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio, stratify=strata if stratify_to is not None else None)     
-        print(len(train_test_from_val_df), len(val_df))
-        print(np.sum(train_test_from_val_df["weight"]), np.sum(val_df["weight"]))    
-        print("Strata information:")
-        for s in range(np.unique(strata).shape[0]):
-          stratum_df = train_test_from_val_df.loc[train_test_from_val_df["strata"]==s,:]
-          print(f" Stratum {s}: Train/Test - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
-          stratum_df = val_df.loc[val_df["strata"]==s,:]
-          print(f" Stratum {s}: Val        - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
         del potential_val_df
 
 
@@ -390,16 +380,6 @@ class PreProcess():
           strata = self._GetStrata(train_test_df, stratify_to)
           train_test_df.loc[:,"strata"] = strata
         train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
-        print(len(train_df), len(test_df))
-        print(np.sum(train_df["weight"]), np.sum(test_df["weight"]))
-        # get length and sum of weights in each strata
-        print("Strata information:")
-        for s in range(np.unique(strata).shape[0]):
-          stratum_df = train_df.loc[train_df["strata"]==s,:]
-          print(f" Stratum {s}: Train - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
-          stratum_df = test_df.loc[test_df["strata"]==s,:]
-          print(f" Stratum {s}: Test  - {len(stratum_df)} events, total weight {np.sum(stratum_df['weight'])}")
-
         
     # Write train and test dataset
     if train_df is not None: self._WriteDataset(train_df, f"{file_name}_train.parquet")
