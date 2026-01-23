@@ -504,6 +504,35 @@ class DensityPerformanceMetrics():
         self.metrics[f"inference_distance_{data_type}"] = float(total_sum/total_count)
 
       
+    # Get means of all data type
+    for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+      for col_index, col in enumerate(params_in_model):
+        best_fits = []
+        distances = []
+        for data_type in self.inference_datasets:
+          best_fit_name = f"inference_best_fit_{data_type}_val_ind_{val_ind}_{col}"
+          distance_name = f"inference_distance_{data_type}_val_ind_{val_ind}_{col}"
+          if best_fit_name in self.metrics:
+            best_fits.append(self.metrics[best_fit_name])
+          if distance_name in self.metrics:
+            distances.append(self.metrics[distance_name])
+        if len(best_fits) > 0:
+          self.metrics[f"inference_best_fit_mean_val_ind_{val_ind}_{col}"] = float(np.mean(best_fits))
+        if len(distances) > 0:
+          self.metrics[f"inference_distance_mean_val_ind_{val_ind}_{col}"] = float(np.mean(distances))
+
+      # Get means over val_inds
+      for metric in self.metrics.keys():
+        total_sum = 0.0
+        total_count = 0.0
+        if f"inference_distance_mean_val_ind_" in metric:
+          total_sum += self.metrics[metric]
+          total_count += 1
+      if total_count > 0:
+        self.metrics[f"inference_distance_mean"] = float(total_sum/total_count)
+
+
+
   def Outputs(self):
     """
     Return a list of outputs given by class

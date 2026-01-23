@@ -3,6 +3,8 @@ import os
 import wandb
 import yaml
 
+import numpy as np
+
 from random_word import RandomWords
 
 from train_density import TrainDensity
@@ -40,6 +42,7 @@ class BayesianHyperparameterTuning():
 
     self.objective_ind = 0
     self.tune_architecture_name = None
+    self.no_output = False
 
 
   def _TrainAndPerformanceMetric(self):
@@ -62,6 +65,15 @@ class BayesianHyperparameterTuning():
       print("- Training the models")
     t = self._SetupTrain()
     t.Run()
+
+
+    # Check if t.Outputs() exist
+    self.no_output = False
+    for output in t.Outputs():
+      if not os.path.exists(output):
+        self.no_output = True
+        return
+
 
     # Get performance metrics
     if self.verbose:
@@ -154,6 +166,9 @@ class BayesianHyperparameterTuning():
 
     # Train and performance metrics
     self._TrainAndPerformanceMetric()
+
+    if self.no_output:
+      return np.nan
 
     # Load in metrics
     metrics_name = f"{self.data_output}/metrics_{self.objective_ind}.yaml"
@@ -254,9 +269,9 @@ class BayesianHyperparameterTuning():
         "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
         "save_extra_name" : f"_{self.objective_ind}",
         "verbose" : self.verbose,     
-        "inference_datasets" : ["test_inf"],
-        "histogram_datasets" : ["test_inf"],
-        "multidimensional_datasets" : ["test_inf"],
+        "inference_datasets" : ["test_inf","val"],
+        "histogram_datasets" : ["test_inf","val"],
+        "multidimensional_datasets" : ["test_inf","val"],
       }
     )
 
