@@ -430,11 +430,10 @@ class DataProcessor():
         pd.DataFrame: The transformed dataset.
     """
     for column_name in data.columns:
-
       # Apply standardisation
       if column_name in self.parameters["standardisation"]:
         data[column_name] = self.Standardise(data[column_name], column_name).astype(np.float64)
-        
+
     return data
 
   def UnTransformData(

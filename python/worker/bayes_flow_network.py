@@ -1,5 +1,6 @@
+import time
+
 import copy
-import gc
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -139,6 +140,9 @@ class BayesFlowNetwork():
     self.graph_mode = False
     #if not self.graph_mode:
     #  tf.config.optimizer.set_jit(True)
+    self.length_batch = None
+
+    self._compute_log_prob = None
 
 
   def _SetOptions(self, options):
@@ -288,6 +292,27 @@ class BayesFlowNetwork():
     return predictions, grad
 
 
+  def compute_log_prob(self, parameters, direct_conditions):
+      if self._compute_log_prob is None:
+          # Get the shape of the first batch
+          batch_size, n_params = parameters.shape
+          _, n_conditions = direct_conditions.shape
+
+          # Create the tf.function with fixed shape
+          @tf.function(input_signature=[
+              tf.TensorSpec(shape=[batch_size, n_params], dtype=tf.float32),
+              tf.TensorSpec(shape=[batch_size, n_conditions], dtype=tf.float32)
+          ], reduce_retracing=True)
+          def _inner(parameters_tensor, conditions_tensor):
+              z, log_det_J = self.amortizer.inference_net.forward(parameters_tensor, conditions_tensor)
+              log_prob = self.amortizer.latent_dist.log_prob(z) + log_det_J
+              return log_prob
+          
+          self._compute_log_prob = _inner
+
+      return self._compute_log_prob(parameters, direct_conditions)
+
+
   def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False, order=0, column_1=None, column_2=None, grad_of="direct_conditions"):
     """
     Calculate the logarithmic or exponential probability density function.
@@ -315,9 +340,15 @@ class BayesFlowNetwork():
     """
 
     # Remove unneccessary Y components
-    X = X.loc[:, self.data_parameters["X_columns"]]
-    Y = Y.loc[:,self.data_parameters["Y_columns"]]
-    Y_initial = copy.deepcopy(Y)
+    X = X[self.data_parameters["X_columns"]]
+    Y = Y[self.data_parameters["Y_columns"]]
+
+    length_batch = len(X)
+    if self.length_batch is None:
+      self.length_batch = length_batch
+
+    if self.fix_1d and not no_fix and len(self.data_parameters["X_columns"]) == 1:
+      Y_initial = copy.deepcopy(Y)
 
     # Prepare datasets
     Y = self.PrepareY(X, Y, transform_Y=transform_Y)
@@ -325,11 +356,10 @@ class BayesFlowNetwork():
 
     # Set up inputs for probability
     data = {
-      "parameters" : X.loc[:,self.data_parameters["X_columns"]].to_numpy(np.float32).astype(np.float32),
+      "parameters" : X.to_numpy(np.float32).astype(np.float32),
       "direct_conditions" : Y.to_numpy(np.float32).astype(np.float32),
     }
-    del X, Y
-    gc.collect()
+
 
     # Check type of gradient
     if isinstance(order,int):
@@ -366,6 +396,7 @@ class BayesFlowNetwork():
     if self.fix_1d:
       data["parameters"] = np.column_stack((data["parameters"].flatten(), np.zeros(len(data["parameters"]))))
 
+
     # Get the log probs and gradients
     if order == 0 or order == [0]: # Get the log probability
 
@@ -373,10 +404,20 @@ class BayesFlowNetwork():
         data["parameters"] = tf.convert_to_tensor(tf.cast(data["parameters"], dtype=tf.float32), dtype=tf.float32)
         data["direct_conditions"] = tf.convert_to_tensor(tf.cast(data["direct_conditions"], dtype=tf.float32), dtype=tf.float32)
 
+      #print("Tracing count before step:", self._ComputeLogProb.experimental_get_tracing_count())
+      #if self.graph_mode and length_batch == self.length_batch:
       if self.graph_mode:
-        log_probs = [pd.DataFrame(self._ComputeLogProb(data["parameters"], data["direct_conditions"]).numpy(), columns=["log_prob"], dtype=np.float64)]
+        log_probs_model = self._ComputeLogProb(data["parameters"], data["direct_conditions"])
+        log_probs = [pd.DataFrame(log_probs_model.numpy(), columns=["log_prob"], dtype=np.float64)]
+      #if self.graph_mode and length_batch == self.length_batch:
+      #  #print("GM")
+      #  #log_probs_model = self._ComputeLogProb(data["parameters"], data["direct_conditions"])
+      #  log_probs_model = self.compute_log_prob(data["parameters"], data["direct_conditions"])
+      #  log_probs = [pd.DataFrame(log_probs_model.numpy(), columns=["log_prob"], dtype=np.float64)]
       else:
+        #print("NGM")
         log_probs = [pd.DataFrame(self.amortizer.log_posterior(data), columns=["log_prob"], dtype=np.float64)]
+      #print("Tracing count after step:", self._ComputeLogProb.experimental_get_tracing_count())
 
     elif order == 1 or order == [1] or order == [0,1]: # Get the first derivative of the log probability
       
@@ -403,26 +444,19 @@ class BayesFlowNetwork():
             z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
             predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
           grad = tape.gradient(predictions, data[grad_of])
-          del tape
-          gc.collect()
         first_derivative = tf.gather(grad, indices_1, axis=1)
-        del grad
-        gc.collect()
       
       # Make log_probs array
       log_probs = []
       if order == [0,1]:
         log_probs += [pd.DataFrame(predictions.numpy(), columns=["log_prob"], dtype=np.float64)]
-        del predictions
-        gc.collect()
+
       if order == [0,1] or order == 1 or order == [1]:
         first_derivative_for_all_columns = np.zeros((len(data["parameters"]),len(column_1)))
         for ind, col in enumerate(column_1):
           if col not in self.data_parameters[conversion[grad_of]]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         log_probs += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
-        del first_derivative, first_derivative_for_all_columns
-        gc.collect()
 
     elif order == 2 or order == [2] or order == [1,2] or order == [0,1,2] or order == [0,2]: # Get the second derivative of the log probability
 
@@ -450,11 +484,8 @@ class BayesFlowNetwork():
             z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
             predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
           grad = tape.gradient(predictions, data[grad_of])
-          del tape
-          gc.collect()
+
         first_derivative = tf.gather(grad, indices_1, axis=1)
-        del grad
-        gc.collect()
         second_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
       
       else:
@@ -467,31 +498,24 @@ class BayesFlowNetwork():
             predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
           grad = tape_1.gradient(predictions, data[grad_of])
           first_derivative = tf.gather(grad, indices_1, axis=1)   
-          del grad
-          gc.collect()
+
         grad_of_grad = tape_2.gradient(first_derivative, data[grad_of])
         second_derivative = tf.gather(grad_of_grad, indices_2, axis=1)
-        del grad_of_grad
-        gc.collect()
       
       # Make log_probs array
       log_probs = []
       if order == [0,1,2] or order == [0,2]:
         log_probs += [pd.DataFrame(predictions.numpy(), columns=["log_prob"], dtype=np.float64)]
-        del predictions
-        gc.collect()
+
       if order == [0,1,2] or order == [1,2]:
         first_derivative_for_all_columns = np.zeros((len(data["parameters"]),len(column_1)))
         for ind, col in enumerate(column_1):
           if col not in self.data_parameters[conversion[grad_of]]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         log_probs += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
-        del first_derivative, first_derivative_for_all_columns
-        gc.collect()
+
       if order == 2 or order == [2] or order == [0,1,2] or order == [0,2] or order == [1,2]:
         log_probs += [pd.DataFrame(second_derivative.numpy(), columns=[f"d2_log_prob_by_d_{col1}_and_{col2}" for col1 in column_1 for col2 in column_2], dtype=np.float64)]
-        del second_derivative
-        gc.collect()
 
     # Untransform probabilities
     for ind in range(len(log_probs)):
@@ -577,8 +601,7 @@ class BayesFlowNetwork():
       trimmed_indices = ((synth[:,col] >= lower_value) & (synth[:,col] <= upper_value))
       synth = synth[trimmed_indices,:]
     _, edges = np.histogramdd(synth, bins=n_integral_bins)
-    del synth
-    gc.collect()
+
     bin_centers_per_dimension = [0.5 * (edges[dim][1:] + edges[dim][:-1]) for dim in range(len(edges))]
     meshgrid = np.meshgrid(*bin_centers_per_dimension, indexing='ij')
     unique_values = np.vstack([grid.flatten() for grid in meshgrid]).T
@@ -606,6 +629,7 @@ class BayesFlowNetwork():
 
 
   def PrepareX(self, X, transform_X=True):
+
     # Transform X
     X_dp = DataProcessor(
       [[X]],
@@ -618,10 +642,10 @@ class BayesFlowNetwork():
       method="dataset",
       functions_to_apply = ["transform"] if transform_X else []
     )
-    return X
+    return X[self.data_parameters["X_columns"]]
+
 
   def PrepareY(self, X, Y, transform_Y=True):
-    Y = Y.loc[:,self.data_parameters["Y_columns"]]
 
     # Set up Y correctly
     if len(Y) == 1:
@@ -642,7 +666,8 @@ class BayesFlowNetwork():
         method="dataset",
         functions_to_apply = ["transform"] if transform_Y else []
       )
-    return Y
+    return Y[self.data_parameters["Y_columns"]]
+
 
   def Sample(self, Y, n_events):
     """
@@ -700,7 +725,6 @@ class BayesFlowNetwork():
     rows_with_nan = synth_df[synth_df.isna().any(axis=1)]
     if total_nans > 0:
       synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
-    del synth_df 
 
     # Fix 1d couplings
     if self.fix_1d:

@@ -1,5 +1,4 @@
 import copy
-import gc
 import importlib
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -480,10 +479,11 @@ class Likelihood():
       load_from_cache_density = self._CheckIfInCacheLogProbs(cache_dict_density, model_type="density")
 
       if not load_from_cache_density:
+
         # Get rate times probability, get gradients simultaneously if required
         log_probs[name] = pdf.Probability(
-          X.loc[:,self.X_columns], 
-          Y.loc[:,self.Y_columns], 
+          X, 
+          Y, 
           return_log_prob=True, 
           order=gradient, 
           column_1=column_1, 
@@ -1268,7 +1268,7 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 2:
+    #if self.minimisation_step == 4:
     #  exit()
 
     return lkld_val

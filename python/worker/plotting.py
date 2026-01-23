@@ -49,6 +49,7 @@ def plot_histograms(
     legend_right=False,  # New option to move legend to the right
     y_lim = None,
     spline_hists = False,
+    save_png=False
 ):
   """
   Plot histograms with optional error bars and an optional right-side legend.
@@ -155,6 +156,9 @@ def plot_histograms(
   MakeDirectories(name+".pdf")
   plt.savefig(f"{name}.pdf")
   print(f"Created {name}.pdf")
+  if save_png:
+    plt.savefig(f"{name}.png")
+    print(f"Created {name}.png")
   plt.close()
 
 
