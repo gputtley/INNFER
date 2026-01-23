@@ -11,6 +11,8 @@ from functools import partial
 from plotting import plot_histograms
 from useful_functions import InitiateDensityModel, Translate
 
+from PIL import Image
+
 class Flow():
 
   def __init__(self):
@@ -87,13 +89,26 @@ class Flow():
 
       # Make nominal histogram and plot
       hist, _ = sim_dps.GetFull(method="histogram", bins=bins, column=parameters["density"]["X_columns"][col], density=True)
+
+
+      y_max = np.max(hist)*1.2
+
+      column_name = Translate(parameters["density"]["X_columns"][col])
+      # Remove units in x label
+      if "(" in column_name:
+        column_name = column_name.split("(")[0].strip()
+
+
       plot_histograms(
         bins[:-1],
         [hist],
         [None],
-        name = f"{self.plots_output}/flow_{col}_cl0{self.extra_plot_name}",
-        x_label = "",
+        name = f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_cl0{self.extra_plot_name}",
         y_label = "Density",
+        save_png=True,
+        y_lim = (0, y_max),
+        title_right = "Coupling Layer 0",
+        x_label = f'Standardised {column_name}'
       )
 
       num_coupling_layers = architecture["num_coupling_layers"]
@@ -104,10 +119,16 @@ class Flow():
           bins[:-1],
           [hist],
           [None],
-          name = f"{self.plots_output}/flow_{col}_cl{ind+1}{self.extra_plot_name}",
-          x_label = "",
+          name = f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_cl{ind+1}{self.extra_plot_name}",
           y_label = "Density",
+          save_png=True,
+          y_lim = (0, y_max),
+          title_right = f"Coupling Layer {ind+1}",
+          x_label = f'Standardised {column_name}'
         )
+
+      frames = [Image.open(f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_cl{i}{self.extra_plot_name}.png") for i in range(num_coupling_layers+1)]
+      frames[0].save(f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_animation{self.extra_plot_name}.gif", format='GIF', append_images=frames[1:], save_all=True, duration=500, loop=0)
 
         
   def _FlowTransform(self, df, network, coupling_layer, X_columns, Y_columns):
@@ -116,9 +137,15 @@ class Flow():
     network.inference_net.coupling_layers = coupling_layers[:coupling_layer+1]
     z, _ = network.inference_net(df.loc[:,X_columns], df.loc[:,Y_columns])
     network.inference_net.coupling_layers = coupling_layers[:]
+    for layer in network.inference_net.coupling_layers[:coupling_layer+1][::-1]:
+      z = layer.permutation._inverse(z)
 
     # Make dataframe
-    df.loc[:,[f"FlowTransform_{ind}" for ind in range(z.numpy().shape[1])]] = z.numpy()
+    flow_cols = [f"FlowTransform_{ind}" for ind in range(z.shape[1])]
+    for i, col in enumerate(flow_cols):
+      df[col] = z.numpy()[:, i]
+
+    #df.loc[:,[f"FlowTransform_{ind}" for ind in range(z.numpy().shape[1])]] = z.numpy()
 
     return df
 
@@ -141,7 +168,7 @@ class Flow():
 
 
     # Add plots
-    for col in range(len(parameters["density"]["X_columns"])):
+    for col in parameters["density"]["X_columns"]:
       outputs += [f"{self.plots_output}/flow_{col}_cl0{self.extra_plot_name}.pdf"]
       for ind in range(num_coupling_layers):
         outputs += [f"{self.plots_output}/flow_{col}_cl{ind+1}{self.extra_plot_name}.pdf"]
