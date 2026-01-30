@@ -1949,3 +1949,109 @@ def plot_learned_nuisance_variations(
   MakeDirectories(output_name+".pdf")
   plt.savefig(output_name+".pdf", bbox_inches='tight')
   plt.close()
+
+
+def plot_pulls_and_impacts(
+    pulls_and_impacts,
+    output_name="pulls_and_impacts",
+    poi_name="r",
+    poi_crossings = {0:1.0, 1:1.2, -1:0.8}
+):
+  
+  # Reverse pulls and impacts order
+  pulls_and_impacts = pulls_and_impacts[::-1]
+
+  # Define the figure and axis, one pad on top for legend and then two side by side for pull and impacts
+  fig = plt.figure(figsize=(10.0, 11.69))
+  gs = fig.add_gridspec(2, 2, height_ratios=[1, 8], width_ratios=[5, 5], hspace=0.1, wspace=0.1)
+  ax_legend = fig.add_subplot(gs[0, :])
+  ax_pulls = fig.add_subplot(gs[1, 0])
+  ax_impacts = fig.add_subplot(gs[1, 1])
+  plt.subplots_adjust(left=0.3, right=0.9, top=0.95, bottom=0.1)
+
+  # Turn all axis ticks/labels off for legend pag
+  ax_legend.axis('off')
+  ax_legend.add_patch(plt.Rectangle((0, 0), 1, 1, fill=False, edgecolor='black', lw=4, transform=ax_legend.transAxes))
+
+  # Draw pulls
+  for ind, info in enumerate(pulls_and_impacts):
+    nominal = info["pulls"][0]
+    up = info["pulls"][1]
+    down = info["pulls"][-1]
+    y_pos = ind + 1
+    if info["constrained_parameter"]:
+      ax_pulls.errorbar(
+        nominal, 
+        y_pos, 
+        xerr=[[nominal - down], [up - nominal]], 
+        fmt='o', 
+        color='black', 
+        capsize=5,
+      )
+      #ax_pulls.axvline(x=0.0, color='black', linestyle='--')
+      ax_pulls.plot([0.0, 0.0], [y_pos - 0.4, y_pos + 0.4], color='black', linestyle='--')
+    else:
+      ax_pulls.text(0.5, y_pos, f"{nominal:.2f} +{up - nominal:.2f} -{nominal - down:.2f}", verticalalignment='center', horizontalalignment='center', fontsize=12, transform=ax_pulls.get_yaxis_transform())
+    if ind < len(pulls_and_impacts) - 1:
+      ax_pulls.axhline(y=y_pos + 0.5, color='black', linestyle='--')
+  ax_pulls.set_yticks(range(1, len(pulls_and_impacts)+1))
+  ax_pulls.set_yticklabels([i["parameter"] for i in pulls_and_impacts], fontsize=12)
+  ax_pulls.set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$")
+  ax_pulls.set_ylim(0.2, len(pulls_and_impacts)+0.8)
+
+  # Draw impacts
+  for ind, info in enumerate(pulls_and_impacts):
+
+    impact_up = info["impacts"][1]
+    impact_down = info["impacts"][0]
+    y_pos = ind + 1
+    colour_up = 'red' if impact_up >= 0 else 'blue'
+    colour_down = 'blue' if impact_down <= 0 else 'red'
+    ax_impacts.fill_betweenx(
+      [y_pos - 0.4, y_pos + 0.4],
+      0.0,
+      impact_down,
+      color=colour_down,
+      alpha=0.5,
+    )
+    ax_impacts.fill_betweenx(
+      [y_pos - 0.4, y_pos + 0.4],
+      0.0,
+      impact_up,
+      color=colour_up,
+      alpha=0.5,
+    )
+    ax_impacts.plot([0.0, 0.0], [y_pos - 0.4, y_pos + 0.4], color='black', linestyle='--')
+    if ind < len(pulls_and_impacts) - 1:
+      ax_impacts.axhline(y=y_pos + 0.5, color='black', linestyle='--')
+  ax_impacts.set_yticks(range(1, len(pulls_and_impacts)+1))
+  ax_impacts.set_yticklabels([])
+  ax_impacts.set_xlabel(r"$\Delta$" + rf"{poi_name}")
+  ax_impacts.set_ylim(0.2, len(pulls_and_impacts)+0.8)
+  offset = ax_impacts.xaxis.get_offset_text()
+  offset.set_x(1.3)     # move horizontally
+  offset.set_y(-0.7)   # move vertically
+  offset.set_ha("right")
+
+
+  # Right best fit and uncertainty on right of legend
+  best_fit = poi_crossings[0]
+  up_uncert = poi_crossings[1] - poi_crossings[0]
+  down_uncert = poi_crossings[0] - poi_crossings[-1]
+  ax_legend.text(0.98, 0.5, rf"{poi_name}" +  rf"$={best_fit:.3f}^{{+{up_uncert:.3f}}}_{{-{down_uncert:.3f}}}$", verticalalignment='center', horizontalalignment='right', fontsize=16)
+
+  # Add legend
+  ax_legend.plot([], [], color='black', label='Pull', marker='o', linestyle='')
+  ax_legend.fill_between([], [], color='red', alpha=0.5, label='Positive Impact')
+  ax_legend.fill_between([], [], color='blue', alpha=0.5, label='Negative Impact')
+  ax_legend.legend(loc='center left', frameon=False, fontsize=16)
+
+  # Add CMS label on top left of legend pad
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label,ax=ax_legend, fontsize=22, loc=0)
+
+  # Save figure
+  MakeDirectories(output_name+".pdf")
+  plt.savefig(output_name+".pdf")  
+  plt.close()
+  print("Created "+output_name+".pdf")

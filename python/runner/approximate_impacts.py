@@ -63,9 +63,14 @@ class ApproximateImpacts():
         print(f"  - Rank{ind+1} : {var} : {impact}")
 
     # Save the impacts to yaml
+    out_impacts = {
+      "poi" : poi,
+      "impacts" : impacts
+    }
+
     MakeDirectories(self.data_output)
     with open(self.data_output, 'w') as f:
-      yaml.dump(impacts, f)
+      yaml.dump(out_impacts, f)
     
 
   def Outputs(self):
