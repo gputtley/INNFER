@@ -1498,6 +1498,29 @@ def main(args, default_args):
           )
 
 
+  # Plot the approximate impacts
+  if args.step == "ImpactsPlot":
+    print(f"<< Plotting the pulls and impacts >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          module.Run(
+            module_name = "impacts_plot",
+            class_name = "ImpactsPlot",
+            config = {
+              "cfg" : args.cfg,
+              "impacts_input" : f"{eval_data_dir}/ApproximateImpacts{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/impacts_{val_ind}.yaml",
+              "pulls_input" : f"{eval_data_dir}/Covariance{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "plots_output" : f"{plots_dir}/ImpactsPlot{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
+              "extra_input_name" : f"_{val_ind}",
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+          )
+
+
   # Find sensible scan points
   if args.step in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput"]:
     print(f"<< Finding points to scan over >>")
