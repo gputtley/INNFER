@@ -27,6 +27,7 @@ class Generator():
     self.include_postfit_uncertainty = False
     self.uncertainty_input = None
     self.use_expected_data_uncertainty = False
+    self.plot_var_and_bins = None
 
 
   def Configure(self, options):
@@ -185,6 +186,12 @@ class Generator():
 
     # Loop through columns
     for col in cfg["variables"]:
+
+      if self.plot_var_and_bins is not None:
+        var_name = self.plot_var_and_bins.split("[")[0].split("(")[0]
+        if var_name != col:
+          continue
+
       outputs += [f"{self.plots_output}/GenerationTrue1D/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in self.plot_styles]
       if self.do_transformed:
         outputs += [f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in self.plot_styles]
@@ -241,14 +248,31 @@ class Generator():
 
     for col in X_columns:
 
-      # Get binning
-      bins = sim_dps[list(sim_dps.keys())[0]].GetFull(
-        method = "bins_with_equal_spacing", 
-        functions_to_apply = functions_to_apply,
-        bins = n_bins,
-        column = col,
-        ignore_quantile = 0.001,
-      )      
+      # Check if binning already specified
+      if self.plot_var_and_bins is not None:
+        if "[" in self.plot_var_and_bins:
+          var_name, bins_str = self.plot_var_and_bins.split("[")
+          bin_str = bins_str.split("]")[0]
+          bins = np.array([float(i) for i in bins_str.split(",")])
+        elif "(" in self.plot_var_and_bins:
+          var_name, bins_str = self.plot_var_and_bins.split("(")
+          bin_str = bins_str.split(")")[0]
+          b = [float(i) for i in bin_str.split(",")]
+          bins = np.arange(b[0], b[1], b[2])
+
+        if var_name != col:
+          continue
+
+      else:
+
+        # Get binning
+        bins = sim_dps[list(sim_dps.keys())[0]].GetFull(
+          method = "bins_with_equal_spacing", 
+          functions_to_apply = functions_to_apply,
+          bins = n_bins,
+          column = col,
+          ignore_quantile = 0.01,
+        )      
 
       # Make synth hists
       synth_hists = {}

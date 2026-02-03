@@ -51,7 +51,7 @@ class LoadData():
           else:
             existing += [k]
         else:
-          calculated += v.get("outputs", [])
+          calculated += [i for i in v.get("outputs", []) if i not in v.get("inputs", []) and i not in existing]
 
     # Add fitted variables
     self.columns = []
@@ -97,7 +97,7 @@ class LoadData():
           if actual_file_name in cfg["preprocess"]["save_extra_columns"]:
             self.columns += cfg["preprocess"]["save_extra_columns"][actual_file_name]
 
-    calculated = sorted(list(set(calculated)))
+    calculated = sorted(list(set(calculated))) + ["wt"]
 
     # Get from variables
     self.columns += [i for i in cfg["variables"] if i not in calculated]
@@ -225,7 +225,6 @@ class LoadData():
         if len(nan_rows) > 0:
           if self.verbose:
             print(f"Removing {len(nan_rows)}/{len(df)} rows with NaNs")
-            print(nan_rows.head())
           df = df.dropna()
 
         # Set type
