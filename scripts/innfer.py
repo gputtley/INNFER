@@ -93,6 +93,7 @@ def parse_args():
   parser.add_argument('--overwrite-regression-architecture', help='Comma separated list of key=values to overwrite regression architecture parameters', type=str, default='')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
+  parser.add_argument('--plot-var-and-bins', help='For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced.', type=str, default=None)
   parser.add_argument('--plot-weight-distribution', help='Plot weight distribution when running InputPlotValidation.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--prefit-nuisance-values', help='Make postfit plots with prefit nuisance values', action='store_true')
@@ -438,7 +439,7 @@ def main(args, default_args):
             "category" : category,
             "use_scenario_labels" : args.use_scenario_labels,
             "compare_data_splits" : args.compare_sim_types,
-            "plot_weight_distribution" : True,
+            "plot_weight_distribution" : args.plot_weight_distribution,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -1000,7 +1001,7 @@ def main(args, default_args):
       )
 
 
-  # Making plots using the network as a generator for individual Y values
+  # Making plots of the flow of the network
   if args.step == "Flow":
     print("<< Making plots looking at the flow of the network >>")
     for file_name in GetModelFileLoop(cfg):
@@ -1037,7 +1038,7 @@ def main(args, default_args):
             config = {
               "cfg" : args.cfg,
               "data_input" : GetDataInput("sim" if args.data_type != "data" and not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
-              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
+              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
               "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -1047,6 +1048,7 @@ def main(args, default_args):
               "no_text" : args.data_type == "data",
               "data_label" : "Simulated" if (args.data_type != "data" and not args.data_vs_simulation) else "Data",
               "stack_label" : "Synthetic" if not args.data_vs_simulation else "Simulated",
+              "plot_var_and_bins" : args.plot_var_and_bins,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
@@ -1745,6 +1747,7 @@ def main(args, default_args):
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
                 "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
+                "plot_var_and_bins" : args.plot_var_and_bins,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
