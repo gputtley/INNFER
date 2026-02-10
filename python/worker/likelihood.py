@@ -41,6 +41,7 @@ class Likelihood():
     self.categories = categories
 
     self.seed = 42
+    self.set_seed = False
     self.verbose = True
     self.constraints = constraints
     self.constraint_center = constraint_center
@@ -80,6 +81,7 @@ class Likelihood():
     if not os.path.exists(self.cache_dir):
       MakeDirectories(self.cache_dir)
     self.precalculated_yields = {}
+    self.data_yield = {}
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -496,7 +498,6 @@ class Likelihood():
       # Check if I need to cache
       self._WriteCache(log_probs[name], gradient, cache_dict_density, load_from_cache_density, pdf, model_type="density")
 
-
       ### Regression ###
 
       do_shift = False
@@ -532,7 +533,6 @@ class Likelihood():
           log_probs[name] = [log_probs[name][i] + regression_shift[i] for i in range(len(gradient))]
 
           self._WriteCache(regression_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="regression")
-
 
       ### Classification ###
 
@@ -771,20 +771,10 @@ class Likelihood():
     else:
       get_log_prob_gradients = [0]
 
-    #st = time.time()
-
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
-
-    #print("Time to get log probs:", time.time()-st)
-
-    #st = time.time()
 
     if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
-
-    #print("Time to get other first derivative:", time.time()-st)
-
-    #st = time.time()
 
     # Get H1 and H2
     log_H1 = self._GetH1({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, Y, log=True, category=category)
@@ -793,8 +783,6 @@ class Likelihood():
     if 2 in get_log_prob_gradients:
       H1_grad_2 = self._GetH1SecondDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, {k:v[get_log_prob_gradients.index(1)] for k,v in log_probs.items()}, first_derivative_other, {k:v[get_log_prob_gradients.index(2)] for k,v in log_probs.items()}, Y, column_1=column_1, column_2=column_2, category=category)
       H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2, category=category)
-
-    #print("Time to get H1 and derivatives:", time.time()-st)
 
     # Calculate and weight sum loop terms
     ln_lkld = []
@@ -1205,7 +1193,6 @@ class Likelihood():
 
     # Run likelihood
     first = True
-    #st = time.time()
     for category in self.categories:
       if self.type == "unbinned":
         cat_val = self.LikelihoodUnbinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
@@ -1215,14 +1202,16 @@ class Likelihood():
         cat_val = self.LikelihoodBinned(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
       elif self.type == "binned_extended":
         cat_val = self.LikelihoodBinnedExtended(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      elif self.type == "poisson":
+        cat_val = self.LikelihoodPoisson(inputs[category], Y, gradient=gradient, column_1=column_1, column_2=column_2, category=category)
+      else:
+        raise ValueError("Invalid likelihood type specified.")
       if first:
         lkld_val = copy.deepcopy(cat_val)
         first = False
       else:
         for grad_ind, grad in enumerate(gradient):
           lkld_val[grad_ind] += cat_val[grad_ind]
-
-    #print("Time to get likelihood:", time.time()-st)
 
     # Add constraint
     for grad_ind, grad in enumerate(gradient):
@@ -1335,7 +1324,8 @@ class Likelihood():
 
     # Get event loop value
     first_loop = True
-    self._HelperSetSeed()
+    if self.set_seed:
+      self._HelperSetSeed()
     for ind, X_dp in enumerate(X_dps):
       self.cached_log_probs_ind = ind*1
       self.cached_log_probs_batch_ind = 0
@@ -1357,7 +1347,8 @@ class Likelihood():
 
     # Get event loop value
     first_loop = True
-    self._HelperSetSeed()
+    if self.set_seed:
+      self._HelperSetSeed()
 
     # Precalculate yields
     self.precalculated_yields = {}
@@ -1387,6 +1378,41 @@ class Likelihood():
     for grad_ind, grad in enumerate(gradient):
       for name, _ in self.models["yields"][category].items():
         ln_lkld[grad_ind] -= self._GetYieldGradient(name, Y, gradient=grad, column_1=column_1, column_2=column_2, category=category)
+
+    return ln_lkld
+
+
+  def LikelihoodPoisson(self, X_dps, Y, gradient=[0], column_1=None, column_2=None, category=None):
+
+    # Get event loop value
+    if self.set_seed:
+      self._HelperSetSeed()
+
+    # Get data yield
+    if category not in self.data_yield:
+      self.data_yield[category] = 0.0
+      for X_dp in X_dps:
+        self.data_yield[category] += X_dp.GetFull(method="sum")
+
+    # Get all gradients less than max value
+    gradients_to_get = list(range(max(gradient)+1))
+
+    # Get model yield
+    preds = []
+    for grad in gradients_to_get:
+      preds += [0.0]
+      for name, _ in self.models["yields"][category].items():
+        preds[-1] += self._GetYieldGradient(name, Y, gradient=grad, column_1=column_1, column_2=column_2, category=category)
+
+    # Calculate likelihood
+    ln_lkld = []
+    for grad in gradient:
+      if grad == 0:
+        ln_lkld += [self.data_yield[category]*np.log(preds[0]) - preds[0]]
+      elif grad == 1:
+        ln_lkld += [self.data_yield[category]*preds[1]/preds[0] - preds[1]]
+      elif grad == 2:
+        ln_lkld += [self.data_yield[category]*(preds[2]/preds[0] - (preds[1]/preds[0])**2) - (preds[2]/preds[0] - (preds[1]/preds[0])**2)]
 
     return ln_lkld
 
@@ -1589,7 +1615,8 @@ class Likelihood():
     # Get the D matrix
     if self.type in ["unbinned","unbinned_extended"]:
       d_matrix = 0
-      self._HelperSetSeed()
+      if self.set_seed:
+        self._HelperSetSeed()
       for cat in self.categories:
         sum_wts = 0.0
         for X_dp in X_dps[cat]:

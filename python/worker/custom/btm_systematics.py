@@ -1,17 +1,8 @@
 import numpy as np
-import time
 
 from useful_functions import CombineObjects
 
-def btm_jec(
-    df, 
-    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
-    nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
-    include_b=False,
-    include_b_syst=False
-  ):
-
-  # JEC and flavour uncertainties
+def get_jec_nuisance_dict():
   jec_uncert = {
     # jec
     "AbsoluteMPFBias": {"Correlation" : 1, "Type" : "corrFactor"},
@@ -51,6 +42,33 @@ def btm_jec(
     "JER_eta_3p0_to_5p0_pt_0_to_50": {"Correlation" : 1, "ObjectSelection": "($OBJECT_eta >= 3.0) & ($OBJECT_eta < 5.0) & ($OBJECT_pt < 50)", "Type" : "smearFactor"},
     "JER_eta_3p0_to_5p0_pt_gt_50": {"Correlation" : 1, "ObjectSelection": "($OBJECT_eta >= 3.0) & ($OBJECT_eta < 5.0) & ($OBJECT_pt >= 50)", "Type" : "smearFactor"}
   }
+  return jec_uncert
+
+
+def get_jec_nuisances(years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"]):
+
+  jec_uncert = get_jec_nuisance_dict()
+  nuisances = []
+  for name, info in jec_uncert.items():
+    if info["Correlation"] != 0:
+      nuisances.append(name)
+    if info["Correlation"] != 1:
+      for yr in years:
+        nuisances.append(f"{name}_{yr}")
+  return nuisances
+
+
+
+def btm_jec(
+    df, 
+    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
+    nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
+    include_b=False,
+    include_b_syst=False
+  ):
+
+  # JEC and flavour uncertainties
+  jec_uncert = get_jec_nuisance_dict()
 
   # Apply JEC to jets
   added_columns = []
@@ -123,9 +141,6 @@ def btm_jec(
       if include_b and include_b_syst:
         df["BJetLep_pt"] *= df[f"BJetLep_shiftFactor_{syst_names[ind]}"]
         df["BJetLep_mass"] *= df[f"BJetLep_shiftFactor_{syst_names[ind]}"]
-
-  # Remove temporary columns
-  #df = df.drop(columns=added_columns)
 
   # Combine subjets
   v12 = CombineObjects(

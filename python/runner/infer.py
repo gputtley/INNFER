@@ -113,7 +113,7 @@ class Infer():
 
     # Make likelihood inputs
     if self.lkld_input is None:
-      if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+      if self.likelihood_type in ["unbinned", "unbinned_extended","poisson"]:
         self.lkld_input = {k: v.values() for k, v in self.dps.items()}
       elif self.likelihood_type in ["binned", "binned_extended"]:
         self.lkld_input = self.binned_data_input
@@ -126,7 +126,6 @@ class Infer():
 
       if self.verbose:
         print("- Likelihood output:")
-
 
       self.lkld.GetAndWriteBestFitToYaml(
         self.lkld_input, 
@@ -550,7 +549,7 @@ class Infer():
         inputs += [v]
 
     # Add data inputs and parameters
-    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+    if self.likelihood_type in ["unbinned", "unbinned_extended","poisson"]:
       for cat, par in self.parameters.items():
         for k, v in par.items():
           if "data" not in self.data_input[cat].keys():
@@ -572,29 +571,29 @@ class Infer():
           ]
 
       # Add regression model inputs
-      for cat, models in self.regression_models.items():
-        for k, v in models.items():
-          for vi in v:
-            inputs += [
-              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-              f"{self.model_input}/{vi['name']}/{k}.h5",
-              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
-            ]
+      if not self.only_density:
+        for cat, models in self.regression_models.items():
+          for k, v in models.items():
+            for vi in v:
+              inputs += [
+                f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+                f"{self.model_input}/{vi['name']}/{k}.h5",
+                f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+              ]
 
-      # Add classifier model inputs
-      for cat, models in self.classifier_models.items():
-        for k, v in models.items():
-          for vi in v:
-            inputs += [
-              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-              f"{self.model_input}/{vi['name']}/{k}.h5",
-              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
-            ]
-            if self.prune_classifier_models is not None:
-              if k in self.prune_classifier_models.keys():
-                inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
+        # Add classifier model inputs
+        for cat, models in self.classifier_models.items():
+          for k, v in models.items():
+            for vi in v:
+              inputs += [
+                f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+                f"{self.model_input}/{vi['name']}/{k}.h5",
+                f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
+              ]
+              if self.prune_classifier_models is not None:
+                if k in self.prune_classifier_models.keys():
+                  inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
           
-
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
@@ -969,6 +968,10 @@ class Infer():
     elif self.likelihood_type in ["binned", "binned_extended"]:
       likelihood_inputs = {
         "bin_yields" : self._BuildBinYields(),
+      }
+    elif self.likelihood_type in ["poisson"]:
+      likelihood_inputs = {
+        "yields" : self.yields,
       }
 
     if "nuisance_constraints" in self.inference_options.keys():

@@ -57,6 +57,64 @@ class Optimizer():
           alpha=options["alpha"] if "alpha" in options.keys() else 0.0
       )
 
+    elif name == "CosineDecayWithWarmUp":
+
+      class CosineDecayWithWarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, initial_learning_rate, decay_steps, warmup_fraction, alpha):
+          super(CosineDecayWithWarmUp, self).__init__()
+          self.initial_learning_rate = initial_learning_rate
+          self.decay_steps = decay_steps
+          self.warmup_steps = int(warmup_fraction * decay_steps)
+          self.alpha = alpha
+        def __call__(self, step):
+          learning_rate = tf.cond(
+              step >= self.decay_steps,
+              lambda: self.alpha,
+              lambda:tf.cond(
+                step < self.warmup_steps,
+                lambda: self.initial_learning_rate * (tf.cast(step, tf.float32) / tf.cast(self.warmup_steps, tf.float32)),
+                lambda: self.initial_learning_rate * 0.5 * (
+                    1 + tf.math.cos(
+                        tf.constant(np.pi) * (tf.cast(step - self.warmup_steps, tf.float32)) / tf.cast(self.decay_steps - self.warmup_steps, tf.float32)
+                    )
+                ) * (1 - self.alpha) + self.alpha
+              )
+          )
+          return learning_rate
+        
+      if "decay_steps" in options.keys():
+        decay_steps = options["decay_steps"]
+      elif "decay_epochs" in options.keys():
+        decay_steps = options["decay_epochs"]*int(np.ceil(num_rows/batch_size))
+      else:
+        decay_steps = epochs*int(np.ceil(num_rows/batch_size))
+
+      lr_scheduler = CosineDecayWithWarmUp(
+        initial_learning_rate=default_lr,
+        decay_steps=decay_steps,
+        warmup_fraction=options["warmup_fraction"] if "warmup_fraction" in options.keys() else 0.1,
+        alpha=options["alpha"] if "alpha" in options.keys() else 0.0,
+      )
+
+    elif name == "HalfCosineDecay":
+
+      class HalfCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, initial_learning_rate, decay_steps):
+          super(HalfCosineDecay, self).__init__()
+          self.initial_learning_rate = initial_learning_rate
+          self.decay_steps = decay_steps
+        def __call__(self, step):
+          learning_rate = self.initial_learning_rate * (
+              1 + tf.math.cos(
+                  (tf.constant(np.pi) / 2) + (tf.constant(np.pi) / 2) * (tf.cast(step, tf.float32) / self.decay_steps)
+              )
+          )
+          return learning_rate
+      lr_scheduler = HalfCosineDecay(
+        initial_learning_rate=default_lr,
+        decay_steps=options["decay_steps"] if "decay_steps" in options.keys() else epochs*int(np.ceil(num_rows/batch_size)),
+      )
+
     elif name == "NestedCosineDecay":
 
       class NestedCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):

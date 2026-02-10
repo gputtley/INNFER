@@ -1,4 +1,5 @@
 import copy
+import importlib
 import os
 import pandas as pd
 import pickle
@@ -12,7 +13,7 @@ from scipy.interpolate import UnivariateSpline
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import MakeDirectories, LoadConfig, GetCategoryLoop
+from useful_functions import MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults
 from breit_wigner_reweighting import bw_reweight
 
 data_dir = str(os.getenv("PREP_DATA_DIR"))
@@ -62,7 +63,7 @@ class top_bw_fractions():
     return df  
 
 
-  def _CalculateOptimalFractions(self, base_file, wt_func, selection=None):
+  def _CalculateOptimalFractions(self, base_file, wt_func, selection=None, functions=[], plot=False):
     """
     Calculate the optimal fractions for the given base file and weight function.
     Args:
@@ -81,7 +82,8 @@ class top_bw_fractions():
       batch_size=self.batch_size,
       options = {
         "wt_name" : "wt",
-        "selection" : selection
+        "selection" : selection,
+        "functions" : functions
       }
     )
 
@@ -115,6 +117,9 @@ class top_bw_fractions():
     sum_wt = {}
     sum_wt_squared = {}
     for transformed_to in self.transformed_to_masses:
+
+      print(f"  - Calculating fractions for transformed to mass: {transformed_to}")
+
       sum_wt[transformed_to] = {}
       sum_wt_squared[transformed_to] = {}
       for transformed_from in unique:
@@ -183,14 +188,67 @@ class top_bw_fractions():
     # fit splines for continuous fractioning
     splines = {}
     masses = list(normalised_fractions.keys())
+    if plot:
+      hists = {}
+      bins = np.linspace(min(masses), max(masses), num=1000)
+
     for transformed_from in unique:
       fractions_to = [normalised_fractions[transformed_to][transformed_from] for transformed_to in self.transformed_to_masses]      
-      splines[transformed_from] = UnivariateSpline(masses, fractions_to, s=0, k=1)
+      #splines[transformed_from] = UnivariateSpline(masses, fractions_to, s=0)
+      fit_spline = UnivariateSpline(masses, fractions_to, s=0)
+
+      # Find peak of spline
+      spline_masses = np.linspace(min(masses), max(masses), num=1000)
+      spline_values = fit_spline(spline_masses)
+      peak_index = np.argmax(spline_values)
+
+      # Find any indices where the spline is zero or negative
+      negative_indices = np.where(spline_values <= 1e-3)[0]
+      
+      negative_indices_less_than_peak = negative_indices[negative_indices < peak_index]
+      negative_indices_greater_than_peak = negative_indices[negative_indices > peak_index]
+
+      if len(negative_indices_less_than_peak) > 0:
+        max_negative_index_less_than_peak = negative_indices_less_than_peak[-1]
+        zero_below_mass = spline_masses[max_negative_index_less_than_peak]
+      else:
+        zero_below_mass = spline_masses[0]
+      if len(negative_indices_greater_than_peak) > 0:
+        min_negative_index_greater_than_peak = negative_indices_greater_than_peak[0]
+        zero_above_mass = spline_masses[min_negative_index_greater_than_peak]
+      else:
+        zero_above_mass = spline_masses[-1]
+
+      #splines[transformed_from] = make_spline(zero_below_mass, zero_above_mass, fit_spline)
+      splines[transformed_from] = SplineWithMinZero(zero_below_mass, zero_above_mass, fit_spline)
+
+      if plot:
+        hists[transformed_from] = splines[transformed_from](bins)
+
+    if plot:
+
+      # Normalise for plot
+      total_hist = np.zeros_like(bins)
+      for transformed_from in unique:
+        total_hist += hists[transformed_from] 
+      for transformed_from in unique:
+        hists[transformed_from] /= total_hist
+        hists[transformed_from][hists[transformed_from] < 0] = 0.0
+
+      plot_histograms(
+        bins,
+        [hist for hist in hists.values()],
+        [f"Transformed From Mass: {transformed_from}" for transformed_from in hists.keys()],
+        name=f"{self.plot_dir}/fractions_spline",
+        y_label="Fraction",
+        x_label="Transformed To Mass",
+      )
+
 
     return normalised_fractions, splines
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[]):
     """
     Plot the reweighting of the samples.
     Args:
@@ -208,7 +266,8 @@ class top_bw_fractions():
       batch_size=self.batch_size,
       options = {
         "wt_name" : "wt",
-        "selection" : selection
+        "selection" : selection,
+        "functions" : functions
       }
     )
 
@@ -333,13 +392,14 @@ class top_bw_fractions():
 
     self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
-    self.transformed_to_masses = [166.5,167.5,168.5,169.5,170.5,171.5,172.5,173.5,174.5,175.5,176.5,177.5,178.5]
+    self.transformed_to_masses = [164.5,165.5,166.5,167.5,168.5,169.5,170.5,171.0,171.25,171.5,171.75,172.0,172.25,172.5,172.75,173.0,173.25,173.5,173.75,174.0,174.5,175.5,176.5,177.5,178.5,179.5,180.5]
+    #self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
     self.gen_mass = "GenTop1_mass" if "gen_mass" not in self.options else self.options["gen_mass"].strip()
     self.gen_mass_other = "GenTop2_mass" if "gen_mass_other" not in self.options else self.options["gen_mass_other"].strip()
     self.file_name = "ttbar" if "file_name" not in self.options else self.options["file_name"].strip()
     self.mass_name = "sim_mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
-    self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
+    self.ignore_quantile = 0.0 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
 
     cfg = LoadConfig(self.cfg)
     self.plot_columns = [self.gen_mass] + cfg["variables"]
@@ -362,12 +422,39 @@ class top_bw_fractions():
       base_file_name = self.base_file_name.replace("$CATEGORY",category)
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
 
+      # Define functions
+      functions = []
+      defaults = GetDefaults(cfg)
+      def add_defaults(df):
+        for col, val in defaults.items():
+          if col not in df.columns:
+            df.loc[:,col] = val
+        return df
+      functions.append(add_defaults)
+      for k, v in cfg["files"][base_file_name]["pre_calculate"].items():
+        if isinstance(v, str):
+          def apply_func(df, func=v):
+            df.loc[:,k] = df.eval(func)
+            return df
+          functions.append(apply_func)
+        elif isinstance(v, dict):
+          if v["type"] == "function":
+            module = importlib.import_module(v["file"])
+            func_full = getattr(module, v["name"])
+            func = partial(func_full, **v["args"])
+            functions.append(func)
+      def apply_postselection(df):
+        df = df.query(cfg["files"][base_file_name]["post_calculate_selection"])
+        return df
+      functions.append(apply_postselection)
+
+
       # Calculate optimal fractions
-      normalised_fractions, splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category])
+      normalised_fractions, splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot)
 
       # Plot reweighting
       if self.plot:
-        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category)
+        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions)
 
     # Write splines to file
     file_names = {}
@@ -428,3 +515,16 @@ class top_bw_fractions():
       inputs += [base_file]
 
     return inputs
+  
+
+class SplineWithMinZero():
+  def __init__(self, zero_below_mass, zero_above_mass, fit_spline):
+    self.zero_below_mass = zero_below_mass
+    self.zero_above_mass = zero_above_mass
+    self.fit_spline = fit_spline
+
+  def __call__(self, x):
+    result = self.fit_spline(x)
+    result[x < self.zero_below_mass] = 0.0
+    result[x > self.zero_above_mass] = 0.0
+    return result

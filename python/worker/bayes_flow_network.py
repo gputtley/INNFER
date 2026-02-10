@@ -137,9 +137,9 @@ class BayesFlowNetwork():
     self.prob_integral_store = None
     self.prob_integral_store_Y = None
     self.prob_integral_batch_size = int(os.getenv("EVENTS_PER_BATCH"))
-    self.graph_mode = False
-    #if not self.graph_mode:
-    #  tf.config.optimizer.set_jit(True)
+    self.graph_mode = True
+    if not self.graph_mode:
+      tf.config.optimizer.set_jit(True)
     self.length_batch = None
 
     self._compute_log_prob = None
