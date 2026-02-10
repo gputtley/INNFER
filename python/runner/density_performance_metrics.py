@@ -522,9 +522,9 @@ class DensityPerformanceMetrics():
           self.metrics[f"inference_distance_mean_val_ind_{val_ind}_{col}"] = float(np.mean(distances))
 
       # Get means over val_inds
+      total_sum = 0.0
+      total_count = 0.0
       for metric in self.metrics.keys():
-        total_sum = 0.0
-        total_count = 0.0
         if f"inference_distance_mean_val_ind_" in metric:
           total_sum += self.metrics[metric]
           total_count += 1

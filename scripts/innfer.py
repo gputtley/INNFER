@@ -70,7 +70,7 @@ def parse_args():
   parser.add_argument('--include-per-model-rate', help='Include the rate parameters in the non-combined likelihood.', action='store_true')
   parser.add_argument('--include-postfit-uncertainty', help='Include the postfit uncertainties in the postfit plots.', action='store_true')
   parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
-  parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned', 'poisson'])
   parser.add_argument('--list-steps', help='List the steps available', action='store_true')
   parser.add_argument('--load-weights-for-training', help='Path to weights to load to start the training at', default=None)
   parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
