@@ -169,6 +169,8 @@ class DataProcessor():
         df = tmp.reindex(tmp.index, copy=False)
       else:
         #df = pd.concat([df, tmp.loc[:, ~tmp.columns.isin(df.columns)]], axis=1)
+        if len(df) != len(tmp):
+          raise ValueError(f"DataFrames have different number of rows: {len(df)} and {len(tmp)}")
         new_cols = tmp.columns.difference(df.columns)
         df[new_cols] = tmp[new_cols].to_numpy()
 
@@ -193,12 +195,11 @@ class DataProcessor():
 
     # Resample
     if self.resample and self.wt_name is not None:
-      sum_wts = int(round(np.sum(df[self.wt_name].to_numpy()),0))
       if self.resample_drop_negative_weights:
         df = df.loc[df[self.wt_name] >= 0,:]
       columns_without_weights = list(df.columns)
       columns_without_weights.remove(self.wt_name)
-      data, wts = Resample(df[columns_without_weights].to_numpy(), df[self.wt_name].to_numpy(), n_samples=sum_wts, seed=self.resampling_seed)
+      data, wts = Resample(df[columns_without_weights].to_numpy(), df[self.wt_name].to_numpy(), seed=self.resampling_seed, method="oversample", keep_weights=False, sample_size="sum_weights", total_scale="sum_weights")
       df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
 
     # Apply functions
@@ -239,7 +240,6 @@ class DataProcessor():
 
     # Change batch and file ind
     self._AddFinishedCounters()
-
 
     return df
 

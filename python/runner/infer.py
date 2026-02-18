@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 
 from functools import partial
 from pprint import pprint
+from scipy.interpolate import CubicSpline, UnivariateSpline
 
 from useful_functions import (
   GetBinValues,
@@ -82,6 +83,7 @@ class Infer():
     self.prune_classifier_models = None
     self.classifier_pruning_files = {}
     self.collect_skip_diagonal = False
+    self.bootstrap_method = "oversample_to_eff_events" # oversample_to_eff_events, oversample_to_length, undersample_to_eff_events
 
 
   def Configure(self, options):
@@ -667,7 +669,14 @@ class Infer():
       def bootstrap(df):
         columns = [i for i in df.columns.tolist() if i != "wt"]
         X, wt = df.drop(columns=["wt"]), df["wt"] 
-        X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), seed=self.bootstrap_ind)
+        if self.bootstrap_method == "oversample_to_length":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="oversample", sample_size="length", keep_weights=True, total_scale="eff_events", seed=self.bootstrap_ind)
+        elif self.bootstrap_method == "oversample_to_eff_events":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="oversample", sample_size="eff_events", keep_weights=False, total_scale="eff_events", seed=self.bootstrap_ind)
+        elif self.bootstrap_method == "undersample_to_eff_events":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="undersample", sample_size="eff_events", keep_weights=False, total_scale="eff_events", seed=self.bootstrap_ind)
+        else:
+          raise ValueError(f"Invalid bootstrap method: {self.bootstrap_method}")
         df = pd.DataFrame(X, columns=columns)
         df.loc[:,"wt"] = wt
         return df
@@ -943,7 +952,12 @@ class Infer():
       for k in splines[cat].keys():
         capped_splines[cat][k] = {}
         for vi in splines[cat][k].keys():
-          capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].x[0], x_max=splines[cat][k][vi].x[-1])
+          if isinstance(splines[cat][k][vi], CubicSpline):
+            capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].x[0], x_max=splines[cat][k][vi].x[-1])
+          elif isinstance(splines[cat][k][vi], UnivariateSpline):
+            capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].get_knots()[0], x_max=splines[cat][k][vi].get_knots()[-1])
+          else:
+            raise ValueError(f"Invalid spline type: {type(splines[cat][k][vi])}")
 
     return networks, capped_splines
 
