@@ -359,7 +359,8 @@ class DensityPerformanceMetrics():
     )
 
     def scale_down(df, func, scale):
-      df.loc[:,"wt"] /= scale/func(df).loc[:,"yield"]
+      df["wt"] = df["wt"].astype("float64")
+      df["wt"] = df["wt"] / (scale / func(df)["yield"])
       return df
 
     for data_type in self.multidimensional_datasets:

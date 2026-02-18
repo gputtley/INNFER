@@ -181,8 +181,8 @@ class MultiDimMetrics():
       Xy_sim_train = np.concatenate([X_sim_train, y_sim_train.reshape(-1,1)], axis=1)
       Xy_sim_test = np.concatenate([X_sim_test, y_sim_test.reshape(-1,1)], axis=1)
       # Resample
-      Xy_sim_train, wt_sim_train = Resample(Xy_sim_train, wt_sim_train, n_samples=len(Xy_sim_train))
-      Xy_sim_test, wt_sim_test = Resample(Xy_sim_test, wt_sim_test, n_samples=len(Xy_sim_test))
+      Xy_sim_train, wt_sim_train = Resample(Xy_sim_train, wt_sim_train, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
+      Xy_sim_test, wt_sim_test = Resample(Xy_sim_test, wt_sim_test, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
       # Split back
       X_sim_train = Xy_sim_train[:,:-1]
       y_sim_train = Xy_sim_train[:,-1]
