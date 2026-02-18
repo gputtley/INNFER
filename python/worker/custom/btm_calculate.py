@@ -2,7 +2,7 @@ import numpy as np
 
 from useful_functions import CombineObjects
 
-def btm_precal(df):
+def btm_cal(df):
 
   vlepb = CombineObjects(
     {"pt": df["BJetLep_pt"], "eta": df["BJetLep_eta"], "phi": df["BJetLep_phi"], "mass": df["BJetLep_mass"]},
@@ -16,14 +16,14 @@ def btm_precal(df):
       LeptonicTop_pt = vlepb["pt"]
   )
 
-  #df["SubJet1_tau21"] = df["SubJet1_tau2"] / df["SubJet1_tau1"]
-  #df["FatJet_tau21"] = df["FatJet_tau2"] / df["FatJet_tau1"]
-
-  #vlepb = CombineObjects(
-  #  {"pt": df["BJetLep_pt"], "eta": df["BJetLep_eta"], "phi": df["BJetLep_phi"], "mass": df["BJetLep_mass"]},
-  #  {"pt": df["LeptonSave_pt"], "eta": df["LeptonSave_eta"], "phi": df["LeptonSave_phi"], "mass": df["LeptonSave_mass"]}
-  #)
-  #df["LeptonicTop_mass"] = vlepb["mass"]
-  #df["LeptonicTop_pt"] = vlepb["pt"]
+  df["SubJet1_tau21"] = df["SubJet1_tau2"] / df["SubJet1_tau1"]
+  df["FatJet_tau21"] = df["FatJet_tau2"] / df["FatJet_tau1"]
+  
+  vlepb = CombineObjects(
+    {"pt": df["BJetLep_pt"], "eta": df["BJetLep_eta"], "phi": df["BJetLep_phi"], "mass": df["BJetLep_mass"]},
+    {"pt": df["LeptonSave_pt"], "eta": df["LeptonSave_eta"], "phi": df["LeptonSave_phi"], "mass": df["LeptonSave_mass"]}
+  )
+  df["LeptonicTop_mass"] = vlepb["mass"]
+  df["LeptonicTop_pt"] = vlepb["pt"]
 
   return df
