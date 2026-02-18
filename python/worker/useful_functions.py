@@ -210,6 +210,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
     "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
     "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+    "bootstrap_method" : args.bootstrap_method,
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -1276,6 +1277,8 @@ def LoadConfig(config_name):
   for k, v in cfg["files"].items():
     if "pre_calculate" not in v.keys():
       cfg["files"][k]["pre_calculate"] = {}
+    if "calculate" not in v.keys():
+      cfg["files"][k]["calculate"] = {}
     if "post_calculate_selection" not in v.keys():
       cfg["files"][k]["post_calculate_selection"] = None
     if "weight_shifts" not in v.keys():
@@ -1385,7 +1388,7 @@ def RandomString(length=8):
   chars = string.ascii_letters + string.digits
   return ''.join(secrets.choice(chars) for _ in range(length))
 
-
+'''
 def Resample(datasets, weights, n_samples=None, seed=42):
   """
   Resamples datasets based on provided weights.
@@ -1479,7 +1482,7 @@ def Resample(datasets, weights, n_samples=None, seed=42):
     resampled_datasets = resampled_datasets[0]
 
   return resampled_datasets, resampled_weights
-
+'''
 
 def RoundUnrolledBins(bins, extra_sf=1):
 
@@ -1502,6 +1505,93 @@ def RoundUnrolledBins(bins, extra_sf=1):
   new_bins = [RoundToSF(bins[ind], max(round_to_sf[ind],1)) for ind in range(len(bins))]
 
   return new_bins
+
+def Resample(datasets, weights, method="oversample", keep_weights=False, sample_size="eff_events", total_scale="eff_events", seed=42):
+
+  # Set up datasets as lists
+  if not isinstance(datasets, list):
+    datasets = [datasets]
+
+  # Get the number of negative and positive events 
+  positive_indices = (weights>=0)
+  negative_indices = (weights<0)
+  n_positive_events = len(weights[positive_indices])
+  n_negative_events = len(weights[negative_indices])
+
+  # Get the number of samples to resample
+  if sample_size == "eff_events":
+    if n_positive_events > 0:
+      positive_n_samples = int(np.sum(weights[positive_indices])**2 / np.sum(weights[positive_indices]**2))
+    else:
+      positive_n_samples = 0
+    if n_negative_events > 0:
+      negative_n_samples = int(np.sum(weights[negative_indices])**2 / np.sum(weights[negative_indices]**2))
+    else:
+      negative_n_samples = 0
+  elif sample_size == "sum_weights":
+    positive_n_samples = int(np.sum(weights[positive_indices]))
+    negative_n_samples = int(-1*np.sum(weights[negative_indices]))
+  elif sample_size == "length":
+    positive_n_samples = int(n_positive_events)
+    negative_n_samples = int(n_negative_events)
+
+  # Get total sum of weights for rescaling
+  if total_scale == "eff_events":
+    total_sum_wt = int(np.sum(weights)**2 / np.sum(weights**2))
+  elif total_scale == "sum_weights":
+    total_sum_wt = int(np.sum(weights))
+  elif total_scale == "length":
+    total_sum_wt = int(len(weights))
+
+  # Resample indices
+  rng = np.random.RandomState(seed=seed)
+  if method == "oversample":
+    replace = True
+  elif method == "undersample":
+    replace = False
+  else:
+    raise ValueError("Method must be oversample or undersample")
+  if not keep_weights:
+    positive_probs = weights[positive_indices]/np.sum(weights[positive_indices])
+    negative_probs = weights[negative_indices]/np.sum(weights[negative_indices])
+  else:
+    positive_probs = None
+    negative_probs = None
+
+  positive_resampled_indices = rng.choice(len(weights[positive_indices]), size=positive_n_samples, replace=replace, p=positive_probs)
+  negative_resampled_indices = rng.choice(len(weights[negative_indices]), size=negative_n_samples, replace=replace, p=negative_probs)
+
+  # Get new weights
+  if keep_weights:
+    resampled_weights = np.hstack((weights[positive_indices][positive_resampled_indices],weights[negative_indices][negative_resampled_indices]))
+  else:
+    resampled_weights = np.hstack((np.ones(positive_n_samples),-1*np.ones(negative_n_samples)))
+  sum_resampled_weights = np.sum(resampled_weights)
+  resampled_weights = resampled_weights * total_sum_wt / sum_resampled_weights
+
+  # Shuffle weights with a fixed seed
+  rng = np.random.default_rng(123)
+  rng.shuffle(resampled_weights)
+
+  # Loop through datasets
+  resampled_datasets = []
+  for dataset in datasets:
+
+    # Get positive and negative weight datasets
+    positive_weight_dataset = dataset[positive_indices]
+    negative_weight_dataset = dataset[negative_indices]
+
+    # Make resampled dataset
+    resampled_dataset = np.vstack((positive_weight_dataset[positive_resampled_indices],negative_weight_dataset[negative_resampled_indices]))
+    rng = np.random.default_rng(123)
+    rng.shuffle(resampled_dataset)
+    resampled_datasets.append(resampled_dataset)
+
+  # Return individual dataset if originally given
+  if len(resampled_datasets) == 1:
+    resampled_datasets = resampled_datasets[0]
+
+  return resampled_datasets, resampled_weights
 
 
 def RoundToSF(x, n):

@@ -1,3 +1,4 @@
+import importlib
 import os
 import re
 import uproot
@@ -43,15 +44,16 @@ class LoadData():
     # Set up calculated
     calculated = []
     existing = []
-    if "pre_calculate" in cfg["files"][file_name].keys():
-      for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if isinstance(v, str):
-          if k not in self._GetTokens(v) and k not in existing:
-            calculated += [k]
+    for calc in ["pre_calculate", "calculate"]:
+      if calc in cfg["files"][file_name].keys():
+        for k, v in cfg["files"][file_name][calc].items():
+          if isinstance(v, str):
+            if k not in self._GetTokens(v) and k not in existing:
+              calculated += [k]
+            else:
+              existing += [k]
           else:
-            existing += [k]
-        else:
-          calculated += [i for i in v.get("outputs", []) if i not in v.get("inputs", []) and i not in existing]
+            calculated += [i for i in v.get("outputs", []) if i not in v.get("inputs", []) and i not in existing]
 
     # Add fitted variables
     self.columns = []
@@ -107,13 +109,14 @@ class LoadData():
     self.columns += self._GetTokens(weight)
 
     # Get from post selection
-    if "pre_calculate" in cfg["files"][file_name].keys():
-      for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if isinstance(v, str):
-          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
-        else:
-          inputs = v.get("inputs", [])
-          self.columns += [i for i in inputs if i not in calculated]
+    for calc in ["pre_calculate", "calculate"]:
+      if calc in cfg["files"][file_name].keys():
+        for k, v in cfg["files"][file_name][calc].items():
+          if isinstance(v, str):
+            self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+          else:
+            inputs = v.get("inputs", [])
+            self.columns += [i for i in inputs if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
@@ -198,7 +201,6 @@ class LoadData():
 
         # Add extra columns
         if "add_columns" in file_info.keys():
-          new_cols = {}
           for extra_col_name, extra_col_value in file_info["add_columns"].items():
             if isinstance(extra_col_value, list):
               df = df.assign(**{extra_col_name: extra_col_value[input_file_ind]})
@@ -229,6 +231,19 @@ class LoadData():
 
         # Set type
         df = df.astype(np.float64)
+
+        # Apply pre_calculate functions
+        for k, v in file_info.get("pre_calculate", {}).items():
+          if isinstance(v, str):
+            df.loc[:,k] = df.eval(v)
+          elif isinstance(v, dict):
+            if v["type"] == "function":
+              module = importlib.import_module(v["file"])
+              func_full = getattr(module, v["name"])
+              func = partial(func_full, **v["args"])
+              df = func(df)
+            else:
+              raise ValueError(f"Unknown pre_calculate type: {v['type']}")
 
         ## Remove negative weights
         #if "remove_negative_weights" in file_info.keys():

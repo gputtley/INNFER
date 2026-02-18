@@ -64,7 +64,7 @@ class PreProcess():
     self.verbose = True
     self.data_input = "data/"
     self.data_output = "data/"
-    self.seed = 234
+    self.seed = 42
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
     self.binned_fit_input = None
     self.validation_binned = None
@@ -97,8 +97,7 @@ class PreProcess():
     return tmp
 
 
-  def _CalculateDatasetWithVariations(self, df, shifts, pre_calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1, post_shifts={}):
-
+  def _CalculateDatasetWithVariations(self, df, shifts, calculate, post_calculate_selection, weight_shifts, nominal_weight, n_copies=1, post_shifts={}):
 
     # Distribute the shifts
     dfs = []
@@ -109,7 +108,7 @@ class PreProcess():
     df = pd.concat(dfs, axis=0, ignore_index=True)
 
     # do precalculate
-    for pre_calc_col_name, pre_calc_col_value in pre_calculate.items():
+    for pre_calc_col_name, pre_calc_col_value in calculate.items():
       if isinstance(pre_calc_col_value, str):
         df[pre_calc_col_name] = df.eval(pre_calc_col_value)
       elif isinstance(pre_calc_col_value, dict):
@@ -207,7 +206,7 @@ class PreProcess():
         partial(
           self._CalculateDatasetWithVariations, 
           shifts=nominal_shifts, 
-          pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
+          calculate=cfg["files"][base_file_name]["calculate"], 
           post_calculate_selection=post_calculate_selection,
           weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
           n_copies=1,
@@ -254,7 +253,7 @@ class PreProcess():
             partial(
               self._CalculateDatasetWithVariations, 
               shifts=up_shifts, 
-              pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
+              calculate=cfg["files"][base_file_name]["calculate"], 
               post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
@@ -270,7 +269,7 @@ class PreProcess():
             partial(
               self._CalculateDatasetWithVariations, 
               shifts=down_shifts, 
-              pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
+              calculate=cfg["files"][base_file_name]["calculate"], 
               post_calculate_selection=post_calculate_selection,
               weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
               n_copies=1,
@@ -334,6 +333,7 @@ class PreProcess():
 
       if stratify_to is not None:
         strata = self._GetStrata(train_test_df, stratify_to)
+        train_test_df.loc[:,"strata"] = strata
       train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
       
     else:
@@ -351,9 +351,7 @@ class PreProcess():
         if stratify_to is not None:
           strata = self._GetStrata(potential_val_df, stratify_to)
           potential_val_df.loc[:,"strata"] = strata
-        train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio, stratify=strata if stratify_to is not None else None)     
-        del potential_val_df
-
+        train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio, stratify=strata if stratify_to is not None else None)
 
         # dump out unused train and add to val if possible
         if drop_for_training_selection is not None:
@@ -570,7 +568,7 @@ class PreProcess():
           partial(
             self._CalculateDatasetWithVariations, 
             shifts=value["shifts"], 
-            pre_calculate=cfg["files"][base_file_name]["pre_calculate"], 
+            calculate=cfg["files"][base_file_name]["calculate"], 
             post_calculate_selection=cfg["files"][base_file_name]["post_calculate_selection"], 
             weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
             n_copies=value["n_copies"],
@@ -598,6 +596,8 @@ class PreProcess():
       }      
     )
 
+    n_eff = rdp.GetFull(method="n_eff", extra_sel=selection)
+
     for k,v in shifts.items():
 
       if v["type"] not in ["continuous","flat_top"]:
@@ -624,12 +624,14 @@ class PreProcess():
       if os.path.isfile(f"{self.data_output}/{wt_reweight_name}"):
         os.system(f"rm {self.data_output}/{wt_reweight_name}")
 
-      def ApplySpline(df, spline, k, selection=None):
+      def ApplySpline(df, spline, k, selection=None, scale_to=None):
         if selection is not None:
           mask = df.eval(selection)
         else:
           mask = np.ones(len(df), dtype=bool)
         df.loc[mask,"wt"] *= spline(df.loc[mask,k])
+        if scale_to is not None:
+          df.loc[mask,"wt"] *= scale_to
         return df[["wt"]]
 
 
@@ -640,7 +642,8 @@ class PreProcess():
             ApplySpline, 
             spline=spline, 
             k=k,
-            selection=selection
+            selection=selection,
+            scale_to=n_eff
           ),
           partial(
             self._WriteDataset, 
@@ -841,7 +844,6 @@ class PreProcess():
     for data_split in ["val","train_inf","test_inf","full"]:
       for ind, val in enumerate(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True)):
         if self.val_ind is None or self.val_ind == ind:
-
           base_file_name = None
           for value in cfg["validation"]["files"][file_name]:
             if "categories" not in value.keys() or self.category is None or self.category in value["categories"]:
