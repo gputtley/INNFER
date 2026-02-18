@@ -15,6 +15,7 @@ from scipy.interpolate import CubicSpline
 from data_processor import DataProcessor
 from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
 from yields import Yields
+from write_parquet import WriteParquet
 
 class MakeAsimov():
 
@@ -30,8 +31,6 @@ class MakeAsimov():
     self.parameters = None
     self.model_input = "data/"
     self.data_output = "data/"
-    self.regression_spline_input = "data/"
-    self.classifier_spline_input = "data/"
     self.n_asimov_events = 10**7
     self.seed = 42
     self.val_info = {}
@@ -164,12 +163,10 @@ class MakeAsimov():
     functions_to_apply = []
     if self.add_truth:
       functions_to_apply += [partial(add_truth, Y=model_parameters)]
-    functions_to_apply += [partial(self._WriteDataset,file_name="asimov.parquet")]
 
-
+    wp = WriteParquet(name="asimov", data_output=self.data_output)    
+    functions_to_apply += [wp]
     asimov_file_name = f"{self.data_output}/asimov.parquet"
-    MakeDirectories(asimov_file_name)
-    if os.path.isfile(asimov_file_name): os.system(f"rm {asimov_file_name}")
 
     tf.random.set_seed(self.seed)
     tf.keras.utils.set_random_seed(self.seed)
@@ -177,6 +174,7 @@ class MakeAsimov():
       method = None,
       functions_to_apply = functions_to_apply
     )
+    wp.collect()
 
     if not self.only_density:
 
@@ -200,7 +198,7 @@ class MakeAsimov():
       
         # Loading regression model
         if self.verbose:
-          print(f"- Loading the density model {regression_model_name}")
+          print(f"- Loading the regression model {regression_model_name}")
         network.Load(name=f"{regression_model_name}.h5")
 
         # Apply weights
@@ -232,9 +230,9 @@ class MakeAsimov():
             df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
-        wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter_regression.parquet')
-        if os.path.isfile(wt_shifter_name): os.system(f"rm {wt_shifter_name}")
-
+        wt_shifter_name = f"asimov_wt_shifter_regression_{regression_model['parameter']}"
+        total_wt_shifter_name = f"{self.data_output}/{wt_shifter_name}.parquet"
+        wp = WriteParquet(name=wt_shifter_name, data_output=self.data_output)
         wt_shifter.GetFull(
           method = None,
           functions_to_apply = [
@@ -246,11 +244,11 @@ class MakeAsimov():
               spl = spl,
               parameter = regression_model['parameter']
             ),
-            partial(self._WriteDataset,file_name=wt_shifter_name.split("/")[-1])
+            wp
           ]
         )
-
-        if os.path.isfile(wt_shifter_name): os.system(f"mv {wt_shifter_name} {asimov_file_name}")
+        wp.collect()
+        if os.path.isfile(total_wt_shifter_name): os.system(f"mv {total_wt_shifter_name} {asimov_file_name}")
 
 
       # Do classifier models
@@ -306,9 +304,9 @@ class MakeAsimov():
             df["wt"] = df["wt"] *spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
-        wt_shifter_name = asimov_file_name.replace('.parquet','_wt_shifter_classifier.parquet')
-        if os.path.isfile(wt_shifter_name): os.system(f"rm {wt_shifter_name}")
-
+        wt_shifter_name = f"asimov_wt_shifter_classifier_{classifier_model['parameter']}"
+        total_wt_shifter_name = f"{self.data_output}/{wt_shifter_name}.parquet"
+        wp = WriteParquet(name=wt_shifter_name, data_output=self.data_output)
         wt_shifter.GetFull(
           method = None,
           functions_to_apply = [
@@ -320,11 +318,11 @@ class MakeAsimov():
               spl = spl,
               parameter = classifier_model['parameter']
             ),
-            partial(self._WriteDataset,file_name=wt_shifter_name.split("/")[-1])
+            wp
           ]
         )
-
-        if os.path.isfile(wt_shifter_name): os.system(f"mv {wt_shifter_name} {asimov_file_name}")
+        wp.collect()
+        if os.path.isfile(total_wt_shifter_name): os.system(f"mv {total_wt_shifter_name} {asimov_file_name}")
 
   def Outputs(self):
 

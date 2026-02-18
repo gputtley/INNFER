@@ -330,15 +330,15 @@ class InputPlotValidation():
       )
 
       # print chi squared per dof for all histogram combinations
-      print(f"Chi-squared per dof:")
-      for ind1 in range(len(hists)):
-        for ind2 in range(len(hists)):
-          if ind1 == ind2: continue
-          chi_squared, dof = self._chi2_histograms(hists[ind1], hists[ind2], hist_errs[ind1], hist_errs[ind2])
-          print(f"  - sim_type={hist_names[ind1]} vs {hist_names[ind2]}")
-          print(f"  - val_ind={val_ind}")
-          print(f"  - column={col}")
-          print(f"    chi-squared/dof = {chi_squared/dof:.2f}")
+      #print(f"Chi-squared per dof:")
+      #for ind1 in range(len(hists)):
+      #  for ind2 in range(len(hists)):
+      #    if ind1 == ind2: continue
+      #    chi_squared, dof = self._chi2_histograms(hists[ind1], hists[ind2], hist_errs[ind1], hist_errs[ind2])
+      #    print(f"  - sim_type={hist_names[ind1]} vs {hist_names[ind2]}")
+      #    print(f"  - val_ind={val_ind}")
+      #    print(f"  - column={col}")
+      #    print(f"    chi-squared/dof = {chi_squared/dof:.2f}")
 
 
 
