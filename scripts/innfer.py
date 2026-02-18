@@ -42,6 +42,7 @@ def parse_args():
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
+  parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--collect-skip-diagonal', help='Do not load the diagonal HessianParallel files, used for numerical where they are not created', action='store_true')
@@ -190,7 +191,6 @@ def main(args, default_args):
           "cfg" : args.cfg,
           "file_name" : base_file_name,
           "data_output" : f"{prep_data_dir}/LoadData{args.extra_output_dir_name}",
-          "number_of_shuffles" : args.number_of_shuffles,
           "verbose" : not args.quiet,
         },
         loop = {"base_file_name" : base_file_name},
@@ -659,14 +659,15 @@ def main(args, default_args):
         module_name = "evaluate_classifier",
         class_name = "EvaluateClassifier",
         config = {
+          "cfg" : args.cfg,
           "data_input" : model_info['file_loc'],
-          "plots_output" : f"{plots_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "model_input" : f"{models_dir}",
           "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
           "file_name" : model_info["file_name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
           "data_output" : f"{eval_data_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "extra_classifier_model_name" : args.extra_classifier_model_name,
           "verbose" : not args.quiet,
         },
         loop = {"model_name" : model_info['name']}
@@ -709,9 +710,7 @@ def main(args, default_args):
               "cfg" : args.cfg,
               "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
               "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-              "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
               "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
-              "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
               "model_input" : f"{models_dir}",
               "extra_density_model_name" : args.extra_density_model_name,
               "extra_regression_model_name" : args.extra_regression_model_name,
@@ -744,9 +743,7 @@ def main(args, default_args):
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-                "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
                 "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
-                "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -763,6 +760,57 @@ def main(args, default_args):
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
+
+
+  # Make the asimov datasets for classifier/regressor normalisation spline
+  if args.step == "MakeAsimovForNormalisationSpline":
+    print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "make_asimov",
+        class_name = "MakeAsimov",
+        config = {
+          "cfg" : args.cfg,
+          "density_model" : model_info,
+          "regression_models" : {},
+          "classifier_models" : {},
+          "extra_density_model_name" : args.extra_density_model_name,
+          "data_output" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/{model_info['name']}",
+          "parameters" : model_info["parameters"],
+          "val_info" : GetDefaultsInModel(model_info['file_name'], cfg),
+          "use_asimov_scaling" : None,
+          "n_asimov_events" : args.number_of_asimov_events,
+          "only_density" : True,
+          "file_name" : model_info['file_name'],
+          "model_input" : f"{models_dir}",
+        },
+        loop = {"model_name" : model_info['name']},
+      )
+
+
+  # Make the normalisation spline for the classifier models
+  if args.step == "NormalisationSplineClassifier":
+    print("<< Building the normalisation spline for classifier networks >>")
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      module.Run(
+        module_name = "normalisation_spline_classifier",
+        class_name = "NormalisationSplineClassifier",
+        config = {
+          "cfg" : args.cfg,
+          "data_input" : model_info['file_loc'],
+          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
+          "plots_output" : f"{plots_dir}/NormalisationSplineClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "model_input" : f"{models_dir}",
+          "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
+          "file_name" : model_info["file_name"],
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "extra_classifier_model_name" : args.extra_classifier_model_name,
+          "category" : model_info["category"],
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
 
   # Get performance metrics
@@ -1656,9 +1704,7 @@ def main(args, default_args):
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
-                "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
                 "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
-                "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1777,76 +1823,6 @@ def main(args, default_args):
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
-
-  """
-
-  # Make the goodness of fit toys
-  if args.step == "MakeGoodnessOfFitToys":
-    print(f"<< Making the goodness of fit toys >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        best_fit = GetBestFitFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
-        for asimov_file_name, asimov_val_ind in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-            for seed in range(args.number_of_toys):
-              module.Run(
-                module_name = "make_asimov",
-                class_name = "MakeAsimov",
-                config = {
-                  "cfg" : args.cfg,
-                  "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
-                  "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
-                  "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
-                  "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
-                  "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
-                  "model_input" : f"{models_dir}",
-                  "extra_density_model_name" : args.extra_density_model_name,
-                  "extra_regression_model_name" : args.extra_regression_model_name,
-                  "parameters" : f"{prep_data_dir}/PreProcess/{asimov_file_name}/{category}/parameters.yaml",
-                  "data_output" : f"{eval_data_dir}/MakeGoodnessOfFitToys{args.extra_output_dir_name}/{file_name}/{asimov_file_name}/{category}/val_ind_{asimov_val_ind}/seed_{seed}/",
-                  "seed" : seed,
-                  "val_info" : best_fit,
-                  "val_ind" : asimov_val_ind,
-                  "only_density" : args.only_density,
-                  "file_name" : asimov_file_name,
-                  "use_asimov_scaling" : 1.0,
-                  "verbose" : not args.quiet,
-                },
-                loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category, "seed" : seed},
-              )
-
-
-  # Run goodness of fit toy fits
-  if args.step == "RunGoodnessOfFitToys":
-    print(f"<< Running initial fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
-          for seed in range(args.number_of_toys):
-            module.Run(
-              module_name = "infer",
-              class_name = "Infer",
-              config = {
-                **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name=f"MakeGoodnessOfFitToys{args.extra_input_dir_name}/{file_name}", asimov_extra_dir=f"seed_{seed}", force_asimov=True),
-                "method" : "InitialFit",
-                "data_output" : f"{eval_data_dir}/RunGoodnessOfFitToys{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
-                "extra_file_name" : f'{val_ind}_seed_{seed}',
-                "freeze" : freeze["freeze"],
-                "val_ind" : val_ind,
-              },
-              loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "seed" : seed},
-            )
-
-  # Collect goodness of fit toy asimov fits
-
-
-  # Plot the goodness of fit
-
-  """
 
 
   # Calculate the chi squared of the summary

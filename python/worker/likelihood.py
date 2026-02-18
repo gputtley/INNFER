@@ -513,10 +513,10 @@ class Likelihood():
 
         for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
 
-          cache_dict_classifier = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
-          load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="regression")
+          cache_dict_regression = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
+          load_from_cache_regression = self._CheckIfInCacheLogProbs(cache_dict_regression, model_type="regression")
 
-          if not load_from_cache_classifier:
+          if not load_from_cache_regression:
             regression_shift = self._ShiftDensityByRegression(
               [np.zeros_like(i) for i in log_probs[name]],
               combined,
@@ -529,10 +529,10 @@ class Likelihood():
               category=category        
             )
           else:
-            regression_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="regression")
+            regression_shift = self._LoadFromCache(cache_dict_regression, gradient, model_type="regression")
           log_probs[name] = [log_probs[name][i] + regression_shift[i] for i in range(len(gradient))]
 
-          self._WriteCache(regression_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="regression")
+          self._WriteCache(regression_shift, gradient, cache_dict_regression, load_from_cache_regression, pdf, model_type="regression")
 
       ### Classification ###
 
@@ -1122,7 +1122,7 @@ class Likelihood():
           if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
             norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
             if grad == 0:
-              log_probs[ind] += np.log(norm)                
+              log_probs[ind] += np.log(norm)      
             elif grad == 1 and k in column_1:
               norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
               log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm

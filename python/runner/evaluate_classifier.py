@@ -10,11 +10,14 @@ import pyarrow.parquet as pq
 from sklearn.metrics import roc_auc_score
 
 from functools import partial
-from scipy.interpolate import CubicSpline
+#from scipy.interpolate import CubicSpline
+from scipy.interpolate import UnivariateSpline
+
 
 from data_processor import DataProcessor
+from make_asimov import MakeAsimov
 from plotting import plot_histograms
-from useful_functions import InitiateClassifierModel, MakeDirectories
+from useful_functions import GetDefaultsInModel, GetModelLoop, InitiateClassifierModel, LoadConfig, MakeDirectories
 
 class EvaluateClassifier():
 
@@ -24,22 +27,23 @@ class EvaluateClassifier():
     """
     # Required input which is the location of a file
     self.parameters = None
+    self.cfg = None
 
     # other
     self.data_input = "data/"
-    self.plots_output = "plots/"
     self.file_name = None
     self.data_output = None
     self.model_input = None
     self.model_name = None
     self.parameter = None
     self.verbose = True
+    self.get_auc = True
     self.test_name = "test"
     self.model_type = "FCNN"
-    self.spline_from_asimov = False
+    self.spline_from_asimov = True
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
-    self.get_auc = True
-
+    self.extra_classifier_model_name = ""
+  
 
   def _WriteDataset(self, df, file_name):
 
@@ -64,10 +68,20 @@ class EvaluateClassifier():
     for key, value in options.items():
       setattr(self, key, value)
 
+    if self.extra_classifier_model_name != "":
+      self.extra_classifier_model_name = f"_{self.extra_classifier_model_name}"
+
+
   def Run(self):
     """
     Run the code utilising the worker classes
     """
+
+    # Define loop
+    loop = []
+
+    if self.get_auc:
+      performance_metrics = {}
 
     # Open parameters
     if self.verbose:
@@ -78,7 +92,7 @@ class EvaluateClassifier():
     # Load the model in
     if self.verbose:
       print("- Building the model")
-    classifier_model_name = f"{self.model_input}/{self.model_name}/{parameters['file_name']}"
+    classifier_model_name = f"{self.model_input}/{self.model_name}/{parameters['file_name']}{self.extra_classifier_model_name}"
     with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
     network = InitiateClassifierModel(
@@ -93,18 +107,18 @@ class EvaluateClassifier():
     network.Load(name=f"{classifier_model_name}.h5")
 
     # Make y from train and test
-    loop = ["train"]
+    loop.append("train")
     if self.test_name is not None:
       loop.append(self.test_name)
-
-    performance_metrics = {}
 
     for data_split in loop:
       if self.verbose:
         print(f"- Getting to the predictions for the {data_split} dataset")
 
+      files = [f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","y","wt"]]
+
       pred_df = DataProcessor(
-        [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_{data_split}.parquet" for i in ["X","y"]]],
+        [files],
         "parquet",
         batch_size = self.batch_size,
         options = {
@@ -123,19 +137,20 @@ class EvaluateClassifier():
       pred_name = f"{self.data_output}/pred_{data_split}.parquet"
       if os.path.isfile(pred_name): os.system(f"rm {pred_name}")
 
+      functions_to_apply = []
+      functions_to_apply += ["untransform"]
+      functions_to_apply += [
+        partial(
+          apply_classifier, 
+          func=network.Predict, 
+          X_columns=parameters['classifier'][self.parameter]["X_columns"],
+        ),
+        partial(self._WriteDataset,file_name=f"pred_{data_split}.parquet")
+      ]
       pred_df.GetFull(
         method = None,
-        functions_to_apply = [
-          "untransform",
-          partial(
-            apply_classifier, 
-            func=network.Predict, 
-            X_columns=parameters['classifier'][self.parameter]["X_columns"],
-          ),
-          partial(self._WriteDataset,file_name=f"pred_{data_split}.parquet")
-        ]
+        functions_to_apply = functions_to_apply,
       )
-
 
       # Get ROC AUC from predictions
       if self.get_auc:
@@ -157,85 +172,9 @@ class EvaluateClassifier():
         performance_metrics[f"roc_auc_{data_split}"] = float(auc)
         print(f"ROC AUC for {data_split} dataset: {auc:.4f}")
 
-
-
-      # Get normalisation spline
-      if data_split == "train":
-
-        if self.verbose:
-          print("- Getting normalisation spline")
-
-        reweight_df = DataProcessor(
-          [f"{parameters['classifier'][self.parameter]['file_loc']}/X_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/y_{data_split}.parquet", f"{parameters['classifier'][self.parameter]['file_loc']}/wt_{data_split}.parquet", pred_name],
-          "parquet",
-          wt_name = "wt",
-          options = {
-            "parameters" : parameters['classifier'][self.parameter],
-          }
-        )
-
-        # Get number of effective events
-        eff_events = reweight_df.GetFull(
-          method = "n_eff"
-        )
-        events_per_bin = 10000
-        bins = min(int(np.ceil(eff_events/events_per_bin)),10)
-
-        if self.verbose:
-          print(f"- Number of bins: {bins}")
-
-        nom_hist, bins = reweight_df.GetFull(
-          method = "histogram",
-          column = self.parameter,
-          bins = bins,
-          extra_sel = "(classifier_truth == 0)",
-          ignore_quantile=0.0,
-          functions_to_apply=["untransform"]
-        )
-
-        def shift(df):
-          df.loc[:,"wt"] *= df.loc[:,"wt_shift"]
-          return df
-
-        shifted_hist, _ = reweight_df.GetFull(
-          method = "histogram",
-          bins = bins,
-          column = self.parameter,
-          functions_to_apply = [shift, "untransform"],
-          extra_sel = "(classifier_truth == 0)",
-        )
-
-        ratio = nom_hist/shifted_hist
-        bin_centers = (bins[:-1] + bins[1:]) / 2
-        spline = CubicSpline(bin_centers, ratio, bc_type="clamped", extrapolate=True)
-        spline_name = f"{classifier_model_name}_norm_spline.pkl"
-        with open(spline_name, 'wb') as f:
-          pickle.dump(spline, f)
-
-        # plot spline and points
-        if self.verbose:
-          print("- Plotting normalisation spline")
-        plot_histograms(
-          bin_centers,
-          [],
-          [],
-          error_bar_hists = [ratio],
-          error_bar_hist_errs = [np.zeros(len(ratio))],
-          error_bar_names = ["Points"],
-          smooth_func = spline,
-          smooth_func_name = "Spline",
-          name=f"{self.plots_output}/norm_spline_{self.parameter}",
-          x_label=self.parameter,
-          y_label="Yield ratio to before",
-        )
-
-    # Write out performance metrics
-    if self.verbose:
-      print("- Writing out performance metrics")
-    metrics_name = f"{self.data_output}/performance_metrics.yaml"
-    MakeDirectories(metrics_name)
-    with open(metrics_name, 'w') as yaml_file:
-      yaml.dump(performance_metrics, yaml_file)
+    if self.get_auc:
+      with open(f"{self.data_output}/performance_metrics.yaml", 'w') as yaml_file:
+        yaml.dump(performance_metrics, yaml_file)
 
 
   def Outputs(self):
@@ -250,11 +189,8 @@ class EvaluateClassifier():
     if self.test_name is not None:
       outputs += [f"{self.data_output}/pred_{self.test_name}.parquet"]
 
-    # Add normalisation spline
-    outputs += [f"{self.model_input}/{self.model_name}/{self.file_name}_norm_spline.pkl"]
-
-    # Add performance metrics
-    outputs += [f"{self.data_output}/performance_metrics.yaml"]
+    if self.get_auc:
+      outputs += [f"{self.data_output}/performance_metrics.yaml"]
 
     return outputs
 
