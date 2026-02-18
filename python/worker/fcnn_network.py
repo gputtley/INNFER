@@ -222,7 +222,9 @@ class FCNNNetwork():
 
   def _CrossEntropy(self, predictions, y_data, wt_data=None, eps=1e-7):
     # Ensure probabilities are numerically stable
-    predictions = tf.nn.softmax(predictions, axis=-1)
+    predictions_SM = tf.nn.softmax(predictions, axis=-1)
+    predictions = tf.clip_by_value(predictions_SM, eps, 1-eps)
+    
     per_sample_loss = -tf.reduce_sum(y_data * tf.math.log(predictions), axis=-1)  # shape (batch_size,)
 
     if wt_data is None:
