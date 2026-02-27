@@ -18,6 +18,7 @@ from data_processor import DataProcessor
 from make_asimov import MakeAsimov
 from plotting import plot_histograms
 from useful_functions import GetDefaultsInModel, GetModelLoop, InitiateClassifierModel, LoadConfig, MakeDirectories
+from write_parquet import WriteParquet
 
 class EvaluateClassifier():
 
@@ -44,19 +45,6 @@ class EvaluateClassifier():
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
     self.extra_classifier_model_name = ""
   
-
-  def _WriteDataset(self, df, file_name):
-
-    file_path = f"{self.data_output}/{file_name}"
-    MakeDirectories(file_path)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
 
   def Configure(self, options):
     """
@@ -137,6 +125,10 @@ class EvaluateClassifier():
       pred_name = f"{self.data_output}/pred_{data_split}.parquet"
       if os.path.isfile(pred_name): os.system(f"rm {pred_name}")
 
+      wp = WriteParquet(
+        name = f"pred_{data_split}",
+        data_output = self.data_output,
+      )
       functions_to_apply = []
       functions_to_apply += ["untransform"]
       functions_to_apply += [
@@ -145,12 +137,13 @@ class EvaluateClassifier():
           func=network.Predict, 
           X_columns=parameters['classifier'][self.parameter]["X_columns"],
         ),
-        partial(self._WriteDataset,file_name=f"pred_{data_split}.parquet")
+        wp,
       ]
       pred_df.GetFull(
         method = None,
         functions_to_apply = functions_to_apply,
       )
+      wp.collect()
 
       # Get ROC AUC from predictions
       if self.get_auc:

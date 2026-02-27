@@ -60,12 +60,13 @@ class Optimizer():
     elif name == "CosineDecayWithWarmUp":
 
       class CosineDecayWithWarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
-        def __init__(self, initial_learning_rate, decay_steps, warmup_fraction, alpha):
+        def __init__(self, initial_learning_rate, decay_steps, warmup_fraction, alpha, step_power):
           super(CosineDecayWithWarmUp, self).__init__()
           self.initial_learning_rate = initial_learning_rate
           self.decay_steps = decay_steps
           self.warmup_steps = int(warmup_fraction * decay_steps)
           self.alpha = alpha
+          self.step_power = step_power
         def __call__(self, step):
           learning_rate = tf.cond(
               step >= self.decay_steps,
@@ -75,7 +76,7 @@ class Optimizer():
                 lambda: self.initial_learning_rate * (tf.cast(step, tf.float32) / tf.cast(self.warmup_steps, tf.float32)),
                 lambda: self.initial_learning_rate * 0.5 * (
                     1 + tf.math.cos(
-                        tf.constant(np.pi) * (tf.cast(step - self.warmup_steps, tf.float32)) / tf.cast(self.decay_steps - self.warmup_steps, tf.float32)
+                        tf.constant(np.pi) * (tf.cast(step - self.warmup_steps, tf.float32)**self.step_power) / (tf.cast(self.decay_steps - self.warmup_steps, tf.float32)**self.step_power)
                     )
                 ) * (1 - self.alpha) + self.alpha
               )
@@ -94,6 +95,7 @@ class Optimizer():
         decay_steps=decay_steps,
         warmup_fraction=options["warmup_fraction"] if "warmup_fraction" in options.keys() else 0.1,
         alpha=options["alpha"] if "alpha" in options.keys() else 0.0,
+        step_power=options["step_power"] if "step_power" in options.keys() else 1,
       )
 
     elif name == "HalfCosineDecay":

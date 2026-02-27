@@ -9,7 +9,8 @@ import numpy as np
 import seaborn as sns
 
 from functools import partial
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import UnivariateSpline, CubicSpline
+from scipy.optimize import curve_fit
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
@@ -63,7 +64,7 @@ class top_bw_fractions():
     return df  
 
 
-  def _CalculateOptimalFractions(self, base_file, wt_func, selection=None, functions=[], plot=False):
+  def _CalculateOptimalFractions(self, base_file, wt_func, selection=None, functions=[], plot=False, category=None):
     """
     Calculate the optimal fractions for the given base file and weight function.
     Args:
@@ -75,18 +76,6 @@ class top_bw_fractions():
 
     print("- Calculating optimal fractions")
 
-    # full dataprocessor
-    dp = DataProcessor(
-      [[base_file]],
-      "parquet",
-      batch_size=self.batch_size,
-      options = {
-        "wt_name" : "wt",
-        "selection" : selection,
-        "functions" : functions
-      }
-    )
-
     # calculate weight
     def apply_wt(df, wt_func):
       if self.bw_mass_name not in df.columns:
@@ -95,132 +84,193 @@ class top_bw_fractions():
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
 
+    # full dataprocessor
+    dp = DataProcessor(
+      [[base_file]],
+      "parquet",
+      batch_size=self.batch_size,
+      options = {
+        "wt_name" : "wt",
+        "selection" : selection,
+        "functions" : [apply_wt_partial] + functions,
+        "sort_columns" : False,
+      }
+    )
+
     # get unique Y and loop through
-    unique = dp.GetFull(method="unique")[self.mass_name]
+    unique = list(sorted(dp.GetFull(method="unique")[self.mass_name]))
 
-    # get nominal sum of weights
-    nominal_sum_wt = []
-    for transformed_from in unique:
-      nominal_sum_wt.append(dp.GetFull(
-          method = "sum", 
-          extra_sel = f"{self.mass_name}=={transformed_from}", 
-          functions_to_apply = [
-            apply_wt_partial,
-          ]
-        )
-      )
+    # Class to get all the information needed
+    class fraction_info:
+      def __init__(self, transformed_from_masses, transformed_to_masses, transformed_from_name, transformed_to_name, bw_reweight_func):
 
-    # get nominal sum of weights spline
-    nominal_sum_wt_splines = UnivariateSpline(unique, nominal_sum_wt, s=0, k=1)
+        # information needed 
+        self.transformed_from_masses = transformed_from_masses
+        self.transformed_to_masses = transformed_to_masses
+        self.transformed_from_name = transformed_from_name
+        self.transformed_to_name = transformed_to_name
+        self.bw_reweight_func = bw_reweight_func
 
-    # get sum of weights and sum of weights squared after BW
-    sum_wt = {}
-    sum_wt_squared = {}
-    for transformed_to in self.transformed_to_masses:
+        # Check all of transformed_from are in transformed_to
+        for mass in self.transformed_from_masses:
+          if mass not in self.transformed_to_masses:
+            self.transformed_to_masses.append(mass)
+        self.transformed_to_masses = sorted(self.transformed_to_masses)
+      
+        # set up stores
+        self.sum_wt = {}
+        self.sum_wt_squared = {}
+        for transformed_from_mass in self.transformed_from_masses:
+          self.sum_wt[transformed_from_mass] = {}
+          self.sum_wt_squared[transformed_from_mass] = {}
+          for transformed_to_mass in self.transformed_to_masses:
+            self.sum_wt[transformed_from_mass][transformed_to_mass] = 0.0
+            self.sum_wt_squared[transformed_from_mass][transformed_to_mass] = 0.0
 
-      print(f"  - Calculating fractions for transformed to mass: {transformed_to}")
+      def __call__(self, df):
 
-      sum_wt[transformed_to] = {}
-      sum_wt_squared[transformed_to] = {}
-      for transformed_from in unique:
+        for transformed_to_mass in self.transformed_to_masses:
+          copy_df = df.copy()
+          copy_df.loc[:,self.transformed_to_name] = transformed_to_mass
+          copy_df = self.bw_reweight_func(copy_df, m=transformed_to_mass)
+          for transformed_from_mass in self.transformed_from_masses:
+            mask = copy_df.loc[:,self.transformed_from_name] == transformed_from_mass
+            self.sum_wt[transformed_from_mass][transformed_to_mass] += copy_df.loc[mask,"wt"].sum()
+            self.sum_wt_squared[transformed_from_mass][transformed_to_mass] += (copy_df.loc[mask,"wt"]**2).sum()
 
-        sum_wt[transformed_to][transformed_from] = dp.GetFull(
-          method = "sum", 
-          extra_sel = f"{self.mass_name}=={transformed_from}", 
-          functions_to_apply = [
-            apply_wt_partial,
-            partial(self._ApplyBWReweight,m=transformed_to)
-          ]
-        )
-        sum_wt_squared[transformed_to][transformed_from] = dp.GetFull(
-          method = "sum_w2", 
-          extra_sel = f"{self.mass_name}=={transformed_from}", 
-          functions_to_apply = [
-            apply_wt_partial,
-            partial(self._ApplyBWReweight,m=transformed_to)
-          ]
-        )
+        return df
+
+
+    fi = fraction_info(
+      transformed_from_masses = unique,
+      transformed_to_masses= self.transformed_to_masses,
+      transformed_from_name = self.mass_name,
+      transformed_to_name = self.bw_mass_name,
+      bw_reweight_func = self._ApplyBWReweight
+    )
+
+    dp.GetFull(method=None, functions_to_apply=[fi])
 
     # Effective events
     eff_events = {}
-    for transformed_to in self.transformed_to_masses:
-      eff_events[transformed_to] = {}
-      for transformed_from in unique:
-        if sum_wt_squared[transformed_to][transformed_from] > 0:
-          eff_events[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from]**2) / sum_wt_squared[transformed_to][transformed_from]
+    for transformed_from_mass in fi.transformed_from_masses:
+      eff_events[transformed_from_mass] = {}
+      for transformed_to_mass in fi.transformed_to_masses:
+        if fi.sum_wt_squared[transformed_from_mass][transformed_to_mass] > 0:
+          eff_events[transformed_from_mass][transformed_to_mass] = (fi.sum_wt[transformed_from_mass][transformed_to_mass]**2) / fi.sum_wt_squared[transformed_from_mass][transformed_to_mass]
         else:
-          eff_events[transformed_to][transformed_from] = 0.0
+          eff_events[transformed_from_mass][transformed_to_mass] = 0.0
 
     # Total effective events for transformed_to
     total_eff_events = {}
-    for transformed_to in self.transformed_to_masses:
-      total_eff_events[transformed_to] = np.sum(np.array(list(eff_events[transformed_to].values())))
+    for transformed_to_mass in fi.transformed_to_masses:
+      total_eff_events[transformed_to_mass] = sum([eff_events[transformed_from_mass][transformed_to_mass] for transformed_from_mass in fi.transformed_from_masses])
 
-    # Fraction of effective events
-    eff_events_fraction = {}
-    for transformed_to in self.transformed_to_masses:
-      eff_events_fraction[transformed_to] = {}
-      for transformed_from in unique:
-        if total_eff_events[transformed_to] > 0:
-          eff_events_fraction[transformed_to][transformed_from] = eff_events[transformed_to][transformed_from] / total_eff_events[transformed_to]
+    # Fractions of effective events
+    eff_events_fractions = {}
+    for transformed_from_mass in fi.transformed_from_masses:
+      eff_events_fractions[transformed_from_mass] = {}
+      for transformed_to_mass in fi.transformed_to_masses:
+        if total_eff_events[transformed_to_mass] > 0:
+          eff_events_fractions[transformed_from_mass][transformed_to_mass] = eff_events[transformed_from_mass][transformed_to_mass] / total_eff_events[transformed_to_mass]
         else:
-          eff_events_fraction[transformed_to][transformed_from] = 0.0
+          eff_events_fractions[transformed_from_mass][transformed_to_mass] = 0.0
 
-    # derive fractions
+    # Derive fractions
     fractions = {}
-    for transformed_to in self.transformed_to_masses:
-      fractions[transformed_to] = {}
-      for transformed_from in unique:
-        if eff_events_fraction[transformed_to][transformed_from] > self.ignore_quantile:
-          fractions[transformed_to][transformed_from] = (sum_wt[transformed_to][transformed_from] / sum_wt_squared[transformed_to][transformed_from])
+    for transformed_from_mass in fi.transformed_from_masses:
+      fractions[transformed_from_mass] = {}
+      for transformed_to_mass in fi.transformed_to_masses:
+        if eff_events_fractions[transformed_from_mass][transformed_to_mass] > self.ignore_quantile:
+          fractions[transformed_from_mass][transformed_to_mass] = fi.sum_wt[transformed_from_mass][transformed_to_mass] / fi.sum_wt_squared[transformed_from_mass][transformed_to_mass]
         else:
-          fractions[transformed_to][transformed_from] = 0.0
+          fractions[transformed_from_mass][transformed_to_mass] = 0.0
 
-    # derive normalisation
+    # Make sure zeros are consistent
+    for transformed_from_mass in fi.transformed_from_masses:
+      fractions_to = [fractions[transformed_from_mass][transformed_to_mass] for transformed_to_mass in fi.transformed_to_masses]
+      max_fraction_index = np.argmax(fractions_to)
+      zero = False
+      for index in range(max_fraction_index, -1, -1):
+        if zero:
+          fractions[transformed_from_mass][fi.transformed_to_masses[index]] = 0.0
+        if fractions_to[index] == 0.0:
+          zero = True
+      zero = False
+      for index in range(max_fraction_index, len(fi.transformed_to_masses)):
+        if zero:
+          fractions[transformed_from_mass][fi.transformed_to_masses[index]] = 0.0
+        if fractions_to[index] == 0.0:
+          zero = True
+
+    # Fit a spline for the nominal sum of weights
+    nominal_sum_wt = np.array([fi.sum_wt[transformed_from_mass][transformed_from_mass] for transformed_from_mass in fi.transformed_from_masses])
+    nominal_sum_wt_spline = UnivariateSpline(fi.transformed_from_masses, nominal_sum_wt, s=0, k=1)
+    xmin, xmax = np.min(fi.transformed_from_masses), np.max(fi.transformed_from_masses)
+    def capped_spline(xx):
+      xx = np.asarray(xx)
+      out = nominal_sum_wt_spline(np.clip(xx, xmin, xmax))
+      return out      
+
+    # Get total sums
+    total_sums = {}
+    for transformed_to_mass in fi.transformed_to_masses:
+      total_sum = (np.array([fractions[transformed_from_mass][transformed_to_mass] for transformed_from_mass in fi.transformed_from_masses]) * np.array([fi.sum_wt[transformed_from_mass][transformed_to_mass] for transformed_from_mass in fi.transformed_from_masses])).sum()
+      total_sums[transformed_to_mass] = total_sum
+
+    # Normalise fractions
     normalised_fractions = {}
-    for transformed_to in self.transformed_to_masses:
-      normalised_fractions[transformed_to] = {}
-      total_sum = np.sum(np.array(list(sum_wt[transformed_to].values())) * np.array(list(fractions[transformed_to].values())))
-      for transformed_from in unique:
-        normalised_fractions[transformed_to][transformed_from] = fractions[transformed_to][transformed_from] * nominal_sum_wt_splines(transformed_to) / total_sum
-
+    for transformed_from_mass in fi.transformed_from_masses:
+      normalised_fractions[transformed_from_mass] = {}
+      for transformed_to_mass in fi.transformed_to_masses:
+        normalised_fractions[transformed_from_mass][transformed_to_mass] = fractions[transformed_from_mass][transformed_to_mass] * capped_spline(transformed_to_mass) / total_sums[transformed_to_mass]
 
     # fit splines for continuous fractioning
     splines = {}
-    masses = list(normalised_fractions.keys())
     if plot:
       hists = {}
-      bins = np.linspace(min(masses), max(masses), num=1000)
+      bins = np.linspace(min(fi.transformed_to_masses), max(fi.transformed_to_masses), num=1000)
 
     for transformed_from in unique:
-      fractions_to = [normalised_fractions[transformed_to][transformed_from] for transformed_to in self.transformed_to_masses]      
-      #splines[transformed_from] = UnivariateSpline(masses, fractions_to, s=0)
-      fit_spline = UnivariateSpline(masses, fractions_to, s=0)
 
-      # Find peak of spline
-      spline_masses = np.linspace(min(masses), max(masses), num=1000)
-      spline_values = fit_spline(spline_masses)
-      peak_index = np.argmax(spline_values)
+      if self.fit_method == "spline":
 
-      # Find any indices where the spline is zero or negative
-      negative_indices = np.where(spline_values <= 1e-3)[0]
-      
-      negative_indices_less_than_peak = negative_indices[negative_indices < peak_index]
-      negative_indices_greater_than_peak = negative_indices[negative_indices > peak_index]
+        # Fit spline
+        print(f"- Fitting spline for transformed from mass: {transformed_from}")
+        fit_spline = CubicSpline(self.transformed_to_masses, [normalised_fractions[transformed_from][transformed_to] for transformed_to in self.transformed_to_masses], extrapolate=False)
 
-      if len(negative_indices_less_than_peak) > 0:
-        max_negative_index_less_than_peak = negative_indices_less_than_peak[-1]
-        zero_below_mass = spline_masses[max_negative_index_less_than_peak]
+        # Find peak of spline
+        spline_masses = np.linspace(min(fi.transformed_to_masses), max(fi.transformed_to_masses), num=1000)
+        spline_values = fit_spline(spline_masses)
+        peak_index = np.argmax(spline_values)
+
+        # Find any indices where the spline is zero or negative
+        negative_indices = np.where(spline_values <= 1e-3)[0]
+        
+        negative_indices_less_than_peak = negative_indices[negative_indices < peak_index]
+        negative_indices_greater_than_peak = negative_indices[negative_indices > peak_index]
+
+        if len(negative_indices_less_than_peak) > 0:
+          max_negative_index_less_than_peak = negative_indices_less_than_peak[-1]
+          zero_below_mass = spline_masses[max_negative_index_less_than_peak]
+        else:
+          zero_below_mass = spline_masses[0]
+        if len(negative_indices_greater_than_peak) > 0:
+          min_negative_index_greater_than_peak = negative_indices_greater_than_peak[0]
+          zero_above_mass = spline_masses[min_negative_index_greater_than_peak]
+        else:
+          zero_above_mass = spline_masses[-1]
+
+        splines[transformed_from] = SplineWithMinZero(zero_below_mass, zero_above_mass, fit_spline)
+
+      elif self.fit_method == "gaussian":
+
+        gaussian = Gaussian()
+        gaussian.fit(fi.transformed_to_masses, [normalised_fractions[transformed_from][transformed_to] for transformed_to in self.transformed_to_masses], a_init=max(fractions_to), x0_init=transformed_from, sigma_init=np.std(self.transformed_to_masses))
+        splines[transformed_from] = gaussian
+
       else:
-        zero_below_mass = spline_masses[0]
-      if len(negative_indices_greater_than_peak) > 0:
-        min_negative_index_greater_than_peak = negative_indices_greater_than_peak[0]
-        zero_above_mass = spline_masses[min_negative_index_greater_than_peak]
-      else:
-        zero_above_mass = spline_masses[-1]
-
-      #splines[transformed_from] = make_spline(zero_below_mass, zero_above_mass, fit_spline)
-      splines[transformed_from] = SplineWithMinZero(zero_below_mass, zero_above_mass, fit_spline)
+        raise ValueError(f"Invalid fit method: {self.fit_method}")
 
       if plot:
         hists[transformed_from] = splines[transformed_from](bins)
@@ -239,7 +289,7 @@ class top_bw_fractions():
         bins,
         [hist for hist in hists.values()],
         [f"Transformed From Mass: {transformed_from}" for transformed_from in hists.keys()],
-        name=f"{self.plot_dir}/fractions_spline",
+        name=f"{self.plot_dir}/fractions_spline_{category}",
         y_label="Fraction",
         x_label="Transformed To Mass",
       )
@@ -302,7 +352,24 @@ class top_bw_fractions():
 
       colour_list = sns.color_palette("Set2", len(unique[self.mass_name]))
 
+
       for i, mass in enumerate(unique[self.mass_name]):
+
+        # Get number of effective events before and after
+        if col == self.plot_columns[0]:
+          n_eff_before = dp.GetFull(
+            method="n_eff", 
+            extra_sel=f"{self.mass_name}=={mass}",
+            functions_to_apply = [apply_wt_partial]
+          )
+          n_eff_after = dp.GetFull(
+            method="n_eff", 
+            functions_to_apply=[
+              apply_wt_partial,
+              partial(self._ApplyBWReweight,m=mass),partial(self._ApplyFractions, fractions=normalised_fractions[mass])
+            ]
+          )
+          print(f"Mass: {mass}, n_eff before: {n_eff_before}, n_eff after: {n_eff_after}")
 
         var_hist, var_hist_uncert, _ = dp.GetFull(
           method="histogram_and_uncert", 
@@ -390,7 +457,9 @@ class top_bw_fractions():
     for key, value in options.items():
       setattr(self, key, value)
 
+    self.fit_method = "gaussian" if "fit_method" not in self.options else self.options["fit_method"].strip()
     self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
+    self.plot_dist = False if "plot_dist" not in self.options else self.options["plot_dist"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
     self.transformed_to_masses = [164.5,165.5,166.5,167.5,168.5,169.5,170.5,171.0,171.25,171.5,171.75,172.0,172.25,172.5,172.75,173.0,173.25,173.5,173.75,174.0,174.5,175.5,176.5,177.5,178.5,179.5,180.5]
     #self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
@@ -399,7 +468,7 @@ class top_bw_fractions():
     self.file_name = "ttbar" if "file_name" not in self.options else self.options["file_name"].strip()
     self.mass_name = "sim_mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
-    self.ignore_quantile = 0.0 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
+    self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
 
     cfg = LoadConfig(self.cfg)
     self.plot_columns = [self.gen_mass] + cfg["variables"]
@@ -426,12 +495,16 @@ class top_bw_fractions():
       functions = []
       defaults = GetDefaults(cfg)
       def add_defaults(df):
+        if len(df) == 0:
+          return df
+        new_cols = {}
         for col, val in defaults.items():
           if col not in df.columns:
-            df.loc[:,col] = val
+            new_cols[col] = val
+        df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
         return df
       functions.append(add_defaults)
-      for k, v in cfg["files"][base_file_name]["pre_calculate"].items():
+      for k, v in cfg["files"][base_file_name]["calculate"].items():
         if isinstance(v, str):
           def apply_func(df, func=v):
             df.loc[:,k] = df.eval(func)
@@ -448,12 +521,11 @@ class top_bw_fractions():
         return df
       functions.append(apply_postselection)
 
-
       # Calculate optimal fractions
-      normalised_fractions, splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot)
+      normalised_fractions, splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot, category=category)
 
       # Plot reweighting
-      if self.plot:
+      if self.plot_dist:
         self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions)
 
     # Write splines to file
@@ -485,7 +557,7 @@ class top_bw_fractions():
     cfg = LoadConfig(self.cfg)
 
     # Add plots
-    if self.plot:
+    if self.plot_dist:
       for cat in GetCategoryLoop(cfg):
         for col in self.plot_columns:
           outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
@@ -528,3 +600,25 @@ class SplineWithMinZero():
     result[x < self.zero_below_mass] = 0.0
     result[x > self.zero_above_mass] = 0.0
     return result
+  
+
+class Gaussian():
+  def __init__(self):
+    self.a = None
+    self.x0 = None
+    self.sigma = None
+  def __call__(self, x):
+    if self.a is None or self.x0 is None or self.sigma is None:
+      raise ValueError("Gaussian parameters not set. Call fit() method to fit parameters.")
+    return self.unfit_function(x, self.a, self.x0, self.sigma)
+  def unfit_function(self, x, a, x0, sigma):
+    return a*np.exp(-(x-x0)**2/(2*sigma**2))
+  def fit(self, x_data, y_data, a_init, x0_init, sigma_init):
+    p0 = [a_init, x0_init, sigma_init]
+    # make sure sigma and a are positive
+    bounds = ([0, -np.inf, 0], [np.inf, np.inf, np.inf])
+    popt, _ = curve_fit(self.unfit_function, x_data, y_data, p0=p0, bounds=bounds)
+    self.a = popt[0]
+    self.x0 = popt[1]
+    self.sigma = popt[2]
+    

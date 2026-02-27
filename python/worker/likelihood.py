@@ -178,10 +178,10 @@ class Likelihood():
     # Add constraints
     tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=self.Y_columns)/options["sum_wts"]
 
-    # Check for nans
-    if np.isnan(tmp_probs).any():
-      nan_rows_mask = np.isnan(tmp_probs).any(axis=1)  # True for rows with NaNs
-      tmp_probs[nan_rows_mask] = 0.0
+    ## Check for nans
+    #if np.isnan(tmp_probs).any():
+    #  nan_rows_mask = np.isnan(tmp_probs).any(axis=1)  # True for rows with NaNs
+    #  tmp_probs[nan_rows_mask] = 0.0
 
     # Initiate D matrix
     if out is None:
@@ -720,7 +720,7 @@ class Likelihood():
       H2_grad_2 = self._GetH2SecondDerivative(Y, column_1=column_1, column_2=column_2, category=category)
       H1_grad_1_col_2 = self._GetH1FirstDerivative({k:v[get_log_prob_gradients.index(0)] for k,v in log_probs.items()}, first_derivative_other, Y, column_1=column_2, category=category)
       H2_grad_1_col_2 = self._GetH2FirstDerivative(Y, column_1=column_2, category=category)
-    
+
     # Calculate and weight sum loop terms
     ln_lkld = []
     for grad in gradient:
@@ -744,9 +744,9 @@ class Likelihood():
 
       else:
 
-        if np.isnan(ln_lklds).any():
-          nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
-          ln_lklds[nan_rows_mask] = 0.0
+        #if np.isnan(ln_lklds).any():
+        #  nan_rows_mask = np.isnan(ln_lklds).any(axis=1)  # True for rows with NaNs
+        #  ln_lklds[nan_rows_mask] = 0.0
 
         # Weight the events
         if wt_name is not None:

@@ -3,6 +3,7 @@ import gc
 import importlib
 import os
 import warnings
+import time
 import yaml
 
 import numpy as np
@@ -12,9 +13,12 @@ import pyarrow.parquet as pq
 
 from functools import partial
 from scipy.interpolate import CubicSpline
+from scipy.stats import norm
 from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
+from write_parquet import WriteParquet
+
 from useful_functions import (
     FindKeysAndValuesInDictionaries,
     GetDefaults,
@@ -72,6 +76,7 @@ class PreProcess():
     self.category = None
     self.nuisance_shift = None
     self.stratify_bins = 20
+    self.use_pbar = True
 
     # Stores
     self.parameters = {}
@@ -181,6 +186,7 @@ class PreProcess():
     dp = DataProcessor(
       [f"{self.data_input}/{base_file_name}.parquet"],
       "parquet",
+      use_pbar = self.use_pbar,
       options = {
         "wt_name" : "wt",
       },
@@ -200,86 +206,98 @@ class PreProcess():
     if self.verbose:
       print(" - Getting nominal yield")
 
-    yields["nominal"] = dp.GetFull(
-      method="sum",
-      functions_to_apply = [
-        partial(
-          self._CalculateDatasetWithVariations, 
-          shifts=nominal_shifts, 
-          calculate=cfg["files"][base_file_name]["calculate"], 
-          post_calculate_selection=post_calculate_selection,
-          weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-          n_copies=1,
-          nominal_weight=cfg["files"][base_file_name]["weight"],
-        )
-      ],
-      extra_sel = selection
-    )
+    if (self.partial is None) or (self.partial == "initial") or (self.partial == "yields" and self.parameter_name == "nominal"):
+
+      yields["nominal"] = dp.GetFull(
+        method="sum",
+        functions_to_apply = [
+          partial(
+            self._CalculateDatasetWithVariations, 
+            shifts=nominal_shifts, 
+            calculate=cfg["files"][base_file_name]["calculate"], 
+            post_calculate_selection=post_calculate_selection,
+            weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+            n_copies=1,
+            nominal_weight=cfg["files"][base_file_name]["weight"],
+          )
+        ],
+        extra_sel = selection
+      )
+
+    else:
+
+      nominal_parameters_file_name = f"{self.data_output}/parameters_yields_nominal.yaml"
+      with open(nominal_parameters_file_name, 'r') as yaml_file:
+        nominal_parameters = yaml.safe_load(yaml_file)
+      yields["nominal"] = nominal_parameters["yields"]["nominal"]
+
 
     # Initiate log normals
     yields["lnN"] = {}
 
     # Loop through nuisances
-    for nui in list(sorted(cfg["nuisances"])):
+    for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
 
-      # If yield is 0 then skip
-      if yields["nominal"] == 0:
-        continue
+      if (self.partial is None) or (self.partial == "initial") or (self.partial == "yields" and self.parameter_name == nui):
 
-      # if nuisance in model
-      if nui in nominal_shifts.keys():
+        # If yield is 0 then skip
+        if yields["nominal"] == 0:
+          continue
 
-        up_extra_sel = None
-        down_extra_sel = None
-        if nui not in parameters_of_file:
-          up_shifts = copy.deepcopy(nominal_shifts)
-          up_shifts[nui]["value"] = sigma
-          down_shifts = copy.deepcopy(nominal_shifts)
-          down_shifts[nui]["value"] = -sigma
-          if len(parameters_of_file) > 0:
-            up_extra_sel = selection
-            down_extra_sel = selection
-        else:
-          up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
-          down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
+        # if nuisance in model
+        if nui in nominal_shifts.keys():
+
+          up_extra_sel = None
+          down_extra_sel = None
+          if nui not in parameters_of_file:
+            up_shifts = copy.deepcopy(nominal_shifts)
+            up_shifts[nui]["value"] = sigma
+            down_shifts = copy.deepcopy(nominal_shifts)
+            down_shifts[nui]["value"] = -sigma
+            if len(parameters_of_file) > 0:
+              up_extra_sel = selection
+              down_extra_sel = selection
+          else:
+            up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
+            down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
 
 
-        if self.verbose:
-          print(f" - Getting yield for nuisance {nui}")
+          if self.verbose:
+            print(f" - Getting yield for nuisance {nui}")
 
-        up_yield = dp.GetFull(
-          method="sum",
-          functions_to_apply = [
-            partial(
-              self._CalculateDatasetWithVariations, 
-              shifts=up_shifts, 
-              calculate=cfg["files"][base_file_name]["calculate"], 
-              post_calculate_selection=post_calculate_selection,
-              weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-              n_copies=1,
-              nominal_weight=cfg["files"][base_file_name]["weight"],
-            )
-          ],
-          extra_sel = up_extra_sel,
-        )
+          up_yield = dp.GetFull(
+            method="sum",
+            functions_to_apply = [
+              partial(
+                self._CalculateDatasetWithVariations, 
+                shifts=up_shifts, 
+                calculate=cfg["files"][base_file_name]["calculate"], 
+                post_calculate_selection=post_calculate_selection,
+                weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+                n_copies=1,
+                nominal_weight=cfg["files"][base_file_name]["weight"],
+              )
+            ],
+            extra_sel = up_extra_sel,
+          )
 
-        down_yield = dp.GetFull(
-          method="sum",
-          functions_to_apply = [
-            partial(
-              self._CalculateDatasetWithVariations, 
-              shifts=down_shifts, 
-              calculate=cfg["files"][base_file_name]["calculate"], 
-              post_calculate_selection=post_calculate_selection,
-              weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-              n_copies=1,
-              nominal_weight=cfg["files"][base_file_name]["weight"],
-            )
-          ],
-          extra_sel = down_extra_sel,
-        )
+          down_yield = dp.GetFull(
+            method="sum",
+            functions_to_apply = [
+              partial(
+                self._CalculateDatasetWithVariations, 
+                shifts=down_shifts, 
+                calculate=cfg["files"][base_file_name]["calculate"], 
+                post_calculate_selection=post_calculate_selection,
+                weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+                n_copies=1,
+                nominal_weight=cfg["files"][base_file_name]["weight"],
+              )
+            ],
+            extra_sel = down_extra_sel,
+          )
 
-        yields["lnN"][nui] = [down_yield/yields["nominal"], up_yield/yields["nominal"]]
+          yields["lnN"][nui] = [down_yield/yields["nominal"], up_yield/yields["nominal"]]
 
     # Add log normals that are in the models
     if file_name in cfg["inference"]["lnN"].keys():
@@ -296,7 +314,7 @@ class PreProcess():
   def _GetStrata(self, df, stratify_to):
     if stratify_to not in df.columns:
       return None
-    print(f" - Stratifying to {stratify_to}")
+    #print(f" - Stratifying to {stratify_to}")
     values = df[stratify_to].values
     unique_values = np.unique(values)
     if len(unique_values) < self.stratify_bins:
@@ -307,7 +325,7 @@ class PreProcess():
     return strata
 
 
-  def _CalculateTrainTestValSplit(self, df, file_name="file", splitting="0.8:0.1:0.1", train_test_only=False, validation_only=False, drop_for_training_selection=None, validation_loop_selections={}, stratify_to=None):
+  def _CalculateTrainTestValSplit(self, df, file_name="file", splitting="0.8:0.1:0.1", train_test_only=False, validation_only=False, drop_for_training_selection=None, validation_loop_selections={}, stratify_to=None, wps={}):
 
     train_df = None
     test_df = None
@@ -367,6 +385,7 @@ class PreProcess():
         else:
           train_test_df = pd.concat([train_test_df, train_test_from_val_df])
         del train_test_from_val_df
+        gc.collect()
 
       # Remove remaining unused training samples
       if drop_for_training_selection is not None:
@@ -380,19 +399,23 @@ class PreProcess():
         train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
         
     # Write train and test dataset
-    if train_df is not None: self._WriteDataset(train_df, f"{file_name}_train.parquet")
-    if test_df is not None: self._WriteDataset(test_df, f"{file_name}_test.parquet")
+    if train_df is not None: 
+      wps["train"](train_df)
+    if test_df is not None: 
+      wps["test"](test_df)
 
     # Split validation files (and train and test dataset replicating this)
     if val_df is not None:
       for ind, sel in enumerate(validation_loop_selections):
+
         if sel is not None:
           val_ind_df = val_df.loc[(val_df.eval(sel)),:]
         else:
           val_ind_df = val_df.copy()
-        self._WriteDataset(val_ind_df, f"val_ind_{ind}/{file_name}_val.parquet")
+        wps["val_"+str(ind)](val_ind_df)
         del val_ind_df
         gc.collect()
+
         if train_df is not None:
           if sel is not None:
             train_ind_df = train_df.loc[(train_df.eval(sel)),:]
@@ -400,9 +423,10 @@ class PreProcess():
             train_ind_df = train_df.copy()
         else:
           train_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
-        self._WriteDataset(train_ind_df, f"val_ind_{ind}/{file_name}_train_inf.parquet")
+        wps["train_inf_"+str(ind)](train_ind_df)
         del train_ind_df
         gc.collect()
+
         if test_df is not None:
           if sel is not None:
             test_ind_df = test_df.loc[(test_df.eval(sel)),:]
@@ -410,33 +434,20 @@ class PreProcess():
             test_ind_df = test_df.copy()
         else:
           test_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
-        self._WriteDataset(test_ind_df, f"val_ind_{ind}/{file_name}_test_inf.parquet")
+        wps["test_inf_"+str(ind)](test_ind_df)
         del test_ind_df
         gc.collect()
+        
         if sel is not None:
           full_ind_df = df.loc[(df.eval(sel)),:]
         else:
           full_ind_df = df
-        self._WriteDataset(full_ind_df, f"val_ind_{ind}/{file_name}_full.parquet")
+        wps["full_"+str(ind)](full_ind_df)
         del full_ind_df
         gc.collect()
 
     return df
     
-
-  def _WriteDataset(self, df, file_name):
-
-    file_path = f"{self.data_output}/{file_name}"
-    MakeDirectories(file_path)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
-
 
   def _DoTrainTestValSplit(self, file_name, cfg):
 
@@ -491,12 +502,24 @@ class PreProcess():
       dp = DataProcessor(
         [f"{self.data_input}/{base_file_name}.parquet"],
         "parquet",
+        use_pbar = self.use_pbar,
         options = {
           "wt_name" : "wt",
         },
         batch_size=self.batch_size,
       )
-      
+
+      wps = {
+        "train": WriteParquet(name=f"{base_file_name}_train", data_output=self.data_output),
+        "test": WriteParquet(name=f"{base_file_name}_test", data_output=self.data_output),
+        "val": WriteParquet(name=f"{base_file_name}_val", data_output=self.data_output),
+      }
+      for ind in range(len(validation_loop)):
+        wps["train_inf_"+str(ind)] = WriteParquet(name=f"val_ind_{ind}/{base_file_name}_train_inf", data_output=self.data_output)
+        wps["test_inf_"+str(ind)] = WriteParquet(name=f"val_ind_{ind}/{base_file_name}_test_inf", data_output=self.data_output)
+        wps["val_"+str(ind)] = WriteParquet(name=f"val_ind_{ind}/{base_file_name}_val", data_output=self.data_output)
+        wps["full_"+str(ind)] = WriteParquet(name=f"val_ind_{ind}/{base_file_name}_full", data_output=self.data_output)
+
       dp.GetFull(
         method=None,
         functions_to_apply = [
@@ -508,33 +531,17 @@ class PreProcess():
             train_test_only=(base_file_name not in validation_base_files), 
             drop_for_training_selection=unused_training_selection, 
             validation_loop_selections=selections,
-            stratify_to=cfg["preprocess"]["stratify_to"] if "stratify_to" in cfg["preprocess"].keys() else None
+            stratify_to=cfg["preprocess"]["stratify_to"] if "stratify_to" in cfg["preprocess"].keys() else None,
+            wps = wps
           )
         ]
       )
 
-
-  def _WriteSplitDataset(self, df, extra_dir, extra_name, split_dict):
-
-    file_path = f"{self.data_output}/{extra_dir}/"
-    MakeDirectories(file_path)
-    for k, v in split_dict.items():
-      file_name = f"{file_path}/{k}_{extra_name}.parquet"
-
-      skimmed_df = df[v]
-      if k == "wt":
-        skimmed_df = skimmed_df.rename(columns={v[0]:"wt"})
-
-      table = pa.Table.from_pandas(skimmed_df, preserve_index=False)
-      if os.path.isfile(file_name):
-        combined_table = pa.concat_tables([pq.read_table(file_name), table])
-        pq.write_table(combined_table, file_name, compression='snappy')
-      else:
-        pq.write_table(table, file_name, compression='snappy')
-    return df
+      for wp in wps.values():
+        wp.collect()
 
 
-  def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict):
+  def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict, write_parquet=None, keep_write_parquet=False):
 
     dp = DataProcessor(
       [f"{directory}/{file_name}.parquet"],
@@ -543,8 +550,18 @@ class PreProcess():
         "wt_name" : "wt",
       },
       batch_size=int(np.ceil(self.batch_size/value["n_copies"])),
+      use_pbar = self.use_pbar,
     )
 
+    if write_parquet is None:
+      wp = WriteParquet(
+        name = {f"{extra_dir}/{k}_{extra_name}": v for k, v in split_dict.items()},
+        data_output = self.data_output,
+        rename_file_column = {f"{extra_dir}/wt_{extra_name}": "wt"}
+      )
+    else:
+      wp = write_parquet
+  
     if np.sum(dp.num_batches) == 0:
 
       columns = []
@@ -552,12 +569,7 @@ class PreProcess():
         columns += val
       columns = sorted(list(set(columns)))
 
-      self._WriteSplitDataset(
-        pd.DataFrame(columns=columns),
-        extra_dir=extra_dir, 
-        extra_name=extra_name, 
-        split_dict=split_dict          
-      )
+      wp(pd.DataFrame(columns=columns))
 
     else:
 
@@ -575,14 +587,13 @@ class PreProcess():
             nominal_weight=cfg["files"][base_file_name]["weight"],
             post_shifts=value["post_shifts"] if "post_shifts" in value.keys() else {}
           ),
-          partial(
-            self._WriteSplitDataset, 
-            extra_dir=extra_dir, 
-            extra_name=extra_name, 
-            split_dict=split_dict
-          )
+          wp
         ]
       )
+    if not keep_write_parquet:
+      wp.collect()
+    else:
+      return wp
 
 
   def _DoReweightToShift(self, col_files, wt_file, shifts, selection=None, n_bins=40, samples=10**7):
@@ -591,20 +602,40 @@ class PreProcess():
       [[f"{self.data_output}/{i}" for i in col_files] + [f"{self.data_output}/{wt_file}"]],
       "parquet",
       batch_size=self.batch_size,
+      use_pbar = self.use_pbar,
       options = {
         "wt_name" : "wt",
       }      
     )
 
+    if self.verbose:
+      print("    - Getting the number of effective events")
     n_eff = rdp.GetFull(method="n_eff", extra_sel=selection)
 
     for k,v in shifts.items():
 
+      if not (self.parameter_name is None or self.parameter_name == k): continue
+
       if v["type"] not in ["continuous","flat_top"]:
         continue
     
-      bins = rdp.GetFull(method="bins_with_equal_stats", column=k, bins=n_bins, ignore_quantile=0.0)
+      #bins = rdp.GetFull(method="bins_with_equal_stats", column=k, bins=n_bins, ignore_quantile=0.0)
+      if v["type"] == "continuous":
+        bins = np.linspace(v["range"][0], v["range"][1], n_bins+1)
+      elif v["type"] == "flat_top":
+        peak_gaussian = 1/(v["other"]["sigma_out"]*np.sqrt(2*np.pi))
+        flat_integral = peak_gaussian*(v["range"][1]-v["range"][0])
+        gaussian_bins = n_bins/(flat_integral+1)
+        half_gaussian_bins = int(np.ceil(gaussian_bins/2))
+        flat_bins = n_bins - 2*half_gaussian_bins
+        eps = 1e-6
+        lower_gaussian_edges = v["range"][0] + v["other"]["sigma_out"] * norm.ppf(np.linspace(eps, 0.5, half_gaussian_bins+1))
+        flat_edges = np.linspace(v["range"][0], v["range"][1], flat_bins+1)
+        higher_gaussian_edges = v["range"][1] + v["other"]["sigma_out"] * norm.ppf(np.linspace(0.5, 1-eps, half_gaussian_bins+1))
+        bins = np.concatenate([lower_gaussian_edges, flat_edges[1:-1], higher_gaussian_edges])
 
+      if self.verbose:
+        print(f"    - Getting histogram")
       hist, _ = rdp.GetFull(method="histogram", column=k, bins=bins, ignore_quantile=0.0, extra_sel=selection)
 
       # Check what distribution we want to flatten to
@@ -634,6 +665,13 @@ class PreProcess():
           df.loc[mask,"wt"] *= scale_to
         return df[["wt"]]
 
+      if self.verbose:
+        print(f"    - Reweighting to flatten {k}")
+
+      wp = WriteParquet(
+        name = wt_reweight_name.split(".parquet")[0],
+        data_output = self.data_output,
+      )
 
       rdp.GetFull(
         method=None,
@@ -645,13 +683,10 @@ class PreProcess():
             selection=selection,
             scale_to=n_eff
           ),
-          partial(
-            self._WriteDataset, 
-            file_name=wt_reweight_name
-          )
+          wp
         ],
       )
-
+      wp.collect()
       os.system(f"mv {self.data_output}/{wt_reweight_name} {self.data_output}/{wt_file}")
 
 
@@ -755,14 +790,18 @@ class PreProcess():
             classifier_split_model = {"X":cfg["variables"]+[value["parameter"]], "y":["classifier_truth"], "wt":["wt"]}
             if extra_cols is not None:
               classifier_split_model["Extra"] = extra_cols
-            self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model)
+            if self.verbose:
+              print("    - Do variation for classifier truth = 0")
+            wp = self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model, keep_write_parquet=True)
             value_default = copy.deepcopy(value)
             for k, v in defaults.items():
               value_default["shifts"][k] = {"type":"fixed","value":v}
             value_default["shifts"]["classifier_truth"] = {"type":"fixed","value":0.0}
             value_default["post_shifts"] = copy.deepcopy(value_copy["shifts"])
             value_default["post_shifts"]["classifier_truth"] = {"type":"fixed","value":0.0}
-            self._DoWriteModelVariation(value_default, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model)
+            if self.verbose:
+              print("    - Do variation for classifier truth = 1")
+            self._DoWriteModelVariation(value_default, self.data_output, f"{value['file']}_{data_split}", cfg, f"classifier/{value['parameter']}", data_split, split_dict=classifier_split_model, write_parquet=wp)
 
     if do_clear:
       # Clear up old files
@@ -783,6 +822,9 @@ class PreProcess():
 
     # Loop through the train and test
     for data_split in ["train","test"]:
+
+      if self.verbose:
+        print(f"    - Processing shift reweighting for {file_name}, split: {data_split}")
 
       # Do density models
       if self.model_type is None or self.model_type == "density_models":
@@ -818,7 +860,11 @@ class PreProcess():
               if k != value["parameter"]:
                 value_copy["shifts"][k] = {"type":"fixed","value":v}
             value_copy["shifts"]["classifier_truth"] = {"type":"fixed","value":1.0}
+            if self.verbose:
+              print("    - Do reweighting for classifier truth = 0")
             self._DoReweightToShift([f"classifier/{value['parameter']}/{i}_{data_split}.parquet" for i in ["X","y"]], f"classifier/{value['parameter']}/wt_{data_split}.parquet", value_copy["shifts"], selection="(classifier_truth==0.0)")
+            if self.verbose:
+              print("    - Do reweighting for classifier truth = 1")
             self._DoReweightToShift([f"classifier/{value['parameter']}/{i}_{data_split}.parquet" for i in ["X","y"]], f"classifier/{value['parameter']}/wt_{data_split}.parquet", value_copy["shifts"], selection="(classifier_truth==1.0)")
 
   def _DoValidationVariations(self, file_name, cfg, do_clear=True):
@@ -904,6 +950,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
 
@@ -933,14 +980,18 @@ class PreProcess():
           scaler = yield_class.GetYield(pd.DataFrame({k:[v] for k, v in params_in_model.items()}))
 
           # Normalise dataset
+          wp = WriteParquet(
+            name = outfile.split(".parquet")[0],
+            data_output = self.data_output,
+          )
           dp.GetFull(
             method=None,
             functions_to_apply = [
               partial(normalisation, norm=norm/scaler),
-              partial(self._WriteDataset, file_name=outfile)
+              wp
             ]
           )
-
+          wp.collect()
           # Move over
           os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
     
@@ -978,6 +1029,7 @@ class PreProcess():
               options = {
                 "wt_name" : "wt",
               },
+              use_pbar = self.use_pbar,
               batch_size=self.batch_size,
             )
 
@@ -1005,14 +1057,18 @@ class PreProcess():
 
             scaler = yield_class.GetYield(pd.DataFrame({k:[v] for k, v in Y_vals.items()}))
             # Normalise dataset
+            wp = WriteParquet(
+              name = outfile.split(".parquet")[0],
+              data_output = self.data_output,
+            )
             dp.GetFull(
               method=None,
               functions_to_apply = [
                 partial(normalisation, norm=norm/scaler),
-                partial(self._WriteDataset, file_name=outfile)
+                wp
               ]
             )
-
+            wp.collect()
             # Move over
             os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
 
@@ -1116,6 +1172,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
 
@@ -1155,6 +1212,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
 
@@ -1189,6 +1247,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
           density_means = dp.GetFull(method="mean")
@@ -1224,6 +1283,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
           density_means = dp.GetFull(method="mean")
@@ -1248,6 +1308,7 @@ class PreProcess():
             options = {
               "wt_name" : "wt",
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
           density_means = dp.GetFull(method="mean")
@@ -1283,6 +1344,7 @@ class PreProcess():
                 "wt_name" : "wt",
               },
               batch_size=self.batch_size,
+              use_pbar=self.use_pbar,
             )
             regression_means = dp.GetFull(method="mean")
             regression_stds = dp.GetFull(method="std")
@@ -1319,6 +1381,7 @@ class PreProcess():
                 "wt_name" : "wt",
               },
               batch_size=self.batch_size,
+              use_pbar=self.use_pbar,
             )
             classifier_means = dp.GetFull(method="mean")
             classifier_stds = dp.GetFull(method="std")
@@ -1342,7 +1405,6 @@ class PreProcess():
 
   def _DoStandardisation(self, file_name, cfg, standardisation_parameters):
 
-
     for data_split in ["train","test"]:
 
       if self.model_type is None or self.model_type == "density_models":
@@ -1364,22 +1426,22 @@ class PreProcess():
             options = {
               "parameters" : {"standardisation": standardisation_parameters["density"]},
             },
+            use_pbar = self.use_pbar,
             batch_size=self.batch_size,
           )
 
+          wp = WriteParquet(
+            name = {f"{extra_dir}/X_{data_split}_standardised" : cfg["variables"], f"{extra_dir}/Y_{data_split}_standardised" : value["parameters"]},
+            data_output = self.data_output,
+          )
           dp.GetFull(
             method=None,
             functions_to_apply = [
               "transform",
-              partial(
-                self._WriteSplitDataset, 
-                extra_dir=f"{extra_dir}", 
-                extra_name=f"{data_split}_standardised", 
-                split_dict={"X": cfg["variables"], "Y": value["parameters"]}
-              )
+              wp
             ]
           )
-
+          wp.collect()
           for i in ["X","Y"]:
             os.system(f"mv {self.data_output}/{extra_dir}/{i}_{data_split}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{data_split}.parquet")
 
@@ -1399,22 +1461,22 @@ class PreProcess():
               options = {
                 "parameters" : {"standardisation": standardisation_parameters["regression"][name]},
               },
+              use_pbar = self.use_pbar,
               batch_size=self.batch_size,
             )
 
+            wp = WriteParquet(
+              name = {f"regression/{name}/X_{data_split}_standardised" : cfg["variables"]+[value["parameter"]], f"regression/{name}/y_{data_split}_standardised" : ["wt_shift"]},
+              data_output = self.data_output,
+            )
             dp.GetFull(
               method=None,
               functions_to_apply = [
                 "transform",
-                partial(
-                  self._WriteSplitDataset, 
-                  extra_dir=f"regression/{name}", 
-                  extra_name=f"{data_split}_standardised", 
-                  split_dict={"X": cfg["variables"]+[value["parameter"]], "y": ["wt_shift"]}
-                )
+                wp
               ]
             )
-
+            wp.collect()
             for i in ["X","y"]:
               os.system(f"mv {self.data_output}/regression/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/regression/{name}/{i}_{data_split}.parquet")
 
@@ -1432,22 +1494,22 @@ class PreProcess():
               options = {
                 "parameters" : {"standardisation": standardisation_parameters["classifier"][name]},
               },
+              use_pbar = self.use_pbar,
               batch_size=self.batch_size,
             )
 
+            wp = WriteParquet(
+              name = {f"classifier/{name}/X_{data_split}_standardised" : cfg["variables"]+[value["parameter"]]},
+              data_output = self.data_output,
+            )
             dp.GetFull(
               method=None,
               functions_to_apply = [
                 "transform",
-                partial(
-                  self._WriteSplitDataset, 
-                  extra_dir=f"classifier/{name}", 
-                  extra_name=f"{data_split}_standardised", 
-                  split_dict={"X": cfg["variables"]+[value["parameter"]]}
-                )
+                wp
               ]
             )
-
+            wp.collect()
             for i in ["X"]:
               os.system(f"mv {self.data_output}/classifier/{name}/{i}_{data_split}_standardised.parquet {self.data_output}/classifier/{name}/{i}_{data_split}.parquet")
 
@@ -1473,7 +1535,7 @@ class PreProcess():
         for extra_dir in density_loop:
           if self.verbose:
             print(f" - Shuffling density model variation for {file_name}, split: {data_split}, directory: {extra_dir}")
-          self._DoShuffleDataset([f"{self.data_output}/{extra_dir}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
+          self._DoShuffleDataset([f"{extra_dir}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -1483,7 +1545,7 @@ class PreProcess():
           if self.parameter_name is None or self.parameter_name == name:
             if self.verbose:
               print(f" - Shuffling regression model variation for {file_name}, split: {data_split}, parameter: {name}")
-            self._DoShuffleDataset([f"{self.data_output}/regression/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
+            self._DoShuffleDataset([f"regression/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
 
       # classifier models
       if self.model_type is None or self.model_type == "classifier_models":
@@ -1493,109 +1555,128 @@ class PreProcess():
           if self.parameter_name is None or self.parameter_name == name:
             if self.verbose:
               print(f" - Shuffling classifier model variation for {file_name}, split: {data_split}, parameter: {name}")
-            self._DoShuffleDataset([f"{self.data_output}/classifier/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
+            self._DoShuffleDataset([f"classifier/{name}/{i}_{data_split}.parquet" for i in ["X","y","wt","Extra"]])
 
 
   def _DoShuffleDataset(self, files):
 
     for name in files:
 
-      if not os.path.isfile(name): continue
+      full_name = f"{self.data_output}/{name}"
+
+      if not os.path.isfile(full_name): continue
       shuffle_name_iteration = name.replace(".parquet", "_shuffled_iteration.parquet")
-      if os.path.isfile(shuffle_name_iteration):
-        os.system(f"rm {shuffle_name_iteration}")   
-      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      full_shuffle_name_iteration = f"{self.data_output}/{shuffle_name_iteration}"
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
 
       number_of_shuffles = self.number_of_shuffles
 
+      wp = WriteParquet(
+        name = shuffle_name_iteration.split(".parquet")[0],
+        data_output=self.data_output,
+      )
       for shuff in range(number_of_shuffles):
-        #print(f" - name={name} shuffle={shuff}")
+        if self.verbose:
+          print(f"   - name={name} shuffle={shuff}")
         shuffle_dp.GetFull(
           method = None,
           functions_to_apply = [
-            partial(self._DoShuffleIteration, iteration=shuff, total_iterations=number_of_shuffles, seed=42, dataset_name=shuffle_name_iteration)
+            partial(self._DoShuffleIteration, iteration=shuff, total_iterations=number_of_shuffles, seed=42, dataset_name=shuffle_name_iteration),
+            wp
           ]
         )
-      if os.path.isfile(shuffle_name_iteration):
-        os.system(f"mv {shuffle_name_iteration} {name}")
+      wp.collect()
+      if os.path.isfile(full_shuffle_name_iteration):
+        os.system(f"mv {full_shuffle_name_iteration} {full_name}")
 
+      if self.verbose:
+        print(f"   - name={name} shuffle batches")
       shuffle_name_batch = name.replace(".parquet", "_shuffled_batch.parquet")
-      if os.path.isfile(shuffle_name_batch):
-        os.system(f"rm {shuffle_name_batch}")
-      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      full_shuffle_name_batch = f"{self.data_output}/{shuffle_name_batch}"
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      wp = WriteParquet(
+        name = shuffle_name_batch.split(".parquet")[0],
+        data_output=self.data_output,
+      )
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch)
+          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch),
+          wp,
         ]
       )
-      if os.path.isfile(shuffle_name_batch):
-        os.system(f"mv {shuffle_name_batch} {name}")
+      wp.collect()
+      if os.path.isfile(full_shuffle_name_batch):
+        os.system(f"mv {full_shuffle_name_batch} {full_name}")
 
       # Need to shuffle the final batch as otherwise it can be unsorted (as can be smaller than batch size)
       # Move final batch to start
+      if self.verbose:
+        print(f"   - name={name} shuffle moving final batch to first")
       final_batch_name = name.replace(".parquet", "_final_batch_first.parquet")
-      if os.path.isfile(final_batch_name):
-        os.system(f"rm {final_batch_name}")
-      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      full_final_batch_name = f"{self.data_output}/{final_batch_name}"
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      wp = WriteParquet(
+        name = final_batch_name.split(".parquet")[0],
+        data_output=self.data_output,
+      )
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=False)
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=False),
+          wp
         ]
       )
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=True)
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=True),
+          wp
         ]
       )
-
-      if os.path.isfile(final_batch_name):
-        os.system(f"mv {final_batch_name} {name}")
+      wp.collect()
+      if os.path.isfile(full_final_batch_name):
+        os.system(f"mv {full_final_batch_name} {full_name}")
 
       # Then shuffle
+      if self.verbose:
+        print(f"   - name={name} shuffle batches again")
       shuffle_name_batch_final = name.replace(".parquet", "_shuffled_batch_final.parquet")
-      if os.path.isfile(shuffle_name_batch_final):
-        os.system(f"rm {shuffle_name_batch_final}")
-      shuffle_dp = DataProcessor([[name]],"parquet", batch_size=self.batch_size)
+      full_shuffle_name_batch_final = f"{self.data_output}/{shuffle_name_batch_final}"
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      wp = WriteParquet(
+        name = shuffle_name_batch_final.split(".parquet")[0],
+        data_output=self.data_output,
+      )
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch_final)
+          partial(self._DoShuffleBatch, seed=42, dataset_name=shuffle_name_batch_final),
+          wp,
         ]
       )
-      if os.path.isfile(shuffle_name_batch_final):
-        os.system(f"mv {shuffle_name_batch_final} {name}")
+      wp.collect()
+      if os.path.isfile(full_shuffle_name_batch_final):
+        os.system(f"mv {full_shuffle_name_batch_final} {full_name}")
 
 
   def _DoWriteWhetherBatchSize(self, df, do_batch_size=False, batch_size=100000, dataset_name="dataset.parquet"):
 
     if ((len(df) != batch_size) and (not do_batch_size)) or (do_batch_size and (len(df) == batch_size)):
 
-      # Write to file
-      table = pa.Table.from_pandas(df, preserve_index=False)
-      if os.path.isfile(dataset_name):
-        combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
-        pq.write_table(combined_table, dataset_name, compression='snappy')
-      else:
-        pq.write_table(table, dataset_name, compression='snappy')
+      return df
+    
+    else:
 
-    return df
+      return pd.DataFrame(columns=df.columns)
+
 
 
   def _DoShuffleIteration(self, df, iteration=0, total_iterations=10, seed=42, dataset_name="dataset.parquet"):
 
     # Select indices
     iteration_indices = (np.random.default_rng(seed).integers(0, total_iterations, size=len(df)) == iteration)
-
-    # Write to file
-    table = pa.Table.from_pandas(df.loc[iteration_indices, :], preserve_index=False)
-    if os.path.isfile(dataset_name):
-      combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
-      pq.write_table(combined_table, dataset_name, compression='snappy')
-    else:
-      pq.write_table(table, dataset_name, compression='snappy')
+    df = df.loc[iteration_indices, :].reset_index(drop=True)
 
     return df
 
@@ -1605,21 +1686,13 @@ class PreProcess():
     # Select indices
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
-    # Write to file
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(dataset_name):
-      combined_table = pa.concat_tables([pq.read_table(dataset_name), table])
-      pq.write_table(combined_table, dataset_name, compression='snappy')
-    else:
-      pq.write_table(table, dataset_name, compression='snappy')
-
     return df
 
 
   def _GetParameterExtraName(self):
 
     extra_name = ""
-    if self.partial == "initial":
+    if self.partial in ["initial","collect_yields"]:
       extra_name += "_initial"
     elif self.partial == "model":
       extra_name += "_model_type"
@@ -1631,6 +1704,8 @@ class PreProcess():
       extra_name += "_validation"
       if self.val_ind is not None:
         extra_name += f"_val_ind_{self.val_ind}"
+    elif self.partial == "yields":
+      extra_name += f"_yields_{self.parameter_name}"
 
     return extra_name
 
@@ -1694,6 +1769,7 @@ class PreProcess():
       parameters_file["validation_binned_fit"] = self.validation_binned
 
     # write parameters file
+    print(f"Created {self.data_output}/parameters{self._GetParameterExtraName()}.yaml")
     with open(f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
 
@@ -1760,17 +1836,25 @@ class PreProcess():
 
       if not os.path.isfile(f"{self.data_output}/{edit_files[file_ind]}"): continue
       flattened_name = edit_files[file_ind].replace(".parquet", "_flattened.parquet")
-      if os.path.isfile(f"{self.data_output}/{flattened_name}"):
-        os.system(f"rm {self.data_output}/{flattened_name}")   
+      #if os.path.isfile(f"{self.data_output}/{flattened_name}"):
+      #  os.system(f"rm {self.data_output}/{flattened_name}")   
 
-      flat_dp = DataProcessor([file_names],"parquet", batch_size=self.batch_size)
+      if self.verbose:
+        print(f"   - Flattening by yields for {edit_files[file_ind]}")
+
+      wp = WriteParquet(
+        name = flattened_name.split(".parquet")[0],
+        data_output = self.data_output,
+      )
+      flat_dp = DataProcessor([file_names],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
       flat_dp.GetFull(
         method = None,
         functions_to_apply = [
           scale_func,
-          partial(self._WriteDataset, file_name=flattened_name)
+          wp
         ]
       )
+      wp.collect()
 
       if os.path.isfile(f"{self.data_output}/{flattened_name}"):
         os.system(f"mv {self.data_output}/{flattened_name} {self.data_output}/{edit_files[file_ind]}")  
@@ -1830,6 +1914,7 @@ class PreProcess():
         [file_names], 
         "parquet", 
         batch_size=self.batch_size,
+        use_pbar = self.use_pbar,
         options = {
           "wt_name" : "wt",
         }
@@ -1846,13 +1931,14 @@ class PreProcess():
 
         if not os.path.isfile(f"{self.data_output}/{edit_files[data_split][file_ind]}"): continue
         normalised_name = edit_files[data_split][file_ind].replace(".parquet", "_normalised.parquet")
-        if os.path.isfile(f"{self.data_output}/{normalised_name}"):
-          os.system(f"rm {self.data_output}/{normalised_name}")   
+        #if os.path.isfile(f"{self.data_output}/{normalised_name}"):
+        #  os.system(f"rm {self.data_output}/{normalised_name}")   
 
         normalised_dp = DataProcessor(
           [file_names], 
           "parquet", 
           batch_size=self.batch_size,
+          use_pbar = self.use_pbar,
           options = {
             "wt_name" : "wt",
           }
@@ -1866,13 +1952,18 @@ class PreProcess():
           return df[["wt"]]
 
 
+        wp = WriteParquet(
+          name = normalised_name.split(".parquet")[0],
+          data_output = self.data_output,
+        )
         normalised_dp.GetFull(
           method = None,
           functions_to_apply = [
             partial(normalisation_func, normalisations=normalisations[file_ind], selections=cfg["preprocess"]["normalise_training_in"][file_name]),
-            partial(self._WriteDataset, file_name=normalised_name)
+            wp,
           ]
         )
+        wp.collect()
 
         if os.path.isfile(f"{self.data_output}/{normalised_name}"):
           os.system(f"mv {self.data_output}/{normalised_name} {self.data_output}/{edit_files[data_split][file_ind]}")  
@@ -1896,6 +1987,7 @@ class PreProcess():
               "selection" : None,
             },
             batch_size=self.batch_size,
+            use_pbar = self.use_pbar,
           )
           sum_zero = dp.GetFull(method="sum", extra_sel="(classifier_truth == 0)")
           sum_one = dp.GetFull(method="sum", extra_sel="(classifier_truth == 1)")
@@ -1920,15 +2012,20 @@ class PreProcess():
                 "selection" : None,
               },
               batch_size=self.batch_size,
+              use_pbar=self.use_pbar
             )
-
+            wp = WriteParquet(
+              name = balanced_name.split(".parquet")[0],
+              data_output = self.data_output,
+            )
             wdp.GetFull(
               method = None,
               functions_to_apply = [
                 class_balancing,
-                partial(self._WriteDataset, file_name=balanced_name)
+                wp,
               ]
             )
+            wp.collect()
             if os.path.isfile(f"{self.data_output}/{balanced_name}"):
               os.system(f"mv {self.data_output}/{balanced_name} {self.data_output}/classifier/{value['parameter']}/wt_{tt}.parquet")
 
@@ -2068,32 +2165,52 @@ class PreProcess():
   
 
     # Do initial methods
-    if self.partial is None or self.partial == "initial":
+    if self.partial is None or self.partial in ["initial","yields","collect_yields","binned_fit_inputs","train_test_val_split"]:
 
       # Make yields
-      if self.verbose:
-        print("- Calculating yields")
-      yields = self._GetYields(self.file_name, cfg)
+      if self.partial is None or self.partial in ["initial","yields"]:
+        if self.verbose:
+          print("- Calculating yields")
+        yields = self._GetYields(self.file_name, cfg)
 
-      # Get binned fit inputs
-      if self.verbose:
-        print("- Get binned fit inputs")
-      self._GetBinnedFitInputs(self.file_name, cfg, yields)
-
-      # Train/Val split the dataset
-      if self.verbose:
-        print("- Doing train/test/val splitting")
-      self._DoTrainTestValSplit(self.file_name, cfg)
+      # Collect yields
+      if self.partial in ["collect_yields"]:
+        
+        yields = {}
+        nominal_file_name = f"{self.data_output}/parameters_yields_nominal.yaml"
+        with open(nominal_file_name, 'r') as yaml_file:
+          pf = yaml.safe_load(yaml_file)
+        yields["nominal"] = pf["yields"]["nominal"]
+        yields["lnN"] = {}
+        for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
+          shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"
+          with open(shift_file_name, 'r') as yaml_file:
+            pf = yaml.safe_load(yaml_file)
+          if nui in pf["yields"]["lnN"].keys() and nui not in yields["lnN"].keys():
+            yields["lnN"][nui] = pf["yields"]["lnN"][nui]
 
 
     # Load yields
-    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations"]:
+    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations", "binned_fit_inputs", "train_test_val_split"]:
       if self.verbose:
         print("- Loading in yields")
       # load initial parameters file
       with open(f"{self.data_output}/parameters_initial.yaml", 'r') as yaml_file:
         parameters_file = yaml.safe_load(yaml_file)
       yields = parameters_file["yields"]
+
+
+    # Get binned fit inputs
+    if self.partial is None or self.partial in ["initial","binned_fit_inputs"]:
+      if self.verbose:
+        print("- Get binned fit inputs")
+      self._GetBinnedFitInputs(self.file_name, cfg, yields)
+
+    # Train/Val split the dataset
+    if self.partial is None or self.partial in ["initial","train_test_val_split"]:
+      if self.verbose:
+        print("- Doing train/test/val splitting")
+      self._DoTrainTestValSplit(self.file_name, cfg)
 
 
     # Make dataset for model training and testing
@@ -2199,9 +2316,21 @@ class PreProcess():
     cfg = LoadConfig(self.cfg)
 
     # Add parameters file
-    if self.partial is None or self.partial in ["initial", "model", "validation","merge"]:
+    if self.partial is None or self.partial in ["initial", "yields", "collect_yields", "binned_fit_inputs", "model", "validation","merge"]:
       outputs += [f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml"]
       
+    # Add train test val split files
+    if self.partial is None or self.partial in ["initial", "train_test_val_split"]:
+      # Loop through base files in model
+      files_in_model = GetFilesInModel(self.file_name, cfg, category=self.category)
+      for uf in files_in_model:
+        for data_split in ["train","test"]:
+          outputs += [f"{self.data_output}/{uf}_{data_split}.parquet"]
+        for data_split in ["val","train_inf","test_inf","full"]:
+          for ind in range(len(GetValidationLoop(cfg, self.file_name, include_rate=True, include_lnN=True))):
+            outputs += [f"{self.data_output}/val_ind_{ind}/{uf}_{data_split}.parquet"]
+
+
     # Check if we output Extra
     density_loop = ["X","Y","wt"]
     regression_loop = ["X","y","wt"]
@@ -2212,13 +2341,12 @@ class PreProcess():
         regression_loop += ["Extra"]
         classifier_loop += ["Extra"]
 
-
     # Do models
     if self.partial is None or self.partial == "model":
 
       # Add train/test files
       for data_split in ["train","test"]:
-
+        
         # Add density files
         if self.model_type is None or self.model_type == "density_models":
           for k in density_loop:
@@ -2232,7 +2360,7 @@ class PreProcess():
         # Add regression files
         if self.model_type is None or self.model_type == "regression_models":
           for k in regression_loop:
-            for loop_value in GetModelLoop(cfg, self.file_name, only_regression=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=self.category):
               value = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outputs += [f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"]
@@ -2240,7 +2368,7 @@ class PreProcess():
         # Add classifier files
         if self.model_type is None or self.model_type == "classifier_models":
           for k in classifier_loop:
-            for loop_value in GetModelLoop(cfg, self.file_name, only_classification=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=self.category):
               value = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outputs += [f"{self.data_output}/classifier/{value['parameter']}/{k}_{data_split}.parquet"]
@@ -2294,15 +2422,41 @@ class PreProcess():
     inputs += [f"{self.data_input}/{val_base_file_name}.parquet"]
 
     # Add variation base files
-    files_in_model = GetFilesInModel(self.file_name, cfg)
+    files_in_model = GetFilesInModel(self.file_name, cfg, category=self.category)
     for uf in files_in_model:
       file_name = f"{self.data_input}/{uf}.parquet"
       if file_name not in inputs:
         inputs += [file_name]
 
+    # Add nominal parameter files for yields if doing nuisance variations
+    if self.partial == "yields" and self.parameter_name != "nominal":
+      inputs += [f"{self.data_output}/parameters_yields_nominal.yaml"]
+
+    # Add parameter files for collecting yields
+    if self.partial == "collect_yields":
+      for nui in ["nominal"] + [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
+        shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"
+        inputs += [shift_file_name]
+
     # Add initial parameters
-    if self.partial in ["model", "validation", "nuisance_variations"]:
+    if self.partial in ["model", "validation", "nuisance_variations", "merge", "binned_fit_inputs", "train_test_val_split"]:
       inputs += [f"{self.data_output}/parameters_initial.yaml"]
+
+    # Add train test split files
+    if self.partial in ["model"]:
+      # Loop through base files in model
+      files_in_model = GetFilesInModel(self.file_name, cfg, category=self.category)
+      for uf in files_in_model:
+        for data_split in ["train","test"]:
+          inputs += [f"{self.data_output}/{uf}_{data_split}.parquet"]
+    if self.partial in ["validation"]:
+      for data_split in ["val","train_inf","test_inf","full"]:
+        inputs += [f"{self.data_output}/val_ind_{self.val_ind}/{uf}_{data_split}.parquet"]
+    if self.partial in ["nuisance_variations"]:
+      default_index = GetValidationDefaultIndex(cfg, self.file_name)
+      for data_split in ["val","train_inf","test_inf","full"]:
+        inputs += [f"{self.data_output}/val_ind_{default_index}/{uf}_{data_split}.parquet"]
+    
 
     # Add merge parameters
     if self.partial == "merge":

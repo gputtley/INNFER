@@ -11,3 +11,11 @@
 # Plot classifier models
 - step: "PlotClassifier"
   submit: "configs/submit/condor_2_cpus.yaml"
+
+# Make asimov for normalisation spline
+- step: "MakeAsimovForNormalisationSpline"
+  submit: "configs/submit/condor_4_cpus.yaml"
+
+# Make normalisation spline
+- step: "NormalisationSplineClassifier"
+  submit: "configs/submit/condor_4_cpus.yaml"

@@ -58,6 +58,7 @@ class FCNNNetwork():
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {} 
     self.gradient_clipping_norm = None
+    self.normalise_batch_categories = False
 
     # Other
     self.disable_tqdm = False
@@ -161,6 +162,7 @@ class FCNNNetwork():
         y_data = tf.one_hot(y_data, depth=self.num_classes)
 
       predictions = self._GraphPredict(X_data)
+
       sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data))  # Compute loss
       sum_wts += tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 
@@ -337,6 +339,20 @@ class FCNNNetwork():
 
           y_data = self.y_train.LoadNextBatch().to_numpy().astype("float32")
           wt_data = self.wt_train.LoadNextBatch().to_numpy().astype("float32")
+
+          # Normalise weights within batch per category
+          if self.normalise_batch_categories and self.task == "classification":
+            unique_classes = np.unique(y_data)
+            sum_wts = {}
+            for cls in unique_classes:
+              cls_mask = (y_data == cls).flatten()
+              sum_wts[cls] = np.sum(wt_data[cls_mask])
+            min_sum_wt = min(sum_wts.values())
+            for cls in unique_classes:
+              if sum_wts[cls] > 0:
+                wt_data[y_data.flatten() == cls] *= (min_sum_wt / sum_wts[cls])
+
+
           if self.task == "classification":
             y_data = tf.cast(y_data, tf.int32)
             y_data = tf.squeeze(y_data, axis=-1)  # removes that extra 1-dim
@@ -466,16 +482,11 @@ class FCNNNetwork():
       print_dataset=True,
     )
 
-    #if self.only_X_columns is not None:
-    #  X = X.loc[:,self.only_X_columns]
-    #else:
-    #  X = X.loc[:,self.data_parameters["X_columns"]]
-    #X = X.to_numpy()
-
     if self.only_X_columns is not None:
-      X = X[self.only_X_columns].values
+      X = X.loc[:,self.only_X_columns]
     else:
-      X = X[self.data_parameters["X_columns"]].values
+      X = X.loc[:,self.data_parameters["X_columns"]]
+    X = X.to_numpy()
 
     # Check type of gradient
     if isinstance(order,int):

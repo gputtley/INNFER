@@ -129,7 +129,12 @@ class GeneratorNuisanceVariations():
 
     # Loop through columns
     for col in cfg["variables"]:
-      pass
+      extra_name = ""
+      if self.extra_plot_name != "":
+        extra_name = f"_{self.extra_plot_name}"
+
+      outputs += [f"{self.plots_output}/nuisance_distribution_{self.nuisance}_{col}{extra_name}.pdf"]
+      outputs += [f"{self.plots_output}/nuisance_distribution_{self.nuisance}_{col}{extra_name}.png"]
 
     return outputs
 
