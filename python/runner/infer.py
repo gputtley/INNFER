@@ -1020,12 +1020,3 @@ class Infer():
     )
 
     return lkld
-
-  def _WriteDatasets(self, df, file_path="data.parquet"):
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-    return df

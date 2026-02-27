@@ -1558,8 +1558,14 @@ def Resample(datasets, weights, method="oversample", keep_weights=False, sample_
     positive_probs = None
     negative_probs = None
 
-  positive_resampled_indices = rng.choice(len(weights[positive_indices]), size=positive_n_samples, replace=replace, p=positive_probs)
-  negative_resampled_indices = rng.choice(len(weights[negative_indices]), size=negative_n_samples, replace=replace, p=negative_probs)
+  if n_positive_events > 0:
+    positive_resampled_indices = rng.choice(len(weights[positive_indices]), size=positive_n_samples, replace=replace, p=positive_probs)
+  else:
+    positive_resampled_indices = np.array([])
+  if n_negative_events > 0:
+    negative_resampled_indices = rng.choice(len(weights[negative_indices]), size=negative_n_samples, replace=replace, p=negative_probs)
+  else:
+    negative_resampled_indices = np.array([])
 
   # Get new weights
   if keep_weights:
@@ -1582,7 +1588,14 @@ def Resample(datasets, weights, method="oversample", keep_weights=False, sample_
     negative_weight_dataset = dataset[negative_indices]
 
     # Make resampled dataset
-    resampled_dataset = np.vstack((positive_weight_dataset[positive_resampled_indices],negative_weight_dataset[negative_resampled_indices]))
+    if len(positive_resampled_indices) > 0 and len(negative_resampled_indices) > 0:
+      resampled_dataset = np.vstack((positive_weight_dataset[positive_resampled_indices],negative_weight_dataset[negative_resampled_indices]))
+    elif len(positive_resampled_indices) > 0:
+      resampled_dataset = positive_weight_dataset[positive_resampled_indices]
+    elif len(negative_resampled_indices) > 0:
+      resampled_dataset = negative_weight_dataset[negative_resampled_indices]
+    else:
+      resampled_dataset = np.zeros((0, dataset.shape[1]))
     rng = np.random.default_rng(123)
     rng.shuffle(resampled_dataset)
     resampled_datasets.append(resampled_dataset)

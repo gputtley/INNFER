@@ -13,6 +13,7 @@ from functools import partial
 from data_loader import DataLoader
 from data_processor import DataProcessor
 from useful_functions import GetCategoryLoop, GetParametersInModel, MakeDirectories, LoadConfig
+from write_parquet import WriteParquet
 
 pd.options.mode.chained_assignment = None
 
@@ -139,25 +140,13 @@ class LoadData():
 
     self.columns = sorted(list(set(self.columns)))  # Remove duplicates
 
-
-  def _DoWriteDataset(self, df, file_name):
-
-    df = df.loc[:,self.columns]
-
-    file_path = f"{self.data_output}/{file_name}.parquet"
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
-
+    
   def _MakeFiles(self, file_name, file_info):
 
     if self.verbose:
       print(f"- Making {file_name}")
+
+    wp = WriteParquet(name=file_name, data_output=self.data_output)
 
     for input_file_ind, input_file in enumerate(file_info["inputs"]):
 
@@ -255,7 +244,8 @@ class LoadData():
         #      df = df[~neg_weight_rows]
 
         # Write dataset
-        self._DoWriteDataset(df, file_name)
+        wp(df)
+    wp.collect()
 
     # Add summed column
     if "add_summed_columns" in file_info.keys():
@@ -291,9 +281,6 @@ class LoadData():
           )          
 
       # Apply sums
-      if os.path.isfile(f"{self.data_output}/{fileout}.parquet"):
-        os.system(f"rm {self.data_output}/{fileout}.parquet")
-
       def apply_sum(df, sums, summed_col_info):
         unique_names = []
         for summed_col in summed_col_info:
@@ -307,13 +294,15 @@ class LoadData():
             df.loc[:,summed_col["name"]] = sums[ind]
         return df
       
+      wp = WriteParquet(name=fileout, data_output=self.data_output)
       dp.GetFull(
         method=None,
         functions_to_apply=[
           partial(apply_sum, sums=sums, summed_col_info=file_info["add_summed_columns"]),
-          partial(self._DoWriteDataset, file_name=fileout)
+          wp
         ]
       )
+      wp.collect()
       os.system(f"mv {self.data_output}/{fileout}.parquet {self.data_output}/{filein}.parquet")
 
 

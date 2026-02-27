@@ -44,6 +44,8 @@ class Module():
     self.input_store = []
     self.output_store = []
     self.saved_class = None
+    self.use_number_for_jobs = True
+    self.jobs_inds = {}
 
   def _CheckRunFromSpecific(self, specific, loop):
     """
@@ -351,16 +353,24 @@ class Module():
         submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Make job name
-      job_name = StringToFile(f"{self.job_name}{extra_name}")
-      if self.args.extra_dir_name != "":
-        job_name += f"_{self.args.extra_dir_name}"
+      if not self.use_number_for_jobs:
+        job_name = StringToFile(f"{self.job_name}{extra_name}")
+        if self.args.extra_dir_name != "":
+          job_name += f"_{self.args.extra_dir_name}"
+        else:
+          if self.args.extra_input_dir_name != "":
+            job_name += f"_{self.args.extra_input_dir_name}"
+          if self.args.extra_output_dir_name != "":
+            job_name += f"_{self.args.extra_output_dir_name}"
+        if self.args.extra_plot_name != "":
+          job_name += f"_{self.args.extra_plot_name}"
       else:
-        if self.args.extra_input_dir_name != "":
-          job_name += f"_{self.args.extra_input_dir_name}"
-        if self.args.extra_output_dir_name != "":
-          job_name += f"_{self.args.extra_output_dir_name}"
-      if self.args.extra_plot_name != "":
-        job_name += f"_{self.args.extra_plot_name}"
+        job_name = StringToFile(f"{self.job_name}")
+        if job_name not in self.jobs_inds.keys():
+          self.jobs_inds[job_name] = 0
+        index = self.jobs_inds[job_name]
+        self.jobs_inds[job_name] += 1
+        job_name += f"_{index}"
 
       # Submit job
       options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run}
@@ -371,23 +381,32 @@ class Module():
     elif self.snakemake:
 
       # Make job
-      job_name = StringToFile(f"{self.job_name}{extra_name}")
-
-      rule_name = job_name.split('/')[-1].split('.sh')[0]
-      if self.args.extra_dir_name != "":
-        rule_name += f"_{self.args.extra_dir_name}"
-        job_name += f"_{self.args.extra_dir_name}"
+      if not self.use_number_for_jobs:
+        job_name = StringToFile(f"{self.job_name}{extra_name}")
+        rule_name = job_name.split('/')[-1].split('.sh')[0]
+        if self.args.extra_dir_name != "":
+          rule_name += f"_{self.args.extra_dir_name}"
+          job_name += f"_{self.args.extra_dir_name}"
+        else:
+          if self.args.extra_input_dir_name != "":
+            rule_name += f"_{self.args.extra_input_dir_name}"
+            job_name += f"_{self.args.extra_input_dir_name}"
+          if self.args.extra_output_dir_name != "":
+            rule_name += f"_{self.args.extra_output_dir_name}"
+            job_name += f"_{self.args.extra_output_dir_name}"
+        if self.args.extra_plot_name != "":
+          rule_name += f"_{self.args.extra_plot_name}"
+          job_name += f"_{self.args.extra_plot_name}"
       else:
-        if self.args.extra_input_dir_name != "":
-          rule_name += f"_{self.args.extra_input_dir_name}"
-          job_name += f"_{self.args.extra_input_dir_name}"
-        if self.args.extra_output_dir_name != "":
-          rule_name += f"_{self.args.extra_output_dir_name}"
-          job_name += f"_{self.args.extra_output_dir_name}"
-      if self.args.extra_plot_name != "":
-        rule_name += f"_{self.args.extra_plot_name}"
-        job_name += f"_{self.args.extra_plot_name}"
-
+        job_name = StringToFile(f"{self.job_name}")
+        rule_name = job_name.split('/')[-1].split('.sh')[0]
+        if job_name not in self.jobs_inds.keys():
+          self.jobs_inds[job_name] = 0
+        index = self.jobs_inds[job_name]
+        self.jobs_inds[job_name] += 1
+        job_name += f"_{index}"
+        rule_name += f"_{index}"
+        
       job_name += ".sh"
       b = Batch(options={"job_name":job_name})
       b._CreateBatchJob(self.cmd_store)

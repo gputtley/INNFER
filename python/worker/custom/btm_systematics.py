@@ -67,6 +67,9 @@ def btm_jec(
     include_b_syst=False
   ):
 
+  if len(df) == 0:
+    return df
+
   # JEC and flavour uncertainties
   jec_uncert = get_jec_nuisance_dict()
 

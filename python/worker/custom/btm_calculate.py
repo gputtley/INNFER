@@ -4,6 +4,9 @@ from useful_functions import CombineObjects
 
 def btm_cal(df):
 
+  if len(df) == 0:
+    return df
+
   vlepb = CombineObjects(
     {"pt": df["BJetLep_pt"], "eta": df["BJetLep_eta"], "phi": df["BJetLep_phi"], "mass": df["BJetLep_mass"]},
     {"pt": df["LeptonSave_pt"], "eta": df["LeptonSave_eta"], "phi": df["LeptonSave_phi"], "mass": df["LeptonSave_mass"]}

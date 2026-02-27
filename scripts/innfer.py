@@ -83,7 +83,7 @@ def parse_args():
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
-  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=10)
+  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=20)
   parser.add_argument('--number-of-toys', help='The number of toys for p-value dataset comparisons', type=int, default=100)
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
@@ -115,6 +115,7 @@ def parse_args():
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
+  parser.add_argument('--snakemake-use-file', help='Use already created snakemake file', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated list.', type=str, default=None)
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
@@ -213,6 +214,7 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -236,6 +238,130 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - yields nominal
+  if args.step == "PreProcessParallelYieldsNominal":
+    print("<< Running yields nominal split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "yields",
+            "parameter_name" : "nominal",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - yields parameters
+  if args.step == "PreProcessParallelYieldsParameters":
+    print("<< Running yields parameters split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for parameter_name in [p for p in GetParametersInModel(file_name, cfg, category=category) if p in cfg["nuisances"]]:
+          module.Run(
+            module_name = "preprocess",
+            class_name = "PreProcess",
+            config = {
+              "partial": "yields",
+              "parameter_name" : parameter_name,
+              "cfg" : args.cfg,
+              "file_name" : file_name,
+              "data_input" : f"{prep_data_dir}/LoadData",
+              "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+              "number_of_shuffles" : args.number_of_shuffles,
+              "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+              "category" : category,
+              "use_pbar" : not args.disable_tqdm,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "parameter_name" : parameter_name},
+          )
+
+
+  # PreProcess the dataset - initial - yields collect
+  if args.step == "PreProcessParallelYieldsCollect":
+    print("<< Running yields collect split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "collect_yields",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - binned fit inputs
+  if args.step == "PreProcessParallelBinnedFitInputs":
+    print("<< Running binned fit inputs split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "binned_fit_inputs",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - train test val split
+  if args.step == "PreProcessParallelTrainTestValSplit":
+    print("<< Running train test val split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "train_test_val_split",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -263,6 +389,7 @@ def main(args, default_args):
                 "number_of_shuffles" : args.number_of_shuffles,
                 "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
                 "category" : category,
+                "use_pbar" : not args.disable_tqdm,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "category" : category, "model_type" : model_type, "parameter_name" : parameter_name},
@@ -288,6 +415,7 @@ def main(args, default_args):
               "number_of_shuffles" : args.number_of_shuffles,
               "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
               "category" : category,
+              "use_pbar" : not args.disable_tqdm,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "val_ind" : val_ind},
@@ -314,6 +442,7 @@ def main(args, default_args):
                 "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
                 "category" : category,
                 "nuisance_shift" : f"{nuisance}_{shift}",
+                "use_pbar" : not args.disable_tqdm,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
@@ -343,6 +472,7 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -351,16 +481,17 @@ def main(args, default_args):
 
   # Create a "toy" dataset from oversampling the validation data for 0
   if args.step == "ResampleValidationForData":
-    module.Run(
-      module_name = "resample_validation_for_data",
-      class_name = "ResampleValidationForData",
-      config = {
-        "data_output" : cfg["data_file"],
-        "data_inputs" : {file_name : {category:f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_0" for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)} for file_name in GetModelFileLoop(cfg)},
-        "verbose" : not args.quiet,
-      },
-      loop = {},
-    )
+    for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+      module.Run(
+        module_name = "resample_validation_for_data",
+        class_name = "ResampleValidationForData",
+        config = {
+          "data_output" : f"{prep_data_dir}/DataCategories/{category}/data.parquet",
+          "data_inputs" : {file_name : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{GetValidationDefaultIndex(cfg, file_name, category=category)}" for file_name in GetModelFileLoop(cfg)},
+          "verbose" : not args.quiet,
+        },
+        loop = {"category" : category},
+      )
 
 
   # Make data categories
@@ -1979,7 +2110,11 @@ if __name__ == "__main__":
     else: # Run snakemake
 
       # Setting up snakemake file
-      snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+      if not args.snakemake_use_file:
+        snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+      else:
+        cfg = LoadConfig(args.cfg)
+        snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
       if not args.snakemake_dry_run: # Run snakemake
         os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
