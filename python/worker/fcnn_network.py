@@ -423,6 +423,9 @@ class FCNNNetwork():
 
   def Load(self, name="model.h5"):
     self.BuildModel()
+    # print("+++++++")
+    # print(self.data_parameters)
+    # exit(0)
     if self.only_X_columns is not None:
       X_train_batch = self.X_train.LoadNextBatch().loc[:,self.only_X_columns].to_numpy()
     else:
