@@ -5,10 +5,11 @@ from useful_functions import MakeDictionaryEntry
 
 class HistogramMetrics():
 
-  def __init__(self, sim_files, synth_files, columns):
+  def __init__(self, sim_files, synth_files, columns, type):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.columns = columns
+    self.type = type
 
     self.hists_exist = False
     self.sim_hists = None
@@ -25,12 +26,23 @@ class HistogramMetrics():
       wt_name = "wt",
       options = {}
     )
-    synth_dp = DataProcessor(
-      self.synth_files,
-      "parquet",
-      wt_name = "wt",
-      options = {}
-    )
+
+    if self.type == "syst":
+      # print(" - Using wt_total for synth data processor")
+      synth_dp = DataProcessor(
+        self.synth_files,
+        "parquet",
+        wt_name = "wt_total",
+        options = {}
+      )
+
+    else:
+      synth_dp = DataProcessor(
+        self.synth_files,
+        "parquet",
+        wt_name = "wt",
+        options = {}
+      )
 
     # loop through columns
     self.sim_hists = {}
@@ -58,13 +70,22 @@ class HistogramMetrics():
         density = True,
         )
 
-      # Make sim histograms            
-      sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
-        method = "histogram_and_uncert",
-        bins = bins,
-        column = col,
-        density = True,
-      )
+      # Make sim histograms  
+      if self.type == "syst":
+        # print(" - Using n_bins for shifted histogram")
+        sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
+          method = "histogram_and_uncert",
+          bins = n_bins,
+          column = col,
+          density = True,
+        )       
+      else:
+        sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
+          method = "histogram_and_uncert",
+          bins = bins,
+          column = col,
+          density = True,
+        )
 
       # Add to stores
       self.sim_hists[col] = sim_hist
