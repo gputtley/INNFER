@@ -28,7 +28,6 @@ class HistogramMetrics():
       options = {}
     )
     if self.type == "syst":
-      # print(" - Using wt_total for synth data processor")
       synth_dp = DataProcessor(
         self.synth_files,
         "parquet",

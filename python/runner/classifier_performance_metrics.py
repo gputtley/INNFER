@@ -147,15 +147,10 @@ class ClassifierPerformanceMetrics():
         return X_train_file, Y_train_file, wt_train_file
   
     def DoHistogramMetrics(self):
-        # Using the classifier to learn how different class 0 and class 1 are, 
-        # and then using that information to morph class 0 so that it looks like class 1
-        # check by comparing histograms.
-
         x, y, wt = self._GetFiles()
 
         with open(self.parameters, 'r') as yaml_file:
-            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        
+            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)  
         
         pred_df = DataProcessor(
             [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_train.parquet" for i in ["X","y", "wt"]]],
@@ -189,19 +184,6 @@ class ClassifierPerformanceMetrics():
         with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
             architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-        network = InitiateClassifierModel(
-            architecture,
-            self.file_loc,
-            options = {
-                "data_parameters" : parameters['classifier'][self.parameter]
-            },
-            test_name = "test"
-        )  
-
-        network.BuildModel()
-        network.BuildTrainer()
-        network.Load(name=f"{classifier_model_name}.h5")
-
         def _WriteDataset(self, df, file_name):
 
             file_path = f"{self.data_output}/{file_name}"
@@ -227,7 +209,7 @@ class ClassifierPerformanceMetrics():
                     "untransform",
                     partial(
                         apply_classifier,
-                        func=network.Predict,
+                        func=self.network.Predict,
                         X_columns=parameters['classifier'][self.parameter]["X_columns"],
                     ),
                     partial(self._WriteDataset, file_name="pred_train.parquet")
