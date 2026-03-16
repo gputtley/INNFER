@@ -10,6 +10,7 @@ from multidim_metrics import MultiDimMetrics
 from yields import Yields
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyarrow.compute as pc
 
 from useful_functions import (
   GetValidationLoop,
@@ -140,18 +141,19 @@ class ClassifierPerformanceMetrics():
                             print(f"    {k2} : {self.metrics[metric][k1][k2]}")          
 
     def _GetFiles(self):
-        X_train_file = [f"{self.file_loc}/X_train.parquet"]
-        Y_train_file = [f"{self.file_loc}/y_train.parquet"]
-        wt_train_file = [f"{self.file_loc}/wt_train.parquet"]
+    
+        X_file  = f"{self.file_loc}/X_train.parquet"
+        Y_file  = f"{self.file_loc}/y_train.parquet"
+        WT_file = f"{self.file_loc}/wt_train.parquet"
 
-        return X_train_file, Y_train_file, wt_train_file
-  
+        return X_file, Y_file, WT_file
+    
     def DoHistogramMetrics(self):
         x, y, wt = self._GetFiles()
-
+        
         with open(self.parameters, 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)  
-        
+
         pred_df = DataProcessor(
             [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_train.parquet" for i in ["X","y", "wt"]]],
             "parquet",
@@ -177,7 +179,7 @@ class ClassifierPerformanceMetrics():
             df.loc[:, "probs"] = probs[:,1]
             df.loc[:, "wt_total"] = df["wt"] * df["wt_shift"]
 
-            return df
+            return df.loc[inds].copy()
         
         classifier_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
 
@@ -206,7 +208,6 @@ class ClassifierPerformanceMetrics():
             pred_df.GetFull(
                 method=None,
                 functions_to_apply=[
-                    "untransform",
                     partial(
                         apply_classifier,
                         func=self.network.Predict,
@@ -217,12 +218,13 @@ class ClassifierPerformanceMetrics():
             )
         else:
             print(f"Parquet file already exists: {parquet_file}. Skipping GetFull().")
+        
 
         hm = HistogramMetrics(
-        [x[0], wt[0]], 
+        [x, y, wt], 
         [parquet_file],
         self.open_cfg["variables"],
-        "syst",
+        "wt_total"
         )
 
         # Get chi squared values
