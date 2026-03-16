@@ -5,7 +5,7 @@ from useful_functions import MakeDictionaryEntry
 
 class HistogramMetrics():
 
-  def __init__(self, sim_files, synth_files, columns, type):
+  def __init__(self, sim_files, synth_files, columns, wt_name):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.columns = columns
@@ -16,32 +16,26 @@ class HistogramMetrics():
     self.synth_hists = None
     self.synth_hist_uncerts = None
 
-    self.type = type
+    self.wt_name = wt_name
 
-  def MakeHistograms(self, n_bins=40):
-
+  def MakeHistograms(self, n_bins=40): # add more arguments 
+    
     # Make DataProcessors
     sim_dp = DataProcessor(
       self.sim_files,
       "parquet",
       wt_name = "wt",
+      options = {
+        "selection":"classifier_truth==1"
+      }
+    )
+
+    synth_dp = DataProcessor(
+      self.synth_files,
+      "parquet",
+      wt_name = self.wt_name,
       options = {}
     )
-    if self.type == "syst":
-      synth_dp = DataProcessor(
-        self.synth_files,
-        "parquet",
-        wt_name = "wt_total",
-        options = {}
-      )
-
-    else:
-      synth_dp = DataProcessor(
-        self.synth_files,
-        "parquet",
-        wt_name = "wt",
-        options = {}
-      )
 
     # loop through columns
     self.sim_hists = {}
@@ -60,7 +54,7 @@ class HistogramMetrics():
         continue
       if synth_dp.GetFull(method="count") == 0:
         continue
-
+  
       # Make synth histograms
       synth_hist, synth_hist_uncert, bins = synth_dp.GetFull(
         method = "histogram_and_uncert",
@@ -70,21 +64,13 @@ class HistogramMetrics():
         )
 
       # Make sim histograms            
-      if self.type == "syst":
-        # print(" - Using n_bins for shifted histogram")
-        sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
-          method = "histogram_and_uncert",
-          bins = n_bins,
-          column = col,
-          density = True,
-        )       
-      else:
-        sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
-          method = "histogram_and_uncert",
-          bins = bins,
-          column = col,
-          density = True,
-        )
+      sim_hist, sim_hist_uncert, bins = sim_dp.GetFull(
+        method = "histogram_and_uncert",
+        bins = bins,
+        column = col,
+        density = True,
+      )
+
 
       # Add to stores
       self.sim_hists[col] = sim_hist
