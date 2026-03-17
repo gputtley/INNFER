@@ -5,7 +5,7 @@ from useful_functions import MakeDictionaryEntry
 
 class HistogramMetrics():
 
-  def __init__(self, sim_files, synth_files, columns, wt_name):
+  def __init__(self, sim_files, synth_files, columns, sim_wt_name = "wt", synth_wt_name = "wt", sim_selection = None, synth_selection = None):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.columns = columns
@@ -16,7 +16,11 @@ class HistogramMetrics():
     self.synth_hists = None
     self.synth_hist_uncerts = None
 
-    self.wt_name = wt_name
+    self.sim_wt_name = sim_wt_name
+    self.synth_wt_name = synth_wt_name
+
+    self.sim_selection = sim_selection
+    self.synth_selection = synth_selection
 
   def MakeHistograms(self, n_bins=40): # add more arguments 
     
@@ -24,17 +28,19 @@ class HistogramMetrics():
     sim_dp = DataProcessor(
       self.sim_files,
       "parquet",
-      wt_name = "wt",
+      wt_name = self.sim_wt_name,
       options = {
-        "selection":"classifier_truth==1"
+        "selection": self.sim_selection
       }
     )
 
     synth_dp = DataProcessor(
       self.synth_files,
       "parquet",
-      wt_name = self.wt_name,
-      options = {}
+      wt_name = self.synth_wt_name,
+      options = {
+        "selection": self.synth_selection
+      }
     )
 
     # loop through columns
