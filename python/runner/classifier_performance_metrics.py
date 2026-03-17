@@ -224,7 +224,8 @@ class ClassifierPerformanceMetrics():
         [x, y, wt], 
         [parquet_file],
         self.open_cfg["variables"],
-        "wt_total"
+        synth_wt_name = "wt_total",
+        sim_selection = "classifier_truth==1"
         )
 
         # Get chi squared values
