@@ -52,6 +52,7 @@ def parse_args():
   parser.add_argument('--data-vs-simulation', help='For the generator step, show data vs simulation', action='store_true')
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
+  parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
   parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
@@ -693,8 +694,37 @@ def main(args, default_args):
         },
         loop = {"model_name" : model_info['name']}
       )
-
-
+  
+  # Plot the classifier models
+  if args.step == "ClassifierPerformanceMetrics":
+    print("<< Getting the performance metrics of the trained classifier networks >>")  
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_classifier_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
+        module.Run(
+          module_name = "classifier_performance_metrics",
+          class_name = "ClassifierPerformanceMetrics",
+          config = {
+              "cfg": args.cfg,
+              "parameters" : model_info["parameters"],
+              "parameter" : model_info["parameter"],
+              "file_name": model_info["file_name"],
+              "file_loc": model_info["file_loc"],
+              "file_type": model_info["type"],
+              "model_input": f"{models_dir}",
+              "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
+              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+              "verbose": not args.quiet,
+              "do_loss": "loss" in args.classifier_performance_metrics,
+              "loss_datasets": ["train", "test"],
+              "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
+              "do_chi_squared": "histogram" in args.classifier_performance_metrics,
+              "do_kl_divergence": "histogram" in args.classifier_performance_metrics,
+              "histogram_datasets": ["train","test"],
+              "save_extra_name": extra_name,
+              "metrics_save_extra_name": extra_name,            
+              }
+        )
+        
   # Make the asimov datasets
   if args.step == "MakeAsimov":
     print(f"<< Making the asimov datasets >>")
