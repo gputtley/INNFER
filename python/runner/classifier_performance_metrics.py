@@ -40,13 +40,8 @@ class ClassifierPerformanceMetrics():
 
         self.do_histogram_metrics = True
         self.do_chi_squared = True
-        self.do_kl_divergence = False
+        self.do_kl_divergence = True
         self.histogram_datasets = ["train","test"]
-        # self.do_multidimensional_dataset_metrics = True
-        # self.do_bdt_separation = True
-        # self.do_wasserstein = True
-        # self.do_sliced_wasserstein = True
-        # self.do_kmeans_chi_squared = False
 
         self.save_extra_name = ""
         self.metrics_save_extra_name = ""
@@ -83,31 +78,30 @@ class ClassifierPerformanceMetrics():
             print("- Loding in the config")
         self.open_cfg = LoadConfig(self.cfg)
         
-        if self.do_loss:
-            classifier_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+        classifier_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
 
-            # Load the architecture in
-            if self.verbose:
-                print("- Loading in the architecture")                
-            with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
-                architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
-  
-            # Build model 
-            if self.verbose:
-                print("- Building the model")
-            self.network = InitiateClassifierModel(
-                architecture,
-                self.file_loc,
-                options = {
-                    "data_parameters" : parameters['classifier'][self.parameter]
-                },
-                test_name = "test"
-            )
+        # Load the architecture in
+        if self.verbose:
+            print("- Loading in the architecture")                
+        with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
+            architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-            # Load weights into model
-            if self.verbose:
-                print(f"- Loading the classifier model {classifier_model_name}")
-            self.network.Load(name=f"{classifier_model_name}.h5")
+        # Build model 
+        if self.verbose:
+            print("- Building the model")
+        self.network = InitiateClassifierModel(
+            architecture,
+            self.file_loc,
+            options = {
+                "data_parameters" : parameters['classifier'][self.parameter]
+            },
+            test_name = "test"
+        )
+
+        # Load weights into model
+        if self.verbose:
+            print(f"- Loading the classifier model {classifier_model_name}")
+        self.network.Load(name=f"{classifier_model_name}.h5")
 
         # Set up metrics dictionary
         self.metrics = {}
@@ -140,28 +134,19 @@ class ClassifierPerformanceMetrics():
                         for k2 in sorted(list(self.metrics[metric][k1].keys())):
                             print(f"    {k2} : {self.metrics[metric][k1][k2]}")          
 
-    def _GetFiles(self):
+    def _GetFiles(self, data_type):
     
-        X_file  = f"{self.file_loc}/X_train.parquet"
-        Y_file  = f"{self.file_loc}/y_train.parquet"
-        WT_file = f"{self.file_loc}/wt_train.parquet"
-
-        return X_file, Y_file, WT_file
-    
-    def DoHistogramMetrics(self):
-        x, y, wt = self._GetFiles()
+        X_file  =  f"{self.file_loc}/X_{data_type}.parquet"
+        Y_file  = f"{self.file_loc}/y_{data_type}.parquet"
+        WT_file = f"{self.file_loc}/wt_{data_type}.parquet"
         
+        return X_file, Y_file, WT_file
+
+    def DoHistogramMetrics(self):
+
         with open(self.parameters, 'r') as yaml_file:
             parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)  
-
-        pred_df = DataProcessor(
-            [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_train.parquet" for i in ["X","y", "wt"]]],
-            "parquet",
-            options = {
-            "parameters" : parameters['classifier'][self.parameter],
-            },
-        )
-            
+        
         def apply_classifier(df, func, X_columns):
            
             epsilon = 1e-7
@@ -199,89 +184,103 @@ class ClassifierPerformanceMetrics():
 
             return df
         
-        # Path to the Parquet file that _WriteDataset will create
-        parquet_file = f"{self.data_output}/pred_train.parquet"
-
-        # Only run GetFull if the file does not exist
-        if not os.path.isfile(parquet_file):
-            print("Parquet file not found. Running pred_df.GetFull() to create it...")
-            pred_df.GetFull(
-                method=None,
-                functions_to_apply=[
-                    partial(
-                        apply_classifier,
-                        func=self.network.Predict,
-                        X_columns=parameters['classifier'][self.parameter]["X_columns"],
-                    ),
-                    partial(self._WriteDataset, file_name="pred_train.parquet")
-                ]
-            )
-        else:
-            print(f"Parquet file already exists: {parquet_file}. Skipping GetFull().")
-        
-
-        hm = HistogramMetrics(
-        [x, y, wt], 
-        [parquet_file],
-        self.open_cfg["variables"],
-        synth_wt_name = "wt_total",
-        sim_selection = "classifier_truth==1"
-        )
-
-        # Get chi squared values
-        if self.do_chi_squared:
-            if self.verbose:
-                print(f" - Doing chi squared for ")
-            chi_squared, dof_for_chi_squared, chi_squared_per_dof = hm.GetChiSquared() 
-            if len(chi_squared.keys()) != 0:
-                self.metrics[f"chi_squared_train"] = chi_squared
-                self.metrics[f"dof_for_chi_squared_train"] = dof_for_chi_squared
-                self.metrics[f"chi_squared_per_dof_train"] = chi_squared_per_dof
-
-        # Get kl divergence values
-        if self.do_kl_divergence:
-            if self.verbose:
-                print(f" - Doing kl divergence for X_train")
-            kl_divergence = hm.GetKLDivergence() 
-            if len(kl_divergence.keys()) != 0:
-                self.metrics[f"kl_divergence_train"] = kl_divergence
-        
-        # Get total values
         for data_type in self.histogram_datasets:
+                
+            x, y, wt = self._GetFiles(data_type)
+        
+            if self.verbose:
+                print(f" - Doing histogram metrics for {data_type}")
+            pred_df = DataProcessor(
+                [[f"{parameters['classifier'][self.parameter]['file_loc']}/{i}_{data_type}.parquet" for i in ["X","y", "wt"]]],
+                "parquet",
+                options = {
+                "parameters" : parameters['classifier'][self.parameter],
+                },
+            )
+                
+            # Path to the Parquet file that _WriteDataset will create
+            parquet_file = f"{self.data_output}/pred_{data_type}.parquet"
 
+            # Only run GetFull if the file does not exist
+            if not os.path.isfile(parquet_file):
+                print("Parquet file not found. Running pred_df.GetFull() to create it...")
+                pred_df.GetFull(
+                    method=None,
+                    functions_to_apply=[
+                        partial(
+                            apply_classifier,
+                            func=self.network.Predict,
+                            X_columns=parameters['classifier'][self.parameter]["X_columns"],
+                        ),
+                        partial(self._WriteDataset, file_name=f"pred_{data_type}.parquet")
+                    ]
+                )
+            else:
+                print(f"Parquet file already exists: {parquet_file}. Skipping GetFull().")
+
+            hm = HistogramMetrics(
+            [x, y, wt], 
+            [parquet_file],
+            self.open_cfg["variables"],
+            synth_wt_name = "wt_total",
+            sim_selection = "classifier_truth==1"
+            )
+
+            # Get chi squared values
+            if self.do_chi_squared:
+                if self.verbose:
+                    print(f" - Doing chi squared for {data_type} ")
+                chi_squared, dof_for_chi_squared, chi_squared_per_dof = hm.GetChiSquared() 
+                if len(chi_squared.keys()) != 0:
+                    self.metrics[f"chi_squared_{data_type}"] = chi_squared
+                    self.metrics[f"dof_for_chi_squared_{data_type}"] = dof_for_chi_squared
+                    self.metrics[f"chi_squared_per_dof_{data_type}"] = chi_squared_per_dof
+
+            # Get kl divergence values
+            if self.do_kl_divergence:
+                if self.verbose:
+                    print(f" - Doing kl divergence for {data_type}")
+                kl_divergence = hm.GetKLDivergence() 
+                if len(kl_divergence.keys()) != 0:
+                    self.metrics[f"kl_divergence_{data_type}"] = kl_divergence
+            
+            # Get total values
             if not self.do_chi_squared:
                 continue
             count_chi_squared_per_dof = 0
             chi_squared_per_dof_total = 0
-            for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-                if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True):
+            for _, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+                if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): 
                     continue
                 if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info):
                     continue
-                key = f"chi_squared_per_dof_train"
+                key = f"chi_squared_per_dof_{data_type}"
                 if key not in self.metrics:
                     continue
                 chi_squared_per_dof_total += self.metrics[key]["sum"]
                 count_chi_squared_per_dof += len(self.open_cfg["variables"])
 
-            self.metrics[f"chi_squared_per_dof_train_sum"] = chi_squared_per_dof_total
+            self.metrics[f"chi_squared_per_dof_{data_type}_sum"] = chi_squared_per_dof_total
             if count_chi_squared_per_dof > 0:
-                self.metrics[f"chi_squared_per_dof_train_mean"] = (
+                self.metrics[f"chi_squared_per_dof_{data_type}_mean"] = (
                     chi_squared_per_dof_total / count_chi_squared_per_dof
                 )
 
             if self.do_kl_divergence:
                 count_kl_divergence = 0
                 kl_divergence_total = 0
-                for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
-                    if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
-                    if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
-                    if f"kl_divergence_train" not in self.metrics: continue
-                    kl_divergence_total += self.metrics[f"kl_divergence_train"]["sum"]
+                for _, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+                    if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): 
+                        continue
+                    if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): 
+                        continue
+                    if f"kl_divergence_{data_type}" not in self.metrics: 
+                        continue
+                    kl_divergence_total += self.metrics[f"kl_divergence_{data_type}"]["sum"]
                     count_kl_divergence += len(self.open_cfg["variables"])
-                self.metrics[f"kl_divergence_train_sum"] = kl_divergence_total
+                self.metrics[f"kl_divergence_{data_type}_sum"] = kl_divergence_total
                 if count_kl_divergence > 0:
-                    self.metrics[f"kl_divergence_train_mean"] = kl_divergence_total/count_kl_divergence
+                    self.metrics[f"kl_divergence_{data_type}_mean"] = kl_divergence_total/count_kl_divergence
 
     def Outputs(self):
         # Load config
@@ -312,9 +311,9 @@ class ClassifierPerformanceMetrics():
         # Add data
         if self.do_loss:
             for data_type in self.loss_datasets:
-                inputs += [f"{self.file_loc}/X_train.parquet"]
-                inputs += [f"{self.file_loc}/y_train.parquet"]    
-                inputs += [f"{self.file_loc}/wt_train.parquet"]
+                inputs += [f"{self.file_loc}/X_{data_type}.parquet"]
+                inputs += [f"{self.file_loc}/y_{data_type}.parquet"]    
+                inputs += [f"{self.file_loc}/wt_{data_type}.parquet"]
             
 
         datasets = []
@@ -322,10 +321,9 @@ class ClassifierPerformanceMetrics():
             datasets += self.histogram_datasets
         datasets = list(set(datasets))
         
-
         for data_type in datasets:
             # Add input files
-            inputs += [f"{self.file_loc}/{i}_train.parquet" for i in ["X","y","wt"]]
+            inputs += [f"{self.file_loc}/{i}_{data_type}.parquet" for i in ["X","y","wt"]]
 
         return inputs
                   
