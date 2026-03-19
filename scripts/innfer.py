@@ -694,16 +694,16 @@ def main(args, default_args):
         },
         loop = {"model_name" : model_info['name']}
       )
-
+  
+  # Plot the classifier models
   if args.step == "ClassifierPerformanceMetrics":
-    print("<< Getting the performance metrics of the trained classifier networks >>")
+    print("<< Getting the performance metrics of the trained classifier networks >>")  
     for model_info in GetModelLoop(cfg, only_classification=True):
       for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_classifier_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "classifier_performance_metrics",
           class_name = "ClassifierPerformanceMetrics",
           config = {
-              # Core
               "cfg": args.cfg,
               "parameters" : model_info["parameters"],
               "parameter" : model_info["parameter"],
@@ -714,26 +714,12 @@ def main(args, default_args):
               "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
               "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
               "verbose": not args.quiet,
-
-              # Loss
               "do_loss": "loss" in args.classifier_performance_metrics,
               "loss_datasets": ["train", "test"],
-
-              # Histogram-based metrics
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
-              "do_chi_squared": "chi_squared" in args.classifier_performance_metrics,
-              "do_kl_divergence": "kl_divergence" in args.classifier_performance_metrics,
+              "do_chi_squared": "histogram" in args.classifier_performance_metrics,
+              "do_kl_divergence": "histogram" in args.classifier_performance_metrics,
               "histogram_datasets": ["train","test"],
-
-              # # Multidimensional metrics
-              # "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
-              # "do_bdt_separation": "bdt_separation" in args.classifier_performance_metrics,
-              # "do_wasserstein": "wasserstein" in args.classifier_performance_metrics,
-              # "do_sliced_wasserstein": "sliced_wasserstein" in args.classifier_performance_metrics,
-              # "do_kmeans_chi_squared": "kmeans_chi_squared" in args.classifier_performance_metrics,
-              # "multidimensional_datasets": ["train","test"],
-
-              # Naming
               "save_extra_name": extra_name,
               "metrics_save_extra_name": extra_name,            
               }
