@@ -5,7 +5,7 @@ from useful_functions import MakeDictionaryEntry
 
 class HistogramMetrics():
 
-  def __init__(self, sim_files, synth_files, columns):
+  def __init__(self, sim_files, synth_files, columns, sim_wt_name = "wt", synth_wt_name = "wt", sim_selection = None, synth_selection = None):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.columns = columns
@@ -16,20 +16,31 @@ class HistogramMetrics():
     self.synth_hists = None
     self.synth_hist_uncerts = None
 
-  def MakeHistograms(self, n_bins=40):
+    self.sim_wt_name = sim_wt_name
+    self.synth_wt_name = synth_wt_name
 
+    self.sim_selection = sim_selection
+    self.synth_selection = synth_selection
+
+  def MakeHistograms(self, n_bins=40): # add more arguments 
+    
     # Make DataProcessors
     sim_dp = DataProcessor(
       self.sim_files,
       "parquet",
-      wt_name = "wt",
-      options = {}
+      wt_name = self.sim_wt_name,
+      options = {
+        "selection": self.sim_selection
+      }
     )
+
     synth_dp = DataProcessor(
       self.synth_files,
       "parquet",
-      wt_name = "wt",
-      options = {}
+      wt_name = self.synth_wt_name,
+      options = {
+        "selection": self.synth_selection
+      }
     )
 
     # loop through columns
@@ -49,7 +60,7 @@ class HistogramMetrics():
         continue
       if synth_dp.GetFull(method="count") == 0:
         continue
-
+  
       # Make synth histograms
       synth_hist, synth_hist_uncert, bins = synth_dp.GetFull(
         method = "histogram_and_uncert",
@@ -65,6 +76,7 @@ class HistogramMetrics():
         column = col,
         density = True,
       )
+
 
       # Add to stores
       self.sim_hists[col] = sim_hist

@@ -1,109 +1,76 @@
 ---
 layout: page
-title: "Running INNFER"
+title: "Steps"
 ---
 
-Running INNFER happens though the `scripts/innfer.py` script with an accompanying yaml config file parsed with the `--cfg` option (or a benchmark name with the `--benchmark` option). You also need to specify the step you want to run with the `--step` option. More information about these two options are detailed further below. An example command for this is shown below.
-```bash
-innfer --cfg="example_cfg.yaml" --step="PreProcess"
-```
+## Available Steps
 
-As some commands may take some time, jobs can be parallelised and submitted to a batch system such as HTCondor, by adding `--submit="condor.yaml"`, which points to a configuration file for submission to the batch. Running INNFER on a batch is highly recommended in all cases.
+The page provides links to the description of every available step in **INNFER**.
 
-Example workflows are available in the workflows folder.
+### PreProcessing
+- [MakeBenchmark](makebenchmark.md)
+- [LoadData](loaddata.md)
+- [PreProcess](preprocess.md)
+- [ResampleValidationForData](resamplevalidationfordata.md)
+- [DataCategories](datacategories.md)
+- [InputPlotTraining](step_template.md)
+- [InputPlotValidation](step_template.md)
 
-# Available Steps
+### Training and Validating Individual Models
+- [TrainDensity](step_template.md)
+- [EvaluateDensity](step_template.md)
+- [PlotDensity](step_template.md)
+- [TrainRegression](step_template.md)
+- [EvaluateRegression](step_template.md)
+- [PlotRegression](step_template.md)
+- [TrainClassifier](step_template.md)
+- [EvaluateClassifier](step_template.md)
+- [PlotClassifier](step_template.md)
+- [Flow](step_template.md)
+- [HyperparameterScan](step_template.md)
+- [HyperparameterScanCollect](step_template.md)
+- [BayesianHyperparameterTuning](step_template.md)
+- [DensityPerformanceMetrics](step_template.md)
+- [EpochPerformanceMetricsPlot](step_template.md)
 
-Here’s a reference of all the steps INNFER provides:
+### Combined Validation and Statistical Inference
+- [MakeAsimov](step_template.md)
+- [PValueSimVsSynth](step_template.md)
+- [PValueSynthVsSynth](step_template.md)
+- [PValueSynthVsSynthCollect](step_template.md)
+- [PValueDatasetComparisonPlot](step_template.md)
+- [Generator](step_template.md)
+- [GeneratorSummary](step_template.md)
+- [LikelihoodDebug](step_template.md)
+- [InitialFit](step_template.md)
+- [ApproximateUncertainty](step_template.md)
+- [Hessian](step_template.md)
+- [HessianParallel](step_template.md)
+- [HessianCollect](step_template.md)
+- [HessianNumerical](step_template.md)
+- [Covariance](step_template.md)
+- [DMatrix](step_template.md)
+- [CovarianceWithDMatrix](step_template.md)
+- [ScanPointsFromApproximate](step_template.md)
+- [ScanPointsFromHessian](step_template.md)
+- [Scan](step_template.md)
+- [ScanCollect](step_template.md)
+- [ScanPlot](step_template.md)
+- [MakePostFitAsimov](step_template.md)
+- [PostFitPlot](step_template.md)
+- [SummaryChiSquared](step_template.md)
+- [SummaryAllButOneCollect](step_template.md)
+- [Summary](step_template.md)
+- [SummaryPerVal](step_template.md)
 
-`MakeBenchmark` : This will create a dataset and a yaml config file to run fromm for the benchmark scenario specified (with `--benchmark="Dim5"` for example) in the `python/worker/benchmarks.py` class.
+### Other
+- [SetupDensityFromBenchmark](step_template.md)
+- [Custom](step_template.md)
 
-`LoadData`: Loads data to create base datasets.
-
-`PreProcess` : Prepares datasets for training, testing, and validation. Includes standardisation, train/test/validation splitting, and optional binned fit input.
-
-`Custom` : Runs a custom module specified by the `--custom-module` option. Additional options can be passed using `--custom-options`.
-
-`InputPlotTraining` : Plots training and testing datasets after preprocessing.
-
-`InputPlotValidation` : Plots validation datasets after preprocessing.
-
-`TrainDensity` : Trains density networks using the specified architecture. Supports logging with wandb and saving models per epoch.
-
-`SetupDensityFromBenchmark` : Sets up density models based on a benchmark scenario.
-
-`TrainRegression` : Trains regression networks for specific parameters using the specified architecture.
-
-`EvaluateRegression` : Evaluates regression models on validation datasets, also makes the normalisation spline.
-
-`PlotRegression` : Plots regression results of average binned value vs average regressed value.
-
-`MakeAsimov` : Generates Asimov datasets for validation. The number of events can be specified using `--number-of-asimov-events` or you can use the `--use-asimov-scaling` option to take the number of asimov events scaled from the predicted number of events.
-
-`DensityPerformanceMetrics` : Computes performance metrics for trained density networks. Supports metrics like loss, histograms, and multidimensional metrics.
-
-`EpochPerformanceMetricsPlot` : Plots performance metrics as a function of training epochs.
-
-`PValueSimVsSynth` : Performs a p-value dataset comparison test between simulated and synthetic datasets.
-
-`PValueSynthVsSynth` : Performs a p-value dataset comparison test between bootstrapped synthetic datasets.
-
-`PValueSynthVsSynthCollect` : Collects results from the synthetic vs. synthetic p-value tests.
-
-`PValueDatasetComparisonPlot` : Plots p-value dataset comparison results.
-
-`HyperparameterScan` : This will perform a hyperparameter scan based on a scan architecture file given by `--architecture="scan.yaml"` for example. If you want to track your trainings with wandb, you first must need to set up an account at [https://wandb.ai/](https://wandb.ai/). Then you must connect your terminal to your account with the command `wandb login`. You will need to enter the API given on the website. Now you can add `--use-wandb` to the command and track online.
-
-`HyperparameterScanCollect` : Collects the best-performing model from a hyperparameter scan.
-
-`BayesianHyperparameterTuning` : Performs Bayesian hyperparameter tuning using a specified architecture. Supports logging with wandb in the same way `HyperparameterScan` does.
-
-`Flow` : Visualizes the flow of the network through coupling layers.
-
-`Generator` : Uses the network as a generator to create plots comparing network outputs to input simulations. Supports 1D and 2D unrolled plots.
-
-`GeneratorSummary` : Creates summary plots comparing simulations and network-generated outputs across all unique Y values.
-
-`LikelihoodDebug` : Debugs likelihood calculations for specific parameter values. It allows you to evaluate the likelihood with the parameter values given by the `--other-input` option.
-
-`InitialFit` : Performs minimization of the negative log-likelihood to find the best fit.  Whenever calling the infer module you can specify the `--likelihood-type`, `--data-type` and numerous other options. Supports specifying the minimization method with `--minimisation-method`.
-
-`ApproximateUncertainty` : Calculates approximate uncertainties by interpolating likelihood crossings.
-
-`Hessian` : Computes the Hessian matrix for the likelihood.
-
-`HessianParallel` : Computes the Hessian matrix in parallel for efficiency.
-
-`HessianCollect` : Collects results from parallel Hessian computations.
-
-`HessianNumerical` : Computes the Hessian matrix numerically.
-
-`Covariance` : Calculates the covariance matrix from the inverse of the Hessian.
-
-`DMatrix` : Computes the D-matrix for asymptotic corrections, as derived [here](https://arxiv.org/abs/1911.01303).
-
-`CovarianceWithDMatrix` : Computes the corrected covariance matrix using the Hessian and D-matrix.
-
-`ScanPointsFromApproximate and ScanPointsFromHessian` : Identifies points for likelihood scans based on approximate uncertainties or the Hessian matrix. The number of scan points can be given by the `--number-of-scan-points` option.
-
-`Scan` : Performs a profiled likelihood scan over identified points.
-
-`ScanCollect` : Collects results from likelihood scans.
-
-`ScanPlot` : Plots results from likelihood scans.
-
-`MakePostFitAsimov` : Generates post-fit Asimov datasets using best-fit parameter values.
-
-`PostFitPlot` : Plots distributions for best-fit results compared to the data used for fitting.
-
-`SummaryChiSquared` : Computes the chi-squared value between best-fit and truth values for validation parameters.
-
-`SummaryAllButOneCollect` : Collects results for "all-but-one" parameter summaries.
-
-`Summary` : Plots a summary of best-fit and truth values for validation parameters.
-
-`SummaryPerVal` : Plots summaries of results for each validation index.
+<br>
 
 ---
 
 Next: [Configuration File](config.md).
+
+{% include mathjax.html %}
