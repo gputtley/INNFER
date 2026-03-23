@@ -1,3 +1,4 @@
+import copy
 import os
 import pickle
 import yaml
@@ -9,9 +10,12 @@ import pyarrow.parquet as pq
 
 from functools import partial
 from pprint import pprint
+from scipy.interpolate import CubicSpline, UnivariateSpline
 
 from useful_functions import (
   GetBinValues,
+  GetBinValuesParallelised,
+  GetDictionaryEntry,
   InitiateDensityModel, 
   InitiateRegressionModel, 
   InitiateClassifierModel,
@@ -51,6 +55,7 @@ class Infer():
     self.sigma_between_scan_points = 0.4
     self.number_of_scan_points = 17
     self.other_input = None
+    self.debug_input = None
     self.other_input_files = []
     self.other_output_files = []
     self.model_type = "BayesFlow"
@@ -75,6 +80,7 @@ class Infer():
     self.nn_columns = []
     self.binned_fit_morph_col = None
     self.binned_data_input = None
+    self.binned_data_input_parameters_key = None
     self.simplex = {}
     self.bootstrap_ind = None
     self.scan_points_input = {}
@@ -82,6 +88,10 @@ class Infer():
     self.prune_classifier_models = None
     self.classifier_pruning_files = {}
     self.collect_skip_diagonal = False
+    self.bootstrap_method = "oversample_to_eff_events" # oversample_to_eff_events, oversample_to_length, undersample_to_eff_events
+    self.no_likelihood_print_out = False
+    self.integrate_density_with_ratios = False
+    self.merge_binned_nuisances = {}
 
 
   def Configure(self, options):
@@ -96,6 +106,21 @@ class Infer():
 
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
+
+    if (self.binned_data_input is None or self.binned_data_input == {}) and self.binned_data_input_parameters_key is not None and self.likelihood_type in ["binned","binned_extended"]:
+      self.binned_data_input = {}
+      for cat, pars in self.parameters.items():
+        first = True
+        for k, v in pars.items():
+          with open(v, 'r') as yaml_file:
+            parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
+          entry = GetDictionaryEntry(parameters, self.binned_data_input_parameters_key[cat][k])
+          if first:
+            self.binned_data_input[cat] = np.array(entry)
+            first = False
+          else:
+            self.binned_data_input[cat] += np.array(entry)
+
 
   def Run(self):
 
@@ -113,7 +138,7 @@ class Infer():
 
     # Make likelihood inputs
     if self.lkld_input is None:
-      if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+      if self.likelihood_type in ["unbinned", "unbinned_extended","poisson"]:
         self.lkld_input = {k: v.values() for k, v in self.dps.items()}
       elif self.likelihood_type in ["binned", "binned_extended"]:
         self.lkld_input = self.binned_data_input
@@ -126,7 +151,6 @@ class Infer():
 
       if self.verbose:
         print("- Likelihood output:")
-
 
       self.lkld.GetAndWriteBestFitToYaml(
         self.lkld_input, 
@@ -202,7 +226,8 @@ class Infer():
         self.lkld_input, 
         self.column,
         row=self.true_Y,
-        filename=f"{self.data_output}/uncertaintyfromminimisation_results_{self.column}{self.extra_file_name}.yaml"
+        filename=f"{self.data_output}/uncertaintyfromminimisation_results_{self.column}{self.extra_file_name}.yaml",
+        freeze=self.freeze,
       )
 
     elif self.method in ["Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel"]:
@@ -399,6 +424,7 @@ class Infer():
         estimated_sigma_step=self.sigma_between_scan_points,
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
         method="approximate",
+        scan_over=hessian["matrix_columns"],
       )
 
     elif self.method == "ScanPointsFromHessian":
@@ -420,6 +446,7 @@ class Infer():
         estimated_sigma_step=self.sigma_between_scan_points,
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
         method="hessian",
+        scan_over=hessian["matrix_columns"],
       )
 
     elif self.method == "ScanPointsFromInput":
@@ -480,8 +507,14 @@ class Infer():
       if self.verbose:
         print(f"- Likelihood output:")
 
-      for j in self.other_input.split(":"):
-        self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')])
+      #for j in self.other_input.split(":"):
+      #  self.lkld.Run(self.lkld_input, [float(i) for i in j.split(',')])
+      for j in self.debug_input:
+        guess = self.initial_best_fit_guess.copy()
+        for key, val in j.items():
+          guess.loc[0, key] = float(val)
+        self.lkld.Run(self.lkld_input, [guess.loc[0,v] for v in self.lkld.Y_columns])
+
 
   def Outputs(self):
 
@@ -550,7 +583,7 @@ class Infer():
         inputs += [v]
 
     # Add data inputs and parameters
-    if self.likelihood_type in ["unbinned", "unbinned_extended"]:
+    if self.likelihood_type in ["unbinned", "unbinned_extended","poisson"]:
       for cat, par in self.parameters.items():
         for k, v in par.items():
           if "data" not in self.data_input[cat].keys():
@@ -572,29 +605,33 @@ class Infer():
           ]
 
       # Add regression model inputs
-      for cat, models in self.regression_models.items():
-        for k, v in models.items():
-          for vi in v:
-            inputs += [
-              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-              f"{self.model_input}/{vi['name']}/{k}.h5",
-              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
-            ]
+      if not self.only_density:
+        for cat, models in self.regression_models.items():
+          for k, v in models.items():
+            for vi in v:
+              inputs += [
+                f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+                f"{self.model_input}/{vi['name']}/{k}.h5",
+              ]
+              if not self.integrate_density_with_ratios:
+                inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
 
-      # Add classifier model inputs
-      for cat, models in self.classifier_models.items():
-        for k, v in models.items():
-          for vi in v:
-            inputs += [
-              f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
-              f"{self.model_input}/{vi['name']}/{k}.h5",
-              f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"
-            ]
-            if self.prune_classifier_models is not None:
-              if k in self.prune_classifier_models.keys():
-                inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
+
+
+        # Add classifier model inputs
+        for cat, models in self.classifier_models.items():
+          for k, v in models.items():
+            for vi in v:
+              inputs += [
+                f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
+                f"{self.model_input}/{vi['name']}/{k}.h5",
+              ]
+              if not self.integrate_density_with_ratios:
+                inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
+              if self.prune_classifier_models is not None:
+                if k in self.prune_classifier_models.keys():
+                  inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
           
-
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
@@ -628,6 +665,9 @@ class Infer():
     bin_yields = {}
 
     # Loop through files
+    first_loop = True
+    shape_direction = {}
+
     for cat, par in self.parameters.items():
 
       bin_yields[cat] = {}
@@ -637,9 +677,91 @@ class Infer():
         with open(v, 'r') as yaml_file:
           parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
+        # Do nuisance merging
+        if len(self.merge_binned_nuisances) > 0:
+
+          if first_loop:
+
+            first_loop = False
+
+            # Change Y_colums and nuisance_constraints and initial_best_fit_guess to merged nuisances and self.true_Y
+            for merged_nuisance, nuisances_to_merge in self.merge_binned_nuisances.items():
+              self.Y_columns += [merged_nuisance]
+              self.inference_options["nuisance_constraints"] += [merged_nuisance]
+              self.initial_best_fit_guess.loc[0, merged_nuisance] = 0.0
+              self.true_Y.loc[0, merged_nuisance] = 0.0
+              for nuisance_to_merge in nuisances_to_merge:
+                if nuisance_to_merge in self.Y_columns:
+                  self.Y_columns.remove(nuisance_to_merge)
+                if nuisance_to_merge in self.inference_options["nuisance_constraints"]:
+                  self.inference_options["nuisance_constraints"].remove(nuisance_to_merge)
+                if nuisance_to_merge in self.initial_best_fit_guess.columns:
+                  self.initial_best_fit_guess.drop(columns=[nuisance_to_merge], inplace=True)
+                if nuisance_to_merge in self.true_Y.columns:
+                  self.true_Y.drop(columns=[nuisance_to_merge], inplace=True)
+
+            # Get nominal poi_val
+            poi_val = self.initial_best_fit_guess.loc[0, self.binned_fit_morph_col] if self.binned_fit_morph_col in self.Y_columns_per_model[file_name] else "all"
+            
+          # Need to get direction of shape
+          for _, merged_nuisances in self.merge_binned_nuisances.items():
+            for merged_nuisance in merged_nuisances:
+              if merged_nuisance in shape_direction.keys(): continue
+              n_nom = 0
+              n_invert = 0
+              for bin in parameters["binned_fit_input"]:
+                if merged_nuisance not in bin["yields"][poi_val]["lnN"].keys():
+                  n_nom += 1
+                else:
+                  if bin["yields"][poi_val]["lnN"][merged_nuisance][1] > bin["yields"][poi_val]["lnN"][merged_nuisance][0]:
+                    n_nom += 1
+                  else:
+                    n_invert += 1
+              if n_nom > n_invert:
+                shape_direction[merged_nuisance] = 1
+              else:
+                shape_direction[merged_nuisance] = 0
+
+          # Merge nuisances
+          for bin_ind, bin in enumerate(copy.deepcopy(parameters["binned_fit_input"])):
+            for poi_val, poi_val_info in bin["yields"].items():
+              new_lnN = copy.deepcopy(poi_val_info["lnN"])
+              for merged_nuisance, nuisances_to_merge in self.merge_binned_nuisances.items():
+                new_lnN[merged_nuisance] = [1.0, 1.0]
+                for nuisance_to_merge in nuisances_to_merge:
+
+                  if nuisance_to_merge not in poi_val_info["lnN"].keys(): continue
+
+                  # Need to decide which direction is up and which is down
+                  if shape_direction[nuisance_to_merge] == 1:
+                    nominal_nui_direction = poi_val_info["lnN"][nuisance_to_merge]
+                  else:
+                    nominal_nui_direction = [poi_val_info["lnN"][nuisance_to_merge][1], poi_val_info["lnN"][nuisance_to_merge][0]]
+                  sum_nominal_nuis = [nominal_nui_direction[0]+ new_lnN[merged_nuisance][0], nominal_nui_direction[1]+new_lnN[merged_nuisance][1]]
+                  if sum_nominal_nuis[1] > sum_nominal_nuis[0]:
+                    bin_direction = 1
+                  else:
+                    bin_direction = -1
+
+                  # Combine in quadrature
+                  if shape_direction[nuisance_to_merge] == 1:
+                    new_lnN[merged_nuisance][0] = 1 - bin_direction * (((new_lnN[merged_nuisance][0]-1)**2 + (poi_val_info["lnN"][nuisance_to_merge][0]-1)**2)**0.5)
+                    new_lnN[merged_nuisance][1] = 1 + bin_direction * (((new_lnN[merged_nuisance][1]-1)**2 + (poi_val_info["lnN"][nuisance_to_merge][1]-1)**2)**0.5)
+                  else:
+                    new_lnN[merged_nuisance][0] = 1 - bin_direction * (((new_lnN[merged_nuisance][0]-1)**2 + (poi_val_info["lnN"][nuisance_to_merge][0]-1)**2)**0.5)
+                    new_lnN[merged_nuisance][1] = 1 + bin_direction * (((new_lnN[merged_nuisance][1]-1)**2 + (poi_val_info["lnN"][nuisance_to_merge][1]-1)**2)**0.5)
+
+                  # Remove nuisance_to_merge from new_lnN
+                  del new_lnN[nuisance_to_merge]
+
+                # Update new_lnN for merged_nuisance
+                parameters["binned_fit_input"][bin_ind]["yields"][poi_val]["lnN"] = new_lnN
+
+
         # Make binned inputs
         rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
-        bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
+        #bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
+        bin_yields[cat][file_name] = GetBinValuesParallelised(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
 
     return bin_yields
 
@@ -668,7 +790,14 @@ class Infer():
       def bootstrap(df):
         columns = [i for i in df.columns.tolist() if i != "wt"]
         X, wt = df.drop(columns=["wt"]), df["wt"] 
-        X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), seed=self.bootstrap_ind)
+        if self.bootstrap_method == "oversample_to_length":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="oversample", sample_size="length", keep_weights=True, total_scale="eff_events", seed=self.bootstrap_ind)
+        elif self.bootstrap_method == "oversample_to_eff_events":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="oversample", sample_size="eff_events", keep_weights=False, total_scale="eff_events", seed=self.bootstrap_ind)
+        elif self.bootstrap_method == "undersample_to_eff_events":
+          X, wt = Resample(X.to_numpy(), wt.to_numpy().flatten(), method="undersample", sample_size="eff_events", keep_weights=False, total_scale="eff_events", seed=self.bootstrap_ind)
+        else:
+          raise ValueError(f"Invalid bootstrap method: {self.bootstrap_method}")
         df = pd.DataFrame(X, columns=columns)
         df.loc[:,"wt"] = wt
         return df
@@ -722,6 +851,7 @@ class Infer():
 
   def _BuildYieldFunctions(self):
 
+    #from yields_parallelised import Yields
     from yields import Yields
 
     # Load parameters in
@@ -944,7 +1074,12 @@ class Infer():
       for k in splines[cat].keys():
         capped_splines[cat][k] = {}
         for vi in splines[cat][k].keys():
-          capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].x[0], x_max=splines[cat][k][vi].x[-1])
+          if isinstance(splines[cat][k][vi], CubicSpline):
+            capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].x[0], x_max=splines[cat][k][vi].x[-1])
+          elif isinstance(splines[cat][k][vi], UnivariateSpline):
+            capped_splines[cat][k][vi] = partial(capped_spline, spline=splines[cat][k][vi], x_min=splines[cat][k][vi].get_knots()[0], x_max=splines[cat][k][vi].get_knots()[-1])
+          else:
+            raise ValueError(f"Invalid spline type: {type(splines[cat][k][vi])}")
 
     return networks, capped_splines
 
@@ -969,6 +1104,10 @@ class Infer():
     elif self.likelihood_type in ["binned", "binned_extended"]:
       likelihood_inputs = {
         "bin_yields" : self._BuildBinYields(),
+      }
+    elif self.likelihood_type in ["poisson"]:
+      likelihood_inputs = {
+        "yields" : self.yields,
       }
 
     if "nuisance_constraints" in self.inference_options.keys():
@@ -1002,13 +1141,7 @@ class Infer():
       nn_columns = self.nn_columns,
     )
 
-    return lkld
+    lkld.integrate_density_with_ratios = self.integrate_density_with_ratios
+    lkld.no_print_minimisation_step = self.no_likelihood_print_out
 
-  def _WriteDatasets(self, df, file_path="data.parquet"):
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-    return df
+    return lkld

@@ -58,6 +58,7 @@ class FCNNNetwork():
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {} 
     self.gradient_clipping_norm = None
+    self.normalise_batch_categories = False
 
     # Other
     self.disable_tqdm = False
@@ -102,6 +103,9 @@ class FCNNNetwork():
     else:
       self.wt_test = None
 
+    self._X_cols = self.only_X_columns or self.data_parameters["X_columns"]
+    self._X_idx = None  # will initialize on first call
+
 
   def _SetOptions(self, options):
     """
@@ -116,8 +120,8 @@ class FCNNNetwork():
       setattr(self, key, value)
 
   def _GetEpochLoss(self, data_type="train"):
-    batch_size = int(os.getenv("EVENTS_PER_BATCH"))
 
+    batch_size = int(os.getenv("EVENTS_PER_BATCH"))
     if data_type == "train":
       X_old_batch_size = copy.deepcopy(self.X_train.batch_size)
       Y_old_batch_size = copy.deepcopy(self.y_train.batch_size)
@@ -145,6 +149,7 @@ class FCNNNetwork():
           X_data = self.X_train.LoadNextBatch().loc[:,self.only_X_columns].to_numpy()
         else:
           X_data = self.X_train.LoadNextBatch().loc[:,self.data_parameters["X_columns"]].to_numpy()
+
         y_data = self.y_train.LoadNextBatch().to_numpy()
         wt_data = self.wt_train.LoadNextBatch().to_numpy()
       elif data_type == "test":
@@ -339,6 +344,20 @@ class FCNNNetwork():
 
           y_data = self.y_train.LoadNextBatch().to_numpy().astype("float32")
           wt_data = self.wt_train.LoadNextBatch().to_numpy().astype("float32")
+
+          # Normalise weights within batch per category
+          if self.normalise_batch_categories and self.task == "classification":
+            unique_classes = np.unique(y_data)
+            sum_wts = {}
+            for cls in unique_classes:
+              cls_mask = (y_data == cls).flatten()
+              sum_wts[cls] = np.sum(wt_data[cls_mask])
+            min_sum_wt = min(sum_wts.values())
+            for cls in unique_classes:
+              if sum_wts[cls] > 0:
+                wt_data[y_data.flatten() == cls] *= (min_sum_wt / sum_wts[cls])
+
+
           if self.task == "classification":
             y_data = tf.cast(y_data, tf.int32)
             y_data = tf.squeeze(y_data, axis=-1)  # removes that extra 1-dim
@@ -449,35 +468,23 @@ class FCNNNetwork():
       return self._GraphPredictSoftMax(X)
 
 
-  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
 
-    # Preprocess inputs
-    X_dp = DataProcessor(
-      [[input]],
-      "dataset",
-      options = {
-        "parameters" : self.data_parameters,
-        "sort_columns" : False,
-      },
-      batch_size = self.transform_batch_size
-    )
+    columns = self.only_X_columns if self.only_X_columns is not None else self.data_parameters["X_columns"]
 
-    X = X_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["transform"] if transform_X else [],
-      print_dataset=True,
-    )
-
-    #if self.only_X_columns is not None:
-    #  X = X.loc[:,self.only_X_columns]
-    #else:
-    #  X = X.loc[:,self.data_parameters["X_columns"]]
-    #X = X.to_numpy()
-
-    if self.only_X_columns is not None:
-      X = X[self.only_X_columns].values
+    if columns_for_numpy is None:
+      X = input[columns].to_numpy(copy=False)
     else:
-      X = X[self.data_parameters["X_columns"]].values
+      column_inds = [columns_for_numpy.index(col) for col in columns]
+      X = input[:, column_inds]
+
+    if transform_X:
+      standardisation_params = self.data_parameters.get("standardisation", {})
+      cols_to_standardise = [c for c in columns if c in standardisation_params]
+      inds_to_standardise = [columns.index(c) for c in cols_to_standardise]
+      means = np.array([standardisation_params[c]["mean"] for c in cols_to_standardise], dtype=np.float64)
+      stds  = np.array([standardisation_params[c]["std"] for c in cols_to_standardise], dtype=np.float64)
+      X[:, inds_to_standardise] = (X[:, inds_to_standardise] - means) / stds
 
     # Check type of gradient
     if isinstance(order,int):
@@ -509,7 +516,9 @@ class FCNNNetwork():
 
     if order == 0 or order == [0]:
 
+      #st = time.time()
       pred = self._GraphPredictTotal(X)
+      #print(f"Time for prediction for {param_name}: {time.time()-st:.4f} seconds")
 
       if prob_ind is not None:
         pred = pred[:, prob_ind]
@@ -590,6 +599,8 @@ class FCNNNetwork():
         del second_derivative
         gc.collect()
 
+    #st = time.time()
+
     # Post process prediction
     for ind in range(len(preds)):
 
@@ -606,6 +617,7 @@ class FCNNNetwork():
       )
 
       preds[ind] = preds[ind].to_numpy()
+
 
     if isinstance(order, list):
       return preds

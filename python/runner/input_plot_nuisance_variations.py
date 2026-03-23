@@ -101,6 +101,9 @@ class InputPlotNuisanceVariations():
     # Load config
     cfg = LoadConfig(self.cfg)
 
+    for col in cfg["variables"]:
+      outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_{self.sim_type}.pdf"]
+
     return outputs
 
 
@@ -115,7 +118,7 @@ class InputPlotNuisanceVariations():
     inputs += [self.cfg]
 
     # Add parameters
-    inputs + [self.parameters]  
+    inputs += [self.parameters]  
 
     # Add data
     cfg = LoadConfig(self.cfg)
@@ -154,6 +157,28 @@ class InputPlotNuisanceVariations():
         name = plot_name,
         xlabel = Translate(col),
         ylabel = "Events",
+        anchor_y_at_0 = True,
+        first_ratio = True,
+        ratio_range = [0.9,1.1],
+        axis_text = self.nuisance
+      )
+
+      # Normalise to make a density version of the plot
+      nominal_hist_density = nominal_hist / np.sum(nominal_hist)
+      up_hist_density = up_hist / np.sum(up_hist)
+      down_hist_density = down_hist / np.sum(down_hist)
+      plot_name = f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_density{extra_name_for_plot}"
+      plot_hists = [[up_hist_density,nominal_hist_density], [down_hist_density,nominal_hist_density]]
+      plot_errs = [[np.zeros_like(up_hist_uncert), np.zeros_like(up_hist_uncert)], [np.zeros_like(down_hist_uncert), np.zeros_like(down_hist_uncert)]]
+      plot_names = [["Up","Nominal"], ["Down","Nominal"]]
+      plot_histograms_with_ratio(
+        plot_hists,
+        plot_errs,
+        plot_names,
+        bins,
+        name = plot_name,
+        xlabel = Translate(col),
+        ylabel = "Density",
         anchor_y_at_0 = True,
         first_ratio = True,
         ratio_range = [0.9,1.1],

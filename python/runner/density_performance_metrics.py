@@ -359,7 +359,8 @@ class DensityPerformanceMetrics():
     )
 
     def scale_down(df, func, scale):
-      df.loc[:,"wt"] /= scale/func(df).loc[:,"yield"]
+      df["wt"] = df["wt"].astype("float64")
+      df["wt"] = df["wt"] / (scale / func(df)["yield"])
       return df
 
     for data_type in self.multidimensional_datasets:
@@ -384,7 +385,7 @@ class DensityPerformanceMetrics():
       mm = MultiDimMetrics(
         sim_files,
         synth_files,
-        self.open_parameters['density'],
+        self.open_parameters['density']["X_columns"] + self.open_parameters['density']["Y_columns"],
         functions_to_apply = [partial_scale_down]
       )
       mm.verbose = self.verbose
@@ -522,9 +523,9 @@ class DensityPerformanceMetrics():
           self.metrics[f"inference_distance_mean_val_ind_{val_ind}_{col}"] = float(np.mean(distances))
 
       # Get means over val_inds
+      total_sum = 0.0
+      total_count = 0.0
       for metric in self.metrics.keys():
-        total_sum = 0.0
-        total_count = 0.0
         if f"inference_distance_mean_val_ind_" in metric:
           total_sum += self.metrics[metric]
           total_count += 1

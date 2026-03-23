@@ -5,6 +5,7 @@ import pyarrow.parquet as pq
 
 from data_processor import DataProcessor
 from useful_functions import MakeDirectories
+from write_parquet import WriteParquet
 
 class ResampleValidationForData():
 
@@ -38,51 +39,36 @@ class ResampleValidationForData():
       print(f"Output directory {self.data_output} already exists. Please remove it before running.")
       return
 
-    for file_name, v1 in self.data_inputs.items():
-      for category, v2 in v1.items():
+    wp = WriteParquet(
+      name = self.data_output.split("/")[-1].replace(".parquet", ""),
+      data_output = "/".join(self.data_output.split("/")[:-1]),
+    )
 
-        if self.verbose:
-          print(f"Processing file: {file_name}, category: {category}")
-        
-        files = [f"{v2}/X_{self.sim_type}.parquet", f"{v2}/wt_{self.sim_type}.parquet"]
-        extra_file = f"{v2}/Extra_{self.sim_type}.parquet"
-        if os.path.isfile(extra_file):
-          files.append(extra_file)
+    for file_name, file_loc in self.data_inputs.items():
 
-        dp = DataProcessor(
-            files,
-            "parquet",
-            wt_name = "wt",
-            options = {
-              "resample" : True,
-              "resample_drop_negative_weights" : True,
-            },
-          )
+      if self.verbose:
+        print(f"Processing file: {file_name}")
+      
+      files = [f"{file_loc}/X_{self.sim_type}.parquet", f"{file_loc}/wt_{self.sim_type}.parquet"]
 
-        dp.GetFull(
-          method=None,
-          functions_to_apply=[
-            self._WriteDataset
-          ]
+      dp = DataProcessor(
+          files,
+          "parquet",
+          wt_name = "wt",
+          options = {
+            "resample" : True,
+            "resample_drop_negative_weights" : True,
+          },
         )
 
+      dp.GetFull(
+        method=None,
+        functions_to_apply=[
+          wp
+        ]
+      )
 
-  def _WriteDataset(self, df):
-
-    df = df.drop(columns=["wt"])
-    MakeDirectories(self.data_output)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(self.data_output):
-      existing_table = pq.read_table(self.data_output)
-      common_columns = set(existing_table.column_names).intersection(set(table.column_names))
-      table = table.select(common_columns)
-      existing_table = existing_table.select(common_columns)
-      combined_table = pa.concat_tables([existing_table, table])
-      pq.write_table(combined_table, self.data_output, compression='snappy')
-    else:
-      pq.write_table(table, self.data_output, compression='snappy')
-
-    return df
+    wp.collect()
 
   def Outputs(self):
     """
@@ -96,9 +82,8 @@ class ResampleValidationForData():
     Return a list of inputs required by class
     """
     inputs = []
-    for _, v1 in self.data_inputs.items():
-      for _, v2 in v1.items():        
-        inputs += [f"{v2}/X_{self.sim_type}.parquet", f"{v2}/wt_{self.sim_type}.parquet"]
+    for _, file_loc in self.data_inputs.items():
+      inputs += [f"{file_loc}/X_{self.sim_type}.parquet", f"{file_loc}/wt_{self.sim_type}.parquet"]
     return inputs
 
         
