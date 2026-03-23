@@ -120,8 +120,8 @@ class FCNNNetwork():
       setattr(self, key, value)
 
   def _GetEpochLoss(self, data_type="train"):
-    batch_size = int(os.getenv("EVENTS_PER_BATCH"))
 
+    batch_size = int(os.getenv("EVENTS_PER_BATCH"))
     if data_type == "train":
       X_old_batch_size = copy.deepcopy(self.X_train.batch_size)
       Y_old_batch_size = copy.deepcopy(self.y_train.batch_size)
@@ -149,6 +149,7 @@ class FCNNNetwork():
           X_data = self.X_train.LoadNextBatch().loc[:,self.only_X_columns].to_numpy()
         else:
           X_data = self.X_train.LoadNextBatch().loc[:,self.data_parameters["X_columns"]].to_numpy()
+
         y_data = self.y_train.LoadNextBatch().to_numpy()
         wt_data = self.wt_train.LoadNextBatch().to_numpy()
       elif data_type == "test":
@@ -165,7 +166,6 @@ class FCNNNetwork():
         y_data = tf.one_hot(y_data, depth=self.num_classes)
 
       predictions = self._GraphPredict(X_data)
-
       sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data))  # Compute loss
       sum_wts += tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 

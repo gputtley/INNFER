@@ -899,16 +899,14 @@ def main(args, default_args):
               "model_input": f"{models_dir}",
               "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
               "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-              "verbose": not args.quiet,
               "do_loss": "loss" in args.classifier_performance_metrics,
-              "loss_datasets": ["train", "test"],
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
-              "do_chi_squared": "histogram" in args.classifier_performance_metrics,
-              "do_kl_divergence": "histogram" in args.classifier_performance_metrics,
-              "histogram_datasets": ["train","test"],
+              "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
               "save_extra_name": extra_name,
-              "metrics_save_extra_name": extra_name,            
-              }
+              "metrics_save_extra_name": extra_name,
+              "verbose": not args.quiet,
+              },
+          loop = {"model_name" : model_info['name'], "extra_name" : extra_name},
         )
         
   # Make the asimov datasets
