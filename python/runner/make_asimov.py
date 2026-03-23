@@ -42,7 +42,10 @@ class MakeAsimov():
     self.extra_regression_model_name = ""
     self.extra_classifier_model_name = ""
     self.use_asimov_scaling = None
+    self.prune_classifier_models = None
+    self.classifier_pruning_files = {}
     self.verbose = True
+    self.skip_spline = False
 
 
   def Configure(self, options):
@@ -202,11 +205,10 @@ class MakeAsimov():
           print(f"- Loading the normalising spline for {regression_model_name}")
 
         spline_name = f"{regression_model_name}_norm_spline.pkl"
-        if os.path.isfile(spline_name):
+        if not self.skip_spline:
           with open(spline_name, 'rb') as f:
-              spl = pickle.load(f)
+            spl = pickle.load(f)
         else:
-          print(f"WARNING: No normalising spline found for {regression_model['parameter']}. Leaving unnormalised.")
           spl = None
 
         def apply_regression(df, func, X_columns, add_columns={}, spl=None, parameter=None):
@@ -240,6 +242,20 @@ class MakeAsimov():
 
       # Do classifier models
       for classifier_model in self.classifier_models:
+
+        # Check if we need to prune this model
+        prune = False
+        if self.prune_classifier_models is not None:
+          with open(self.classifier_pruning_files[classifier_model['parameter']], 'r') as yaml_file:
+            pruning_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          prune = True
+          for pruning_key, pruning_val in self.prune_classifier_models.items():
+            if pruning_info[pruning_key] > pruning_val:
+              prune = False
+        if prune: 
+          if self.verbose:
+            print(f"- Pruning classifier model for model {classifier_model['name']}, parameter {classifier_model['parameter']}")
+          continue
 
         # Build the classifier model
         if self.verbose:
@@ -275,12 +291,12 @@ class MakeAsimov():
           print(f"- Loading the normalising spline for {classifier_model_name}")
 
         spline_name = f"{classifier_model_name}_norm_spline.pkl"
-        if os.path.isfile(spline_name):
+        if not self.skip_spline:
           with open(spline_name, 'rb') as f:
-              spl = pickle.load(f)
+            spl = pickle.load(f)
         else:
-          print(f"WARNING: No normalising spline found for {classifier_model['parameter']}. Leaving unnormalised.")
           spl = None
+
 
         def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None):
           cols_in = list(df.columns)
@@ -288,7 +304,7 @@ class MakeAsimov():
           probs = func(df.loc[:,X_columns])
           df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
           if spl is not None:
-            df["wt"] = df["wt"] *spl(df.loc[:,parameter]).flatten()
+            df["wt"] = df["wt"] * spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
         wt_shifter_name = f"asimov_wt_shifter_classifier_{classifier_model['parameter']}"
@@ -337,12 +353,16 @@ class MakeAsimov():
     for regression_model in self.regression_models:
       inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
       inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
-      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
+      if not self.skip_spline:
+        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
 
     # Add classifier models
     for classifier_model in self.classifier_models:
       inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
       inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
-      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
+      if not self.skip_spline:
+        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
+      if self.prune_classifier_models is not None:
+        inputs += [self.classifier_pruning_files[classifier_model['parameter']]]
 
     return inputs

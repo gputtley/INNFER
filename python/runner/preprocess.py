@@ -61,6 +61,8 @@ class PreProcess():
     self.model_type = None
     self.parameter_name = None
     self.val_ind = None
+    self.poi_value = None
+    self.poi_value_ind = None
 
     # Other
     self.merge_parameters = []
@@ -161,7 +163,7 @@ class PreProcess():
     return df
 
 
-  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None, base_file_name=None, change_defaults={}):
+  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None, base_file_name=None, change_defaults={}, bins=[None]):
 
     # initiate dictionary
     yields = {}
@@ -206,10 +208,10 @@ class PreProcess():
     if self.verbose:
       print(" - Getting nominal yield")
 
-    if (self.partial is None) or (self.partial == "initial") or (self.partial == "yields" and self.parameter_name == "nominal"):
+    if (self.partial is None) or (self.partial == "initial") or (self.partial in ["yields","binned_fit_inputs"] and self.parameter_name == "nominal"):
 
       yields["nominal"] = dp.GetFull(
-        method="sum",
+        method="sum_w_selections",
         functions_to_apply = [
           partial(
             self._CalculateDatasetWithVariations, 
@@ -221,15 +223,25 @@ class PreProcess():
             nominal_weight=cfg["files"][base_file_name]["weight"],
           )
         ],
-        extra_sel = selection
+        extra_sel = selection,
+        sum_w_selections = bins
       )
+
+      if bins == [None]:
+        yields["nominal"] = yields["nominal"][0]
 
     else:
 
-      nominal_parameters_file_name = f"{self.data_output}/parameters_yields_nominal.yaml"
-      with open(nominal_parameters_file_name, 'r') as yaml_file:
-        nominal_parameters = yaml.safe_load(yaml_file)
-      yields["nominal"] = nominal_parameters["yields"]["nominal"]
+      if self.partial != "binned_fit_inputs":
+        nominal_parameters_file_name = f"{self.data_output}/parameters_yields_nominal.yaml"
+        with open(nominal_parameters_file_name, 'r') as yaml_file:
+          nominal_parameters = yaml.safe_load(yaml_file)
+        yields["nominal"] = nominal_parameters["yields"]["nominal"]
+      else:
+        nominal_parameters_file_name = f"{self.data_output}/parameters_binned_fit_inputs_nominal_{self.poi_value_ind}.yaml"
+        with open(nominal_parameters_file_name, 'r') as yaml_file:
+          nominal_parameters = yaml.safe_load(yaml_file)
+        yields["nominal"] = [bin["yields"][self.poi_value]["nominal"] for bin in nominal_parameters["binned_fit_input"]]
 
 
     # Initiate log normals
@@ -238,7 +250,7 @@ class PreProcess():
     # Loop through nuisances
     for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
 
-      if (self.partial is None) or (self.partial == "initial") or (self.partial == "yields" and self.parameter_name == nui):
+      if (self.partial is None) or (self.partial == "initial") or (self.partial in ["yields","binned_fit_inputs"] and self.parameter_name == nui):
 
         # If yield is 0 then skip
         if yields["nominal"] == 0:
@@ -266,7 +278,7 @@ class PreProcess():
             print(f" - Getting yield for nuisance {nui}")
 
           up_yield = dp.GetFull(
-            method="sum",
+            method="sum_w_selections",
             functions_to_apply = [
               partial(
                 self._CalculateDatasetWithVariations, 
@@ -279,10 +291,11 @@ class PreProcess():
               )
             ],
             extra_sel = up_extra_sel,
+            sum_w_selections = bins
           )
 
           down_yield = dp.GetFull(
-            method="sum",
+            method="sum_w_selections",
             functions_to_apply = [
               partial(
                 self._CalculateDatasetWithVariations, 
@@ -295,9 +308,17 @@ class PreProcess():
               )
             ],
             extra_sel = down_extra_sel,
+            sum_w_selections = bins
           )
 
-          yields["lnN"][nui] = [down_yield/yields["nominal"], up_yield/yields["nominal"]]
+          if bins == [None]:
+            up_yield = up_yield[0]
+            down_yield = down_yield[0]
+
+          if isinstance(up_yield, list):
+            yields["lnN"][nui] = [[down_yield[i]/yields["nominal"][i], up_yield[i]/yields["nominal"][i]] if yields["nominal"][i] != 0 else [1.0, 1.0] for i in range(len(up_yield))]
+          else:
+            yields["lnN"][nui] = [down_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0, up_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0]
 
     # Add log normals that are in the models
     if file_name in cfg["inference"]["lnN"].keys():
@@ -1074,76 +1095,94 @@ class PreProcess():
 
 
 
-  def _GetBinnedFitInputs(self, file_name, cfg, yields):
+  def _GetBinnedFitInputs(self, file_name, cfg):
 
     # Check if binned fit is needed
     if "binned_fit" not in cfg["inference"].keys():
+      print("No binned fit setup in config.")
       return None
 
     if cfg["inference"]["binned_fit"] == {}:
+      print("No binned fit setup in config.")
       return None
 
     # Check that there are not too many shape POIs
     if len(cfg["pois"]) > 1:
       raise ValueError("Binned fits are not setup to work for more the one shape POI.")
 
-    # Get the parameters in the model
-    parameters_in_model = GetParametersInModel(file_name, cfg, category=self.category)
+    base_file_name = None
+    for value in cfg["inference"]["binned_fit"]["files"][self.file_name]:
+      if "categories" not in value.keys() or self.category is None or self.category in value["categories"]:
+        base_file_name = value["file"]
+        break
 
-    # Need to scale to the nominal yield function
-    if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model):
-      total_scales = {}
-      for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
-        poi_yields = self._GetYields(
-          file_name,
-          cfg,
-          extra_sel=None,
-          base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
-          change_defaults={cfg["pois"][0]: poi_val},
-        )
-        total_scales[poi_val] = yields["nominal"]/poi_yields["nominal"]
-
-    # Loop through bins
-    inputs_for_binned_fit = []
-    for bin_ind in range(len(cfg["inference"]["binned_fit"]["input"][self.category]["binning"])-1):
-
+    # Get the bins
+    bins = []
+    n_bins = len(cfg["inference"]["binned_fit"]["input"][self.category]["binning"])-1
+    for bin_ind in range(n_bins):
       cat = cfg["inference"]["binned_fit"]["input"][self.category]
-
-      # Get selection
       bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
-
-      # Setup bins
-      inputs_for_binned_fit.append({
-        "bin_ind" : bin_ind,
-        "selection" : bin_sel,
-        "yields" : {}
-      })
-
-      # Make histograms
-      if len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model:
+      bins.append(bin_sel)
         
-        inputs_for_binned_fit[-1]["yields"]["all"] = self._GetYields(
+    # Get parameters in model
+    parameters_in_model = GetParametersInModel(file_name, cfg, category=self.category)
+    if len(cfg["pois"]) == 0 or cfg["pois"][0] not in parameters_in_model:
+      poi_loop = ["all"]
+    else:
+      poi_loop = cfg["inference"]["binned_fit"]["shape_poi_values"]
+
+    # Loop through shape POI values
+    yields_out = {}
+    for poi_val in poi_loop:
+
+      if self.verbose:
+        print(f"- Getting yields for binned fit, shape POI value: {poi_val}")
+
+      if self.poi_value is not None and poi_val != self.poi_value:
+        continue
+
+      # Get yields
+      if poi_val == "all":
+
+        yields_out[poi_val] = self._GetYields(
           file_name,
           cfg,
-          extra_sel=bin_sel,
-          base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
+          base_file_name=base_file_name,
+          bins=bins
         )
 
       else:
 
-        for poi_val in cfg["inference"]["binned_fit"]["shape_poi_values"]:
-          inputs_for_binned_fit[-1]["yields"][poi_val] = self._GetYields(
-            file_name,
-            cfg,
-            extra_sel=bin_sel,
-            base_file_name=cfg["inference"]["binned_fit"]["files"][self.file_name],
-            change_defaults={cfg["pois"][0]: poi_val},
-          )
-          inputs_for_binned_fit[-1]["yields"][poi_val]["nominal"] *= total_scales[poi_val]
+        yields_out[poi_val] = self._GetYields(
+          file_name,
+          cfg,
+          bins=bins,
+          base_file_name=base_file_name,
+          change_defaults={cfg["pois"][0]: poi_val},
+        )
 
+    # Build store
+    inputs_for_binned_fit = []
+    for bin_ind in range(n_bins):
+      cat = cfg["inference"]["binned_fit"]["input"][self.category]
+      bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
+      inputs_for_binned_fit.append({
+        "bin_ind" : bin_ind,
+        "selection" : bin_sel,
+        "yields" : {},
+      })
+      for poi_val in poi_loop:
+        if self.poi_value is None or poi_val == self.poi_value:
+          nominal_yields = yields_out[poi_val]["nominal"][bin_ind]
+          lnNs = {k: v[bin_ind] for k, v in yields_out[poi_val]["lnN"].items()}
+          inputs_for_binned_fit[-1]["yields"][poi_val] = {
+            "nominal": nominal_yields,
+            "lnN": lnNs
+          }
+
+    # Save store
     self.binned_fit_input = inputs_for_binned_fit
-
-
+    
 
   def _GetValidationBinned(self, file_name, cfg):
 
@@ -1180,19 +1219,16 @@ class PreProcess():
           if np.sum(dp.num_batches) == 0:
             continue
 
-          self.validation_binned[data_split][ind] = []
+          bins = []
           for bin_ind in range(len(cfg["inference"]["binned_fit"]["input"][self.category]["binning"])-1):
             cat = cfg["inference"]["binned_fit"]["input"][self.category]
-
-            # Get selection
             bin_sel = f"({cat['variable']}>={cat['binning'][bin_ind]}) & ({cat['variable']}<{cat['binning'][bin_ind+1]})"
-            self.validation_binned[data_split][ind].append(
-              dp.GetFull(
-                method="sum",
-                extra_sel=bin_sel,
-              )
-            )
+            bins.append(bin_sel)
 
+          self.validation_binned[data_split][ind] = dp.GetFull(
+            method="sum_w_selections",
+            sum_w_selections=bins
+          )
 
   def _GetValidationEffEvents(self, file_name, cfg):
 
@@ -1706,6 +1742,8 @@ class PreProcess():
         extra_name += f"_val_ind_{self.val_ind}"
     elif self.partial == "yields":
       extra_name += f"_yields_{self.parameter_name}"
+    elif self.partial == "binned_fit_inputs":
+      extra_name += f"_binned_fit_inputs_{self.parameter_name}_{self.poi_value_ind}"
 
     return extra_name
 
@@ -1769,6 +1807,7 @@ class PreProcess():
       parameters_file["validation_binned_fit"] = self.validation_binned
 
     # write parameters file
+    MakeDirectories(f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml")
     print(f"Created {self.data_output}/parameters{self._GetParameterExtraName()}.yaml")
     with open(f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml", 'w') as yaml_file:
       yaml.dump(parameters_file, yaml_file, default_flow_style=False) 
@@ -2041,6 +2080,7 @@ class PreProcess():
         en = f"_{parameter_extra_name}"
 
       # load initial parameters file
+      print(f"Loading parameters file: {self.data_output}/parameters{en}.yaml")
       with open(f"{self.data_output}/parameters{en}.yaml", 'r') as yaml_file:
         temp_parameters_file = yaml.safe_load(yaml_file)
       
@@ -2049,10 +2089,36 @@ class PreProcess():
         first = False
       else:
         tmp_keys, tmp_vals = FindKeysAndValuesInDictionaries(copy.deepcopy(temp_parameters_file))
+
         for key, val in zip(tmp_keys, tmp_vals):
           if val is None: continue
+
           if GetDictionaryEntry(parameters_file, key) is None:
             parameters_file = MakeDictionaryEntry(copy.deepcopy(parameters_file), key, val)
+          else:
+            if key[0] == "binned_fit_input":
+              for bin_ind, bin_info in enumerate(temp_parameters_file["binned_fit_input"]):
+                binned_tmp_keys, binned_tmp_vals = FindKeysAndValuesInDictionaries(copy.deepcopy(bin_info))
+                for binned_key, binned_val in zip(binned_tmp_keys, binned_tmp_vals):
+                  if binned_val is None: continue
+                  parameters_file["binned_fit_input"][bin_ind] = MakeDictionaryEntry(copy.deepcopy(parameters_file["binned_fit_input"][bin_ind]), binned_key, binned_val)
+
+    # Make sure there are no yield effects in the binned_fit_input
+    if "binned_fit_input" in parameters_file.keys():
+      for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+        unique_pois = bin_info["yields"].keys()
+        if bin_ind == 0:
+          sum_yields = {poi:0.0 for poi in unique_pois}
+        for poi in unique_pois:
+          sum_yields[poi] += bin_info["yields"][poi]["nominal"]
+      defaults = GetDefaultsInModel(file_name, cfg, category=self.category)
+      default_poi_value = "all"
+      if cfg["pois"][0] in defaults.keys():
+        default_poi_value = defaults[cfg["pois"][0]]
+      default_sum_yield = sum_yields[default_poi_value]
+      for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+        for poi in unique_pois:
+          parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"] = parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"]*default_sum_yield/sum_yields[poi] if sum_yields[poi] > 0 else 0.0
 
     # write parameters file
     with open(f"{self.data_output}/parameters.yaml", 'w') as yaml_file:
@@ -2157,6 +2223,7 @@ class PreProcess():
     # Set parameters needed
     eff_events = {}
     standardisation_parameters = {}
+    yields = {}
 
     # Load config
     if self.verbose:
@@ -2191,7 +2258,7 @@ class PreProcess():
 
 
     # Load yields
-    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations", "binned_fit_inputs", "train_test_val_split"]:
+    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations", "train_test_val_split"]:
       if self.verbose:
         print("- Loading in yields")
       # load initial parameters file
@@ -2201,10 +2268,10 @@ class PreProcess():
 
 
     # Get binned fit inputs
-    if self.partial is None or self.partial in ["initial","binned_fit_inputs"]:
+    if self.partial is None or self.partial in ["initial", "binned_fit_inputs", "collect_binned_fit_inputs"]:
       if self.verbose:
         print("- Get binned fit inputs")
-      self._GetBinnedFitInputs(self.file_name, cfg, yields)
+      self._GetBinnedFitInputs(self.file_name, cfg)
 
     # Train/Val split the dataset
     if self.partial is None or self.partial in ["initial","train_test_val_split"]:
@@ -2320,7 +2387,7 @@ class PreProcess():
       outputs += [f"{self.data_output}/parameters{self._GetParameterExtraName()}.yaml"]
       
     # Add train test val split files
-    if self.partial is None or self.partial in ["initial", "train_test_val_split"]:
+    if self.partial in ["initial", "train_test_val_split"]:
       # Loop through base files in model
       files_in_model = GetFilesInModel(self.file_name, cfg, category=self.category)
       for uf in files_in_model:
@@ -2431,6 +2498,8 @@ class PreProcess():
     # Add nominal parameter files for yields if doing nuisance variations
     if self.partial == "yields" and self.parameter_name != "nominal":
       inputs += [f"{self.data_output}/parameters_yields_nominal.yaml"]
+    if self.partial == "binned_fit_inputs" and self.parameter_name != "nominal":
+      inputs += [f"{self.data_output}/parameters_binned_fit_inputs_nominal_{self.poi_value_ind}.yaml"]
 
     # Add parameter files for collecting yields
     if self.partial == "collect_yields":
@@ -2439,7 +2508,7 @@ class PreProcess():
         inputs += [shift_file_name]
 
     # Add initial parameters
-    if self.partial in ["model", "validation", "nuisance_variations", "merge", "binned_fit_inputs", "train_test_val_split"]:
+    if self.partial in ["model", "validation", "nuisance_variations", "merge", "train_test_val_split"]:
       inputs += [f"{self.data_output}/parameters_initial.yaml"]
 
     # Add train test split files

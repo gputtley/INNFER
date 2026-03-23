@@ -1,3 +1,4 @@
+from itertools import count
 import time
 
 import copy
@@ -58,6 +59,7 @@ class DataProcessor():
     self.decimals = 16
     self.check_wt = False
     self.use_pbar = use_pbar
+    self.sort_columns = True
 
     # Transform options
     self.parameters = {}
@@ -92,7 +94,6 @@ class DataProcessor():
     self.batch_ind = 0
     self.finished = False
     self.total_columns = None
-    self.sort_columns = True
 
     # Cache
     self.cache_to_memory = False
@@ -240,7 +241,7 @@ class DataProcessor():
     if len(df) == 0:
       self._AddFinishedCounters()
       return df
-
+    
     # Check weight exists
     if self.wt_name not in list(df.columns) and self.check_wt:
       self.wt_name = None
@@ -260,7 +261,7 @@ class DataProcessor():
 
     # Change batch and file ind
     self._AddFinishedCounters()
-
+ 
     return df
 
 
@@ -284,7 +285,8 @@ class DataProcessor():
       test_fraction = 0.2,
       custom_options = {},
       print_dataset = False,
-      skip_load=False
+      skip_load=False,
+      sum_w_selections = [],
     ):
 
     none_total_columns = False
@@ -390,6 +392,8 @@ class DataProcessor():
           out = self._method_count_unique_columns(tmp, out, unique_combinations)
         elif method in ["sum_w2"]: # sum up the weights or count events
           out = self._method_sum_w2(tmp, out)
+        elif method in ["sum_w_selections"]:
+          out = self._method_sum_w_selections(tmp, out, sum_w_selections)
         elif method in ["sum_w_and_w2"]: # sum up the weights or count events
           out = self._method_sum_w_and_w2(tmp, out)
         elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
@@ -444,6 +448,25 @@ class DataProcessor():
     self.Restart()
     return list(df.columns)    
 
+  '''
+  def TransformData(self, data):
+    """
+    Transform columns in the dataset.
+
+    Args:
+        data (pd.DataFrame): The dataset to be transformed.
+
+    Returns:
+        pd.DataFrame: The transformed dataset.
+    """
+    st = time.time()
+    for column_name in data.columns:
+      # Apply standardisation
+      if column_name in self.parameters["standardisation"]:
+        data[column_name] = self.Standardise(data[column_name], column_name).astype(np.float64)
+    print(f"Time for transforming data: {time.time() - st} seconds")
+    return data
+  '''
 
   def TransformData(self, data):
     """
@@ -455,11 +478,11 @@ class DataProcessor():
     Returns:
         pd.DataFrame: The transformed dataset.
     """
-    for column_name in data.columns:
-      # Apply standardisation
-      if column_name in self.parameters["standardisation"]:
-        data[column_name] = self.Standardise(data[column_name], column_name).astype(np.float64)
-
+    cols_to_standardise = [c for c in data.columns if c in self.parameters["standardisation"]]
+    arr = data[cols_to_standardise].to_numpy(dtype=np.float64)
+    for i, column_name in enumerate(cols_to_standardise):
+      arr[:, i] = self.Standardise(arr[:, i], column_name)
+    data[cols_to_standardise] = arr
     return data
 
   def UnTransformData(
@@ -543,8 +566,9 @@ class DataProcessor():
     Returns:
         pd.Series: The standardised column.
     """
-    return (column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"]
-  
+    mean = self.parameters["standardisation"][column_name]["mean"]
+    std  = self.parameters["standardisation"][column_name]["std"]
+    return (column - mean) / std  
 
   def UnStandardise(
       self, 
@@ -754,6 +778,28 @@ class DataProcessor():
       out = copy.deepcopy(tmp_total)
     else:
       out += tmp_total
+    return out
+
+
+  def _method_sum_w_selections(self, tmp, out, sum_w_selections):
+
+    tmp_total = []
+    for sel in sum_w_selections:
+      if sel is None:
+        tmp_sel = tmp
+      else:
+        selection = self._ReplaceEqualsWithIsClose(sel)
+        tmp_sel = tmp.loc[tmp.eval(selection),:]
+
+      if self.wt_name is None:
+        tmp_total.append(len(tmp_sel))
+      else:
+        tmp_total.append(float(np.sum(tmp_sel[self.wt_name])))
+
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out = [out[i] + tmp_total[i] for i in range(len(tmp_total))]
     return out
 
 

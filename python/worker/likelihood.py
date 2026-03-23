@@ -14,7 +14,7 @@ from functools import partial
 from iminuit import Minuit
 from pprint import pprint
 from scipy.interpolate import UnivariateSpline
-from scipy.optimize import minimize
+from scipy.optimize import minimize, root_scalar
 
 from minimise import Minimise as CustomMinimise
 from useful_functions import MakeDirectories, RandomString
@@ -49,6 +49,8 @@ class Likelihood():
     self.skip_nan_check = True
     self.nn_columns = nn_columns
     self.constraint_range=[-3.0,3.0]
+    self.cap_column_print = False
+    self.no_print_minimisation_step = False
 
     # saved parameters
     self.best_fit = None
@@ -66,12 +68,18 @@ class Likelihood():
     self.use_density_cache = False
     self.use_classifier_cache = False
     self.use_regression_cache = False
+    self.use_total_cache = False
+    self.use_total_classifier_cache = False
+    self.use_total_regression_cache = False
     self.cache_only_non_minimised = False
     self.cached_density_minimised_columns = []
     self.cache_name = RandomString()
     self.cached_list_density = []
     self.cached_list_classifier = []
     self.cached_list_regression = []
+    self.cached_list_total = []
+    self.cached_list_total_classifier = []
+    self.cached_list_total_regression = []
     self.cached_log_probs_batch_ind = 0
     self.cached_log_probs_ind = 0
     self.n_caches = 500
@@ -82,6 +90,15 @@ class Likelihood():
       MakeDirectories(self.cache_dir)
     self.precalculated_yields = {}
     self.data_yield = {}
+    self.integrate_density_with_ratios = True
+    self.n_integral_events = 10**4
+    self.integral_events_per_batch = 10**5
+    self.integral_cache_list = []
+    self.integral_cache_values = []
+    self.integral_sample_cache_list = []
+    self.integral_sample_cache_values = []
+    self.n_integral_sample_caches = 100
+    self.print_columns = None
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -112,7 +129,7 @@ class Likelihood():
     return log_probs
   
 
-  def _ConstraintGaussian(self, x, derivative=0):
+  def _ConstraintGaussian(self, x, derivative=0, ignore_constant=True, return_log=False):
     """
     Computes the Gaussian distribution.
 
@@ -123,7 +140,13 @@ class Likelihood():
         float: The Gaussian distribution value.
     """
     x = float(x)
-    gauss =  1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2)
+    if ignore_constant:
+      if not return_log:
+        gauss = np.exp(-0.5 * x**2)
+      else:
+        gauss = -0.5 * x**2
+    else:
+      gauss = 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * x**2) + 1e-10
     if derivative == 0:
       return gauss
     elif derivative == 1:
@@ -208,7 +231,11 @@ class Likelihood():
 
   def _GetBinned(self, bin_values, Y, category=None):
 
-    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    #predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    model_values = self.models["bin_yields"][category].values()
+    predicted_bin_values = np.array([0.0] * len(bin_values))
+    for yield_functions in model_values:
+      predicted_bin_values += yield_functions(Y)
     non_zero_indices = np.array(predicted_bin_values) > 0
     predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
     bin_values = list(np.array(bin_values)[non_zero_indices])
@@ -220,12 +247,14 @@ class Likelihood():
 
   def _GetBinnedExtended(self, bin_values, Y, category=None):
 
-    predicted_bin_values = [np.sum([yield_functions[bin_index](Y) for yield_functions in self.models["bin_yields"][category].values()]) for bin_index, bin_value in enumerate(bin_values)]
+    model_values = self.models["bin_yields"][category].values()
+    predicted_bin_values = np.array([0.0] * len(bin_values))
+    for yield_functions in model_values:
+      predicted_bin_values += yield_functions(Y)
     non_zero_indices = np.array(predicted_bin_values) > 0
     predicted_bin_values = list(np.array(predicted_bin_values)[non_zero_indices])
     bin_values = list(np.array(bin_values)[non_zero_indices])
     ln_lkld = np.sum([(bin_value*np.log(predicted_bin_values[bin_index])) - predicted_bin_values[bin_index] for bin_index, bin_value in enumerate(bin_values)])
-
     return ln_lkld
 
 
@@ -233,27 +262,24 @@ class Likelihood():
 
     first_loop = True
     ln_constraint = 0.0
+    Y_row = Y.iloc[0]
+    constraint_center_row = self.constraint_center.iloc[0] if self.constraint_center is not None else None
+    Y_columns = set(Y.columns)
+    constraint_func = self._ConstraintGaussian
+
     for k in self.constraints:
 
-      if k not in list(Y.columns): continue
+      if k not in Y_columns: continue
 
-      constraint_func = self._ConstraintGaussian
-
-      constraint_input = float(Y.loc[:,k].iloc[0])
+      constraint_input = Y_row[k]
       if self.constraint_center is not None:
         if k in self.constraint_center.columns:
-          constraint_input -= float(self.constraint_center.loc[:,k].iloc[0])
+          constraint_input -= constraint_center_row[k]
 
       # Get nominal value
       if derivative == 0:
 
-        val = np.log(constraint_func(constraint_input, derivative=0))
-
-        if first_loop:
-          ln_constraint = val
-          first_loop = False
-        else:
-          ln_constraint += val
+        ln_constraint += constraint_func(constraint_input, derivative=0, return_log=True)
 
       # Get first derivative
       elif derivative == 1:
@@ -276,10 +302,6 @@ class Likelihood():
 
       elif derivative == 2:
 
-        if first_loop:
-          ln_constraint = 0.0
-          first_loop = False
-      
         if column_1[0] == column_2[0] and column_1[0] == k:
           val = -(constraint_func(constraint_input, derivative=1)/constraint_func(constraint_input, derivative=0))**2 + (constraint_func(constraint_input, derivative=2)/constraint_func(constraint_input, derivative=0))
           ln_constraint += val
@@ -287,12 +309,15 @@ class Likelihood():
     return ln_constraint
 
 
-  def _CreateCacheDict(self, name, model, Y, gradient, category, column_1=None, column_2=None, model_type="density", extra_options={}, parameter_name=None, extra_save_name=""):
+  def _CreateCacheDict(self, name, model, Y, gradient, category, column_1=None, column_2=None, model_type="density", extra_options={}, parameter_name=None, extra_save_name="", Y_columns_per_model=None):
 
-    if model_type == "density":
-      Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
-    else:
-      Y_columns_per_model = [parameter_name] if parameter_name is not None else self.Y_columns # Temporary?
+
+    if Y_columns_per_model is None:
+      if model_type == "density":
+        Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
+      else:
+        Y_columns_per_model = [parameter_name] if parameter_name is not None else self.Y_columns # Temporary?
+
 
     cache_dict = {
       "name": name,
@@ -318,6 +343,9 @@ class Likelihood():
           "density": self.use_density_cache,
           "classifier": self.use_classifier_cache,
           "regression": self.use_regression_cache,
+          "total": self.use_total_cache,
+          "total_classifier" : self.use_total_classifier_cache,
+          "total_regression" : self.use_total_regression_cache,
       }
 
       if not cache_enabled.get(model_type, False):
@@ -327,6 +355,9 @@ class Likelihood():
         "density": self.cached_list_density,
         "classifier": self.cached_list_classifier,
         "regression": self.cached_list_regression,
+        "total": self.cached_list_total,
+        "total_classifier": self.cached_list_total_classifier,
+        "total_regression": self.cached_list_total_regression,
       }
 
       list_to_check = lists[model_type]
@@ -340,11 +371,18 @@ class Likelihood():
       Y_columns_per_model = model.data_parameters["Y_columns"] if "Y_columns" in model.data_parameters.keys() else self.Y_columns # Temporary?
       minimised = False
 
+      # This is not used currently
       if model_type == "density":
         cached_density_minimised_columns = self.cached_density_minimised_columns
       elif model_type == "classifier":
         cached_density_minimised_columns = self.cached_density_minimised_columns
       elif model_type == "regression":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+      elif model_type == "total":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+      elif model_type == "total_classifier":
+        cached_density_minimised_columns = self.cached_density_minimised_columns
+      elif model_type == "total_regression":
         cached_density_minimised_columns = self.cached_density_minimised_columns
 
       for col in Y_columns_per_model:
@@ -359,6 +397,12 @@ class Likelihood():
     if self.use_regression_cache and (not load_from_cache) and model_type == "regression":
       return True
     if self.use_classifier_cache and (not load_from_cache) and model_type == "classifier":
+      return True
+    if self.use_total_cache and (not load_from_cache) and model_type == "total":
+      return True
+    if self.use_total_classifier_cache and (not load_from_cache) and model_type == "total_classifier":
+      return True
+    if self.use_total_regression_cache and (not load_from_cache) and model_type == "total_regression":
       return True
     
     return False
@@ -378,9 +422,15 @@ class Likelihood():
       for cache_dict in self.cached_list_regression:
         for grad in cache_dict["gradient"]:
           os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
+      for cache_dict in self.cached_list_total:
+        for grad in cache_dict["gradient"]:
+          os.remove(f"{cache_dict['cache_file_name']}_grad{grad}.parquet")
     self.cached_list_density = []
     self.cached_list_classifier = []
     self.cached_list_regression = []
+    self.cached_list_total = []
+    self.cached_list_total_classifier = []
+    self.cached_list_total_regression = []
 
 
   def _WriteCache(self, input, gradient, cache_dict, load_from_cache, model, model_type="density"):
@@ -393,12 +443,17 @@ class Likelihood():
     
     # Pick correct list depending on model_type
     if model_type == "density":
-        cache_list = self.cached_list_density
+      cache_list = self.cached_list_density
     elif model_type == "classifier":
-        cache_list = self.cached_list_classifier
+      cache_list = self.cached_list_classifier
     elif model_type == "regression":
-        cache_list = self.cached_list_regression
-
+      cache_list = self.cached_list_regression
+    elif model_type == "total":
+      cache_list = self.cached_list_total
+    elif model_type == "total_classifier":
+      cache_list = self.cached_list_total_classifier
+    elif model_type == "total_regression":
+      cache_list = self.cached_list_total_regression
     # Remove old cache entry with same name (fast)
     cache_list[:] = [
         item for item in cache_list
@@ -433,6 +488,7 @@ class Likelihood():
             try:
               del self.cache_memory[f"{cache_to_remove['cache_file_name']}_grad{grad}"]
             except KeyError:
+              print(f"Failed to remove {cache_to_remove['cache_file_name']}")
               pass
 
 
@@ -455,128 +511,317 @@ class Likelihood():
     elif model_type == "classifier":
       self.cached_list_classifier.remove(cache_dict)
       self.cached_list_classifier.append(cache_dict)
-
+    elif model_type == "total":
+      self.cached_list_total.remove(cache_dict)
+      self.cached_list_total.append(cache_dict)
+    elif model_type == "total_classifier":
+      self.cached_list_total_classifier.remove(cache_dict)
+      self.cached_list_total_classifier.append(cache_dict)
+    elif model_type == "total_regression":
+      self.cached_list_total_regression.remove(cache_dict)
+      self.cached_list_total_regression.append(cache_dict)
     return ll
 
 
-  def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None):
+  def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None, specific_name=None, extra_cache_name="", skip_density=False, skip_integral=False, add_density_columns_to_cache=False):
+
+    # Set extra cache name
+    if extra_cache_name != "":
+      extra_cache_name = f"_{extra_cache_name}"
 
     # Initiate log probs
     log_probs = {}
 
+    # Check for problems
     if category is None or category not in self.models["pdfs"].keys():
       raise ValueError("Category must be specified and must be in the models dictionary.")
+    if skip_density and gradient != 0 and gradient != [0]:
+      raise ValueError("skip_density only valid for gradient=0.")
 
     # Loop through pdf models
     for name, pdf in self.models["pdfs"][category].items():
+
+      # Skip if not specific name
+      if specific_name is not None and specific_name != name: continue
 
       # Get model scaling
       rate_param = self._GetYield(name, Y, category=category)
       if rate_param == 0: continue
 
-      ### Density ###
+      # Check if we need to integrate density with ratios
+      integrate_density = self.integrate_density_with_ratios and (gradient == 0 or gradient == [0]) and (len(self.models["pdf_shifts_with_classifier"][category][name]) + len(self.models["pdf_shifts_with_regression"][category][name]) > 0)
 
-      # Check if we can load from cache for density
-      cache_dict_density = self._CreateCacheDict(name, pdf, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="density")
-      load_from_cache_density = self._CheckIfInCacheLogProbs(cache_dict_density, model_type="density")
-
-      if not load_from_cache_density:
-
-        # Get rate times probability, get gradients simultaneously if required
-        log_probs[name] = pdf.Probability(
-          X, 
-          Y, 
-          return_log_prob=True, 
-          order=gradient, 
-          column_1=column_1, 
-          column_2=column_2
-        )
-      else:
-        # Load from cache
-        log_probs[name] = self._LoadFromCache(cache_dict_density, gradient, model_type="density")
-
-      # Check if I need to cache
-      self._WriteCache(log_probs[name], gradient, cache_dict_density, load_from_cache_density, pdf, model_type="density")
-
-      ### Regression ###
-
-      do_shift = False
+      # Check if we can load total density from cache
+      density_columns = list(pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns)
+      Y_columns_for_all_models = list(density_columns)
       if "pdf_shifts_with_regression" in self.models.keys():
-        if name in self.models["pdf_shifts_with_regression"][category].keys():
-          if len(self.models["pdf_shifts_with_regression"][category][name]) > 0:
-            do_shift = True
-
-      if do_shift:
-
-        vals = Y[self.Y_columns].iloc[0].to_dict()
-        combined = X[self.X_columns].assign(**vals)
-
-        for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
-
-          cache_dict_regression = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="regression", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
-          load_from_cache_regression = self._CheckIfInCacheLogProbs(cache_dict_regression, model_type="regression")
-
-          if not load_from_cache_regression:
-            regression_shift = self._ShiftDensityByRegression(
-              [np.zeros_like(i) for i in log_probs[name]],
-              combined,
-              name,
-              k,
-              v,
-              gradient=gradient, 
-              column_1=column_1, 
-              column_2=column_2,
-              category=category        
-            )
-          else:
-            regression_shift = self._LoadFromCache(cache_dict_regression, gradient, model_type="regression")
-          log_probs[name] = [log_probs[name][i] + regression_shift[i] for i in range(len(gradient))]
-
-          self._WriteCache(regression_shift, gradient, cache_dict_regression, load_from_cache_regression, pdf, model_type="regression")
-
-      ### Classification ###
-
-      do_shift = False
+        Y_columns_for_all_models += list(self.models["pdf_shifts_with_regression"][category][name].keys())
       if "pdf_shifts_with_classifier" in self.models.keys():
-        if name in self.models["pdf_shifts_with_classifier"][category].keys():
-          if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
-            do_shift = True
+        Y_columns_for_all_models += list(self.models["pdf_shifts_with_classifier"][category][name].keys())
+      add_density_columns = density_columns if add_density_columns_to_cache else []
+      
+      cache_dict_total = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total", Y_columns_per_model=Y_columns_for_all_models, extra_save_name=extra_cache_name)
+      load_from_cache_total = self._CheckIfInCacheLogProbs(cache_dict_total, model_type="total")
 
-      if do_shift:
+      if not load_from_cache_total:
 
-        cache_dict_classifiers = {}
-        load_from_cache_classifiers = {}
-        for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
-          cache_dict_classifiers[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name="_"+k, parameter_name=k)
-          load_from_cache_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_classifiers[k], model_type="classifier")
+        #st = time.time()
 
-        # if all of load from cache is true, skip combining
-        if not all(load_from_cache_classifiers.values()):
-          vals = Y[self.Y_columns].iloc[0].to_dict()
-          combined = X[self.X_columns].assign(**vals)
+        ### Density ###
+        if not skip_density:
 
-        for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+          # Check if we can load from cache for density
+          cache_dict_density = self._CreateCacheDict(name, pdf, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="density", extra_save_name=extra_cache_name)
+          load_from_cache_density = self._CheckIfInCacheLogProbs(cache_dict_density, model_type="density")
 
-          cache_dict_classifier = cache_dict_classifiers[k]
-          load_from_cache_classifier = load_from_cache_classifiers[k]
-
-          if not load_from_cache_classifier:
-            classifier_shift = self._ShiftDensityByClassifier(
-              [np.zeros_like(i) for i in log_probs[name]],
-              combined,
-              name,
-              k,
-              v,
-              gradient=gradient, 
+          if not load_from_cache_density:
+            # Get rate times probability, get gradients simultaneously if required
+            log_probs[name] = pdf.Probability(
+              X, 
+              Y, 
+              return_log_prob=True, 
+              order=gradient, 
               column_1=column_1, 
-              column_2=column_2,
-              category=category        
+              column_2=column_2
             )
-          else:
-            classifier_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="classifier")
-          log_probs[name] = [log_probs[name][i] + classifier_shift[i] for i in range(len(gradient))]
 
-          self._WriteCache(classifier_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="classifier")
+          else:
+            # Load from cache
+            log_probs[name] = self._LoadFromCache(cache_dict_density, gradient, model_type="density")
+
+          # Check if I need to cache
+          self._WriteCache(log_probs[name], gradient, cache_dict_density, load_from_cache_density, pdf, model_type="density")
+
+        else:
+
+          log_probs[name] = [np.zeros((X.shape[0],1))]
+
+        #if not skip_integral:
+        #  print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
+        #else:
+        #  print(f"Time for integral density estimation for {name}: {time.time()-st:.4f} seconds")
+        #st = time.time()
+
+        ### Regression ###
+
+        do_shift = False
+        if "pdf_shifts_with_regression" in self.models.keys():
+          if name in self.models["pdf_shifts_with_regression"][category].keys():
+            if len(self.models["pdf_shifts_with_regression"][category][name]) > 0:
+              do_shift = True
+
+        if do_shift:
+
+          # See if can load cached results from all regression shifts
+          regression_Y_columns = list(self.models["pdf_shifts_with_regression"][category][name].keys()) if "pdf_shifts_with_regression" in self.models.keys() else []
+          cache_dict_total_regression = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_regression", Y_columns_per_model=regression_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
+          load_from_cache_total_regression = self._CheckIfInCacheLogProbs(cache_dict_total_regression, model_type="total_regression")
+
+          if not load_from_cache_total_regression:
+
+            # Get all individual regression shift caches
+            cache_dict_regressions = {}
+            load_from_cache_regressions = {}
+            for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
+
+              cache_dict_regressions[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="regression", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
+              load_from_cache_regressions[k] = self._CheckIfInCacheLogProbs(cache_dict_regressions[k], model_type="regression")
+
+            # if all of load from cache is true, skip combining
+            if not all(load_from_cache_regressions.values()):
+              vals = Y[self.Y_columns].iloc[0].to_dict()
+              combined = X[self.X_columns].assign(**vals)
+
+            total_regression_shifts = None
+            for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
+
+              cache_dict_regression = cache_dict_regressions[k]
+              load_from_cache_regression = self._CheckIfInCacheLogProbs(cache_dict_regression, model_type="regression")
+
+              if not load_from_cache_regression:
+                regression_shift = self._ShiftDensityByRegression(
+                  [np.zeros_like(i) for i in log_probs[name]],
+                  combined,
+                  name,
+                  k,
+                  v,
+                  gradient=gradient, 
+                  column_1=column_1, 
+                  column_2=column_2,
+                  category=category,
+                  skip_spline = integrate_density  
+                )
+              else:
+                regression_shift = self._LoadFromCache(cache_dict_regression, gradient, model_type="regression")
+
+              if total_regression_shifts is None:
+                total_regression_shifts = regression_shift
+              else:
+                total_regression_shifts = [total_regression_shifts[i] + regression_shift[i] for i in range(len(gradient))]
+
+              self._WriteCache(regression_shift, gradient, cache_dict_regression, load_from_cache_regression, pdf, model_type="regression")
+
+          else:
+
+            total_regression_shifts = self._LoadFromCache(cache_dict_total_regression, gradient, model_type="total_regression")
+
+          log_probs[name] = [log_probs[name][i] + total_regression_shifts[i] for i in range(len(gradient))]
+
+          self._WriteCache(total_regression_shifts, gradient, cache_dict_total_regression, load_from_cache_total_regression, pdf, model_type="total_regression")
+
+        #if not skip_integral:
+        #  print(f"Time for regression shifts for {name}: {time.time()-st:.4f} seconds")
+        #else:
+        #  print(f"Time for integral regression shifts for {name}: {time.time()-st:.4f} seconds")
+        #st = time.time()
+
+        ### Classification ###
+        #st1 = time.time()
+
+        # Check if you need to do classifier shift
+        do_shift = False
+        if "pdf_shifts_with_classifier" in self.models.keys():
+          if name in self.models["pdf_shifts_with_classifier"][category].keys():
+            if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
+              do_shift = True
+
+        #print(f"Time for checking classifier cache for {name}: {time.time()-st1:.4f} seconds")
+
+        if do_shift:
+
+          #st1 = time.time()
+
+          # See if can load cached results from all classifier shifts
+          classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys()) if "pdf_shifts_with_classifier" in self.models.keys() else []
+          cache_dict_total_classifier = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_classifier", Y_columns_per_model=classifier_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
+          load_from_cache_total_classifier = self._CheckIfInCacheLogProbs(cache_dict_total_classifier, model_type="total_classifier")
+
+          #print(f"Time for checking total classifier cache for {name}: {time.time()-st1:.4f} seconds")
+
+          if not load_from_cache_total_classifier:
+
+            #st = time.time()
+
+            cache_dict_classifiers = {}
+            load_from_cache_classifiers = {}
+            for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+              cache_dict_classifiers[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
+              load_from_cache_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_classifiers[k], model_type="classifier")
+
+            #print(f"Time for creating classifier cache dicts for {name}: {time.time()-st1:.4f} seconds")
+            #st1 = time.time()
+
+            # if all of load from cache is true, skip combining
+            if not all(load_from_cache_classifiers.values()):
+              vals = Y[self.Y_columns].iloc[0].to_dict()
+              combined = X[self.X_columns].assign(**vals)
+              combined_columns = combined.columns.tolist()
+              combined = combined.to_numpy(copy=False)
+
+            #print(f"Time for combining for {name}: {time.time()-st1:.4f} seconds")
+      
+            # Loop through classifier models
+            total_classifier_shifts = None
+            for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+
+              cache_dict_classifier = cache_dict_classifiers[k]
+              load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="classifier")
+
+              # Get the shift
+              if not load_from_cache_classifier:
+                #st1 = time.time()
+                classifier_shift = self._ShiftDensityByClassifier(
+                  [np.zeros_like(i) for i in log_probs[name]],
+                  combined,
+                  name,
+                  k,
+                  v,
+                  gradient=gradient, 
+                  column_1=column_1, 
+                  column_2=column_2,
+                  category=category,
+                  skip_spline = integrate_density,
+                  combined_columns=combined_columns,        
+                )
+                #print(f"Time for classifier shift for {name} and parameter {k}: {time.time()-st1:.4f} seconds")
+              else:
+                classifier_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="classifier")
+
+              if total_classifier_shifts is None:
+                total_classifier_shifts = classifier_shift
+              else:
+                total_classifier_shifts = [total_classifier_shifts[i] + classifier_shift[i] for i in range(len(gradient))]
+
+              self._WriteCache(classifier_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="classifier")
+
+          else:
+
+            total_classifier_shifts = self._LoadFromCache(cache_dict_total_classifier, gradient, model_type="total_classifier")
+
+          log_probs[name] = [log_probs[name][i] + total_classifier_shifts[i] for i in range(len(gradient))]
+
+          self._WriteCache(total_classifier_shifts, gradient, cache_dict_total_classifier, load_from_cache_total_classifier, pdf, model_type="total_classifier")
+
+        #if not skip_integral:
+        #  print(f"Time for classifier shifts for {name}: {time.time()-st:.4f} seconds")
+        #else:
+        #  print(f"Time for integral classifier shifts for {name}: {time.time()-st:.4f} seconds")
+        #st = time.time()
+
+
+        ### Density normalisation ###
+        if integrate_density and not skip_integral:
+
+          integral_cache_dict = {
+            "name": name,
+            "Y": Y.loc[:, Y_columns_for_all_models].to_dict(),
+            "category": category,        
+          }
+
+          if not (integral_cache_dict in self.integral_cache_list):
+            integral_events_left = self.n_integral_events*1.0
+            sum_weights = 0.0
+            for batch_ind in range(int(np.ceil(self.n_integral_events/self.integral_events_per_batch))):
+              n_events_this_batch = int(min(self.integral_events_per_batch, integral_events_left))
+              integral_events_left -= n_events_this_batch
+
+              #st1 = time.time()
+              integral_sample_cache_dict = {
+                "name": name,
+                "Y": Y.loc[:, density_columns].to_dict(),
+                "category": category,
+                "batch_ind": batch_ind
+              }
+              if not (integral_sample_cache_dict in self.integral_sample_cache_list):
+                sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, seed=batch_ind+1)
+                self.integral_sample_cache_list.append(integral_sample_cache_dict)
+                self.integral_sample_cache_values.append(sampled_events)
+                if len(self.integral_sample_cache_list) > self.n_integral_sample_caches:
+                  self.integral_sample_cache_list.pop(0)
+                  self.integral_sample_cache_values.pop(0)
+              else:
+                sampled_events = self.integral_sample_cache_values[self.integral_sample_cache_list.index(integral_sample_cache_dict)]
+              #print(f"Time for sampling for integral for {name}: {time.time()-st1:.4f} seconds")
+
+              log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
+              sum_weights += np.sum(np.exp(log_weights))
+
+            integral = sum_weights / float(self.n_integral_events)
+            self.integral_cache_list.append(integral_cache_dict)
+            self.integral_cache_values.append(integral)
+          else:
+            index = self.integral_cache_list.index(integral_cache_dict)
+            integral = self.integral_cache_values[index]
+
+          log_probs[name][0] -= np.log(integral)
+
+
+        # write total cache
+        self._WriteCache(log_probs[name], gradient, cache_dict_total, load_from_cache_total, None, model_type="total")
+
+      else:
+        # Load total from cache
+        log_probs[name] = self._LoadFromCache(cache_dict_total, gradient, model_type="total")
 
     # check for nans
     if not self.skip_nan_check:
@@ -772,7 +1017,7 @@ class Likelihood():
       get_log_prob_gradients = [0]
 
     log_probs = self._GetLogProbs(X, Y, gradient=get_log_prob_gradients, column_1=column_1, column_2=column_2, category=category)
-
+    
     if 2 in gradient:
       first_derivative_other = self._GetLogProbs(X, Y, gradient=1, column_1=column_2, category=category)
 
@@ -808,7 +1053,6 @@ class Likelihood():
         ln_lkld += [sum_ln_lkld if len(sum_ln_lkld) > 1 else sum_ln_lkld[0]]
 
     self.cached_log_probs_batch_ind += 1
-
 
     return ln_lkld
 
@@ -1034,7 +1278,7 @@ class Likelihood():
     return np.array(grads)
 
 
-  def _ShiftDensityByRegression(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None):
+  def _ShiftDensityByRegression(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None, skip_spline=False):
 
     # Make gradient loop
     if not isinstance(gradient, list):
@@ -1051,7 +1295,8 @@ class Likelihood():
     elif max(gradient_loop) == 2:
       get_gradient = [0,1,2]
 
-    pred = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2)
+    #pred = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2)
+    pred = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2)
 
     # Update log prob
     for ind, grad in enumerate(gradient_loop):
@@ -1063,20 +1308,21 @@ class Likelihood():
         log_probs[ind] += (pred[2]/pred[0]) - (pred[1]/pred[0])**2  
 
     # Normalise predictions
-    for ind, grad in enumerate(gradient_loop):
-      if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
-        if file_name in self.models["pdf_shifts_with_regression_norm_spline"][category].keys():
-          if k in self.models["pdf_shifts_with_regression_norm_spline"][category][file_name].keys():
-            norm = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-            if grad == 0:
-              log_probs[ind] += np.log(norm)                
-            elif grad == 1 and k in column_1:
-              norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-              log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-            elif grad == 2 and column_1 == k and column_2 == k:
-              norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-              norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-              log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+    if not skip_spline:
+      for ind, grad in enumerate(gradient_loop):
+        if "pdf_shifts_with_regression_norm_spline" in self.models.keys():
+          if file_name in self.models["pdf_shifts_with_regression_norm_spline"][category].keys():
+            if k in self.models["pdf_shifts_with_regression_norm_spline"][category][file_name].keys():
+              norm = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+              if grad == 0:
+                log_probs[ind] += np.log(norm)                
+              elif grad == 1 and k in column_1:
+                norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+              elif grad == 2 and column_1 == k and column_2 == k:
+                norm_grad_1 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                norm_grad_2 = self.models["pdf_shifts_with_regression_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+                log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
         
 
     if not isinstance(gradient, list):
@@ -1085,7 +1331,9 @@ class Likelihood():
     return log_probs
 
  
-  def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None):
+  def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None, skip_spline=False, combined_columns=None):
+
+    #st = time.time()
 
     # Make gradient loop
     if not isinstance(gradient, list):
@@ -1102,7 +1350,10 @@ class Likelihood():
     elif max(gradient_loop) == 2:
       get_gradient = [0,1,2]
 
-    probs = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
+    #st1 = time.time()
+    #probs = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
+    probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=combined_columns)
+    #print(f"Time for classifier prediction: {time.time()-st1:.4f} seconds")
 
     for ind, grad in enumerate(gradient_loop):
       if grad == 0:
@@ -1116,23 +1367,26 @@ class Likelihood():
         log_probs[ind] += num / den
 
     # Normalise predictions
-    for ind, grad in enumerate(gradient_loop):
-      if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
-        if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
-          if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
-            norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
-            if grad == 0:
-              log_probs[ind] += np.log(norm)      
-            elif grad == 1 and k in column_1:
-              norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-              log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
-            elif grad == 2 and column_1 == k and column_2 == k:
-              norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
-              norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
-              log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
+    if not skip_spline:
+      for ind, grad in enumerate(gradient_loop):
+        if "pdf_shifts_with_classifier_norm_spline" in self.models.keys():
+          if file_name in self.models["pdf_shifts_with_classifier_norm_spline"][category].keys():
+            if k in self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name].keys():
+              norm = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k](combined.loc[:,[k]])
+              if grad == 0:
+                log_probs[ind] += np.log(norm)      
+              elif grad == 1 and k in column_1:
+                norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                log_probs[ind][:, [column_1.index(k)]] += norm_grad_1/norm
+              elif grad == 2 and column_1 == k and column_2 == k:
+                norm_grad_1 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(1)(combined.loc[:,[k]])
+                norm_grad_2 = self.models["pdf_shifts_with_classifier_norm_spline"][category][file_name][k].derivative(2)(combined.loc[:,[k]])
+                log_probs[ind] += (norm_grad_2/norm) - (norm_grad_1/norm)**2
 
     if not isinstance(gradient, list):
       log_probs = log_probs[0]
+
+    #print(f"Time for classifier shift: {time.time()-st:.4f} seconds")
 
     return log_probs
 
@@ -1163,7 +1417,6 @@ class Likelihood():
 
     """
     start_time = time.time()
-
     # Check type of Y
     if not isinstance(Y, pd.DataFrame):
       Y = pd.DataFrame([Y], columns=self.Y_columns, dtype=np.float64)
@@ -1171,7 +1424,7 @@ class Likelihood():
     # Check Y is in range
     if not self._CheckYInRange(Y):
       return np.nan
-    
+
     # Check type of gradient
     convert_back = False
     if isinstance(gradient,int):
@@ -1189,7 +1442,6 @@ class Likelihood():
     # Do numerical gradients
     if numerical_gradient and gradient != [0]:
       raise NotImplementedError("Numerical gradients are not implemented yet for this class. Please use analytical gradients or scans.")
-
 
     # Run likelihood
     first = True
@@ -1226,38 +1478,40 @@ class Likelihood():
     # Calculate minimisation step
     if self.minimisation_step is not None:
       self.minimisation_step += 1
-      if self.verbose:
+      if self.verbose and not self.no_print_minimisation_step:
         print(f"Step={self.minimisation_step}")
 
     # Print Y
-    if len(self.Y_columns) < 5:
+    if (len(self.Y_columns) < 5 or not self.cap_column_print) and self.verbose and not self.no_print_minimisation_step:
       print(f"  Y: ")
       for ind, Y_col in enumerate(self.Y_columns):
-        print(f"    {Y_col} = {float(Y.to_numpy().flatten()[ind])}")
+        if self.print_columns is None or Y_col in self.print_columns:
+          print(f"    {Y_col} = {float(Y.to_numpy().flatten()[ind])}")
 
     # Print result
-    print(f"  Result: ")
-    for grad in gradient:
-      result = lkld_val[gradient.index(grad)]
-      if grad == 0:
-        print(f"    {multiply_by}lnL = {result}")
-      elif grad == 1:
-        for col_ind, col in enumerate(column_1):
-          print(f"    {multiply_by}dlnL/d{col} = {result[col_ind]}")
-      elif grad == 2:
-        if column_1 == column_2:
-          print(f"    {multiply_by}d^2lnL/d{column_1[0]}^2 = {result}")
-        else:
-          print(f"    {multiply_by}d^2lnL/d{column_1[0]}_d{column_2[0]} = {result}")
+    if self.verbose and not self.no_print_minimisation_step:
+      print(f"  Result: ")
+      for grad in gradient:
+        result = lkld_val[gradient.index(grad)]
+        if grad == 0:
+          print(f"    {multiply_by}lnL = {result}")
+        elif grad == 1:
+          for col_ind, col in enumerate(column_1):
+            print(f"    {multiply_by}dlnL/d{col} = {result[col_ind]}")
+        elif grad == 2:
+          if column_1 == column_2:
+            print(f"    {multiply_by}d^2lnL/d{column_1[0]}^2 = {result}")
+          else:
+            print(f"    {multiply_by}d^2lnL/d{column_1[0]}_d{column_2[0]} = {result}")
 
-    # Print time
-    print(f"  Time-taken: {round(end_time-start_time,2)} seconds")
+      # Print time
+      print(f"  Time-taken: {round(end_time-start_time,2)} seconds")
       
     # Convert back
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 4:
+    #if self.minimisation_step == 95:
     #  exit()
 
     return lkld_val
@@ -1432,6 +1686,9 @@ class Likelihood():
     self.use_density_cache = True
     self.use_classifier_cache = True
     self.use_regression_cache = True
+    self.use_total_cache = True
+    self.use_total_classifier_cache = True
+    self.use_total_regression_cache = True
     self.cached_density_minimised_columns = [k for k in self.Y_columns if k not in freeze.keys()]
 
     # Set up initial guess
@@ -1439,6 +1696,7 @@ class Likelihood():
 
     # Unfrozen columns
     columns_to_minimise = [k for k in self.Y_columns if k not in freeze.keys()]
+    self.print_columns = [col for col in self.Y_columns if col not in freeze.keys()]
 
     # Define function to minimise
     if method in ["scipy", "one-at-a-time", "scipy-non-nn-profiled"]:
@@ -1527,30 +1785,70 @@ class Likelihood():
           result = self.Minimise(partial(min_func_single_param, initial_guess=initial_guess), initial_param_guess, method="scipy", initial_simplex=initial_param_simplex)
           initial_guess[par] = result[0][0]
       result = (initial_guess, result[1])
+
     elif method in ["scipy-non-nn-profiled"]:
+      self.no_print_minimisation_step = True
+      self.cap_column_print = True
       profiled_columns = [ind for ind, col in enumerate(columns_to_minimise) if col not in self.nn_columns]
       other_columns = [ind for ind, col in enumerate(columns_to_minimise) if col in self.nn_columns]
+
       def func_profiled(x, initial_guess):
         params = initial_guess.copy()
         for ind, col_ind in enumerate(profiled_columns):
           params[col_ind] = x[ind]
         return func(params)
+      
       class func_to_minimise():
-        def __init__(self, initial_guess, inner_columns, outer_columns, minimise_func):
+
+        def __init__(self, initial_guess, inner_columns, outer_columns, minimise_func, initial_simplex, Y_columns):
+
+          self.step_counter = 0
           self.inner_columns = inner_columns
           self.outer_columns = outer_columns
           self.initial_guess = initial_guess
+          self.initial_guess_copy = copy.deepcopy(initial_guess)
           self.Minimise = minimise_func
+          self.initial_simplex = initial_simplex
+          self.Y_columns = Y_columns
+
+          self.profiled_initial_simplex = []
+          for row in self.initial_simplex:
+            profiled_row = [row[ind] for ind in self.inner_columns]
+            if profiled_row not in self.profiled_initial_simplex:
+              self.profiled_initial_simplex.append(profiled_row)
+
         def __call__(self, x):
+          st = time.time()
+
           for ind, col_ind in enumerate(self.outer_columns):
             self.initial_guess[col_ind] = x[ind]
           profiled_initial_guess = [self.initial_guess[ind] for ind in self.inner_columns]
-          partial_func = partial(func_profiled, initial_guess=initial_guess)
-          presult = self.Minimise(partial_func, profiled_initial_guess, method="scipy")
+
+          inner_simplex = []
+          for row in self.profiled_initial_simplex:
+            inner_row = [row[ind] + profiled_initial_guess[ind] for ind in range(len(row))]
+            inner_simplex.append(inner_row)
+
+          partial_func = partial(func_profiled, initial_guess=self.initial_guess)
+          presult = self.Minimise(partial_func, profiled_initial_guess, method="scipy", initial_simplex=inner_simplex)
           for ind, col_ind in enumerate(self.inner_columns):
             self.initial_guess[col_ind] = presult[0][ind]
+
+          # Print best fit
+          self.step_counter += 1
+          print(f"Step {self.step_counter}:")
+          print(f"  Outer parameters tried: ")
+          for ind, col_ind in enumerate(self.outer_columns):
+            print(f"    {self.Y_columns[col_ind]} = {self.initial_guess[col_ind]}")
+          print(f"  Best fit for inner parameters: ")
+          for ind, col_ind in enumerate(profiled_columns):
+            print(f"    {self.Y_columns[col_ind]} = {presult[0][ind]}")
+          print(f"  NLL value: {presult[1]}")
+          print(f"  Time taken for this step: {round(time.time()-st,2)} seconds")
+
           return presult[1]
-      ftm = func_to_minimise(initial_guess, profiled_columns, other_columns, minimise_func=self.Minimise)
+        
+      ftm = func_to_minimise(initial_guess, profiled_columns, other_columns, minimise_func=self.Minimise, initial_simplex=initial_simplex, Y_columns=self.Y_columns)
       other_initial_guess = [initial_guess[ind] for ind in other_columns]
       other_initial_simplex = [other_initial_guess]
       for ind in range(len(initial_simplex)):
@@ -1569,6 +1867,7 @@ class Likelihood():
     if save_best_fit:
       self.best_fit = result[0]
       self.best_fit_nll = result[1]
+
 
     # Clear cache
     self._ClearCache()
@@ -1688,7 +1987,7 @@ class Likelihood():
     return m1p1_vals
 
 
-  def GetUncertaintyFromMinimisation(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1, max_iterations=10, stopping_precision=0.1):
+  def GetUncertaintyFromMinimisation(self, X_dps, column, initial_step_fraction=0.001, min_step=0.1, max_iterations=10, stopping_precision=0.01, freeze={}):
 
     # Find approximate value
     col_index = self.Y_columns.index(column)
@@ -1720,20 +2019,19 @@ class Likelihood():
           Y[col_index] = self.best_fit[col_index] + sign*m1p1_vals[sign*-1]
 
         # Set other parameters to best fit for initial guess
-        initial_guess = copy.deepcopy(Y)
+        initial_guess = pd.DataFrame([Y], columns=self.Y_columns, dtype=np.float64)
 
         for _ in range(max_iterations):
 
-          # Build minimisation function
-          def min_func(Y_input):
-            min_val = self.Run(X_dps, Y_input, multiply_by=-2) - self.best_fit_nll
-            if self.verbose:
-              print(f"  NLL Scan Value = {min_val}")
-            return min_val
-
           # Do minimisation
-          func, initial_guess = self._HelperFreeze({column: Y[col_index]}, initial_guess, min_func)
-          result = self.Minimise(func, initial_guess, method="scipy")
+          copy_freeze = copy.deepcopy(freeze)
+          copy_freeze[column] = Y[col_index]
+          self.print_columns = [col for col in self.Y_columns if col not in copy_freeze.keys()]
+          result = self.GetBestFit(X_dps, initial_guess, method="scipy", freeze=copy_freeze, save_best_fit=False)
+          result = [result[0], result[1] - self.best_fit_nll]
+          
+          if self.verbose:
+            print(f"Result: {column}={Y[col_index]}, NLL={result[1]}")
 
           # Check if negative
           if result[1] < 0.0:
@@ -1752,12 +2050,37 @@ class Likelihood():
             break
 
           # Update Y
-          m = (nll_vals[-1] - nll_vals[-2]) / (points_tried[-1] - points_tried[-2])
-          c = nll_vals[-1] - m*points_tried[-1]
-          Y[col_index] = (1 - c) / m
+          if len(points_tried) < 3:
+            m = (nll_vals[-1] - nll_vals[-2]) / (points_tried[-1] - points_tried[-2])
+            c = nll_vals[-1] - m*points_tried[-1]
+            Y[col_index] = (1 - c) / m
+          else:
+            ordered_inds = np.argsort(points_tried)
+            sorted_points = [points_tried[ind] for ind in ordered_inds]
+            sorted_nlls = [nll_vals[ind] for ind in ordered_inds]
+            # Fit a spline
+            fit_spline = UnivariateSpline(sorted_points, sorted_nlls, k=2, s=0)
+            def spline_func(x):
+              return fit_spline(x) - 1
+            if sign > 0:
+              bracket = [self.best_fit[col_index], max(points_tried)]
+            else:
+              bracket = [min(points_tried), self.best_fit[col_index]]
 
-          # Set initial guess to result[0]
-          initial_guess = result[0]
+            # Check the spline doesn't give an error and if it does use linear interpolation
+            try:
+              spline_result = root_scalar(spline_func, bracket=bracket, method='bisect')
+              Y[col_index] = spline_result.root
+            except ValueError:
+              m = (nll_vals[-1] - nll_vals[-2]) / (points_tried[-1] - points_tried[-2])
+              c = nll_vals[-1] - m*points_tried[-1]
+              Y[col_index] = (1 - c) / m
+
+          # Update so the other parameters start at the previous best
+          columns_to_minimise = [k for k in self.Y_columns if k not in copy_freeze.keys()]
+          for ind, col in enumerate(columns_to_minimise):
+            if col in initial_guess.columns:
+              initial_guess.loc[0, col] = result[0][ind]
 
         # Set m1p1_vals
         if not restart:
@@ -1772,7 +2095,7 @@ class Likelihood():
     return m1p1_vals
 
 
-  def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1, method="approximate"):
+  def GetScanXValues(self, X_dps, column, estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, initial_step_fraction=0.001, min_step=0.1, method="approximate", scan_over=None):
     """
     Computes the scan values for a given column.
 
@@ -1789,19 +2112,21 @@ class Likelihood():
         list: The scan values.
     """
 
-    col_index = self.Y_columns.index(column)
+    columns = scan_over if scan_over is not None else self.Y_columns
+    col_index = columns.index(column)
     if method == "approximate":
       m1p1_vals = self.GetApproximateUncertainty(X_dps, column, initial_step_fraction=initial_step_fraction, min_step=min_step)
     elif method == "hessian":
-      m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column, matrix_columns=self.Y_columns)
+      m1p1_vals = self.GetCovarianceIntervals(self.GetCovariance(), column, matrix_columns=columns)
 
     if self.verbose:
       print(f"Estimated result: {float(self.best_fit[col_index])} + {m1p1_vals[1]} - {m1p1_vals[-1]}")
 
-    lower_scan_vals = [float(self.best_fit[col_index] - estimated_sigma_step*ind*m1p1_vals[-1]) for ind in range(int(np.ceil(estimated_sigmas_shown/estimated_sigma_step)),0,-1)]
-    upper_scan_vals = [float(self.best_fit[col_index] + estimated_sigma_step*ind*m1p1_vals[1]) for ind in range(1,int(np.ceil(estimated_sigmas_shown/estimated_sigma_step))+1)]
+    best_fit_col_index = self.Y_columns.index(column)
+    lower_scan_vals = [float(self.best_fit[best_fit_col_index] - estimated_sigma_step*ind*m1p1_vals[-1]) for ind in range(int(np.ceil(estimated_sigmas_shown/estimated_sigma_step)),0,-1)]
+    upper_scan_vals = [float(self.best_fit[best_fit_col_index] + estimated_sigma_step*ind*m1p1_vals[1]) for ind in range(1,int(np.ceil(estimated_sigmas_shown/estimated_sigma_step))+1)]
 
-    return lower_scan_vals + [float(self.best_fit[col_index])] + upper_scan_vals
+    return lower_scan_vals + [float(self.best_fit[best_fit_col_index])] + upper_scan_vals
 
 
   def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None):
@@ -1829,7 +2154,7 @@ class Likelihood():
       if initial_simplex is not None:
         options['initial_simplex'] = initial_simplex
 
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.001, options=options)
+      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options=options)
       res = minimisation.x, minimisation.fun
     
     # scipy with gradients
@@ -1838,7 +2163,7 @@ class Likelihood():
       options = {'ftol': 1e-9, 'gtol':1e-8}
       if initial_simplex is not None:
         options['initial_simplex'] = initial_simplex      
-      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.001, options=options)
+      minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.01, options=options)
       res = minimisation.x, minimisation.fun
 
     # minuit
@@ -1932,9 +2257,9 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteUncertaintyFromMinimisationToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True):  
+  def GetAndWriteUncertaintyFromMinimisationToYaml(self, X_dps, col, row=None, filename="approx_crossings.yaml", symmetrise=True, freeze={}):  
 
-    uncerts = self.GetUncertaintyFromMinimisation(X_dps, col)
+    uncerts = self.GetUncertaintyFromMinimisation(X_dps, col, freeze=freeze)
 
     if symmetrise:
       dev = (uncerts[1] + uncerts[-1])/2
@@ -2096,6 +2421,9 @@ class NLLAndGradient():
       self.use_classifier_cache = True
       self.use_density_cache = True
       self.use_regression_cache = True
+      self.use_total_cache = True
+      self.use_total_classifier_cache = True
+      self.use_total_regression_cache = True
 
       if specific_column_1 is None or specific_column_2 is None:
         columns_to_run = scan_over
@@ -2181,6 +2509,10 @@ class NLLAndGradient():
       self.use_classifier_cache = True
       self.use_density_cache = True
       self.use_regression_cache = True
+      self.use_total_cache = True
+      self.use_total_classifier_cache = True
+      self.use_total_regression_cache = True
+
       for index_1, column_1 in enumerate(scan_over):
         for index_2, column_2 in enumerate(scan_over):
           if index_1 <= index_2:
@@ -2214,7 +2546,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate", scan_values=None):
+  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate", scan_values=None, scan_over=None):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -2227,7 +2559,7 @@ class NLLAndGradient():
     """
 
     if scan_values is None:
-      scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method)
+      scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method, scan_over=scan_over)
 
     dump = {
       "columns" : self.Y_columns, 

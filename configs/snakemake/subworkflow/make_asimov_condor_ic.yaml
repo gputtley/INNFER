@@ -1,13 +1,7 @@
 # Make asimov
 - step: "MakeAsimov"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    points_per_job: 6
-    use_asimov_scaling: 10
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
 
 # Make asimov for nuisance variations
 - step: "MakeAsimovNuisanceVariations"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    points_per_job: 40
-    use_asimov_scaling: 10
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
