@@ -62,7 +62,7 @@ def AdjustArgs(args):
 
   return args
 
-
+"""
 def BuildBinYields(params, rate_parameters, col):
 
   # Define bin_yields dictionary
@@ -83,7 +83,7 @@ def BuildBinYields(params, rate_parameters, col):
       bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=col, rate_param=rate_param)
 
   return bin_yields
-
+"""
 
 def CamelToSnake(name):
   """
@@ -160,29 +160,40 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
 
   data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
 
-  binned_data_input = {}
+  #binned_data_input = {}
+  binned_data_input = None
+  binned_data_input_parameters_key = None
   if args.likelihood_type in ["binned","binned_extended"]:
-
-    for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-      binned_data_input[cat] = None
-      if data_type in ["asimov","sim"]:
-        first = True
+    if data_type in ["asimov","sim"]:
+      binned_data_input_parameters_key = {}
+      for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        binned_data_input_parameters_key[cat] = {}
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
-            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-          if "validation_binned_fit" not in parameters.keys():
-            continue
-          if "full" not in parameters["validation_binned_fit"].keys():
-            continue
-          if v not in parameters["validation_binned_fit"]["full"]:
-            continue
-          if first:
-            binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
-            first = False
-          else:
-            binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
-      else:
-        raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
+          binned_data_input_parameters_key[cat][k] = ["validation_binned_fit","full",v] 
+    else:
+      raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
+
+
+    #for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    #  binned_data_input[cat] = None
+    #  if data_type in ["asimov","sim"]:
+    #    first = True
+    #    for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
+    #      with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
+    #        parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
+    #      if "validation_binned_fit" not in parameters.keys():
+    #        continue
+    #      if "full" not in parameters["validation_binned_fit"].keys():
+    #        continue
+    #      if v not in parameters["validation_binned_fit"]["full"]:
+    #        continue
+    #      if first:
+    #        binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
+    #        first = False
+    #      else:
+    #        binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
+    #  else:
+    #    raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -207,10 +218,14 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
     "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
     "binned_data_input" : binned_data_input,
+    "binned_data_input_parameters_key" : binned_data_input_parameters_key,
     "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
     "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
     "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
     "bootstrap_method" : args.bootstrap_method,
+    "integrate_density_with_ratios" : args.integrate_density_with_ratios,
+    "no_likelihood_print_out" : args.no_likelihood_print_out,
+    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {}
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -412,7 +427,7 @@ def FindEqualStatBins(data, bins=5, sf_diff=2):
   return equal_bins
 
 
-def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[]):
+def FindKeysAndValuesInDictionaries(config, keys=None, results_keys=None, results_vals=None):
   """
   Find keys and values in dictionaries.
 
@@ -432,6 +447,13 @@ def FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_va
   tuple
       Tuple containing lists of results keys and results values.
   """
+
+  if keys is None:
+      keys = []
+  if results_keys is None:
+      results_keys = []
+  if results_vals is None:
+      results_vals = []
 
   for k, v in config.items():
     new_keys = keys+[k]
@@ -610,19 +632,31 @@ def GetYieldsBaseFile(cfg_input, category):
 
 def GetBinValue(df, func_entry, col):
 
-    if not isinstance(func_entry, dict):
-      return func_entry(df)
-    
-    else:
+  if not isinstance(func_entry, dict):
+    return func_entry(df)
+  
+  else:
 
-      column_val = df[col].to_numpy().flatten()[0]
-      func_keys = list(func_entry.keys())
-      if column_val < min(func_keys) or column_val > max(func_keys):
-        return np.nan
-      else:
-        closest_up = min([i for i in func_keys if i >= column_val])
-        closest_down = max([i for i in func_keys if i < column_val])      
-        return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
+    column_val = df[col].to_numpy().flatten()[0]
+    func_keys = list(func_entry.keys())
+    if column_val < min(func_keys) or column_val > max(func_keys):
+      return np.nan
+    else:
+      closest_up = min([i for i in func_keys if i >= column_val])
+      closest_down = max([i for i in func_keys if i < column_val])      
+      return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
+
+
+def GetBinValueParallelised(df, func_entry, col):
+
+  column_val = df[col].to_numpy().flatten()[0]
+  func_keys = list(func_entry.keys())
+  if column_val < min(func_keys) or column_val > max(func_keys):
+    return np.nan
+  else:
+    closest_up = min([i for i in func_keys if i >= column_val])
+    closest_down = max([i for i in func_keys if i < column_val])      
+    return np.array(func_entry[closest_down](df)) + (np.array(func_entry[closest_up](df)) - np.array(func_entry[closest_down](df))) * (column_val - closest_down) / (closest_up - closest_down)
 
 
 def GetBinValues(binned_fit_input, col, rate_param=None):
@@ -634,6 +668,45 @@ def GetBinValues(binned_fit_input, col, rate_param=None):
     bin_vals.append(partial(GetBinValue, func_entry=func_entry, col=col))
 
   return bin_vals
+
+
+def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
+
+  from yields_parallelised import Yields
+
+  # Get the shape_poi
+  unique_keys = []
+  for key in binned_fit_input[0]["yields"].keys():
+    if key not in unique_keys:
+      unique_keys.append(key)
+
+  # Get all the entries for the unique keys
+  entries = {key: [] for key in unique_keys}
+  for bin in binned_fit_input:
+    for key in unique_keys:
+      entries[key].append(bin["yields"][key])
+
+  # If no shape pois
+  if "all" in unique_keys:
+    yields = Yields(
+      [v1["nominal"] for v1 in entries["all"]],
+      lnN = [v1["lnN"] for v1 in entries["all"]],
+      rate_param=rate_param,
+    )
+    return yields.GetYield
+
+  # If shape poi
+  else:
+
+    yield_funcs = {}
+    for k, v in entries.items():
+      yield_funcs[k] = Yields(
+        [v1["nominal"] for v1 in v],
+        lnN = [v1["lnN"] for v1 in v],
+        rate_param=rate_param,
+      ).GetYield
+    return partial(GetBinValueParallelised, func_entry=yield_funcs, col=col)
+
 
 def GetModelFileLoop(cfg, with_combined=False):
   model_files = list(cfg["models"].keys())
@@ -979,13 +1052,15 @@ def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
   return True
 
 
-def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False):
+
+def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False, allow_non_combined=False):
 
   if not specific_combined_default_val:
     return False
 
-  if file_name != "combined":
-    return True
+  if not allow_non_combined:
+    if file_name != "combined":
+      return True
 
   defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
   default = True
