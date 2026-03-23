@@ -8,6 +8,7 @@ from functools import partial
 
 from data_processor import DataProcessor
 from useful_functions import InitiateDensityModel, MakeDirectories
+from write_parquet import WriteParquet
 
 class EvaluateDensity():
 
@@ -34,20 +35,6 @@ class EvaluateDensity():
     """
     for key, value in options.items():
       setattr(self, key, value)
-
-
-  def _WriteDataset(self, df, file_name):
-
-    file_path = f"{self.data_output}/{file_name}"
-    MakeDirectories(file_path)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
 
 
   def Run(self):
@@ -97,21 +84,21 @@ class EvaluateDensity():
           "parameters" : parameters["density"]
         }
       )
-
-      write_file_name = f"synth_{tt}.parquet"
-      MakeDirectories(f"{self.data_output}/{write_file_name}")
-      if os.path.isfile(f"{self.data_output}/{write_file_name}"):
-        os.remove(f"{self.data_output}/{write_file_name}")    
-
+  
+      wp = WriteParquet(
+        name = f"synth_{tt}",
+        data_output = self.data_output,
+      )
       dp.GetFull(
         method=None,
         functions_to_apply=[
           "untransform",
           pred,
           "transform",
-          partial(self._WriteDataset, file_name=write_file_name)
+          wp
         ]
       )
+      wp.collect()
 
   def Outputs(self):
     """

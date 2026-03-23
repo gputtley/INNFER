@@ -269,7 +269,7 @@ class InnferTrainer(bf.trainers.Trainer):
       if self.active_learning:
          X_data, Y_data, wt_data = self._make_active_learning_datasets(X_data, Y_data, wt_data, ep)
       if self.resample:
-         (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data)
+         (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
       if Y_data.shape[1] == 0:
          Y_data = np.empty((X_data.shape[0],0))
       return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}

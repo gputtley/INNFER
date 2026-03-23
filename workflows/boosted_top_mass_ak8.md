@@ -37,17 +37,18 @@ A few steps are needed preprocess the relevant training, testing and validation.
 innfer --step="LoadData" --cfg="${cfg}"
 ```
 
+In order to optimally fraction the breit-wigner reweighting (specific to tops), you can run the custom module for this.
+```
+innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractions" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass;plot=True"
+```
+
+
 The training, testing and validation files, as well as the parameter files are created with this PreProcess step.
 
 ```
 innfer --step="PreProcess" --cfg="${cfg}"
 ```
 
-Finally, in order to optimally fraction the breit-wigner reweighting (specific to tops), you can run the custom module for this.
-
-```
-innfer --step="Custom" --cfg="${cfg}" --custom-module="top_bw_fractioning" --custom-options="gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass"
-```
 
 ### Visualising datasets
 

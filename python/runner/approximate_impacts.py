@@ -49,7 +49,7 @@ class ApproximateImpacts():
       print(f"- Calculating approximate impacts to {poi}")
 
     impacts = {}
-    for ind, var in enumerate(data["columns"]):
+    for ind, var in enumerate(data["matrix_columns"]):
       if var == poi: continue
       impacts[var] = float(data["covariance"][poi_index][ind] / np.sqrt(data["covariance"][ind][ind])) if data["covariance"][ind][ind] > 0 else 0.0
 

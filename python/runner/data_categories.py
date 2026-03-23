@@ -7,6 +7,7 @@ import pyarrow.parquet as pq
 from data_processor import DataProcessor
 from functools import partial
 from useful_functions import MakeDirectories
+from write_parquet import WriteParquet
 
 class DataCategories():
 
@@ -66,9 +67,6 @@ class DataCategories():
     Run the code utilising the worker classes
     """
 
-    if os.path.isfile(f"{self.data_output}/data.parquet"):
-      os.system(f"rm {self.data_output}/data.parquet")
-
     if self.selection is None and self.extra_selection is None:
       selection = None
     elif self.selection is not None and self.extra_selection is None:
@@ -77,6 +75,11 @@ class DataCategories():
       selection = self.extra_selection
     else:
       selection = f"({self.selection}) & ({self.extra_selection})"
+
+    wp = WriteParquet(
+      name = "data",
+      data_output = self.data_output,
+    )
 
     for ind, k in enumerate(self.data_input):
 
@@ -101,26 +104,13 @@ class DataCategories():
           partial(self._AddColumns, ind=ind),
           self._Calculate,
           "selection",
-          partial(self._WriteDataset, file_name="data.parquet"),
+          wp,
         ]
       )
+    wp.collect()
 
     if self.verbose:
       print(f"Created file {self.data_output}/data.parquet")
-
-
-  def _WriteDataset(self, df, file_name):
-
-    file_path = f"{self.data_output}/{file_name}"
-    MakeDirectories(file_path)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
   
 
   def Outputs(self):
