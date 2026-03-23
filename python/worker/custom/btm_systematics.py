@@ -64,12 +64,22 @@ def btm_jec(
     years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
     nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
     include_b=False,
-    include_b_syst=False
+    include_b_syst=False,
+    year_index = {
+      "2016_PreVFP": 0,
+      "2016_PostVFP": 1,
+      "2017": 2,
+      "2018": 3,
+      "2022_preEE": 4,
+      "2022_postEE": 5,
+      "2023_preBPix": 6,
+      "2023_postBPix": 7
+    }
   ):
 
   if len(df) == 0:
     return df
-
+  
   # JEC and flavour uncertainties
   jec_uncert = get_jec_nuisance_dict()
 
@@ -80,12 +90,15 @@ def btm_jec(
     if info["Correlation"] == 1:
       syst_names = [name]
       scalings = 1.0
+      year_selections = [None]
     elif info["Correlation"] == 0:
       syst_names = [f"{name}_{yr}" for yr in years]
       scalings = 1.0
+      year_selections = [f"year_ind=={year_index[yr]}" for yr in years]
     elif info["Correlation"] == 0.5:
       syst_names = [name] + [f"{name}_{yr}" for yr in years]
       scalings = 0.5
+      year_selections = [None] + [f"year_ind=={year_index[yr]}" for yr in years]
 
     for ind in range(len(syst_names)):
 
@@ -105,6 +118,8 @@ def btm_jec(
 
       # Apply only to selected events if specified
       selected_indices = np.ones(len(df), dtype=bool)
+      if year_selections[ind] is not None:
+        selected_indices &= df.eval(year_selections[ind])
       if "Selection" in info:
         selected_indices &= df.eval(info["Selection"])
       subjet1_indices = selected_indices.copy()

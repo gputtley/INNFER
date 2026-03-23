@@ -364,8 +364,8 @@ def plot_likelihood(
     name="lkld", 
     xlabel="", 
     true_value=None, 
-    cap_at=7,
-    y_max=9,
+    cap_at=5,
+    y_max=7,
     other_lklds={},
     other_crossings={},
     label=None, 
@@ -552,7 +552,8 @@ def  plot_many_comparisons(
   bins,
   xlabel = "",
   ylabel="Events",
-  name="generation_non_stack",       
+  name="generation_non_stack",  
+  ratio_range = [0.5,1.5],     
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -591,7 +592,8 @@ def  plot_many_comparisons(
     legend[ind].get_frame().set_edgecolor('none')  # Make legend edge transparent
     max_label_length = 15  # Adjust the maximum length of each legend label
     for text in legend[ind].get_texts():
-      text.set_text(textwrap.fill(text.get_text(), max_label_length))
+      if "$" not in text.get_text():  # Only wrap text that doesn't contain LaTeX math
+        text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
     # draw ratios
     denom = np.array([v if v !=0 else 1.0 for v in val])
@@ -606,7 +608,7 @@ def  plot_many_comparisons(
   ax[-1].axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
   ax[-1].set_xlabel(xlabel)
   ax[-1].set_ylabel('Ratio')
-  ax[-1].set_ylim([0.5,1.5])
+  ax[-1].set_ylim(ratio_range)
   ax[-1].xaxis.get_major_formatter().set_useOffset(False)
 
   # Adjust spacing between subplots
@@ -687,10 +689,12 @@ def plot_stacked_histogram_with_ratio(
     data_errors=None, 
     stack_hist_errors=None, 
     stack_hist_errors_asym=None,
+    extra_hists={},
     use_stat_err=False,
     axis_text="",
     top_space=1.2,
     draw_ratio=True,
+    ratio_range=[0.5,1.5],
   ):
   """
   Plot a stacked histogram with a ratio plot.
@@ -754,6 +758,13 @@ def plot_stacked_histogram_with_ratio(
 
   # Plot the histograms on the top pad
   rgb_palette = sns.color_palette("Set2", 8)
+  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
+
+  # Draw extra histograms as lines
+  for ind, (k, v) in enumerate(extra_hists.items()):
+    ax1.step(step_edges, np.append(np.insert(v,0,0.0),0.0), label=rf"{k}", color=rgb_palette[len(stack_hist_dict) + ind], linewidth=2)
+
+  # Plot stack
   for ind, (k, v) in enumerate(stack_hist_dict.items()):
     if ind == 0:
       bottom = None
@@ -774,7 +785,6 @@ def plot_stacked_histogram_with_ratio(
        edgecolor=None
       )
 
-  step_edges = np.append(bin_edges,2*bin_edges[-1]-bin_edges[-2])
   summed_stack_hist = np.zeros(len(total_stack_hist))
   for k, v in stack_hist_dict.items():
     summed_stack_hist += v
@@ -802,7 +812,6 @@ def plot_stacked_histogram_with_ratio(
   # Reverse the order of handles and labels
   handles = handles[::-1]
   labels = labels[::-1]
-
   legend = ax1.legend(handles, labels, loc='upper right', fontsize=18, bbox_to_anchor=(0.9, 0.88), bbox_transform=plt.gcf().transFigure, frameon=True, framealpha=1, facecolor='white', edgecolor="white")
 
   # Set legend width and wrap text manually
@@ -812,7 +821,8 @@ def plot_stacked_histogram_with_ratio(
 
   max_label_length = 15  # Adjust the maximum length of each legend label
   for text in legend.get_texts():
-    text.set_text(textwrap.fill(text.get_text(), max_label_length))
+    if "$" not in text.get_text():  # Only wrap text that doesn't contain LaTeX math
+      text.set_text(textwrap.fill(text.get_text(), max_label_length))
 
   ax1.set_ylabel(ylabel)
   hep.cms.text(cms_label,ax=ax1)
@@ -856,6 +866,11 @@ def plot_stacked_histogram_with_ratio(
       # Plot the ratio on the bottom pad
       ax2.errorbar(bin_centers, ratio, fmt='o', yerr=ratio_errors_2, label=data_name, color="black")
 
+    # Draw extra histograms as lines
+    for ind, (k, v) in enumerate(extra_hists.items()):
+      ratio_extra = np.divide(v,total_stack_hist)
+      ax2.step(step_edges, np.append(np.insert(ratio_extra,0,0.0),0.0), color=rgb_palette[len(stack_hist_dict) + ind], linestyle="-", linewidth=2)
+
     ax2.axhline(y=1, color='black', linestyle='--')  # Add a horizontal line at ratio=1
     if stack_hist_errors_asym is None:
       ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
@@ -864,7 +879,7 @@ def plot_stacked_histogram_with_ratio(
 
     ax2.set_xlabel(xlabel)
     ax2.set_ylabel('Ratio')
-    ax2.set_ylim([0.5,1.5])
+    ax2.set_ylim(ratio_range)
     ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Adjust spacing between subplots
@@ -891,6 +906,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
     use_stat_err=False,
     axis_text="",
     sf_diff=2,
+    ratio_range=[0.5,1.5],
   ):
   """
   Plot a stacked histogram with a ratio plot for 2D unrolled histogram.
@@ -1120,7 +1136,7 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   ax2.fill_between(bin_edges,1-np.append(ratio_errors_1,ratio_errors_1[-1]),1+np.append(ratio_errors_1,ratio_errors_1[-1]),color="gray",alpha=0.3,step='post')
   ax2.set_xlabel(xlabel)
   ax2.set_ylabel('Ratio')
-  ax2.set_ylim([0.5,1.5])
+  ax2.set_ylim(ratio_range)
   #ax2.xaxis.get_major_formatter().set_useOffset(False)
 
   # Draw lines showing unrolled bin splits
@@ -1991,7 +2007,9 @@ def plot_pulls_and_impacts(
       #ax_pulls.axvline(x=0.0, color='black', linestyle='--')
       ax_pulls.plot([0.0, 0.0], [y_pos - 0.4, y_pos + 0.4], color='black', linestyle='--')
     else:
-      ax_pulls.text(0.5, y_pos, f"{nominal:.2f} +{up - nominal:.2f} -{nominal - down:.2f}", verticalalignment='center', horizontalalignment='center', fontsize=12, transform=ax_pulls.get_yaxis_transform())
+      # round to 2 sf of the up - nominal and then round everything else to those decimal places
+      decimal_places = max(0, int(-np.floor(np.log10(up - nominal)))) + 1
+      ax_pulls.text(0.5, y_pos, f"{nominal:.{decimal_places}f} +{up - nominal:.{decimal_places}f} -{nominal - down:.{decimal_places}f}", verticalalignment='center', horizontalalignment='center', fontsize=12, transform=ax_pulls.get_yaxis_transform())
     if ind < len(pulls_and_impacts) - 1:
       ax_pulls.axhline(y=y_pos + 0.5, color='black', linestyle='--')
   ax_pulls.set_yticks(range(1, len(pulls_and_impacts)+1))

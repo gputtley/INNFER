@@ -204,7 +204,7 @@ class InputPlotValidation():
           hists[col].append(hist)
           hist_errs[col].append(hist_uncert)
           if not self.use_scenario_labels:
-            hist_names[col].append(", ".join([f"{k}={v}" for k, v in variation.items()]))
+            hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
           else:
             hist_names[col].append(f"Scenario {inds[ind]+1}")
 

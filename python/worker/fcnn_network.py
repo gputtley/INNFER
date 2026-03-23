@@ -103,6 +103,9 @@ class FCNNNetwork():
     else:
       self.wt_test = None
 
+    self._X_cols = self.only_X_columns or self.data_parameters["X_columns"]
+    self._X_idx = None  # will initialize on first call
+
 
   def _SetOptions(self, options):
     """
@@ -463,30 +466,23 @@ class FCNNNetwork():
       return self._GraphPredictSoftMax(X)
 
 
-  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None):
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
 
-    # Preprocess inputs
-    X_dp = DataProcessor(
-      [[input]],
-      "dataset",
-      options = {
-        "parameters" : self.data_parameters,
-        "sort_columns" : False,
-      },
-      batch_size = self.transform_batch_size
-    )
+    columns = self.only_X_columns if self.only_X_columns is not None else self.data_parameters["X_columns"]
 
-    X = X_dp.GetFull(
-      method="dataset",
-      functions_to_apply = ["transform"] if transform_X else [],
-      print_dataset=True,
-    )
-
-    if self.only_X_columns is not None:
-      X = X.loc[:,self.only_X_columns]
+    if columns_for_numpy is None:
+      X = input[columns].to_numpy(copy=False)
     else:
-      X = X.loc[:,self.data_parameters["X_columns"]]
-    X = X.to_numpy()
+      column_inds = [columns_for_numpy.index(col) for col in columns]
+      X = input[:, column_inds]
+
+    if transform_X:
+      standardisation_params = self.data_parameters.get("standardisation", {})
+      cols_to_standardise = [c for c in columns if c in standardisation_params]
+      inds_to_standardise = [columns.index(c) for c in cols_to_standardise]
+      means = np.array([standardisation_params[c]["mean"] for c in cols_to_standardise], dtype=np.float64)
+      stds  = np.array([standardisation_params[c]["std"] for c in cols_to_standardise], dtype=np.float64)
+      X[:, inds_to_standardise] = (X[:, inds_to_standardise] - means) / stds
 
     # Check type of gradient
     if isinstance(order,int):
@@ -518,7 +514,9 @@ class FCNNNetwork():
 
     if order == 0 or order == [0]:
 
+      #st = time.time()
       pred = self._GraphPredictTotal(X)
+      #print(f"Time for prediction for {param_name}: {time.time()-st:.4f} seconds")
 
       if prob_ind is not None:
         pred = pred[:, prob_ind]
@@ -599,6 +597,8 @@ class FCNNNetwork():
         del second_derivative
         gc.collect()
 
+    #st = time.time()
+
     # Post process prediction
     for ind in range(len(preds)):
 
@@ -615,6 +615,7 @@ class FCNNNetwork():
       )
 
       preds[ind] = preds[ind].to_numpy()
+
 
     if isinstance(order, list):
       return preds
