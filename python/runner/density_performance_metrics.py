@@ -385,7 +385,7 @@ class DensityPerformanceMetrics():
       mm = MultiDimMetrics(
         sim_files,
         synth_files,
-        self.open_parameters['density'],
+        self.open_parameters['density']["X_columns"] + self.open_parameters['density']["Y_columns"],
         functions_to_apply = [partial_scale_down]
       )
       mm.verbose = self.verbose

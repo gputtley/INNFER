@@ -77,7 +77,6 @@ class HistogramMetrics():
         density = True,
       )
 
-
       # Add to stores
       self.sim_hists[col] = sim_hist
       self.sim_hist_uncerts[col] = sim_hist_uncert
