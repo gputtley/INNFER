@@ -5,8 +5,6 @@ import yaml
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from functools import partial
 from pprint import pprint
@@ -92,6 +90,8 @@ class Infer():
     self.no_likelihood_print_out = False
     self.integrate_density_with_ratios = False
     self.merge_binned_nuisances = {}
+    self.n_integral_events = 10**5
+    self.skip_initial_fit = False
 
 
   def Configure(self, options):
@@ -480,13 +480,15 @@ class Infer():
       if self.verbose:
         print(f"- Loading best fit into likelihood")
 
-      # Open best fit yaml
-      with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
-        best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
       # Put best fit in class
-      self.lkld.best_fit = np.array(best_fit_info["best_fit"])
-      self.lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+      if not self.skip_initial_fit:      
+        with open(f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml", 'r') as yaml_file:
+          best_fit_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        self.lkld.best_fit = np.array(best_fit_info["best_fit"])
+        self.lkld.best_fit_nll = best_fit_info["best_fit_nll"] 
+      else:
+        self.lkld.best_fit = np.array([self.initial_best_fit_guess.loc[0, col] for col in self.lkld.Y_columns])
+        self.lkld.best_fit_nll = 0.0
 
       if self.verbose:
         print(f"- Performing likelihood profiling")
@@ -633,8 +635,9 @@ class Infer():
                   inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
           
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
-      inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
+      if not (self.method == "Scan" and self.skip_initial_fit): 
+        inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 
     # Add hessian parallel
     if self.method == "HessianCollect":
@@ -1143,5 +1146,7 @@ class Infer():
 
     lkld.integrate_density_with_ratios = self.integrate_density_with_ratios
     lkld.no_print_minimisation_step = self.no_likelihood_print_out
+    lkld.n_integral_events = self.n_integral_events
+    lkld.integral_events_per_batch = int(os.getenv("EVENTS_PER_BATCH"))
 
     return lkld

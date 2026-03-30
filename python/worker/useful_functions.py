@@ -156,7 +156,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
   models_dir = f'{str(os.getenv("MODELS_DIR"))}/{cfg["name"]}'
 
   if "/" not in asimov_name:
-    asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
+    #asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
+    asimov_name = f"{asimov_name}{args.extra_asimov_input_dir_name}"
 
   data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
 
@@ -172,28 +173,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
           binned_data_input_parameters_key[cat][k] = ["validation_binned_fit","full",v] 
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
-
-
-    #for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-    #  binned_data_input[cat] = None
-    #  if data_type in ["asimov","sim"]:
-    #    first = True
-    #    for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-    #      with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
-    #        parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
-    #      if "validation_binned_fit" not in parameters.keys():
-    #        continue
-    #      if "full" not in parameters["validation_binned_fit"].keys():
-    #        continue
-    #      if v not in parameters["validation_binned_fit"]["full"]:
-    #        continue
-    #      if first:
-    #        binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
-    #        first = False
-    #      else:
-    #        binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
-    #  else:
-    #    raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -225,7 +204,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "bootstrap_method" : args.bootstrap_method,
     "integrate_density_with_ratios" : args.integrate_density_with_ratios,
     "no_likelihood_print_out" : args.no_likelihood_print_out,
-    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {}
+    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
+    "n_integral_events" : args.number_of_integral_events
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -546,7 +526,7 @@ def GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_value
   return best_fit
 
 
-def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_name, cfg, file_name, nuisance_value, prefit_nuisance_values=False):
+def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_name, cfg, file_name, nuisance_value, prefit_nuisance_values=False, prefit_nuisance_constraints=False):
 
   best_fit = GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_values=prefit_nuisance_values)
 
@@ -560,12 +540,12 @@ def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_
     intervals = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
   if nuisance_value == "up":
-    if prefit_nuisance_values:
+    if prefit_nuisance_constraints:
       shift = 1.0
     else:
       shift = intervals['crossings'][1] - intervals['crossings'][0]
   elif nuisance_value == "down":
-    if prefit_nuisance_values:
+    if prefit_nuisance_constraints:
       shift = -1.0
     else:
       shift = intervals['crossings'][-1] - intervals['crossings'][-2]
@@ -1115,23 +1095,26 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
 
   val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
   freeze_loop = []
 
-  if not freeze in ["all-but-one","all-nuisances"]:
-
+  if not (freeze in ["all-but-one","all-nuisances"] or (freeze is not None and freeze.startswith("all-but-"))):
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
     }]
-
   elif freeze == "all-nuisances":
-
     freeze_loop += [{
-      "freeze" : {k: v for k, v in val_info_with_defaults.items() if k in cfg["nuisances"]},
+      "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k in cfg["nuisances"]},
       "extra_name" : "",
     }]
-
+  elif freeze is not None and freeze.startswith("all-but-") and freeze != "all-but-one":
+    params_to_float = freeze.split("all-but-")[1].split("-")
+    freeze_loop += [{
+      "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in params_to_float},
+      "extra_name" : f"_floating_only_{'_'.join(params_to_float)}",
+    }]
   elif len(val_info_with_defaults.keys()) < 2:
     freeze_loop += [{
       "freeze" : {},
@@ -1147,7 +1130,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
         if col != column:
           continue
       freeze_loop += [{
-        "freeze" : {k: v for k, v in val_info_with_defaults.items() if k != col},
+        "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k != col},
         "extra_name" : f"_floating_only_{col}",
       }]
 
@@ -1168,7 +1151,7 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
   if include_nuisances:
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
 
-  return par_loop
+  return list(sorted(par_loop))
 
 
 def GetScanArchitectures(cfg, data_output="data/", write=True):

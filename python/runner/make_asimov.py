@@ -327,6 +327,31 @@ class MakeAsimov():
         wp.collect()
         if os.path.isfile(total_wt_shifter_name): os.system(f"mv {total_wt_shifter_name} {asimov_file_name}")
 
+    # Rescale back to total yield
+    if self.verbose:
+      print(f"- Rescaling asimov dataset to total yield")
+    wt_rescaler_name = f"asimov_wt_shifter_classifier_{classifier_model['parameter']}"
+    total_wt_rescaler_name = f"{self.data_output}/{wt_rescaler_name}.parquet"
+    wp = WriteParquet(name=wt_rescaler_name, data_output=self.data_output)
+    wt_rescaler= DataProcessor(
+      [[asimov_file_name]],
+      "parquet",
+      wt_name = "wt",
+      options = {
+      }
+    )
+    sum_wt = wt_rescaler.GetFull(method="sum")
+    def rescale_wt(df, scale):
+      df["wt"] = df["wt"] * scale
+      return df
+    wt_rescaler.GetFull(
+      method = None,
+      functions_to_apply = [partial(rescale_wt, scale=total_yield/sum_wt), wp]
+    )
+    wp.collect()
+    if os.path.isfile(total_wt_rescaler_name): os.system(f"mv {total_wt_rescaler_name} {asimov_file_name}")
+
+
   def Outputs(self):
 
     # Add asimov

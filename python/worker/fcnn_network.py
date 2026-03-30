@@ -452,11 +452,11 @@ class FCNNNetwork():
     _ = self.model(X_train_batch)
     self.model.load_weights(name)
 
-  @tf.function
+  @tf.function(jit_compile=True, reduce_retracing=True)
   def _GraphPredict(self, X):
     return self.model(X, training=False)
 
-  @tf.function
+  @tf.function(jit_compile=True, reduce_retracing=True)
   def _GraphPredictSoftMax(self, X):
     logits = self.model(X, training=False)
     return tf.nn.softmax(logits)
@@ -470,6 +470,7 @@ class FCNNNetwork():
 
   def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
 
+    postprocess = True
     columns = self.only_X_columns if self.only_X_columns is not None else self.data_parameters["X_columns"]
 
     if columns_for_numpy is None:
@@ -484,7 +485,10 @@ class FCNNNetwork():
       inds_to_standardise = [columns.index(c) for c in cols_to_standardise]
       means = np.array([standardisation_params[c]["mean"] for c in cols_to_standardise], dtype=np.float64)
       stds  = np.array([standardisation_params[c]["std"] for c in cols_to_standardise], dtype=np.float64)
-      X[:, inds_to_standardise] = (X[:, inds_to_standardise] - means) / stds
+      #X[:, inds_to_standardise] = (X[:, inds_to_standardise] - means) / stds
+      for i, m, s in zip(inds_to_standardise, means, stds):
+        X[:, i] -= m
+        X[:, i] /= s
 
     # Check type of gradient
     if isinstance(order,int):
@@ -516,19 +520,24 @@ class FCNNNetwork():
 
     if order == 0 or order == [0]:
 
-      #st = time.time()
       pred = self._GraphPredictTotal(X)
-      #print(f"Time for prediction for {param_name}: {time.time()-st:.4f} seconds")
-
       if prob_ind is not None:
         pred = pred[:, prob_ind]
+      pred_numpy = pred.numpy()
+
       if self.task == "regression":
-        preds += [pd.DataFrame({param_name : pred.numpy()})]
+        preds += [pd.DataFrame({param_name : pred_numpy})]
       elif self.task == "classification":
+        #if prob_ind is not None:
+        #  preds += [pd.DataFrame({f"{param_name}_{prob_ind}" : pred_numpy})]
+        #else:
+        #  preds += [pd.DataFrame({f"{param_name}_{ind}" : pred_numpy[:,ind] for ind in range(pred.shape[1])})]
         if prob_ind is not None:
-          preds += [pd.DataFrame({f"{param_name}_{prob_ind}" : pred.numpy()})]
+          preds += [pred_numpy.reshape(-1, 1)]
         else:
-          preds += [pd.DataFrame({f"{param_name}_{ind}" : pred.numpy()[:,ind] for ind in range(pred.shape[1])})]
+          preds += [pred_numpy]
+        postprocess = False
+
 
     elif order == 1 or order == [1] or order == [0,1]:
 
@@ -548,16 +557,12 @@ class FCNNNetwork():
 
       if order == [0,1]:        
         preds += [pd.DataFrame({param_name : pred.numpy()})]
-        del pred
-        gc.collect()
       if order == 1 or order == [1] or order == [0,1]:
         first_derivative_for_all_columns = np.zeros((len(X),len(column_1)))
         for ind, col in enumerate(column_1):
           if col not in self.data_parameters["X_columns"]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         preds += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_{param_name}_by_d_{col}" for col in column_1], dtype=np.float64)]
-        del first_derivative, first_derivative_for_all_columns
-        gc.collect()
 
     elif order == 2 or order == [2] or order == [1,2] or order == [0,1,2] or order == [0,2]:
 
@@ -584,39 +589,33 @@ class FCNNNetwork():
       # Make log_probs array
       if order == [0,1,2] or order == [0,2]:
         preds += [pd.DataFrame({param_name : pred.numpy()})]
-        del pred
-        gc.collect()
       if order == [0,1,2] or order == [1,2]:
         first_derivative_for_all_columns = np.zeros((len(X),len(column_1)))
         for ind, col in enumerate(column_1):
           if col not in self.data_parameters["X_columns"]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         preds += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_{param_name}_by_d_{col}" for col in column_1], dtype=np.float64)]
-        del first_derivative, first_derivative_for_all_columns
-        gc.collect()
       if order == 2 or order == [2] or order == [0,1,2] or order == [0,2] or order == [1,2]:
         preds += [pd.DataFrame(second_derivative.numpy(), columns=[f"d2_{param_name}_by_d_{col1}_and_{col2}" for col1 in column_1 for col2 in column_2], dtype=np.float64)]
-        del second_derivative
-        gc.collect()
 
-    #st = time.time()
 
     # Post process prediction
-    for ind in range(len(preds)):
+    if postprocess:
+      for ind in range(len(preds)):
 
-      pred_dp = DataProcessor(
-        [[preds[ind]]],
-        "dataset",
-        options = {
-          "parameters" : self.data_parameters,
-        }
-      )
-      preds[ind] = pred_dp.GetFull(
-        method="dataset",
-        functions_to_apply = ["untransform"]
-      )
+        pred_dp = DataProcessor(
+          [[preds[ind]]],
+          "dataset",
+          options = {
+            "parameters" : self.data_parameters,
+          }
+        )
+        preds[ind] = pred_dp.GetFull(
+          method="dataset",
+          functions_to_apply = ["untransform"]
+        )
 
-      preds[ind] = preds[ind].to_numpy()
+        preds[ind] = preds[ind].to_numpy()
 
 
     if isinstance(order, list):

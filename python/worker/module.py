@@ -14,6 +14,7 @@ class Module():
       args,
       default_args,
       job_name = "job",
+      options = {}
     ):
     """
     A class to facilitate module execution and batch processing.
@@ -46,6 +47,11 @@ class Module():
     self.saved_class = None
     self.use_number_for_jobs = True
     self.jobs_inds = {}
+
+    # Set up options
+    for key, value in options.items():
+      setattr(self, key, value)
+
 
   def _CheckRunFromSpecific(self, specific, loop):
     """
@@ -322,13 +328,13 @@ class Module():
       self.output_store = sorted(list(set(self.output_store)))
       # if output is in the inputs change to dummy file and add dummy file creation to cmd store
       
-
     # Check points per job and whether to add 
     if len(self.cmd_store) < self.args.points_per_job:
       return None
 
     # Sweep up jobs, either snakemake or submit
-    self.Sweep()
+    if not self.args.no_sweep:
+      self.Sweep()
 
   def Sweep(self):
     """

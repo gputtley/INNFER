@@ -362,12 +362,17 @@ class Generator():
         for nuisance in total_nuisances:
           for nuisance_value in ["up", "down"]:
             synth_extra_hist_uncerts_total[nuisance][nuisance_value] -= synth_hist_total
+
         # Get the sum in quadrature
+        synth_hist_uncert_up = np.sqrt(synth_hist_uncert_squared)
+        synth_hist_uncert_down = np.sqrt(synth_hist_uncert_squared)
         for nuisance in total_nuisances:
           min_vals = np.minimum.reduce([synth_extra_hist_uncerts_total[nuisance]["up"], synth_extra_hist_uncerts_total[nuisance]["down"], np.zeros_like(synth_extra_hist_uncerts_total[nuisance]["up"])])
           max_vals = np.maximum.reduce([synth_extra_hist_uncerts_total[nuisance]["up"], synth_extra_hist_uncerts_total[nuisance]["down"], np.zeros_like(synth_extra_hist_uncerts_total[nuisance]["up"])])
-          synth_hist_uncert_up = np.sqrt(synth_hist_uncert_squared + max_vals**2)
-          synth_hist_uncert_down = np.sqrt(synth_hist_uncert_squared + min_vals**2)
+          min_vals = np.minimum(min_vals, np.zeros_like(min_vals))
+          max_vals = np.maximum(max_vals, np.zeros_like(max_vals))
+          synth_hist_uncert_up = np.sqrt(synth_hist_uncert_up**2 + max_vals**2)
+          synth_hist_uncert_down = np.sqrt(synth_hist_uncert_down**2 + min_vals**2)
 
 
       if density:
