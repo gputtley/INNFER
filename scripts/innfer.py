@@ -60,6 +60,8 @@ def parse_args():
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory', type=str, default='')
+  parser.add_argument('--extra-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
+  parser.add_argument('--extra-postfit-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
   parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
   parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
@@ -87,6 +89,7 @@ def parse_args():
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
+  parser.add_argument('--number-of-integral-events', help='The number of integral events', type=int, default=10**5)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=20)
   parser.add_argument('--number-of-toys', help='The number of toys for p-value dataset comparisons', type=int, default=100)
@@ -94,6 +97,8 @@ def parse_args():
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--no-likelihood-print-out', help='Do not print the likelihood values', action='store_true')
   parser.add_argument('--no-spline', help='Do not use the normalisaing splines when creating asimov', action='store_true')
+  parser.add_argument('--no-sweep', help='Do not sweep up jobs in module (internal option)', action='store_true')
+  parser.add_argument('--no-sweep-final', help='Do not sweep up jobs in innfer (internal option)', action='store_true')
   parser.add_argument('--only-default-asimov', help='Build asimov for only the default validation indices', action='store_true')
   parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
@@ -106,6 +111,7 @@ def parse_args():
   parser.add_argument('--plot-var-and-bins', help='For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced.', type=str, default=None)
   parser.add_argument('--plot-weight-distribution', help='Plot weight distribution when running InputPlotValidation.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
+  parser.add_argument('--prefit-nuisance-constraints', help='Make postfit plots with prefit nuisance constraints', action='store_true')
   parser.add_argument('--prefit-nuisance-values', help='Make postfit plots with prefit nuisance values', action='store_true')
   parser.add_argument('--preprocess-merge', help='Comma separated list of steps to merge in preprocess', type=str, default='initial,model,validation')
   parser.add_argument('--prune-classifier-models', help='Comma separated list of key>values keep shape effects for', type=str, default=None)
@@ -114,14 +120,16 @@ def parse_args():
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
   parser.add_argument('--replace-inputs', help='Colon and comma separated string to replace the inputs', type=str, default=None)
   parser.add_argument('--replace-outputs', help='Colon and comma separated string to replace the outputs and write a dummy file', type=str, default=None)
+  parser.add_argument('--rezero-scan', help='Re-zero the likelihood scan, when running ScanPlot', action='store_true')
   parser.add_argument('--save-model-per-epoch', help='Save a model at each epoch', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--scan-nominal-name', help='Name of nominal for scan', type=str, default='Nominal')
   parser.add_argument('--scan-plot-breakdown', help='Do the syst and stat breakdown, assuming the main input if the full and other-input is stat.', action='store_true')
   parser.add_argument('--scan-points-input', help='Input for scan points, comma separated bracketed list of min and max, e.g. (171.5,173.5)', type=str, default=None)
-  parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
+  parser.add_argument('--sigma-between-scan-points', help='The estimated sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
   parser.add_argument('--simplex', help='The simplex used for likelihood minimisation.', type=str, default=None)
+  parser.add_argument('--skip-initial-fit', help='Skip the initial fit if running a scan', action='store_true')
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
@@ -133,6 +141,7 @@ def parse_args():
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
+  parser.add_argument('--submit-in-one-job', help='Will submit all steps in one job', action='store_true')
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
@@ -153,7 +162,7 @@ def parse_args():
   return args, default_args
 
 
-def main(args, default_args):
+def main(args, default_args, module_options={}):
 
   # Get extra input and output directory name
   if args.extra_dir_name != "":
@@ -165,6 +174,7 @@ def main(args, default_args):
     sys.argv,
     args,
     default_args,
+    options = module_options,
   )
 
 
@@ -1017,7 +1027,7 @@ def main(args, default_args):
         config = {
           "cfg" : args.cfg,
           "data_input" : model_info['file_loc'],
-          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
+          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_asimov_input_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
           "plots_output" : f"{plots_dir}/NormalisationSplineClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "model_input" : f"{models_dir}",
           "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
@@ -1305,7 +1315,7 @@ def main(args, default_args):
             config = {
               "cfg" : args.cfg,
               "data_input" : GetDataInput("sim" if args.data_type != "data" and not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
-              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
+              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
               "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -1336,7 +1346,7 @@ def main(args, default_args):
             "cfg" : args.cfg,
             "val_loop" : validation_loop,
             "data_input" : [{k:f"{prep_data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
-            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_asimov_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
             "sim_type" : args.sim_type,
             "plots_output" : f"{plots_dir}/GeneratorSummary{args.extra_output_dir_name}/{file_name}/{category}",
             "extra_plot_name" : args.extra_plot_name,
@@ -1364,8 +1374,8 @@ def main(args, default_args):
               "up_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "down_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "nominal_asimov_input": GetDataInput("asimov", cfg, file_name, default_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
-              "up_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_up/asimov.parquet"],
-              "down_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_down/asimov.parquet"],
+              "up_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_asimov_input_dir_name}/{file_name}/{category}/{nuisance}_up/asimov.parquet"],
+              "down_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_asimov_input_dir_name}/{file_name}/{category}/{nuisance}_down/asimov.parquet"],
               "plots_output" : f"{plots_dir}/GeneratorNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "nuisance" : nuisance,
               "extra_plot_name" : args.extra_plot_name,
@@ -1849,6 +1859,7 @@ def main(args, default_args):
                   "scan_value" : GetDictionaryEntryFromYaml(f"{eval_data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
                   "scan_ind" : str(scan_ind),
                   "other_input_files": [f"{eval_data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
+                  "skip_initial_fit" : args.skip_initial_fit,
                 },
                 loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind},
                 save_class = not ((scan_ind + 1 == args.number_of_scan_points))
@@ -1901,6 +1912,7 @@ def main(args, default_args):
                 "val_info" : val_info,
                 "nominal_name" : args.scan_nominal_name,
                 "stat_syst_breakdown" : args.scan_plot_breakdown,
+                "rezero_scan" : args.rezero_scan,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
@@ -1938,6 +1950,8 @@ def main(args, default_args):
                 "file_name" : asimov_file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
+                "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+                "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category},
@@ -1957,7 +1971,7 @@ def main(args, default_args):
             for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
               for nuisance_value in ["up","down"]:
                 summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-                val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
+                val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values, prefit_nuisance_constraints=args.prefit_nuisance_constraints)
                 module.Run(
                   module_name = "make_asimov",
                   class_name = "MakeAsimov",
@@ -1982,6 +1996,8 @@ def main(args, default_args):
                     "file_name" : asimov_file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
                     "skip_spline" : args.no_spline,
+                    "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+                    "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                     "verbose" : not args.quiet,
                   },
                   loop = {"file_name" : file_name, "asimov_file_name" : asimov_file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
@@ -2002,8 +2018,8 @@ def main(args, default_args):
               class_name = "Generator",
               config = {
                 "cfg" : args.cfg,
-                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
-                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}/{file_name}")[category],
+                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
+                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
                 "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "do_2d_unrolled" : args.plot_2d_unrolled,
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -2013,7 +2029,7 @@ def main(args, default_args):
                 "data_label" : {"data":"Data", "sim":"Simulated", "asimov":"Asimov"}[args.data_type],
                 "stack_label" : "",
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
-                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
+                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{GetCombinedValdidationIndices(cfg, file_name, val_ind)[fn]}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
                 "plot_var_and_bins" : args.plot_var_and_bins,
                 "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
@@ -2029,7 +2045,7 @@ def main(args, default_args):
               constraints[nuisance] = {}
               for nuisance_value in ["up","down"]:
                 summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-                constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values) 
+                constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values, prefit_nuisance_constraints=args.prefit_nuisance_constraints) 
             module.Run(
               module_name = "binned_distributions",
               class_name = "BinnedDistributions",
@@ -2066,8 +2082,8 @@ def main(args, default_args):
             class_name = "PostFitTruthComparison",
             config = {
               "cfg" : args.cfg,
-              "truth_input" : GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
-              "best_fit_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}/{file_name}")[category],
+              "truth_input" : GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
+              "best_fit_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
               "fit_data_input": GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "plots_output" : f"{plots_dir}/PostFitTruthComparison{args.extra_output_dir_name}/{file_name}/{category}", 
@@ -2191,7 +2207,10 @@ def main(args, default_args):
 
 
   # Run the sweep
-  module.Sweep()
+  if not args.no_sweep_final:
+    module.Sweep()
+
+  return module
 
 
 if __name__ == "__main__":
@@ -2224,9 +2243,30 @@ if __name__ == "__main__":
 
       # Loop through steps
       steps = args.step.split(",")
-      for step in steps:
+      previous_module = None
+      for step_ind, step in enumerate(steps):
         args.step = step
-        main(args, default_args)
+
+        # Check if we need to sweep
+        if args.submit is not None and args.submit_in_one_job:
+          args.no_sweep = True
+          if step_ind != len(steps)-1:
+            args.no_sweep_final = True
+          else:
+            args.no_sweep_final = False
+        else:
+          args.no_sweep = False
+          args.no_sweep_final = False
+        module_options = {}
+        if previous_module is not None and args.no_sweep:
+          module_options = {
+            "cmd_store" : previous_module.cmd_store,
+            "extra_names" : previous_module.extra_names,
+            "input_store" : previous_module.input_store,
+            "output_store" : previous_module.output_store
+          }
+
+        previous_module = main(args, default_args, module_options)
 
     else: # Run snakemake
 

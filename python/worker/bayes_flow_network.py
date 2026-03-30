@@ -291,6 +291,9 @@ class BayesFlowNetwork():
     grad = tape.gradient(predictions, direct_conditions)
     return predictions, grad
 
+  @tf.function(reduce_retracing=True)
+  def inverse_fast(self, gaussian, direct_conditions):
+    return self.amortizer.inference_net.inverse(gaussian, direct_conditions)
 
   def compute_log_prob(self, parameters, direct_conditions):
       if self._compute_log_prob is None:
@@ -717,7 +720,17 @@ class BayesFlowNetwork():
     }
 
     # Get samples
-    synth = self.amortizer.sample(batch_data, 1, seed=seed)[:,0,:]
+    #st = time.time()
+    if seed is not None:
+      seed = tf.constant([seed, 456], dtype=tf.int32)
+    gaussian = self.amortizer.latent_dist.sample(n_events, seed=seed)
+    #print(f"Sampling from latent distribution took {time.time()-st} seconds.")
+    #st = time.time()
+    #synth = self.amortizer.inference_net.inverse(gaussian, batch_data["direct_conditions"])
+    synth = self.inverse_fast(gaussian, batch_data["direct_conditions"])
+    #print(f"Passing through the inverse of the network took {time.time()-st} seconds.")
+
+    #synth = self.amortizer.sample(batch_data, 1, seed=seed)[:,0,:]
 
     if not self.fix_1d:
       synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])

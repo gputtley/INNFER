@@ -18,7 +18,7 @@ if ! command -v nvidia-smi &> /dev/null ; then
   export EVENTS_PER_BATCH_FOR_HESSIAN=2000
 else
   export EVENTS_PER_BATCH_FOR_PREPROCESS=1000000
-  export EVENTS_PER_BATCH=50000
+  export EVENTS_PER_BATCH=500000
   export EVENTS_PER_BATCH_FOR_GRADIENTS=10000
   export EVENTS_PER_BATCH_FOR_HESSIAN=5000
   #python3 -c "import os; os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'; import tensorflow as tf; print('GPUs available:', tf.config.list_physical_devices('GPU'))"
