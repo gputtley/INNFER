@@ -79,6 +79,7 @@ def parse_args():
   parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
   parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as shape parameter', action='store_true')
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
+  parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
@@ -131,7 +132,6 @@ def parse_args():
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
-  parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
   default_args = parser.parse_args([])
   args = parser.parse_args()
 
@@ -958,20 +958,11 @@ def main(args, default_args):
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
     model_type = args.model_type.lower()
-    if model_type == "density":
-      print("<< Running a hyperparameter scan for density model >>")
-      model_loop = GetModelLoop(cfg, only_density=True)
-      architectures = lambda model_name: GetScanArchitectures(args.density_architecture, data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
-    elif model_type == "classifier":
-      print("<< Running a hyperparameter scan for classifier >>")
-      model_loop = GetModelLoop(cfg, only_classification=True)
-      architectures = lambda model_name: GetScanArchitectures(args.classifier_architecture, data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
-    elif model_type == "regression":
-      print("<< Running a hyperparameter scan for regressor >>")
-      model_loop = GetModelLoop(cfg, only_regression=True)
-      architectures = lambda model_name: GetScanArchitectures(args.regression_architecture, data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
-    else: 
-      raise ValueError(f"Model type {args.model_type} not recognized for hyperparameter scan. Must be one of density, classifier, or regression.")
+    if model_type not in ["density", "classifier", "regression"]:
+      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
+    print(f"<< Running a hyperparameter scan for {model_type} >>")
+    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
+    architectures = lambda model_name: GetScanArchitectures(getattr(args, f"{model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
     performance_metrics = getattr(args, f"{model_type}_performance_metrics")
     for model_info in model_loop:
       for architecture_ind, architecture in enumerate(architectures(model_info['name'])):
