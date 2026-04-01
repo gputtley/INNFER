@@ -44,7 +44,7 @@ class FCNNNetwork():
 
     # Architecture parameters
     self.dropout = 0.05
-    self.dense_layers = [128,256,128]
+    self.dense_layers = {"layer_1": 128, "layer_2": 256, "layer_3": 128}
     self.activation = "relu"
     self.l2_lambda = 0.001
 
