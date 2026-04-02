@@ -137,9 +137,9 @@ class BayesFlowNetwork():
     self.prob_integral_store = None
     self.prob_integral_store_Y = None
     self.prob_integral_batch_size = int(os.getenv("EVENTS_PER_BATCH"))
-    self.graph_mode = False
-    #if not self.graph_mode:
-    #  tf.config.optimizer.set_jit(True)
+    self.graph_mode = True
+    if not self.graph_mode:
+      tf.config.optimizer.set_jit(True)
     self.length_batch = None
 
     self._compute_log_prob = None
@@ -669,7 +669,7 @@ class BayesFlowNetwork():
     return Y[self.data_parameters["Y_columns"]]
 
 
-  def Sample(self, Y, n_events):
+  def Sample(self, Y, n_events, seed=None):
     """
     Generate synthetic data samples based on given conditions.
 
@@ -679,6 +679,8 @@ class BayesFlowNetwork():
         DataFrame containing values of the model parameters for which samples are generated.
     n_events : int
         Number of synthetic data samples to generate.
+    seed : int or None, optional
+        Seed for the random number generator.
 
     Returns
     -------
@@ -715,14 +717,13 @@ class BayesFlowNetwork():
     }
 
     # Get samples
-    synth = self.amortizer.sample(batch_data, 1)[:,0,:]
+    synth = self.amortizer.sample(batch_data, 1, seed=seed)[:,0,:]
 
     if not self.fix_1d:
       synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
     else:
       synth_df = pd.DataFrame(synth[:,0], columns=self.data_parameters["X_columns"])
     total_nans = synth_df.isna().sum().sum()
-    rows_with_nan = synth_df[synth_df.isna().any(axis=1)]
     if total_nans > 0:
       synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
 

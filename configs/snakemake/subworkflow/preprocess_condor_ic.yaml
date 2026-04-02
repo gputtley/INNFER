@@ -1,21 +1,59 @@
-## Load data
-#- step: "LoadData"
-#  submit: "configs/submit/condor_4_cpus.yaml"
+# Load data
+- step: "LoadData"
+  submit: "configs/submit/condor_4_cpus.yaml"
 
 # Preprocess data
-- step: "PreProcessParallelInitial"
-  submit: "configs/submit/condor_gpu.yaml"
+- step: "PreProcessParallelYieldsNominal"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelYieldsParameters"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelYieldsCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelTrainTestValSplit"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
 - step: "PreProcessParallelModel"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    points_per_job: 10
-- step: "PreProcessParallelValidation"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    points_per_job: 10
-- step: "PreProcessParallelNuisanceVariations"
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options:
-    points_per_job: 1
+    number_of_shuffles: 50
+    disable_tqdm: True
+
+- step: "PreProcessParallelValidation"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelNuisanceVariations"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
 - step: "PreProcessParallelMerge"
   submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+
+# Make plots of preprocessed data
+- step: InputPlotTraining
+  submit: "configs/submit/condor.yaml"
+
+- step: InputPlotValidation
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    sim_type: "full"
+
+- step: InputPlotNuisanceVariations
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    sim_type: "full"

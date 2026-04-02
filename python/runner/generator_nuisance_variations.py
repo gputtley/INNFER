@@ -98,6 +98,17 @@ class GeneratorNuisanceVariations():
       if self.extra_plot_name != "":
         extra_name = f"_{self.extra_plot_name}"
 
+      # Make sure all errors and histograms are positive
+      nominal_sim_hist = nominal_sim_hist.clip(min=0)
+      up_sim_hist = up_sim_hist.clip(min=0)
+      down_sim_hist = down_sim_hist.clip(min=0)
+      nominal_asimov_hist = nominal_asimov_hist.clip(min=0)
+      up_asimov_hist = up_asimov_hist.clip(min=0)
+      down_asimov_hist = down_asimov_hist.clip(min=0)
+      nominal_sim_uncert = nominal_sim_uncert.clip(min=0)
+      up_sim_uncert = up_sim_uncert.clip(min=0)
+      down_sim_uncert = down_sim_uncert.clip(min=0)
+
       plot_learned_nuisance_variations(
         nominal_asimov_hist,
         up_asimov_hist,
@@ -129,7 +140,11 @@ class GeneratorNuisanceVariations():
 
     # Loop through columns
     for col in cfg["variables"]:
-      pass
+      extra_name = ""
+      if self.extra_plot_name != "":
+        extra_name = f"_{self.extra_plot_name}"
+
+      outputs += [f"{self.plots_output}/nuisance_distribution_{self.nuisance}_{col}{extra_name}.pdf"]
 
     return outputs
 

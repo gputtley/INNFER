@@ -1,8 +1,5 @@
 import os
-import pickle
 import yaml
-
-from functools import partial
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
@@ -76,13 +73,6 @@ class PlotClassifier():
         }
       )
 
-      # Load spline
-      classifier_model_name = f"{self.model_input}/{self.model_name}/{parameters['file_name']}"
-      spline_name = f"{classifier_model_name}_norm_spline.pkl"
-      if os.path.isfile(spline_name):
-        with open(spline_name, 'rb') as f:
-          spline = pickle.load(f)
-
       # Make 1D histogram
       if self.verbose:
         print(f"- Making distributions of reweighted samples")
@@ -106,12 +96,11 @@ class PlotClassifier():
           nom_hist, nom_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, extra_sel=f"((classifier_truth == 0) & ({sel}))")
 
           # get shift applied histogram
-          def change_weight(df, spline):
-            spline_vals = spline(df.loc[:,self.parameter])
-            df.loc[:,"wt"] *= df.loc[:,"wt_shift"] * spline_vals
+          def change_weight(df):
+            df.loc[:,"wt"] *= df.loc[:,"wt_shift"]
             return df
 
-          pred_hist, pred_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, functions_to_apply=[partial(change_weight, spline=spline)], extra_sel=f"((classifier_truth == 0) & ({sel}))")
+          pred_hist, pred_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, functions_to_apply=[change_weight], extra_sel=f"((classifier_truth == 0) & ({sel}))")
           target_hist, target_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, extra_sel=f"((classifier_truth == 1) & ({sel}))")
 
           plot_histograms_with_ratio(

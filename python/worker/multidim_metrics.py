@@ -16,7 +16,7 @@ from useful_functions import Resample
 
 class MultiDimMetrics():
 
-  def __init__(self, sim_files, synth_files, parameters, sim_fraction=1.0, synth_fraction=1.0, functions_to_apply=[]):
+  def __init__(self, sim_files, synth_files, columns, sim_fraction=1.0, synth_fraction=1.0, functions_to_apply=[], sim_wt_name="wt", synth_wt_name="wt", sim_selection=None, synth_selection=None):
     self.sim_files = sim_files
     self.synth_files = synth_files
     self.sim_fraction = sim_fraction
@@ -25,8 +25,12 @@ class MultiDimMetrics():
     self.verbose = True
     self.wasserstein_slices = 100
     self.resample_sim = False
-    self.parameters = parameters
+    self.columns = columns
     self.functions_to_apply = functions_to_apply
+    self.sim_wt_name = sim_wt_name
+    self.synth_wt_name = synth_wt_name
+    self.sim_selection = sim_selection
+    self.synth_selection = synth_selection
 
     self.sim_dataset = None
     self.synth_dataset = None
@@ -120,15 +124,9 @@ class MultiDimMetrics():
 
     import xgboost as xgb
 
-    # Make training and testing datasets
-    if no_conditions:
-      train_columns = self.parameters["X_columns"]
-    elif only_conditions:
-      train_columns = self.parameters["Y_columns"]
-    else:
-      train_columns = self.parameters["X_columns"] + self.parameters["Y_columns"]
 
     # Make training and testing datasets
+    train_columns = self.columns
     if self.sim_train is None:
       sim = self.sim_dataset.copy()
       synth = self.synth_dataset.copy()
@@ -181,8 +179,8 @@ class MultiDimMetrics():
       Xy_sim_train = np.concatenate([X_sim_train, y_sim_train.reshape(-1,1)], axis=1)
       Xy_sim_test = np.concatenate([X_sim_test, y_sim_test.reshape(-1,1)], axis=1)
       # Resample
-      Xy_sim_train, wt_sim_train = Resample(Xy_sim_train, wt_sim_train, n_samples=len(Xy_sim_train))
-      Xy_sim_test, wt_sim_test = Resample(Xy_sim_test, wt_sim_test, n_samples=len(Xy_sim_test))
+      Xy_sim_train, wt_sim_train = Resample(Xy_sim_train, wt_sim_train, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
+      Xy_sim_test, wt_sim_test = Resample(Xy_sim_test, wt_sim_test, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
       # Split back
       X_sim_train = Xy_sim_train[:,:-1]
       y_sim_train = Xy_sim_train[:,-1]
@@ -375,7 +373,7 @@ class MultiDimMetrics():
     if self.verbose:
       print(f" - Doing sliced wasserstein")
 
-    n_features = len(self.parameters["X_columns"]+self.parameters["Y_columns"])
+    n_features = len(self.columns)
 
     # Generate random projection vectors (normalized)
     random_directions = np.random.normal(size=(self.wasserstein_slices, n_features))
@@ -385,8 +383,8 @@ class MultiDimMetrics():
     for direction in random_directions:
 
       # Project data onto the random direction
-      proj1 = np.dot(self.sim_dataset.loc[:,self.parameters["X_columns"]+self.parameters["Y_columns"]].to_numpy(), direction)
-      proj2 = np.dot(self.synth_dataset.loc[:,self.parameters["X_columns"]+self.parameters["Y_columns"]].to_numpy(), direction)
+      proj1 = np.dot(self.sim_dataset.loc[:,self.columns].to_numpy(), direction)
+      proj2 = np.dot(self.synth_dataset.loc[:,self.columns].to_numpy(), direction)
 
       # Compute the Wasserstein distance in 1D
       swd += float(self._GetWasserstein(proj1, self.sim_dataset.loc[:,"wt"].to_numpy().flatten(), proj2, self.synth_dataset.loc[:,"wt"].to_numpy().flatten()))
@@ -406,7 +404,7 @@ class MultiDimMetrics():
       print(f" - Doing unbinned wasserstein on X columns")
 
     wasserstein_unbinned = {}
-    for col in self.parameters["X_columns"]:
+    for col in self.columns:
       wasserstein_unbinned[col] =  float(self._GetWasserstein(self.sim_dataset.loc[:,col].to_numpy().flatten(), self.sim_dataset.loc[:,"wt"].to_numpy().flatten(), self.synth_dataset.loc[:,col].to_numpy().flatten(), self.synth_dataset.loc[:,"wt"].to_numpy().flatten()))
 
       #sim_no_neg, wt_no_neg = self._BinNegativeWeightedEvents(self.sim_dataset.loc[:,col].to_numpy().flatten(), self.sim_dataset.loc[:,"wt"].to_numpy().flatten())
@@ -426,9 +424,10 @@ class MultiDimMetrics():
       sim_dp = DataProcessor(
         self.sim_files,
         "parquet",
-        wt_name = "wt",
+        wt_name = self.sim_wt_name,
         options = {
           "functions" : self.functions_to_apply,
+          "selection": self.sim_selection
         }
       )
 
@@ -436,11 +435,6 @@ class MultiDimMetrics():
         self.sim_dataset = sim_dp.GetFull(method="sampled_dataset", sampling_fraction=self.sim_fraction)      
       if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
         self.sim_train, self.sim_test = sim_dp.GetFull(method="train_test_split", test_fraction=0.5)
-
-      ## Search for duplicates of sub123_mass_rec in train and test
-      #if "sub123_mass_rec" in self.parameters["X_columns"]:
-      #  duplicates = np.intersect1d(self.sim_train.loc[:, "sub123_mass_rec"].unique(), self.sim_test.loc[:, "sub123_mass_rec"].unique())
-      #  print(len(duplicates)/len(self.sim_train.loc[:, "sub123_mass_rec"].unique()))
 
     if not only_sim:
 
@@ -451,9 +445,10 @@ class MultiDimMetrics():
       synth_dp = DataProcessor(
         self.synth_files,
         "parquet",
-        wt_name = "wt",
+        wt_name = self.synth_wt_name,
         options = {
           "functions" : self.functions_to_apply,
+          "selection": self.synth_selection
         }
       )
       if self.metrics != ["BDT Separation"]:

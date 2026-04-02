@@ -64,6 +64,7 @@ class DataLoader():
         batch_size (int): The new batch size.
     """
     self.batch_size = batch_size
+    self.batch_num = 0
     self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
 
 

@@ -7,3 +7,7 @@
 # Make generation summary plots
 - step: "GeneratorSummary"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+
+# Make generation plots for nuisance variations
+- step: "GeneratorNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
