@@ -1,13 +1,21 @@
 # Train classifier models
 - step: "TrainClassifier"
-  submit: "configs/submit/condor_4_cpus.yaml"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options: 
     disable_tqdm: True
 
 # Evaluate classifier models
 - step: "EvaluateClassifier"
-  submit: "configs/submit/condor_4_cpus.yaml"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
 
 # Plot classifier models
 - step: "PlotClassifier"
-  submit: "configs/submit/condor_2_cpus.yaml"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+
+# Make asimov for normalisation spline
+- step: "MakeAsimovForNormalisationSpline"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+
+# Make normalisation spline
+- step: "NormalisationSplineClassifier"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"

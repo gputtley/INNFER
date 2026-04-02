@@ -1,17 +1,8 @@
 import numpy as np
-import time
 
 from useful_functions import CombineObjects
 
-def btm_jec(
-    df, 
-    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
-    nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
-    include_b=False,
-    include_b_syst=False
-  ):
-
-  # JEC and flavour uncertainties
+def get_jec_nuisance_dict():
   jec_uncert = {
     # jec
     "AbsoluteMPFBias": {"Correlation" : 1, "Type" : "corrFactor"},
@@ -51,6 +42,46 @@ def btm_jec(
     "JER_eta_3p0_to_5p0_pt_0_to_50": {"Correlation" : 1, "ObjectSelection": "($OBJECT_eta >= 3.0) & ($OBJECT_eta < 5.0) & ($OBJECT_pt < 50)", "Type" : "smearFactor"},
     "JER_eta_3p0_to_5p0_pt_gt_50": {"Correlation" : 1, "ObjectSelection": "($OBJECT_eta >= 3.0) & ($OBJECT_eta < 5.0) & ($OBJECT_pt >= 50)", "Type" : "smearFactor"}
   }
+  return jec_uncert
+
+
+def get_jec_nuisances(years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"]):
+
+  jec_uncert = get_jec_nuisance_dict()
+  nuisances = []
+  for name, info in jec_uncert.items():
+    if info["Correlation"] != 0:
+      nuisances.append(name)
+    if info["Correlation"] != 1:
+      for yr in years:
+        nuisances.append(f"{name}_{yr}")
+  return nuisances
+
+
+
+def btm_jec(
+    df, 
+    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
+    nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
+    include_b=False,
+    include_b_syst=False,
+    year_index = {
+      "2016_PreVFP": 0,
+      "2016_PostVFP": 1,
+      "2017": 2,
+      "2018": 3,
+      "2022_preEE": 4,
+      "2022_postEE": 5,
+      "2023_preBPix": 6,
+      "2023_postBPix": 7
+    }
+  ):
+
+  if len(df) == 0:
+    return df
+  
+  # JEC and flavour uncertainties
+  jec_uncert = get_jec_nuisance_dict()
 
   # Apply JEC to jets
   added_columns = []
@@ -59,12 +90,15 @@ def btm_jec(
     if info["Correlation"] == 1:
       syst_names = [name]
       scalings = 1.0
+      year_selections = [None]
     elif info["Correlation"] == 0:
       syst_names = [f"{name}_{yr}" for yr in years]
       scalings = 1.0
+      year_selections = [f"year_ind=={year_index[yr]}" for yr in years]
     elif info["Correlation"] == 0.5:
       syst_names = [name] + [f"{name}_{yr}" for yr in years]
       scalings = 0.5
+      year_selections = [None] + [f"year_ind=={year_index[yr]}" for yr in years]
 
     for ind in range(len(syst_names)):
 
@@ -84,6 +118,8 @@ def btm_jec(
 
       # Apply only to selected events if specified
       selected_indices = np.ones(len(df), dtype=bool)
+      if year_selections[ind] is not None:
+        selected_indices &= df.eval(year_selections[ind])
       if "Selection" in info:
         selected_indices &= df.eval(info["Selection"])
       subjet1_indices = selected_indices.copy()
@@ -123,9 +159,6 @@ def btm_jec(
       if include_b and include_b_syst:
         df["BJetLep_pt"] *= df[f"BJetLep_shiftFactor_{syst_names[ind]}"]
         df["BJetLep_mass"] *= df[f"BJetLep_shiftFactor_{syst_names[ind]}"]
-
-  # Remove temporary columns
-  #df = df.drop(columns=added_columns)
 
   # Combine subjets
   v12 = CombineObjects(

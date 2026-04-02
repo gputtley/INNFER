@@ -1,9 +1,9 @@
 import numpy as np
-import time
 
 def fsr_weight(
     df,
     fsr_value=None,
+    wt_name="wt"
   ):
 
   if fsr_value is not None:
@@ -11,14 +11,14 @@ def fsr_weight(
   
   nu = df["log_fsr"]/np.log(2)
 
-  lower_clip = 0.25
-  higher_clip = 4.0
+  lower_clip = 0.5
+  higher_clip = 2.0
   df["GenWeights_isr1fsr0p5"] = df["GenWeights_isr1fsr0p5"].clip(lower=lower_clip, upper=higher_clip)
   df["GenWeights_isr1fsr2"] = df["GenWeights_isr1fsr2"].clip(lower=lower_clip, upper=higher_clip)
 
-  asymln = np.clip(AsymLogNormal(nu, kp=df["GenWeights_isr1fsr2"], km=df["GenWeights_isr1fsr0p5"]), 0.0, 10.0)
+  asymln = np.clip(AsymLogNormal(nu, kp=df["GenWeights_isr1fsr2"], km=df["GenWeights_isr1fsr0p5"]), 0.0, 2.0)
 
-  df.loc[:, "wt"] *= asymln
+  df.loc[:, wt_name] *= asymln
 
   return df
 

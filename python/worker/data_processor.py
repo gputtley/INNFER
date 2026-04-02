@@ -1,3 +1,4 @@
+from itertools import count
 import time
 
 import copy
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 from data_loader import DataLoader
 from useful_functions import CustomHistogram, Resample
@@ -22,6 +24,7 @@ class DataProcessor():
       wt_name = None, 
       n_events = None,
       batch_size = None,
+      use_pbar = False,
       options = {}
     ):
     if dataset_type not in ["dataset","parquet","generator"]:
@@ -55,6 +58,8 @@ class DataProcessor():
     self.functions = []
     self.decimals = 16
     self.check_wt = False
+    self.use_pbar = use_pbar
+    self.sort_columns = True
 
     # Transform options
     self.parameters = {}
@@ -89,7 +94,6 @@ class DataProcessor():
     self.batch_ind = 0
     self.finished = False
     self.total_columns = None
-    self.sort_columns = True
 
     # Cache
     self.cache_to_memory = False
@@ -120,6 +124,12 @@ class DataProcessor():
 
 
   def _AddFinishedCounters(self):
+
+    # Initialise progress bar
+    if self.use_pbar:
+      if self.batch_ind == 0 and self.file_ind == 0:
+        self.pbar = tqdm(total=np.sum(self.num_batches))
+
     # Change batch and file ind
     if self.batch_ind + 1 == self.num_batches[self.file_ind]:
       self.batch_ind = 0
@@ -130,6 +140,12 @@ class DataProcessor():
         self.file_ind += 1
     else:
       self.batch_ind += 1
+
+    # Update progress bar
+    if self.use_pbar:
+      self.pbar.update(1)
+      if self.batch_ind == 0 and self.file_ind == 0:
+        self.pbar.close()
 
 
   def Restart(
@@ -169,6 +185,8 @@ class DataProcessor():
         df = tmp.reindex(tmp.index, copy=False)
       else:
         #df = pd.concat([df, tmp.loc[:, ~tmp.columns.isin(df.columns)]], axis=1)
+        if len(df) != len(tmp):
+          raise ValueError(f"DataFrames have different number of rows: {len(df)} and {len(tmp)}")
         new_cols = tmp.columns.difference(df.columns)
         df[new_cols] = tmp[new_cols].to_numpy()
 
@@ -193,12 +211,11 @@ class DataProcessor():
 
     # Resample
     if self.resample and self.wt_name is not None:
-      sum_wts = int(round(np.sum(df[self.wt_name].to_numpy()),0))
       if self.resample_drop_negative_weights:
         df = df.loc[df[self.wt_name] >= 0,:]
       columns_without_weights = list(df.columns)
       columns_without_weights.remove(self.wt_name)
-      data, wts = Resample(df[columns_without_weights].to_numpy(), df[self.wt_name].to_numpy(), n_samples=sum_wts, seed=self.resampling_seed)
+      data, wts = Resample(df[columns_without_weights].to_numpy(), df[self.wt_name].to_numpy(), seed=self.resampling_seed, method="oversample", keep_weights=False, sample_size="sum_weights", total_scale="sum_weights")
       df = pd.DataFrame(np.hstack((data,wts.reshape(-1,1))), columns=columns_without_weights+[self.wt_name], dtype=np.float64)
 
     # Apply functions
@@ -206,6 +223,7 @@ class DataProcessor():
       if "selection" not in functions_to_apply:
         df = self.ApplySelection(df, extra_sel=extra_sel)
     for f in functions_to_apply:
+      if len(df) == 0: break
       if isinstance(f, str):
         if f == "untransform":
           df = self.UnTransformData(df)
@@ -220,6 +238,10 @@ class DataProcessor():
       else:
         df = f(df)
 
+    if len(df) == 0:
+      self._AddFinishedCounters()
+      return df
+    
     # Check weight exists
     if self.wt_name not in list(df.columns) and self.check_wt:
       self.wt_name = None
@@ -239,8 +261,7 @@ class DataProcessor():
 
     # Change batch and file ind
     self._AddFinishedCounters()
-
-
+ 
     return df
 
 
@@ -264,7 +285,8 @@ class DataProcessor():
       test_fraction = 0.2,
       custom_options = {},
       print_dataset = False,
-      skip_load=False
+      skip_load=False,
+      sum_w_selections = [],
     ):
 
     none_total_columns = False
@@ -276,8 +298,9 @@ class DataProcessor():
         sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
         means = {k : v/sum_wts for k, v in sum_cols.items()}
     elif method == "n_eff": # Get the number of effective events
-      sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
-      sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+      #sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+      #sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+      sum_wts, sum_wts_squared = self.GetFull(method="sum_w_and_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       if sum_wts_squared != 0:
         return (sum_wts**2)/sum_wts_squared
       else:
@@ -335,55 +358,62 @@ class DataProcessor():
           )
           if self.cache_to_memory:
             self.dataset_cache[load_ind] = tmp
+      
         #if self.cache_to_memory:
         #  tmp = tmp.copy()      
 
       #if print_dataset:
       #  print(tmp)
 
-      # Run method
-      if method in ["dataset"]: # get full dataset
-        out = self._method_dataset(tmp, out)
-      elif method in ["sampled_dataset"]: # get sampled dataset
-        out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
-      elif method in ["train_test_split"]: # get train and test dataset
-        out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
-      elif method in ["histogram"]: # make a histogram from the dataset
-        out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
-      elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
-        out = self._method_histogram_and_uncert(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
-      elif method in ["histogram_2d"]: # make a histogram from the dataset
-        out = self._method_histogram_2d(tmp, out, column, bins=bins)
-      elif method in ["histogram_2d_and_uncert"]: # make a histogram from the dataset
-        out = self._method_histogram_2d_and_uncert(tmp, out, column, bins=bins)
-      elif method in ["sum"]: # sum up the weights
-        out = self._method_sum(tmp, out, count=False)
-      elif method in ["sum_w_unique_columns"]: # sum up the weights for unique values of columns
-        out = self._method_sum_w_unique_columns(tmp, out, unique_combinations)
-      elif method in ["count"]: # count events
-        out = self._method_sum(tmp, out, count=True)
-      elif method in ["count_unique_columns"]: # sum up the weights for unique values of columns
-        out = self._method_count_unique_columns(tmp, out, unique_combinations)
-      elif method in ["sum_w2"]: # sum up the weights or count events
-        out = self._method_sum_w2(tmp, out)
-      elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
-        out = self._method_sum_w2_unique_columns(tmp, out, unique_combinations)
-      elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
-        out = self._method_sum_columns(tmp, out)
-      elif method in ["sum_formula"]:
-        out = self._method_sum_formula(tmp, out, column)
-      elif method in ["std"]: # find partial information for std of columns
-        out = self._method_part_std(tmp, out, means)
-      elif method in ["unique"]: # find unique values of a column
-        out = self._method_unique(tmp, out, unique_threshold)
-      elif method in ["quantile"]: # find a quantile of the dataset
-        out = self._method_part_quantile(tmp, out, column, quantile)
-      elif method in ["min_max"]: # find min and max of columns
-        out = self._method_min_max(tmp, out)
-      elif method in ["custom"]: # custom function
-        out = custom(tmp, out, options=custom_options)
-      else: 
-        out = None
+      if tmp is not None and len(tmp) > 0: 
+
+        # Run method
+        if method in ["dataset"]: # get full dataset
+          out = self._method_dataset(tmp, out)
+        elif method in ["sampled_dataset"]: # get sampled dataset
+          out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
+        elif method in ["train_test_split"]: # get train and test dataset
+          out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
+        elif method in ["histogram"]: # make a histogram from the dataset
+          out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
+        elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
+          out = self._method_histogram_and_uncert(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
+        elif method in ["histogram_2d"]: # make a histogram from the dataset
+          out = self._method_histogram_2d(tmp, out, column, bins=bins)
+        elif method in ["histogram_2d_and_uncert"]: # make a histogram from the dataset
+          out = self._method_histogram_2d_and_uncert(tmp, out, column, bins=bins)
+        elif method in ["sum"]: # sum up the weights
+          out = self._method_sum(tmp, out, count=False)
+        elif method in ["sum_w_unique_columns"]: # sum up the weights for unique values of columns
+          out = self._method_sum_w_unique_columns(tmp, out, unique_combinations)
+        elif method in ["count"]: # count events
+          out = self._method_sum(tmp, out, count=True)
+        elif method in ["count_unique_columns"]: # sum up the weights for unique values of columns
+          out = self._method_count_unique_columns(tmp, out, unique_combinations)
+        elif method in ["sum_w2"]: # sum up the weights or count events
+          out = self._method_sum_w2(tmp, out)
+        elif method in ["sum_w_selections"]:
+          out = self._method_sum_w_selections(tmp, out, sum_w_selections)
+        elif method in ["sum_w_and_w2"]: # sum up the weights or count events
+          out = self._method_sum_w_and_w2(tmp, out)
+        elif method in ["sum_w2_unique_columns"]: # sum up the weights for unique values of columns
+          out = self._method_sum_w2_unique_columns(tmp, out, unique_combinations)
+        elif method in ["sum_columns","mean"]: # find sum of columns - also used for the mean
+          out = self._method_sum_columns(tmp, out)
+        elif method in ["sum_formula"]:
+          out = self._method_sum_formula(tmp, out, column)
+        elif method in ["std"]: # find partial information for std of columns
+          out = self._method_part_std(tmp, out, means)
+        elif method in ["unique"]: # find unique values of a column
+          out = self._method_unique(tmp, out, unique_threshold)
+        elif method in ["quantile"]: # find a quantile of the dataset
+          out = self._method_part_quantile(tmp, out, column, quantile)
+        elif method in ["min_max"]: # find min and max of columns
+          out = self._method_min_max(tmp, out)
+        elif method in ["custom"]: # custom function
+          out = custom(tmp, out, options=custom_options)
+        else: 
+          out = None
 
       load_ind += 1
 
@@ -418,6 +448,25 @@ class DataProcessor():
     self.Restart()
     return list(df.columns)    
 
+  '''
+  def TransformData(self, data):
+    """
+    Transform columns in the dataset.
+
+    Args:
+        data (pd.DataFrame): The dataset to be transformed.
+
+    Returns:
+        pd.DataFrame: The transformed dataset.
+    """
+    st = time.time()
+    for column_name in data.columns:
+      # Apply standardisation
+      if column_name in self.parameters["standardisation"]:
+        data[column_name] = self.Standardise(data[column_name], column_name).astype(np.float64)
+    print(f"Time for transforming data: {time.time() - st} seconds")
+    return data
+  '''
 
   def TransformData(self, data):
     """
@@ -429,11 +478,11 @@ class DataProcessor():
     Returns:
         pd.DataFrame: The transformed dataset.
     """
-    for column_name in data.columns:
-      # Apply standardisation
-      if column_name in self.parameters["standardisation"]:
-        data[column_name] = self.Standardise(data[column_name], column_name).astype(np.float64)
-
+    cols_to_standardise = [c for c in data.columns if c in self.parameters["standardisation"]]
+    arr = data[cols_to_standardise].to_numpy(dtype=np.float64)
+    for i, column_name in enumerate(cols_to_standardise):
+      arr[:, i] = self.Standardise(arr[:, i], column_name)
+    data[cols_to_standardise] = arr
     return data
 
   def UnTransformData(
@@ -517,8 +566,9 @@ class DataProcessor():
     Returns:
         pd.Series: The standardised column.
     """
-    return (column - self.parameters["standardisation"][column_name]["mean"])/self.parameters["standardisation"][column_name]["std"]
-  
+    mean = self.parameters["standardisation"][column_name]["mean"]
+    std  = self.parameters["standardisation"][column_name]["std"]
+    return (column - mean) / std  
 
   def UnStandardise(
       self, 
@@ -731,6 +781,28 @@ class DataProcessor():
     return out
 
 
+  def _method_sum_w_selections(self, tmp, out, sum_w_selections):
+
+    tmp_total = []
+    for sel in sum_w_selections:
+      if sel is None:
+        tmp_sel = tmp
+      else:
+        selection = self._ReplaceEqualsWithIsClose(sel)
+        tmp_sel = tmp.loc[tmp.eval(selection),:]
+
+      if self.wt_name is None:
+        tmp_total.append(len(tmp_sel))
+      else:
+        tmp_total.append(float(np.sum(tmp_sel[self.wt_name])))
+
+    if out is None:
+      out = copy.deepcopy(tmp_total)
+    else:
+      out = [out[i] + tmp_total[i] for i in range(len(tmp_total))]
+    return out
+
+
   def _method_sum_formula(self, tmp, out, column):
     tmp["tmp_for_sum_formula"] = tmp.eval(column)
     tmp_total = float(np.sum(tmp["tmp_for_sum_formula"]))
@@ -774,6 +846,23 @@ class DataProcessor():
       out = copy.deepcopy(tmp_total)
     else:
       out += tmp_total
+    return out
+
+
+  def _method_sum_w_and_w2(self, tmp, out):
+
+    if self.wt_name is None:
+      tmp_total_w = len(tmp)
+      tmp_total_w2 = len(tmp)
+    else:
+      tmp_total_w = float(np.sum(tmp[self.wt_name]))
+      tmp_total_w2 = float(np.sum(tmp[self.wt_name]**2))
+
+    if out is None:
+      out = [tmp_total_w, tmp_total_w2]
+    else:
+      out[0] += tmp_total_w
+      out[1] += tmp_total_w2
     return out
 
 

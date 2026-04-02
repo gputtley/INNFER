@@ -8,30 +8,27 @@ import pandas as pd
 from functools import partial
 
 from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio
-from useful_functions import GetYName, Translate
+from python.worker.useful_functions import GetDefaultsInModel
+from useful_functions import GetYName, Translate, GetDictionaryEntry
 
 class BinnedDistributions():
 
   def __init__(self):
 
     self.parameters = None
-
-    self.Y_data = None
-    self.Y_stack = None
-    self.pois = None
-    self.nuisances = None
+    self.categories = None
+    self.val_info = None
+    self.constraints = None
     self.binned_fit_input = None
-
-    self.yield_function = "default"
-    self.plots_output = "plots/"
-    self.verbose = True
-    self.scale_to_yield = False
+    self.data_input_keys = None
+    self.plots_output = None
+    self.poi = None
+    self.verbose = False
     self.extra_plot_name = ""
-    self.other_input_files = []
-    self.other_output_files = []
-    self.data_type = "sim"
-    self.data_file = None
-    self.test_name = "test"
+    self.inference_options = None
+    self.include_uncertainty = False
+    self.extra_hypotheses = []
+    self.ratio_range = [0.5, 1.5]
 
   def Configure(self, options):
     """
@@ -54,77 +51,102 @@ class BinnedDistributions():
 
   def Run(self):
 
+    # Build yields
     from infer import Infer
     infer_class = Infer()
     infer_class.Configure(
       {
-        "parameters" : self.parameters,
-        "true_Y" : self.Y_data,
-        "pois" : self.pois,
-        "nuisances" : self.nuisances,
-        "test_name" : self.test_name,
-        "binned_fit_input" : self.binned_fit_input,
-        "data_type" : self.data_type if self.data_type != "asimov" else "sim",
-        "data_file" : self.data_file,
+        "parameters" : {self.category : self.parameters},
+        "binned_fit_morph_col" : self.poi,
+        "binned_data_input_parameters_key" : {self.category : self.data_input_keys},
+        "inference_options" : self.inference_options,
+
       }
     )
+    yields = infer_class._BuildBinYields()[self.category]
+    Y = pd.DataFrame({k: [v] for k, v in self.val_info.items()})
 
-    infer_class.yields = infer_class._BuildYieldFunctions()
-    categories = infer_class._BuildCategories()
-    yields = infer_class._BuildBinYields()
-    dps = infer_class._BuildDataProcessors()
+    # Evaluate the bins values at the hypotheses points
+    stack_hists = {}
+    for k, v in yields.items():
+      stack_hists[k] = np.array(v(Y))
 
-    bin_start = 0
-    for cat_ind, cat_info in categories.items():
-      data_hist = None
-      sim_hists = {}
-      for file_name in dps.keys():
-        hist, hist_uncert, _ = dps[file_name].GetFull(
-          method = "histogram_and_uncert",
-          extra_sel = cat_info[0],
-          column = cat_info[1],
-          bins = cat_info[2],
-        )
-        if data_hist is None:
-          data_hist = copy.deepcopy(hist)
-          data_hist_uncert = copy.deepcopy(hist_uncert)
-        else:
-          data_hist += hist
-          data_hist_uncert = (data_hist_uncert**2 + hist_uncert**2)**0.5
-        sim_hists[f"{file_name} {GetYName(self.Y_stack, purpose='plot', prefix='y=')}"] = np.array([yields[file_name][bin_num](self.Y_stack) for bin_num in range(bin_start, bin_start+len(cat_info[2])-1)])
-      bin_start += len(cat_info[2])-1
-
-      # Get names for plot
-      if self.data_type in ["sim","asimov"]:
-        data_plot_name = GetYName(self.Y_data, purpose="plot", prefix="Asimov y=")
-        data_hist = None
-        data_hist_uncert = None
-        draw_ratio = False
+    # Get the data histogram
+    data_hist = None
+    for k, v in self.data_input_keys.items():
+      with open(self.parameters[k], 'r') as yaml_file:
+        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      entry = GetDictionaryEntry(parameters, v)
+      if data_hist is None:
+        data_hist = np.array(entry)
       else:
-        data_plot_name = "Data"
-        data_hist = np.array(data_hist)
-        data_hist_uncert = np.array(data_hist_uncert)
-        draw_ratio = True
-      sample_plot_name = GetYName(self.Y_stack, purpose="plot", prefix="Asimov y=")
+        data_hist += np.array(entry)
 
-      # Running plotting functions
-      if self.verbose:
-        print(f"- Making binned distribution plots")
+    # Get the uncertainty on the stack histograms from the constraints if required
+    stack_uncertainty_up = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
+    stack_uncertainty_down = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
+    sum_stack_hists = np.sum(list(stack_hists.values()), axis=0)
+    if self.include_uncertainty:
+      for k, v in self.constraints.items():
+        v_Y_up = pd.DataFrame({k1: [v1] for k1, v1 in v["up"].items()})
+        v_Y_down = pd.DataFrame({k1: [v1] for k1, v1 in v["down"].items()})
+        total_shifted_hist_up = np.zeros_like(sum_stack_hists)
+        total_shifted_hist_down = np.zeros_like(sum_stack_hists)
+        for k, v in yields.items():
+          total_shifted_hist_up += np.array(v(v_Y_up))
+          total_shifted_hist_down += np.array(v(v_Y_down))
+        stack_uncertainty_up += (np.maximum(0, total_shifted_hist_up - sum_stack_hists))**2
+        stack_uncertainty_down += (np.maximum(0, sum_stack_hists - total_shifted_hist_down))**2
+      stack_uncertainty_up = np.sqrt(stack_uncertainty_up)
+      stack_uncertainty_down = np.sqrt(stack_uncertainty_down)
 
-      plot_stacked_histogram_with_ratio(
-        data_hist, 
-        sim_hists, 
-        cat_info[2], 
-        data_name=data_plot_name, 
-        xlabel=Translate(cat_info[1]),
-        ylabel="Events",
-        name=f"{self.plots_output}/binned_distribution_category{cat_ind}{self.extra_plot_name}", 
-        data_errors=data_hist_uncert, 
-        stack_hist_errors=np.zeros(len(sim_hists[list(sim_hists.keys())[0]])), 
-        axis_text=f"Category {cat_ind}",
-        use_stat_err=False,
-        draw_ratio=draw_ratio,
-        )
+    # Get extra hypotheses if required
+    extra_hypotheses = {}
+    for extra_hypothesis in self.extra_hypotheses:
+      extra_hypothesis_Y = copy.deepcopy(Y)
+      extra_hypothesis_name = []
+      for k, v in extra_hypothesis.items():
+        extra_hypothesis_Y[k] = [float(v)]
+        extra_hypothesis_name += [f"{Translate(k)}={v}"]
+      extra_hypothesis_name = ", ".join(extra_hypothesis_name)
+      extra_hypothesis_hist = np.zeros_like(sum_stack_hists)
+      for k, v in yields.items():
+        extra_hypothesis_hist += np.array(v(extra_hypothesis_Y))
+      extra_hypotheses[extra_hypothesis_name] = extra_hypothesis_hist
+
+    # Get the axis text
+    axis_text = Translate(self.category)
+    varied_columns = []
+    for extra_hypothesis in self.extra_hypotheses:
+      for k in extra_hypothesis.keys():
+        if k not in varied_columns:
+          varied_columns += [k]
+    if len(varied_columns) > 0:
+      axis_text += "\n"
+      for k in varied_columns:
+        axis_text += f"{Translate(k)}={Y[k][0]}, "
+      axis_text = axis_text[:-2]
+
+    # Running plotting functions
+    if self.verbose:
+      print(f"- Making binned distribution plots")
+
+    plot_stacked_histogram_with_ratio(
+      data_hist, 
+      {Translate(k): v for k, v in stack_hists.items()},
+      self.binned_fit_input["binning"], 
+      data_name="Data", 
+      xlabel=Translate(self.binned_fit_input["variable"]),
+      ylabel="Events",
+      name=f"{self.plots_output}/binned_distribution_category_{self.category}{self.extra_plot_name}", 
+      data_errors=np.sqrt(data_hist), 
+      stack_hist_errors_asym = {"down": stack_uncertainty_down, "up": stack_uncertainty_up},
+      axis_text=axis_text,
+      use_stat_err=False,
+      extra_hists=extra_hypotheses,
+      draw_ratio=True,
+      ratio_range=self.ratio_range,
+      )
 
 
   def Outputs(self):
@@ -132,6 +154,8 @@ class BinnedDistributions():
     Return a list of outputs given by class
     """
     outputs = []
+    outputs += [f"{self.plots_output}/binned_distribution_category_{self.category}{self.extra_plot_name}.pdf"]
+
     return outputs
 
   def Inputs(self):
@@ -139,21 +163,7 @@ class BinnedDistributions():
     Return a list of inputs required by class
     """
     inputs = []
-    for file_name in self.parameters.keys():
-      with open(self.parameters[file_name], 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      inputs += [
-        self.parameters[file_name],
-        f"{parameters['file_loc']}/X_full.parquet",
-        f"{parameters['file_loc']}/Y_full.parquet", 
-        f"{parameters['file_loc']}/wt_full.parquet", 
-      ]
-
-    # Add inputs from the dataset being used
-    if self.data_type == "data":
-      inputs += [self.data_file]
-
-    # Add other outputs
-    inputs += self.other_input_files
+    for v in self.parameters.values():
+      inputs += [v]
 
     return inputs

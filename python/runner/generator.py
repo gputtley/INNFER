@@ -28,6 +28,7 @@ class Generator():
     self.uncertainty_input = None
     self.use_expected_data_uncertainty = False
     self.plot_var_and_bins = None
+    self.ratio_range = [0.5, 1.5]
 
 
   def Configure(self, options):
@@ -401,6 +402,7 @@ class Generator():
           },
           use_stat_err=False,
           axis_text=axis_text,
+          ratio_range=self.ratio_range,
           )
 
       if 2 in self.plot_styles:
@@ -413,6 +415,7 @@ class Generator():
           xlabel = Translate(col),
           ylabel="Events" if not density else "Density",
           name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_2",    
+          ratio_range=self.ratio_range,
         )
 
       if 3 in self.plot_styles:
@@ -424,7 +427,8 @@ class Generator():
           bins,
           xlabel = Translate(col),
           ylabel="Events" if not density else "Density",
-          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",       
+          name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",      
+          ratio_range=self.ratio_range, 
           )
 
 
@@ -444,7 +448,8 @@ class Generator():
             bins,
             xlabel = Translate(col),
             ylabel="Events" if not density else "Density",
-            name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",       
+            name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",      
+            ratio_range=self.ratio_range, 
             )
 
       if 5 in self.plot_styles:
@@ -459,6 +464,7 @@ class Generator():
           name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_5",
           draw_error_bars = True,
           draw_error_bar_caps = False,
+          ratio_range=self.ratio_range,
         )
 
 
@@ -560,4 +566,5 @@ class Generator():
           stack_hists_errors=np.sqrt(synth_hist_uncert_squared), 
           use_stat_err=False,
           axis_text=axis_text,
+          ratio_range=self.ratio_range,
         )

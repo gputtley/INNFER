@@ -42,6 +42,7 @@ def parse_args():
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
+  parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--collect-skip-diagonal', help='Do not load the diagonal HessianParallel files, used for numerical where they are not created', action='store_true')
@@ -51,6 +52,7 @@ def parse_args():
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
   parser.add_argument('--data-vs-simulation', help='For the generator step, show data vs simulation', action='store_true')
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
+  parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
   parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
@@ -66,12 +68,14 @@ def parse_args():
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
+  parser.add_argument('--ignore-inputs-and-outputs', help='Do not check the inputs and outputs exist.', action='store_true')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
   parser.add_argument('--impact-to', help='Variable to get impact to', default=None)
   parser.add_argument('--include-per-model-rate', help='Include the rate parameters in the non-combined likelihood.', action='store_true')
   parser.add_argument('--include-postfit-uncertainty', help='Include the postfit uncertainties in the postfit plots.', action='store_true')
   parser.add_argument('--initial-best-fit-guess', help='The starting point of initial fit minimisation', default=None)
-  parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned'])
+  parser.add_argument('--integrate-density-with-ratios', help='Reintegrate the density (when using likelihood ratios) when evaluating the likelihood.', action='store_true')
+  parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned', 'poisson'])
   parser.add_argument('--list-steps', help='List the steps available', action='store_true')
   parser.add_argument('--load-weights-for-training', help='Path to weights to load to start the training at', default=None)
   parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
@@ -79,28 +83,35 @@ def parse_args():
   parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
   parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as shape parameter', action='store_true')
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
-  parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
+  parser.add_argument('--merge-binned-nuisances', help='Merge the binned nuisances. Key and values (comma separated) colon separated, all separated by semicolons', type=str, default=None)
   parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
+  parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
-  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=10)
+  parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=20)
   parser.add_argument('--number-of-toys', help='The number of toys for p-value dataset comparisons', type=int, default=100)
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
+  parser.add_argument('--no-likelihood-print-out', help='Do not print the likelihood values', action='store_true')
+  parser.add_argument('--no-spline', help='Do not use the normalisaing splines when creating asimov', action='store_true')
+  parser.add_argument('--only-default-asimov', help='Build asimov for only the default validation indices', action='store_true')
   parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--overwrite-classifier-architecture', help='Comma separated list of key=values to overwrite classifier architecture parameters', type=str, default='')
   parser.add_argument('--overwrite-density-architecture', help='Comma separated list of key=values to overwrite density architecture parameters', type=str, default='')
   parser.add_argument('--overwrite-regression-architecture', help='Comma separated list of key=values to overwrite regression architecture parameters', type=str, default='')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
+  parser.add_argument('--plot-extra-hypothesis', help='For Generator steps (and binned postfit), plot extra hypotheses. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--plot-var-and-bins', help='For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced.', type=str, default=None)
   parser.add_argument('--plot-weight-distribution', help='Plot weight distribution when running InputPlotValidation.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
   parser.add_argument('--prefit-nuisance-values', help='Make postfit plots with prefit nuisance values', action='store_true')
+  parser.add_argument('--preprocess-merge', help='Comma separated list of steps to merge in preprocess', type=str, default='initial,model,validation')
   parser.add_argument('--prune-classifier-models', help='Comma separated list of key>values keep shape effects for', type=str, default=None)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
+  parser.add_argument('--ratio-range', help='Range for ratio plot', type=str, default='0.5,1.5')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
   parser.add_argument('--replace-inputs', help='Colon and comma separated string to replace the inputs', type=str, default=None)
   parser.add_argument('--replace-outputs', help='Colon and comma separated string to replace the outputs and write a dummy file', type=str, default=None)
@@ -108,6 +119,7 @@ def parse_args():
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--scan-nominal-name', help='Name of nominal for scan', type=str, default='Nominal')
   parser.add_argument('--scan-plot-breakdown', help='Do the syst and stat breakdown, assuming the main input if the full and other-input is stat.', action='store_true')
+  parser.add_argument('--scan-points-input', help='Input for scan points, comma separated bracketed list of min and max, e.g. (171.5,173.5)', type=str, default=None)
   parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
   parser.add_argument('--simplex', help='The simplex used for likelihood minimisation.', type=str, default=None)
@@ -116,6 +128,7 @@ def parse_args():
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
+  parser.add_argument('--snakemake-use-file', help='Use already created snakemake file', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated list.', type=str, default=None)
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
@@ -192,7 +205,6 @@ def main(args, default_args):
           "cfg" : args.cfg,
           "file_name" : base_file_name,
           "data_output" : f"{prep_data_dir}/LoadData{args.extra_output_dir_name}",
-          "number_of_shuffles" : args.number_of_shuffles,
           "verbose" : not args.quiet,
         },
         loop = {"base_file_name" : base_file_name},
@@ -215,6 +227,7 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -238,6 +251,163 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - yields nominal
+  if args.step == "PreProcessParallelYieldsNominal":
+    print("<< Running yields nominal split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "yields",
+            "parameter_name" : "nominal",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - yields parameters
+  if args.step == "PreProcessParallelYieldsParameters":
+    print("<< Running yields parameters split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for parameter_name in [p for p in GetParametersInModel(file_name, cfg, category=category) if p in cfg["nuisances"]]:
+          module.Run(
+            module_name = "preprocess",
+            class_name = "PreProcess",
+            config = {
+              "partial": "yields",
+              "parameter_name" : parameter_name,
+              "cfg" : args.cfg,
+              "file_name" : file_name,
+              "data_input" : f"{prep_data_dir}/LoadData",
+              "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+              "number_of_shuffles" : args.number_of_shuffles,
+              "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+              "category" : category,
+              "use_pbar" : not args.disable_tqdm,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "parameter_name" : parameter_name},
+          )
+
+
+  # PreProcess the dataset - initial - yields collect
+  if args.step == "PreProcessParallelYieldsCollect":
+    print("<< Running yields collect split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "collect_yields",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
+            "verbose" : not args.quiet,
+          },
+          loop = {"file_name" : file_name, "category" : category},
+        )
+
+
+  # PreProcess the dataset - initial - binned fit inputs - nominal
+  if args.step == "PreProcessParallelBinnedFitInputsNominal":
+    print("<< Running binned fit inputs nominal split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for poi_value_ind, poi_value in enumerate(cfg["inference"]["binned_fit"]["shape_poi_values"] if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in GetParametersInModel(file_name, cfg, category=category)) else ["all"]):
+          module.Run(
+            module_name = "preprocess",
+            class_name = "PreProcess",
+            config = {
+              "partial": "binned_fit_inputs",
+              "parameter_name" : "nominal",
+              "poi_value" : poi_value,
+              "poi_value_ind" : poi_value_ind,
+              "cfg" : args.cfg,
+              "file_name" : file_name,
+              "data_input" : f"{prep_data_dir}/LoadData",
+              "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+              "number_of_shuffles" : args.number_of_shuffles,
+              "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+              "category" : category,
+              "use_pbar" : not args.disable_tqdm,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "poi_value_ind" : poi_value_ind},
+          )
+
+
+  # PreProcess the dataset - initial - binned fit inputs - nominal
+  if args.step == "PreProcessParallelBinnedFitInputsParameters":
+    print("<< Running binned fit inputs parameters split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for poi_value_ind, poi_value in enumerate(cfg["inference"]["binned_fit"]["shape_poi_values"] if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in GetParametersInModel(file_name, cfg, category=category)) else ["all"]):
+          for parameter_name in [p for p in GetParametersInModel(file_name, cfg, category=category) if p in cfg["nuisances"]]:
+            module.Run(
+              module_name = "preprocess",
+              class_name = "PreProcess",
+              config = {
+                "partial": "binned_fit_inputs",
+                "parameter_name" : parameter_name,
+                "poi_value" : poi_value,
+                "poi_value_ind" : poi_value_ind,
+                "cfg" : args.cfg,
+                "file_name" : file_name,
+                "data_input" : f"{prep_data_dir}/LoadData",
+                "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+                "number_of_shuffles" : args.number_of_shuffles,
+                "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+                "category" : category,
+                "use_pbar" : not args.disable_tqdm,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "category" : category, "poi_value_ind" : poi_value_ind, "parameter_name" : parameter_name},
+            )
+
+
+  # PreProcess the dataset - train test val split
+  if args.step == "PreProcessParallelTrainTestValSplit":
+    print("<< Running train test val split of preprocess step >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        module.Run(
+          module_name = "preprocess",
+          class_name = "PreProcess",
+          config = {
+            "partial": "train_test_val_split",
+            "cfg" : args.cfg,
+            "file_name" : file_name,
+            "data_input" : f"{prep_data_dir}/LoadData",
+            "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+            "number_of_shuffles" : args.number_of_shuffles,
+            "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+            "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -265,6 +435,7 @@ def main(args, default_args):
                 "number_of_shuffles" : args.number_of_shuffles,
                 "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
                 "category" : category,
+                "use_pbar" : not args.disable_tqdm,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "category" : category, "model_type" : model_type, "parameter_name" : parameter_name},
@@ -290,6 +461,7 @@ def main(args, default_args):
               "number_of_shuffles" : args.number_of_shuffles,
               "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
               "category" : category,
+              "use_pbar" : not args.disable_tqdm,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "val_ind" : val_ind},
@@ -316,6 +488,7 @@ def main(args, default_args):
                 "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
                 "category" : category,
                 "nuisance_shift" : f"{nuisance}_{shift}",
+                "use_pbar" : not args.disable_tqdm,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
@@ -332,12 +505,22 @@ def main(args, default_args):
             for model_name in cfg["models"][file_name].keys() if model_name != "yields"
             for value in (GetModelLoop(cfg, model_file_name=file_name, specific_category=category, only_classification=(model_name=="classifier_models"), only_regression=(model_name=="regression_models")) if model_name != "density_models" else [None])
         ]
+        merge_steps = args.preprocess_merge.split(",")
+        merge_parameters = []
+        if "initial" in merge_steps:
+          merge_parameters.append("initial")
+        if "model" in merge_steps:
+          merge_parameters += param_models_names
+        if "validation" in merge_steps:
+          merge_parameters += [f"validation_val_ind_{val_ind}" for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name))]
+        if "binned_fit_inputs" in merge_steps:
+          merge_parameters += [f"binned_fit_inputs_{parameter}_{poi_value_ind}" for parameter in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)] for poi_value_ind, poi_value in enumerate(cfg["inference"]["binned_fit"]["shape_poi_values"] if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in GetParametersInModel(file_name, cfg, category=category)) else ["all"])]
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
           config = {
             "partial": "merge",
-            "merge_parameters" : ["initial"] + param_models_names + [f"validation_val_ind_{val_ind}" for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name))],
+            "merge_parameters" : merge_parameters,
             "cfg" : args.cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
@@ -345,6 +528,7 @@ def main(args, default_args):
             "number_of_shuffles" : args.number_of_shuffles,
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
+            "use_pbar" : not args.disable_tqdm,
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -353,16 +537,17 @@ def main(args, default_args):
 
   # Create a "toy" dataset from oversampling the validation data for 0
   if args.step == "ResampleValidationForData":
-    module.Run(
-      module_name = "resample_validation_for_data",
-      class_name = "ResampleValidationForData",
-      config = {
-        "data_output" : cfg["data_file"],
-        "data_inputs" : {file_name : {category:f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_0" for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)} for file_name in GetModelFileLoop(cfg)},
-        "verbose" : not args.quiet,
-      },
-      loop = {},
-    )
+    for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+      module.Run(
+        module_name = "resample_validation_for_data",
+        class_name = "ResampleValidationForData",
+        config = {
+          "data_output" : f"{prep_data_dir}/DataCategories/{category}/data.parquet",
+          "data_inputs" : {file_name : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{GetValidationDefaultIndex(cfg, file_name, category=category)}" for file_name in GetModelFileLoop(cfg)},
+          "verbose" : not args.quiet,
+        },
+        loop = {"category" : category},
+      )
 
 
   # Make data categories
@@ -661,14 +846,15 @@ def main(args, default_args):
         module_name = "evaluate_classifier",
         class_name = "EvaluateClassifier",
         config = {
+          "cfg" : args.cfg,
           "data_input" : model_info['file_loc'],
-          "plots_output" : f"{plots_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "model_input" : f"{models_dir}",
           "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
           "file_name" : model_info["file_name"],
           "parameters" : model_info["parameters"],
           "parameter" : model_info["parameter"],
           "data_output" : f"{eval_data_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "extra_classifier_model_name" : args.extra_classifier_model_name,
           "verbose" : not args.quiet,
         },
         loop = {"model_name" : model_info['name']}
@@ -714,16 +900,14 @@ def main(args, default_args):
               "model_input": f"{models_dir}",
               "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
               "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-              "verbose": not args.quiet,
               "do_loss": "loss" in args.classifier_performance_metrics,
-              "loss_datasets": ["train", "test"],
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
-              "do_chi_squared": "histogram" in args.classifier_performance_metrics,
-              "do_kl_divergence": "histogram" in args.classifier_performance_metrics,
-              "histogram_datasets": ["train","test"],
+              "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
               "save_extra_name": extra_name,
-              "metrics_save_extra_name": extra_name,            
-              }
+              "metrics_save_extra_name": extra_name,
+              "verbose": not args.quiet,
+              },
+          loop = {"model_name" : model_info['name'], "extra_name" : extra_name},
         )
         
   # Make the asimov datasets
@@ -732,6 +916,7 @@ def main(args, default_args):
     for file_name in GetModelFileLoop(cfg):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.only_default_asimov, allow_non_combined=True): continue
         for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
           module.Run(
             module_name = "make_asimov",
@@ -740,9 +925,7 @@ def main(args, default_args):
               "cfg" : args.cfg,
               "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
               "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-              "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
               "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
-              "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
               "model_input" : f"{models_dir}",
               "extra_density_model_name" : args.extra_density_model_name,
               "extra_regression_model_name" : args.extra_regression_model_name,
@@ -756,6 +939,9 @@ def main(args, default_args):
               "verbose" : not args.quiet,
               "file_name" : file_name,
               "use_asimov_scaling" : args.use_asimov_scaling,
+              "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+              "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category)},
+              "skip_spline" : args.no_spline,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
@@ -775,9 +961,7 @@ def main(args, default_args):
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-                "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
                 "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
-                "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -791,9 +975,62 @@ def main(args, default_args):
                 "verbose" : not args.quiet,
                 "file_name" : file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
+                "skip_spline" : args.no_spline,
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
+
+
+  # Make the asimov datasets for classifier/regressor normalisation spline
+  if args.step == "MakeAsimovForNormalisationSpline":
+    print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
+    for model_info in GetModelLoop(cfg, only_density=True):
+      module.Run(
+        module_name = "make_asimov",
+        class_name = "MakeAsimov",
+        config = {
+          "cfg" : args.cfg,
+          "density_model" : model_info,
+          "regression_models" : {},
+          "classifier_models" : {},
+          "extra_density_model_name" : args.extra_density_model_name,
+          "data_output" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/{model_info['name']}",
+          "parameters" : model_info["parameters"],
+          "val_info" : GetDefaultsInModel(model_info['file_name'], cfg),
+          "use_asimov_scaling" : None,
+          "n_asimov_events" : args.number_of_asimov_events,
+          "only_density" : True,
+          "file_name" : model_info['file_name'],
+          "model_input" : f"{models_dir}",
+          "skip_spline" : args.no_spline,
+        },
+        loop = {"model_name" : model_info['name']},
+      )
+
+
+  # Make the normalisation spline for the classifier models
+  if args.step == "NormalisationSplineClassifier":
+    print("<< Building the normalisation spline for classifier networks >>")
+    for model_info in GetModelLoop(cfg, only_classification=True):
+      module.Run(
+        module_name = "normalisation_spline_classifier",
+        class_name = "NormalisationSplineClassifier",
+        config = {
+          "cfg" : args.cfg,
+          "data_input" : model_info['file_loc'],
+          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
+          "plots_output" : f"{plots_dir}/NormalisationSplineClassifier/{model_info['name']}{args.extra_classifier_model_name}",
+          "model_input" : f"{models_dir}",
+          "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
+          "file_name" : model_info["file_name"],
+          "parameters" : model_info["parameters"],
+          "parameter" : model_info["parameter"],
+          "extra_classifier_model_name" : args.extra_classifier_model_name,
+          "category" : model_info["category"],
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info['name']}
+      )
 
 
   # Get performance metrics
@@ -1089,6 +1326,7 @@ def main(args, default_args):
               "data_label" : "Simulated" if (args.data_type != "data" and not args.data_vs_simulation) else "Data",
               "stack_label" : "Synthetic" if not args.data_vs_simulation else "Simulated",
               "plot_var_and_bins" : args.plot_var_and_bins,
+              "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
@@ -1150,7 +1388,7 @@ def main(args, default_args):
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
-    print(f"<< Running a single likelihood value for Y={args.other_input} >>")
+    print(f"<< Running a single likelihood value for Y={args.debug_input} >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
@@ -1162,7 +1400,7 @@ def main(args, default_args):
             **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind),
             "method" : "Debug",
             "extra_file_name" : str(val_ind),
-            "other_input" : args.other_input,
+            "debug_input" : [{value.split("=")[0] : value.split("=")[1] for value in hypothesis.split(",")} for hypothesis in args.debug_input.split(";")] if args.debug_input is not None else [],
             "val_ind" : val_ind,
           },
           loop = {"file_name" : file_name, "val_ind" : val_ind},
@@ -1587,7 +1825,7 @@ def main(args, default_args):
                 "column" : column,
                 "sigma_between_scan_points" : args.sigma_between_scan_points,
                 "number_of_scan_points" : args.number_of_scan_points,
-                "scan_points_input" : args.other_input,
+                "scan_points_input" : args.scan_points_input,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
             )
@@ -1696,9 +1934,7 @@ def main(args, default_args):
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
-                "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
                 "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
-                "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1711,6 +1947,7 @@ def main(args, default_args):
                 "only_density" : args.only_density,
                 "file_name" : asimov_file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
+                "skip_spline" : args.no_spline,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category},
@@ -1754,6 +1991,7 @@ def main(args, default_args):
                     "only_density" : args.only_density,
                     "file_name" : asimov_file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
+                    "skip_spline" : args.no_spline,
                     "verbose" : not args.quiet,
                   },
                   loop = {"file_name" : file_name, "asimov_file_name" : asimov_file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
@@ -1768,7 +2006,7 @@ def main(args, default_args):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-          if args.likelihood_type in ["unbinned", "unbinned_extended"]:
+          if args.likelihood_type in ["unbinned", "unbinned_extended", "poisson"]:
             module.Run(
               module_name = "generator",
               class_name = "Generator",
@@ -1788,12 +2026,42 @@ def main(args, default_args):
                 "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
                 "plot_var_and_bins" : args.plot_var_and_bins,
+                "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
             )
-          else:
-            raise NotImplementedError("PostFitPlot is not implemented for binned likelihoods yet.")
+          elif args.likelihood_type in ["binned", "binned_extended"]:
+            best_fit = GetBestFitFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
+            summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
+            constraints = {}
+            for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
+              constraints[nuisance] = {}
+              for nuisance_value in ["up","down"]:
+                summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
+                constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values) 
+            module.Run(
+              module_name = "binned_distributions",
+              class_name = "BinnedDistributions",
+              config = {
+                "parameters" : {k:f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()},
+                "category" : category,
+                "val_info" : best_fit,
+                "constraints" : constraints,
+                "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category],
+                "data_input_keys" :  {k:["validation_binned_fit","full",v] for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+                "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_output_dir_name}/{file_name}/{category}",
+                "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
+                "poi" : cfg["pois"][0],
+                "inference_options" : cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != 'nuisance_constraints'},
+                "include_uncertainty" : args.include_postfit_uncertainty,
+                "extra_hypotheses" : [{value.split("=")[0] : value.split("=")[1] for value in hypothesis.split(",")} for hypothesis in args.plot_extra_hypothesis.split(";")] if args.plot_extra_hypothesis is not None else [],
+                "ratio_range" : [float(x) for x in args.ratio_range.split(",")] ,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
+            )
+            
 
 
   # Separate the truth and best fit asimov and plot
@@ -1817,76 +2085,6 @@ def main(args, default_args):
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
-
-  """
-
-  # Make the goodness of fit toys
-  if args.step == "MakeGoodnessOfFitToys":
-    print(f"<< Making the goodness of fit toys >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        best_fit = GetBestFitFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
-        for asimov_file_name, asimov_val_ind in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-            for seed in range(args.number_of_toys):
-              module.Run(
-                module_name = "make_asimov",
-                class_name = "MakeAsimov",
-                config = {
-                  "cfg" : args.cfg,
-                  "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
-                  "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
-                  "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",
-                  "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
-                  "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
-                  "model_input" : f"{models_dir}",
-                  "extra_density_model_name" : args.extra_density_model_name,
-                  "extra_regression_model_name" : args.extra_regression_model_name,
-                  "parameters" : f"{prep_data_dir}/PreProcess/{asimov_file_name}/{category}/parameters.yaml",
-                  "data_output" : f"{eval_data_dir}/MakeGoodnessOfFitToys{args.extra_output_dir_name}/{file_name}/{asimov_file_name}/{category}/val_ind_{asimov_val_ind}/seed_{seed}/",
-                  "seed" : seed,
-                  "val_info" : best_fit,
-                  "val_ind" : asimov_val_ind,
-                  "only_density" : args.only_density,
-                  "file_name" : asimov_file_name,
-                  "use_asimov_scaling" : 1.0,
-                  "verbose" : not args.quiet,
-                },
-                loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category, "seed" : seed},
-              )
-
-
-  # Run goodness of fit toy fits
-  if args.step == "RunGoodnessOfFitToys":
-    print(f"<< Running initial fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
-          for seed in range(args.number_of_toys):
-            module.Run(
-              module_name = "infer",
-              class_name = "Infer",
-              config = {
-                **CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name=f"MakeGoodnessOfFitToys{args.extra_input_dir_name}/{file_name}", asimov_extra_dir=f"seed_{seed}", force_asimov=True),
-                "method" : "InitialFit",
-                "data_output" : f"{eval_data_dir}/RunGoodnessOfFitToys{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
-                "extra_file_name" : f'{val_ind}_seed_{seed}',
-                "freeze" : freeze["freeze"],
-                "val_ind" : val_ind,
-              },
-              loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "seed" : seed},
-            )
-
-  # Collect goodness of fit toy asimov fits
-
-
-  # Plot the goodness of fit
-
-  """
 
 
   # Calculate the chi squared of the summary
@@ -2043,7 +2241,11 @@ if __name__ == "__main__":
     else: # Run snakemake
 
       # Setting up snakemake file
-      snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+      if not args.snakemake_use_file:
+        snakemake_file = SetupSnakeMakeFile(args, default_args, main)
+      else:
+        cfg = LoadConfig(args.cfg)
+        snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
       if not args.snakemake_dry_run: # Run snakemake
         os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")

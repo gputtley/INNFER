@@ -74,7 +74,7 @@ class PlotDensity():
       for condition in parameters["density"]["Y_columns"]:
         cond_bins = input_dp.GetFull(method="bins_with_equal_stats", column=condition, bins=self.n_plots, ignore_quantile=0.00)
         for i in range(len(cond_bins)-1):
-          name = rf"{RoundToSF(cond_bins[i],2)} $\leq$ {Translate(condition)} < {RoundToSF(cond_bins[i+1],2)}"
+          name = rf"{round(cond_bins[i],6)} $\leq$ {Translate(condition)} < {round(cond_bins[i+1],6)}"
           sels[name] = f"(({condition} >= {cond_bins[i]}) & ({condition} < {cond_bins[i+1]}))"
           names[name] = f"{condition}_bin_{i}"
 

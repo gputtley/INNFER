@@ -73,6 +73,8 @@ class ScanPlot():
     if self.verbose:
       print("- Plotting the likelihood scan")
 
+    print(y)
+
     plot_likelihood(
       x, 
       y, 

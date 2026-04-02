@@ -1,3 +1,4 @@
+import importlib
 import os
 import re
 import uproot
@@ -12,6 +13,7 @@ from functools import partial
 from data_loader import DataLoader
 from data_processor import DataProcessor
 from useful_functions import GetCategoryLoop, GetParametersInModel, MakeDirectories, LoadConfig
+from write_parquet import WriteParquet
 
 pd.options.mode.chained_assignment = None
 
@@ -43,15 +45,16 @@ class LoadData():
     # Set up calculated
     calculated = []
     existing = []
-    if "pre_calculate" in cfg["files"][file_name].keys():
-      for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if isinstance(v, str):
-          if k not in self._GetTokens(v) and k not in existing:
-            calculated += [k]
+    for calc in ["pre_calculate", "calculate"]:
+      if calc in cfg["files"][file_name].keys():
+        for k, v in cfg["files"][file_name][calc].items():
+          if isinstance(v, str):
+            if k not in self._GetTokens(v) and k not in existing:
+              calculated += [k]
+            else:
+              existing += [k]
           else:
-            existing += [k]
-        else:
-          calculated += [i for i in v.get("outputs", []) if i not in v.get("inputs", []) and i not in existing]
+            calculated += [i for i in v.get("outputs", []) if i not in v.get("inputs", []) and i not in existing]
 
     # Add fitted variables
     self.columns = []
@@ -107,13 +110,14 @@ class LoadData():
     self.columns += self._GetTokens(weight)
 
     # Get from post selection
-    if "pre_calculate" in cfg["files"][file_name].keys():
-      for k, v in cfg["files"][file_name]["pre_calculate"].items():
-        if isinstance(v, str):
-          self.columns += [i for i in self._GetTokens(v) if i not in calculated]
-        else:
-          inputs = v.get("inputs", [])
-          self.columns += [i for i in inputs if i not in calculated]
+    for calc in ["pre_calculate", "calculate"]:
+      if calc in cfg["files"][file_name].keys():
+        for k, v in cfg["files"][file_name][calc].items():
+          if isinstance(v, str):
+            self.columns += [i for i in self._GetTokens(v) if i not in calculated]
+          else:
+            inputs = v.get("inputs", [])
+            self.columns += [i for i in inputs if i not in calculated]
 
     # Do post_calculate_selection
     if "post_calculate_selection" in cfg["files"][file_name].keys():
@@ -136,25 +140,13 @@ class LoadData():
 
     self.columns = sorted(list(set(self.columns)))  # Remove duplicates
 
-
-  def _DoWriteDataset(self, df, file_name):
-
-    df = df.loc[:,self.columns]
-
-    file_path = f"{self.data_output}/{file_name}.parquet"
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    if os.path.isfile(file_path):
-      combined_table = pa.concat_tables([pq.read_table(file_path), table])
-      pq.write_table(combined_table, file_path, compression='snappy')
-    else:
-      pq.write_table(table, file_path, compression='snappy')
-
-    return df
-
+    
   def _MakeFiles(self, file_name, file_info):
 
     if self.verbose:
       print(f"- Making {file_name}")
+
+    wp = WriteParquet(name=file_name, data_output=self.data_output)
 
     for input_file_ind, input_file in enumerate(file_info["inputs"]):
 
@@ -198,7 +190,6 @@ class LoadData():
 
         # Add extra columns
         if "add_columns" in file_info.keys():
-          new_cols = {}
           for extra_col_name, extra_col_value in file_info["add_columns"].items():
             if isinstance(extra_col_value, list):
               df = df.assign(**{extra_col_name: extra_col_value[input_file_ind]})
@@ -230,6 +221,19 @@ class LoadData():
         # Set type
         df = df.astype(np.float64)
 
+        # Apply pre_calculate functions
+        for k, v in file_info.get("pre_calculate", {}).items():
+          if isinstance(v, str):
+            df.loc[:,k] = df.eval(v)
+          elif isinstance(v, dict):
+            if v["type"] == "function":
+              module = importlib.import_module(v["file"])
+              func_full = getattr(module, v["name"])
+              func = partial(func_full, **v["args"])
+              df = func(df)
+            else:
+              raise ValueError(f"Unknown pre_calculate type: {v['type']}")
+
         ## Remove negative weights
         #if "remove_negative_weights" in file_info.keys():
         #  if file_info["remove_negative_weights"]:
@@ -240,7 +244,8 @@ class LoadData():
         #      df = df[~neg_weight_rows]
 
         # Write dataset
-        self._DoWriteDataset(df, file_name)
+        wp(df)
+    wp.collect()
 
     # Add summed column
     if "add_summed_columns" in file_info.keys():
@@ -276,9 +281,6 @@ class LoadData():
           )          
 
       # Apply sums
-      if os.path.isfile(f"{self.data_output}/{fileout}.parquet"):
-        os.system(f"rm {self.data_output}/{fileout}.parquet")
-
       def apply_sum(df, sums, summed_col_info):
         unique_names = []
         for summed_col in summed_col_info:
@@ -292,13 +294,15 @@ class LoadData():
             df.loc[:,summed_col["name"]] = sums[ind]
         return df
       
+      wp = WriteParquet(name=fileout, data_output=self.data_output)
       dp.GetFull(
         method=None,
         functions_to_apply=[
           partial(apply_sum, sums=sums, summed_col_info=file_info["add_summed_columns"]),
-          partial(self._DoWriteDataset, file_name=fileout)
+          wp
         ]
       )
+      wp.collect()
       os.system(f"mv {self.data_output}/{fileout}.parquet {self.data_output}/{filein}.parquet")
 
 

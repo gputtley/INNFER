@@ -43,6 +43,8 @@ class Yields():
 
   def GetYield(self, Y, ignore_rate_param=False, ignore_physics_model=False, ignore_lnN=False):
 
+    st = time.time()
+
     # Reindex Y
     Y = Y.reset_index(drop=True)
 
@@ -55,6 +57,8 @@ class Yields():
     else:
       out = pd.DataFrame(self.nominal_yield*np.ones(len(Y)), columns=["yield"])
 
+
+    """
     # do lnN
     if not ignore_lnN:
       lnN_columns = [i for i in self.lnN.keys() if i in Y.columns]
@@ -69,17 +73,33 @@ class Yields():
           if use_cache:
             self.cache['log_asym_kappa'][k] = logk
         yield_arr *= np.exp(logk * yk)   # updates out["yield"]
+    """
+        
+    # do lnN
+    if not ignore_lnN:
+      lnN_columns = [i for i in self.lnN.keys() if i in Y.columns]
+      Y_mat = Y[lnN_columns].to_numpy()     # shape (n_rows, n_cols)
+      logk_mat = np.empty_like(Y_mat)
+      for j, k in enumerate(lnN_columns):
+        yk = Y_mat[:, j]
+        if k in self.cache['log_asym_kappa'] and use_cache:
+          logk = self.cache['log_asym_kappa'][k]
+        else:
+          k_lo, k_hi = self.lnN[k]
+          logk = self._LogAsymKappa(yk, k_lo, k_hi)
+          if use_cache:
+            self.cache['log_asym_kappa'][k] = logk
+        logk_mat[:, j] = logk
+      yield_arr = out["yield"].to_numpy()
+      yield_arr *= np.exp(np.sum(logk_mat * Y_mat, axis=1))
 
     # do rate parameter
-    if not ignore_rate_param:
-      if self.rate_param is not None:
-        if self.rate_param in Y.columns:
-          out.loc[:,"yield"] *= Y.loc[:,self.rate_param]
+    if not ignore_rate_param and self.rate_param and self.rate_param in Y.columns:
+      out["yield"] *= Y[self.rate_param]
 
     # do physics model
-    if not ignore_physics_model:
-      if self.physics_model is not None:
-        out.loc[:,"yield"] *= self.physics_model(Y)
+    if not ignore_physics_model and self.physics_model is not None:
+      out["yield"] *= self.physics_model(Y)
 
     # return
     if len(out) == 1:
