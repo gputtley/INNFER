@@ -1230,8 +1230,12 @@ def main(args, default_args):
 
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
-    print("<< Collecting hyperparameter scan >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    model_type = args.model_type.lower()
+    if model_type not in ["density", "classifier", "regression"]:
+      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
+    print(f"<< Running a hyperparameter scan for {model_type} >>")
+    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
+    for model_info in model_loop:
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
