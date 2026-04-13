@@ -8,7 +8,9 @@ import numpy as np
 from random_word import RandomWords
 
 from train_density import TrainDensity
+from train_classifier import TrainClassifier
 from density_performance_metrics import DensityPerformanceMetrics
+from classifier_performance_metrics import ClassifierPerformanceMetrics
 from useful_functions import FindKeysAndValuesInDictionaries, MakeDictionaryEntry, GetDictionaryEntryFromYaml, MakeDirectories
 
 class BayesianHyperparameterTuning():
@@ -17,9 +19,12 @@ class BayesianHyperparameterTuning():
     """
     A template class.
     """
+    self.model_type = None
+
     # Required input which is the location of a file
     self.cfg = None
-    self.parameters = None    
+    self.parameters = None   
+    self.parameter = None 
     self.tune_architecture = None
 
     # other
@@ -37,7 +42,7 @@ class BayesianHyperparameterTuning():
     self.verbose = True
     self.disable_tqdm = False
     self.data_output = "data/"
-    self.density_performance_metrics = None
+    self.performance_metrics = None
     self.n_trials = 10
 
     self.objective_ind = 0
@@ -226,10 +231,17 @@ class BayesianHyperparameterTuning():
 
   def _SetupTrain(self):
 
-    t = TrainDensity()
+    if self.model_type == "density":
+      t = TrainDensity()
+    elif self.model_type == "classifier":
+      t = TrainClassifier()
+    else:
+      raise ValueError(f"model_type {self.model_type} not recognised")
+      
     t.Configure(     
       {     
         "parameters" : self.parameters,
+        "parameter": self.parameter,
         "architecture" : self.tune_architecture_name,
         "file_name" : self.file_name,
         "data_input" : self.file_loc,
@@ -250,7 +262,15 @@ class BayesianHyperparameterTuning():
 
   def _SetupPerformanceMetrics(self):
 
-    pf = DensityPerformanceMetrics()
+    if self.model_type == "density":
+      pf = DensityPerformanceMetrics()
+      base_dataset = ["test_inf","val"]
+    elif self.model_type == "classifier":
+      pf = ClassifierPerformanceMetrics()
+      base_dataset = ["train", "test"]
+    else:
+      raise ValueError(f"model_type {self.model_type} not recognised")
+    
     pf.Configure(
       {
         "cfg" : self.cfg,
@@ -258,20 +278,21 @@ class BayesianHyperparameterTuning():
         "file_loc" : self.file_loc,
         "val_file_loc" : self.val_file_loc,
         "parameters" : self.parameters,
+        "parameter" : self.parameter,
         "category" : self.category,
         "model_input" : "/".join(self.data_output.split("/")[:-1]),
         "extra_model_dir" : self.data_output.split("/")[-1],
         "extra_model_name" : f"_{self.objective_ind}",
         "data_output" : self.data_output,
-        "do_inference": "inference" in self.density_performance_metrics,
+        "do_inference": "inference" in self.performance_metrics,
         "do_loss": True,
-        "do_histogram_metrics": "histogram" in self.density_performance_metrics,
-        "do_multidimensional_dataset_metrics": "multidim" in self.density_performance_metrics,
+        "do_histogram_metrics": "histogram" in self.performance_metrics,
+        "do_multidimensional_dataset_metrics": "multidim" in self.performance_metrics,
         "save_extra_name" : f"_{self.objective_ind}",
         "verbose" : self.verbose,     
         "inference_datasets" : ["test_inf","val"],
-        "histogram_datasets" : ["test_inf","val"],
-        "multidimensional_datasets" : ["test_inf","val"],
+        "histogram_datasets" : base_dataset,
+        "multidimensional_datasets" : base_dataset,
       }
     )
 
