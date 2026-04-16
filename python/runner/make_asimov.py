@@ -330,7 +330,7 @@ class MakeAsimov():
     # Rescale back to total yield
     if self.verbose:
       print(f"- Rescaling asimov dataset to total yield")
-    wt_rescaler_name = f"asimov_wt_shifter_classifier_{classifier_model['parameter']}"
+    wt_rescaler_name = f"asimov_wt_rescaler"
     total_wt_rescaler_name = f"{self.data_output}/{wt_rescaler_name}.parquet"
     wp = WriteParquet(name=wt_rescaler_name, data_output=self.data_output)
     wt_rescaler= DataProcessor(

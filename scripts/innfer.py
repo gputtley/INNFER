@@ -13,6 +13,7 @@ from useful_functions import (
     AdjustArgs,
     CommonInferConfigOptions,
     DescribeStep,
+    GetBaseFileLoop,
     GetBestFitFromYaml,
     GetBestFitWithShiftedNuisancesFromYaml,
     GetCategoryLoop,
@@ -20,13 +21,14 @@ from useful_functions import (
     GetDataInput,
     GetDefaultsInModel,
     GetDictionaryEntryFromYaml,
-    GetBaseFileLoop,
+    GetFactorisationMetricsPlotInput,
     GetFreezeLoop,
     GetModelLoop,
     GetModelFileLoop,
     GetParametersInModel,
     GetParameterLoop,
     GetScanArchitectures,
+    GetValidationDatasetLoop,
     GetValidationDefaultIndex,
     GetValidationLoop,
     ListSteps,
@@ -69,6 +71,7 @@ def parse_args():
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--plot-metric', help='Metric for factorisation plots, colon separated in many keys', type=str, default='chi_squared_per_dof:mean')
   parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--ignore-inputs-and-outputs', help='Do not check the inputs and outputs exist.', action='store_true')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
@@ -152,6 +155,7 @@ def parse_args():
   parser.add_argument('--use-scenario-labels', help='Use Scenario 1, for example, labelling on plots rather than the string name', action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
+  parser.add_argument('--validation-performance-metrics-datasets', help='Comma separated list of types of dataset (validation, nuisance_variations, nuisance_double_variations)', type=str, default='validation')
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
   args = parser.parse_args()
@@ -502,6 +506,37 @@ def main(args, default_args, module_options={}):
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
+
+
+  # PreProcess the dataset - nuisance variations
+  if args.step == "PreProcessParallelNuisanceDoubleVariations":
+    print("<< Running nuisance double variations of preprocess >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance_1_ind, nuisance_1 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+          for nuisance_1_shift in ["up","down"]:
+            for nuisance_2_ind, nuisance_2 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+              for nuisance_2_shift in ["up","down"]:
+                if nuisance_1_ind >= nuisance_2_ind: continue
+                sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+                module.Run(
+                  module_name = "preprocess",
+                  class_name = "PreProcess",
+                  config = {
+                    "partial": "nuisance_double_variations",
+                    "cfg" : args.cfg,
+                    "file_name" : file_name,
+                    "data_input" : f"{prep_data_dir}/LoadData",
+                    "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+                    "number_of_shuffles" : args.number_of_shuffles,
+                    "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+                    "category" : category,
+                    "nuisance_shift" : f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+                    "use_pbar" : not args.disable_tqdm,
+                    "verbose" : not args.quiet,
+                  },
+                  loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+                )
 
 
   # PreProcess the dataset - Merge
@@ -990,6 +1025,45 @@ def main(args, default_args, module_options={}):
             )
 
 
+  # Make the asimov datasets for the double nuisance variations
+  if args.step == "MakeAsimovNuisanceDoubleVariations":
+    print(f"<< Making the asimov datasets for double nuisance variations >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        nuisances = [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]
+        for nuisance_1_ind, nuisance_1 in enumerate(nuisances):
+          for nuisance_1_shift in ["up","down"]:
+            for nuisance_2_ind, nuisance_2 in enumerate(nuisances):
+              for nuisance_2_shift in ["up","down"]:
+                if nuisance_1_ind >= nuisance_2_ind: continue
+                sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+                module.Run(
+                  module_name = "make_asimov",
+                  class_name = "MakeAsimov",
+                  config = {
+                    "cfg" : args.cfg,
+                    "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
+                    "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
+                    "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+                    "model_input" : f"{models_dir}",
+                    "extra_density_model_name" : args.extra_density_model_name,
+                    "extra_regression_model_name" : args.extra_regression_model_name,
+                    "extra_classifier_model_name" : args.extra_classifier_model_name,
+                    "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
+                    "data_output" : f"{eval_data_dir}/MakeAsimovNuisanceDoubleVariations{args.extra_output_dir_name}/{file_name}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+                    "n_asimov_events" : args.number_of_asimov_events,
+                    "seed" : args.asimov_seed,
+                    "val_info" : {nuisances[0]: 1.0 if nuisance_1_shift=="up" else -1.0, nuisances[1]: 1.0 if nuisance_2_shift=="up" else -1.0},
+                    "only_density" : args.only_density,
+                    "verbose" : not args.quiet,
+                    "file_name" : file_name,
+                    "use_asimov_scaling" : args.use_asimov_scaling,
+                    "skip_spline" : args.no_spline,
+                  },
+                  loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+                )
+
+
   # Make the asimov datasets for classifier/regressor normalisation spline
   if args.step == "MakeAsimovForNormalisationSpline":
     print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
@@ -1385,6 +1459,56 @@ def main(args, default_args, module_options={}):
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
           )
+
+
+  # Get performance metrics comparing simulated vs synthetic for different validation scenarios
+  if args.step == "ValidationPerformanceMetrics":
+    print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for val_dataset_ind, val_dataset_info in enumerate(GetValidationDatasetLoop(cfg, file_name, f"{prep_data_dir}/PreProcess", f"{eval_data_dir}/MakeAsimov", extra_asimov_name=args.extra_asimov_input_dir_name, category=category, dataset_type=args.validation_performance_metrics_datasets.split(","), sim_type=args.sim_type)):
+          module.Run(
+            module_name = "validation_performance_metrics",
+            class_name = "ValidationPerformanceMetrics",
+            config = {
+              "cfg" : args.cfg,
+              "sim_files" : val_dataset_info["files"],
+              "synth_files" : val_dataset_info["asimov_files"],
+              "sim_wt_name" : "wt",
+              "synth_wt_name" : "wt",
+              "do_histogram_metrics" : True,
+              "do_multidimensional_dataset_metrics" : True,
+              "data_output" : f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_output_dir_name}/{file_name}/{category}/{val_dataset_info['output_name']}",
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "val_dataset_ind" : val_dataset_ind},
+          )
+          
+
+  # Plot the performance metrics for factorisation assumption
+  if args.step == "PlotFactorisation":
+    print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance_1_shift in ["up", "down"]:
+          for nuisance_2_shift in ["up", "down"]:
+            if nuisance_1_shift == "down" and nuisance_2_shift == "up": continue
+            metrics, columns = GetFactorisationMetricsPlotInput(cfg, file_name, f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_input_dir_name}/{file_name}/{category}", nuisance_1_shift, nuisance_2_shift, category=category)
+            module.Run(
+              module_name = "plot_factorisation",
+              class_name = "PlotFactorisation",
+              config = {
+                "metric" : args.plot_metric.split(":") if ":" in args.plot_metric else [args.plot_metric],
+                "metrics_files" : metrics,
+                "plots_output" : f"{plots_dir}/PlotFactorisation{args.extra_output_dir_name}/{file_name}/{category}",
+                "extra_plot_name" : f"x_{nuisance_2_shift}_y_{nuisance_1_shift}",
+                "columns" : columns,
+                "x_shift" : nuisance_2_shift,
+                "y_shift" : nuisance_1_shift,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "category" : category, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+            )
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":

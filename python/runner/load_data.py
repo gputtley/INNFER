@@ -153,7 +153,7 @@ class LoadData():
       if self.verbose:
         print(f"- Loading file {input_file}")
 
-      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS")) if self.batch_size is None else self.batch_size
+      batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_LOADDATA")) if self.batch_size is None else self.batch_size
 
       if ".root" in input_file:
         # Initiate root file
@@ -183,7 +183,6 @@ class LoadData():
           df = loader.LoadNextBatch()
           if file_info.get("selection", False):
             df = df.loc[df.eval(file_info["selection"]),:]
-
 
         # Skip if dataframe is empty
         if len(df) == 0: continue
@@ -245,7 +244,8 @@ class LoadData():
 
         # Write dataset
         wp(df)
-    wp.collect()
+
+    wp.collect(memory_safe=True)
 
     # Add summed column
     if "add_summed_columns" in file_info.keys():
@@ -302,7 +302,7 @@ class LoadData():
           wp
         ]
       )
-      wp.collect()
+      wp.collect(memory_safe=True)
       os.system(f"mv {self.data_output}/{fileout}.parquet {self.data_output}/{filein}.parquet")
 
 

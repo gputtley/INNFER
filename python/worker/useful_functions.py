@@ -906,6 +906,81 @@ def GetValidationDefaultIndex(cfg, file_name, category=None):
   raise ValueError("Default value needs to be in the validation loop")
 
 
+def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val"):
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+  nuisance_shifts = {"up":1.0, "down":-1.0}
+  file_loop = GetModelFileLoop(cfg) if file_name == "combined" else [file_name]
+  default_val_inds = {fn: GetValidationDefaultIndex(cfg, fn, category=category) for fn in file_loop}
+
+  val_dataset_loop = []
+  for dataset in dataset_type:
+
+    if dataset == "validation":
+
+      val_loop = GetValidationLoop(cfg, file_name)
+      for val_ind, val_info in enumerate(val_loop):
+        combined_val_inds = GetCombinedValdidationIndices(cfg, file_name, val_ind)
+        file_ends = [f"{fn}/{category}/val_ind_{combined_val_inds[fn]}" for fn in file_loop]
+        val_dataset_loop.append({
+          "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+          "asimov_files" : [[f"{asimov_dir}{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+          "val_info" : val_info,
+          "output_name" : f"val_ind_{val_ind}",
+        })
+
+    elif dataset == "nuisance_variations":
+
+      for nuisance in nuisances_in_model:
+        for shape_name, shape_value in nuisance_shifts.items():
+
+          file_ends = []
+          for fn in file_loop:
+            parameters_in_model = GetParametersInModel(fn, cfg, category=category)
+            if nuisance in parameters_in_model:
+              file_ends.append(f"{fn}/{category}/{nuisance}_{shape_name}")
+            else:
+              file_ends.append(f"{fn}/{category}/val_ind_{default_val_inds[fn]}")
+
+          val_dataset_loop.append({
+            "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+            "asimov_files" : [[f"{asimov_dir}NuisanceVariations{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+            "val_info" : {nuisance: shape_value},
+            "output_name" : f"{nuisance}_{shape_name}",
+          })
+
+    elif dataset == "nuisance_double_variations":
+
+      for nuisance_1_ind, nuisance_1 in enumerate(nuisances_in_model):
+        for shape_name_1, shape_value_1 in nuisance_shifts.items():
+          for nuisance_2_ind, nuisance_2 in enumerate(nuisances_in_model):
+            if nuisance_1_ind >= nuisance_2_ind: continue
+            for shape_name_2, shape_value_2 in nuisance_shifts.items():
+              sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [shape_name_1, shape_name_2])))
+
+              file_ends = []
+              for fn in file_loop:
+                parameters_in_model = GetParametersInModel(fn, cfg, category=category)
+                if nuisance_1 in parameters_in_model and nuisance_2 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}")
+                elif nuisance_1 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}")
+                elif nuisance_2 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[1]}_{sorted_shifts[1]}")
+                else:
+                  file_ends.append(f"{fn}/{category}/val_ind_{default_val_inds[fn]}")
+
+              val_dataset_loop.append({
+                "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+                "asimov_files" : [[f"{asimov_dir}NuisanceDoubleVariations{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+                "val_info" : {nuisance_1: shape_value_1, nuisance_2: shape_value_2},
+                "output_name" : f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+              })
+
+  return val_dataset_loop
+
+
 def GetCombinedValdidationIndices(cfg, file_name, val_ind):
   if file_name != "combined":
     return {file_name : val_ind}
@@ -927,6 +1002,36 @@ def GetSplitDensityModel(cfg, file_name, category=None):
     if category is None or "categories" not in v.keys() or category in v["categories"]:
       density_model_count += 1
   return density_model_count > 1
+
+
+def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None):
+
+  default_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
+
+  nominal_metrics = f"{input_dir}/val_ind_{default_val_ind}/metrics.yaml"
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+
+  columns = ["Nominal"] + nuisances_in_model
+
+  metrics = np.zeros((len(columns), len(columns)), dtype=object)
+  metrics[0,0] = nominal_metrics
+  for ind, nuisance in enumerate(nuisances_in_model):
+    metrics[0, ind+1] = f"{input_dir}/{nuisance}_{nuisance_1_shift}/metrics.yaml"
+    metrics[ind+1, 0] = f"{input_dir}/{nuisance}_{nuisance_2_shift}/metrics.yaml"
+
+  for ind_1, nuisance_1 in enumerate(nuisances_in_model):
+    for ind_2, nuisance_2 in enumerate(nuisances_in_model):
+      if ind_1 == ind_2:
+        metrics[ind_1+1, ind_2+1] = None
+      else:
+        sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+        val_key = f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}"
+        metrics[ind_1+1, ind_2+1] = f"{input_dir}/{val_key}/metrics.yaml"
+
+  return list(metrics), columns
+
 
 
 def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):

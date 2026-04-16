@@ -29,4 +29,7 @@ def btm_cal(df):
   df["LeptonicTop_mass"] = vlepb["mass"]
   df["LeptonicTop_pt"] = vlepb["pt"]
 
+  # Temporary fix for missing column
+  df["Extra_BTagWeightCorrection"] = (df["Extra_BTagWeightCorrection_up"] + df["Extra_BTagWeightCorrection_down"]) / 2
+
   return df
