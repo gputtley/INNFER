@@ -41,6 +41,8 @@ from useful_functions import (
 def parse_args():
 
   parser = argparse.ArgumentParser()
+  parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
+  parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
@@ -121,8 +123,6 @@ def parse_args():
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--ratio-range', help='Range for ratio plot', type=str, default='0.5,1.5')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
-  parser.add_argument('--replace-inputs', help='Colon and comma separated string to replace the inputs', type=str, default=None)
-  parser.add_argument('--replace-outputs', help='Colon and comma separated string to replace the outputs and write a dummy file', type=str, default=None)
   parser.add_argument('--rezero-scan', help='Re-zero the likelihood scan, when running ScanPlot', action='store_true')
   parser.add_argument('--save-model-per-epoch', help='Save a model at each epoch', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
