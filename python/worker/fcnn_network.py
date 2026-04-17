@@ -44,7 +44,7 @@ class FCNNNetwork():
 
     # Architecture parameters
     self.dropout = 0.05
-    self.dense_layers = [128,256,128]
+    self.dense_layers = {"layer_1": 128, "layer_2": 256, "layer_3": 128}
     self.activation = "relu"
     self.l2_lambda = 0.001
 
@@ -265,7 +265,8 @@ class FCNNNetwork():
       output_dim = self.num_classes
 
     nn_layers = [layers.Input(shape=input_dim),]
-    for layer in self.dense_layers:
+    for ind in range(len(self.dense_layers.keys())):
+      layer = self.dense_layers[f"layer_{ind+1}"]
       nn_layers.append(layers.Dense(layer, activation=self.activation, kernel_regularizer=regularizers.L2(self.l2_lambda)))
       nn_layers.append(layers.Dropout(self.dropout))
     nn_layers.append(layers.Dense(output_dim))
