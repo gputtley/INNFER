@@ -63,7 +63,7 @@ class WriteParquet:
     
     return df
 
-  def collect(self, verbose=False):
+  def collect(self, memory_safe=False, verbose=False):
     """
     Collect the parquet files created by the __call__ method and combine them into a single parquet file for each key in the name dictionary, then remove the individual files
     """
@@ -82,18 +82,37 @@ class WriteParquet:
           print(f"No files created for {k}, skipping")
         continue
 
-      # Combine tables
-      if verbose:
-        print(f"Combining {len(self.created_files[k])} files for {k}")
-      tables = [pq.read_table(f) for f in self.created_files[k]]
-      combined_table = pa.concat_tables(tables)
-
-      # Write combined table to file
       MakeDirectories(file_name)
-      pq.write_table(combined_table, file_name, compression='snappy')
-      if verbose:
-        print(f"Written combined file {file_name}")
+      if not memory_safe:
+
+        if verbose:
+          print(f"Combining {len(self.created_files[k])} files for {k}")
+        tables = [pq.read_table(f) for f in self.created_files[k]]
+        combined_table = pa.concat_tables(tables)
+
+        # Write combined table to file
+        pq.write_table(combined_table, file_name, compression='snappy')
+        if verbose:
+          print(f"Written combined file {file_name}")
+
+      else:
+
+        if verbose:
+          print(f"Combining {len(self.created_files[k])} files for {k}")
+        writer = None
+        for f in self.created_files[k]:
+          table = pq.read_table(f)
+          if writer is None:
+            writer = pq.ParquetWriter(file_name, table.schema, compression="snappy")
+          writer.write_table(table)
+        writer.close()
+        if verbose:
+          print(f"Written combined file {file_name}")
+
+
+      # Remove individual files
       for file in self.created_files[k]:
         if verbose:          
           print(f"Removing file {file}")
         os.remove(file)
+

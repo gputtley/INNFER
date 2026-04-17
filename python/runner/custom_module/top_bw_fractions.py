@@ -31,7 +31,7 @@ class top_bw_fractions():
     # Required input which is the location of a file
     self.cfg = None
     self.options = {}
-    self.batch_size = 10**7
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
 
 
   def _ApplyBWReweight(self, df, m=172.5, l=1.32):

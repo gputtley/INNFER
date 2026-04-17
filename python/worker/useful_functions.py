@@ -60,7 +60,30 @@ def AdjustArgs(args):
   if args.overwrite_regression_architecture != "":
     args.regression_architecture = OverwriteArchitecture(args.regression_architecture, args.overwrite_regression_architecture)
 
+  # Change other inputs and other outputs if they are using common names
+  if args.add_inputs is not None or args.add_outputs is not None:
+    cfg = LoadConfig(args.cfg)
+    if args.add_inputs is not None:
+      args.add_inputs = ChangeCommonNames(args.add_inputs, cfg["name"])
+    if args.add_outputs is not None:
+      args.add_outputs = ChangeCommonNames(args.add_outputs, cfg["name"])
+
   return args
+
+def ChangeCommonNames(input_string, cfg_name):
+
+  prep_data_dir = str(os.getenv("PREP_DATA_DIR"))
+  eval_data_dir = str(os.getenv("EVAL_DATA_DIR"))
+  models_dir = str(os.getenv("MODELS_DIR"))
+  plots_dir = str(os.getenv("PLOTS_DIR"))
+
+  output_string = input_string.replace("$CFG_NAME", cfg_name)
+  output_string = output_string.replace("$PREP_DATA_DIR", prep_data_dir)
+  output_string = output_string.replace("$EVAL_DATA_DIR", eval_data_dir)
+  output_string = output_string.replace("$MODELS_DIR", models_dir)
+  output_string = output_string.replace("$PLOTS_DIR", plots_dir)
+
+  return output_string
 
 """
 def BuildBinYields(params, rate_parameters, col):
@@ -156,7 +179,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
   models_dir = f'{str(os.getenv("MODELS_DIR"))}/{cfg["name"]}'
 
   if "/" not in asimov_name:
-    asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
+    #asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
+    asimov_name = f"{asimov_name}{args.extra_asimov_input_dir_name}"
 
   data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
 
@@ -172,28 +196,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
           binned_data_input_parameters_key[cat][k] = ["validation_binned_fit","full",v] 
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
-
-
-    #for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
-    #  binned_data_input[cat] = None
-    #  if data_type in ["asimov","sim"]:
-    #    first = True
-    #    for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-    #      with open(f"{prep_data_dir}/PreProcess/{k}/{cat}/parameters.yaml", 'r') as yaml_file:
-    #        parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
-    #      if "validation_binned_fit" not in parameters.keys():
-    #        continue
-    #      if "full" not in parameters["validation_binned_fit"].keys():
-    #        continue
-    #      if v not in parameters["validation_binned_fit"]["full"]:
-    #        continue
-    #      if first:
-    #        binned_data_input[cat] = np.array(parameters["validation_binned_fit"]["full"][v])
-    #        first = False
-    #      else:
-    #        binned_data_input[cat] += np.array(parameters["validation_binned_fit"]["full"][v])
-    #  else:
-    #    raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -225,7 +227,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "bootstrap_method" : args.bootstrap_method,
     "integrate_density_with_ratios" : args.integrate_density_with_ratios,
     "no_likelihood_print_out" : args.no_likelihood_print_out,
-    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {}
+    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
+    "n_integral_events" : args.number_of_integral_events
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -546,7 +549,7 @@ def GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_value
   return best_fit
 
 
-def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_name, cfg, file_name, nuisance_value, prefit_nuisance_values=False):
+def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_name, cfg, file_name, nuisance_value, prefit_nuisance_values=False, prefit_nuisance_constraints=False):
 
   best_fit = GetBestFitFromYaml(best_fit_file_name, cfg, file_name, prefit_nuisance_values=prefit_nuisance_values)
 
@@ -560,12 +563,12 @@ def GetBestFitWithShiftedNuisancesFromYaml(best_fit_file_name, uncertainty_file_
     intervals = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
   if nuisance_value == "up":
-    if prefit_nuisance_values:
+    if prefit_nuisance_constraints:
       shift = 1.0
     else:
       shift = intervals['crossings'][1] - intervals['crossings'][0]
   elif nuisance_value == "down":
-    if prefit_nuisance_values:
+    if prefit_nuisance_constraints:
       shift = -1.0
     else:
       shift = intervals['crossings'][-1] - intervals['crossings'][-2]
@@ -926,6 +929,81 @@ def GetValidationDefaultIndex(cfg, file_name, category=None):
   raise ValueError("Default value needs to be in the validation loop")
 
 
+def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val"):
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+  nuisance_shifts = {"up":1.0, "down":-1.0}
+  file_loop = GetModelFileLoop(cfg) if file_name == "combined" else [file_name]
+  default_val_inds = {fn: GetValidationDefaultIndex(cfg, fn, category=category) for fn in file_loop}
+
+  val_dataset_loop = []
+  for dataset in dataset_type:
+
+    if dataset == "validation":
+
+      val_loop = GetValidationLoop(cfg, file_name)
+      for val_ind, val_info in enumerate(val_loop):
+        combined_val_inds = GetCombinedValdidationIndices(cfg, file_name, val_ind)
+        file_ends = [f"{fn}/{category}/val_ind_{combined_val_inds[fn]}" for fn in file_loop]
+        val_dataset_loop.append({
+          "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+          "asimov_files" : [[f"{asimov_dir}{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+          "val_info" : val_info,
+          "output_name" : f"val_ind_{val_ind}",
+        })
+
+    elif dataset == "nuisance_variations":
+
+      for nuisance in nuisances_in_model:
+        for shape_name, shape_value in nuisance_shifts.items():
+
+          file_ends = []
+          for fn in file_loop:
+            parameters_in_model = GetParametersInModel(fn, cfg, category=category)
+            if nuisance in parameters_in_model:
+              file_ends.append(f"{fn}/{category}/{nuisance}_{shape_name}")
+            else:
+              file_ends.append(f"{fn}/{category}/val_ind_{default_val_inds[fn]}")
+
+          val_dataset_loop.append({
+            "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+            "asimov_files" : [[f"{asimov_dir}NuisanceVariations{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+            "val_info" : {nuisance: shape_value},
+            "output_name" : f"{nuisance}_{shape_name}",
+          })
+
+    elif dataset == "nuisance_double_variations":
+
+      for nuisance_1_ind, nuisance_1 in enumerate(nuisances_in_model):
+        for shape_name_1, shape_value_1 in nuisance_shifts.items():
+          for nuisance_2_ind, nuisance_2 in enumerate(nuisances_in_model):
+            if nuisance_1_ind >= nuisance_2_ind: continue
+            for shape_name_2, shape_value_2 in nuisance_shifts.items():
+              sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [shape_name_1, shape_name_2])))
+
+              file_ends = []
+              for fn in file_loop:
+                parameters_in_model = GetParametersInModel(fn, cfg, category=category)
+                if nuisance_1 in parameters_in_model and nuisance_2 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}")
+                elif nuisance_1 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}")
+                elif nuisance_2 in parameters_in_model:
+                  file_ends.append(f"{fn}/{category}/{sorted_nuis[1]}_{sorted_shifts[1]}")
+                else:
+                  file_ends.append(f"{fn}/{category}/val_ind_{default_val_inds[fn]}")
+
+              val_dataset_loop.append({
+                "files" : [[f"{input_dir}/{fe}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fe in file_ends],
+                "asimov_files" : [[f"{asimov_dir}NuisanceDoubleVariations{extra_asimov_name}/{fe}/asimov.parquet"] for fe in file_ends],
+                "val_info" : {nuisance_1: shape_value_1, nuisance_2: shape_value_2},
+                "output_name" : f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+              })
+
+  return val_dataset_loop
+
+
 def GetCombinedValdidationIndices(cfg, file_name, val_ind):
   if file_name != "combined":
     return {file_name : val_ind}
@@ -947,6 +1025,36 @@ def GetSplitDensityModel(cfg, file_name, category=None):
     if category is None or "categories" not in v.keys() or category in v["categories"]:
       density_model_count += 1
   return density_model_count > 1
+
+
+def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None):
+
+  default_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
+
+  nominal_metrics = f"{input_dir}/val_ind_{default_val_ind}/metrics.yaml"
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+
+  columns = ["Nominal"] + nuisances_in_model
+
+  metrics = np.zeros((len(columns), len(columns)), dtype=object)
+  metrics[0,0] = nominal_metrics
+  for ind, nuisance in enumerate(nuisances_in_model):
+    metrics[0, ind+1] = f"{input_dir}/{nuisance}_{nuisance_1_shift}/metrics.yaml"
+    metrics[ind+1, 0] = f"{input_dir}/{nuisance}_{nuisance_2_shift}/metrics.yaml"
+
+  for ind_1, nuisance_1 in enumerate(nuisances_in_model):
+    for ind_2, nuisance_2 in enumerate(nuisances_in_model):
+      if ind_1 == ind_2:
+        metrics[ind_1+1, ind_2+1] = None
+      else:
+        sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+        val_key = f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}"
+        metrics[ind_1+1, ind_2+1] = f"{input_dir}/{val_key}/metrics.yaml"
+
+  return list(metrics), columns
+
 
 
 def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
@@ -1115,23 +1223,26 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
 
   val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
   freeze_loop = []
 
-  if not freeze in ["all-but-one","all-nuisances"]:
-
+  if not (freeze in ["all-but-one","all-nuisances"] or (freeze is not None and freeze.startswith("all-but-"))):
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
     }]
-
   elif freeze == "all-nuisances":
-
     freeze_loop += [{
-      "freeze" : {k: v for k, v in val_info_with_defaults.items() if k in cfg["nuisances"]},
+      "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k in cfg["nuisances"]},
       "extra_name" : "",
     }]
-
+  elif freeze is not None and freeze.startswith("all-but-") and freeze != "all-but-one":
+    params_to_float = freeze.split("all-but-")[1].split("-")
+    freeze_loop += [{
+      "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in params_to_float},
+      "extra_name" : f"_floating_only_{'_'.join(params_to_float)}",
+    }]
   elif len(val_info_with_defaults.keys()) < 2:
     freeze_loop += [{
       "freeze" : {},
@@ -1147,7 +1258,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
         if col != column:
           continue
       freeze_loop += [{
-        "freeze" : {k: v for k, v in val_info_with_defaults.items() if k != col},
+        "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k != col},
         "extra_name" : f"_floating_only_{col}",
       }]
 
@@ -1168,7 +1279,7 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
   if include_nuisances:
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
 
-  return par_loop
+  return list(sorted(par_loop))
 
 
 def GetScanArchitectures(cfg, data_output="data/", write=True):
@@ -1752,7 +1863,14 @@ def SetupSnakeMakeFile(args, default_args, main):
       args_copy.submit = step_info["submit"]
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
-        setattr(args_copy, arg_name, arg_val)
+        if "add_inputs" in arg_name:
+          cfg = LoadConfig(args_copy.cfg)
+          setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
+        elif "add_outputs" in arg_name:
+          cfg = LoadConfig(args_copy.cfg)
+          setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
+        else:
+          setattr(args_copy, arg_name, arg_val)
 
     # Open config when available
     if not args_copy.step in ["MakeBenchmark"] and clear_file:

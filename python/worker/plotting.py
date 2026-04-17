@@ -2073,3 +2073,47 @@ def plot_pulls_and_impacts(
   plt.savefig(output_name+".pdf")  
   plt.close()
   print("Created "+output_name+".pdf")
+
+
+def plot_correlation_matrix(
+    correlation_matrix,
+    parameter_names,
+    output_name="correlation_matrix",
+    xlabel="",
+    ylabel="",
+    zlabel="",
+  ):
+
+  fig, ax = plt.subplots(figsize=(10, 10))
+
+  cmap = plt.cm.Blues.copy()
+  cmap.set_bad(color='black')
+  im = ax.imshow(correlation_matrix, cmap=cmap)
+
+  cbar = plt.colorbar(im, ax=ax)
+  cbar.set_label(zlabel)
+
+  # Add CMS label
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label,ax=ax, fontsize=22)
+
+  # Show all ticks and label them with the respective list entries
+  ax.set_xticks(np.arange(len(parameter_names)))
+  ax.set_yticks(np.arange(len(parameter_names)))
+  ax.set_xticklabels(parameter_names, rotation=90)
+  ax.set_yticklabels(parameter_names)
+
+  # Loop over data dimensions and create text annotations.
+  for i in range(len(parameter_names)):
+    for j in range(len(parameter_names)):
+      if not np.isnan(correlation_matrix[i, j]):
+        text = ax.text(j, i, f"{correlation_matrix[i, j]:.2f}",
+                      ha="center", va="center", color="black")
+
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel(ylabel)
+
+  MakeDirectories(output_name+".pdf")
+  plt.savefig(output_name+".pdf", bbox_inches='tight')
+  plt.close()
+  print("Created "+output_name+".pdf")

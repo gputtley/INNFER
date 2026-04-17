@@ -2,8 +2,10 @@ import yaml
 
 import numpy as np
 
+from scipy.interpolate import CubicSpline
+
 from plotting import plot_likelihood
-from useful_functions import MakeDirectories, GetYName, Translate
+from useful_functions import Translate
 
 class ScanPlot():
 
@@ -22,6 +24,7 @@ class ScanPlot():
     self.val_info = None
     self.nominal_name = "Nominal"
     self.stat_syst_breakdown = False
+    self.rezero_scan = False
 
   def Configure(self, options):
     """
@@ -51,8 +54,14 @@ class ScanPlot():
       scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     x = scan_results["scan_values"]
-    y = scan_results["nlls"]
-    crossings = scan_results["crossings"]
+    if not self.rezero_scan:
+      y = scan_results["nlls"]
+      crossings = scan_results["crossings"]
+    else:
+      print(scan_results["crossings"])
+      y, crossings = self._rezero_scan(scan_results["scan_values"], scan_results["nlls"], scan_results["crossings"])
+      print(crossings)
+
     row = scan_results["row"]
     ind = scan_results["columns"].index(self.column)
 
@@ -62,8 +71,13 @@ class ScanPlot():
       other_scan_file = f"{val}/scan_results_{self.column}{self.extra_file_name}.yaml"
       with open(other_scan_file, 'r') as yaml_file:
         other_scan_results = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      other_lklds[rf"{key}"] = [other_scan_results["scan_values"], other_scan_results["nlls"]]
-      other_crossings[rf"{key}"] = other_scan_results["crossings"]
+      if not self.rezero_scan:
+        other_lklds[rf"{key}"] = [other_scan_results["scan_values"], other_scan_results["nlls"]]
+        other_crossings[rf"{key}"] = other_scan_results["crossings"]
+      else:
+        rezerod_other = self._rezero_scan(other_scan_results["scan_values"], other_scan_results["nlls"], other_scan_results["crossings"])
+        other_lklds[rf"{key}"] = [other_scan_results["scan_values"], rezerod_other[0]]
+        other_crossings[rf"{key}"] = rezerod_other[1]
 
     if row is not None:
       plot_extra_name = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
@@ -72,8 +86,6 @@ class ScanPlot():
     
     if self.verbose:
       print("- Plotting the likelihood scan")
-
-    print(y)
 
     plot_likelihood(
       x, 
@@ -108,3 +120,33 @@ class ScanPlot():
     for key, val in self.other_input.items():
       inputs.append(f"{val}/scan_results_{self.column}{self.extra_file_name}.yaml")
     return inputs
+
+
+  def _rezero_scan(self, x, y, crossings):
+    spline = CubicSpline(x, y)
+    x_linspace = np.linspace(x[0], x[-1], 1000)
+    y_linspace = spline(x_linspace)
+    min_y_ind = np.argmin(y_linspace)
+    min_y = np.min(y_linspace)
+    y = [y[i] - min_y for i in range(len(y))]
+    y_linspace = [y_linspace[i] - min_y for i in range(len(y_linspace))]
+    crossings = {0: x_linspace[min_y_ind]}
+    for i in range(0, min_y_ind):
+      min_bins = min(y_linspace[i], y_linspace[i+1])
+      max_bins = max(y_linspace[i], y_linspace[i+1])
+      if min_bins < 1 and max_bins >= 1:
+        if -1 not in crossings:
+          crossings[-1] = x_linspace[i] + (x_linspace[i+1] - x_linspace[i]) * (1 - y_linspace[i]) / (y_linspace[i+1] - y_linspace[i])
+      if min_bins < 4 and max_bins >= 4:
+        if -2 not in crossings:
+          crossings[-2] = x_linspace[i] + (x_linspace[i+1] - x_linspace[i]) * (4 - y_linspace[i]) / (y_linspace[i+1] - y_linspace[i])
+    for i in range(len(x_linspace)-2, min_y_ind, -1):
+      min_bins = min(y_linspace[i], y_linspace[i+1])
+      max_bins = max(y_linspace[i], y_linspace[i+1])
+      if min_bins < 1 and max_bins >= 1:
+        if 1 not in crossings:
+          crossings[1] = x_linspace[i] + (x_linspace[i+1] - x_linspace[i]) * (1 - y_linspace[i]) / (y_linspace[i+1] - y_linspace[i])
+      if min_bins < 4 and max_bins >= 4:
+        if 2 not in crossings:
+          crossings[2] = x_linspace[i] + (x_linspace[i+1] - x_linspace[i]) * (4 - y_linspace[i]) / (y_linspace[i+1] - y_linspace[i])
+    return y, crossings

@@ -163,7 +163,7 @@ class PreProcess():
     return df
 
 
-  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None, base_file_name=None, change_defaults={}, bins=[None]):
+  def _GetYields(self, file_name, cfg, sigma=1.0, extra_sel=None, base_file_name=None, change_defaults={}, bins=[None], force_nuisance_yield_effect=False):
 
     # initiate dictionary
     yields = {}
@@ -259,66 +259,69 @@ class PreProcess():
         # if nuisance in model
         if nui in nominal_shifts.keys():
 
-          up_extra_sel = None
-          down_extra_sel = None
-          if nui not in parameters_of_file:
-            up_shifts = copy.deepcopy(nominal_shifts)
-            up_shifts[nui]["value"] = sigma
-            down_shifts = copy.deepcopy(nominal_shifts)
-            down_shifts[nui]["value"] = -sigma
-            if len(parameters_of_file) > 0:
-              up_extra_sel = selection
-              down_extra_sel = selection
-          else:
-            up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
-            down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
+          if nui not in cfg["preprocess"]["no_nuisance_yield_effect"] or force_nuisance_yield_effect:
+
+            up_extra_sel = None
+            down_extra_sel = None
+            if nui not in parameters_of_file:
+              up_shifts = copy.deepcopy(nominal_shifts)
+              up_shifts[nui]["value"] = sigma
+              down_shifts = copy.deepcopy(nominal_shifts)
+              down_shifts[nui]["value"] = -sigma
+              if len(parameters_of_file) > 0:
+                up_extra_sel = selection
+                down_extra_sel = selection
+            else:
+              up_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}=={sigma})" for k in parameters_of_file])
+              down_extra_sel = " & ".join([f"({k}=={defaults[k]})" if k != nui else f"({k}==-{sigma})" for k in parameters_of_file])
 
 
-          if self.verbose:
-            print(f" - Getting yield for nuisance {nui}")
+            if self.verbose:
+              print(f" - Getting yield for nuisance {nui}")
 
-          up_yield = dp.GetFull(
-            method="sum_w_selections",
-            functions_to_apply = [
-              partial(
-                self._CalculateDatasetWithVariations, 
-                shifts=up_shifts, 
-                calculate=cfg["files"][base_file_name]["calculate"], 
-                post_calculate_selection=post_calculate_selection,
-                weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-                n_copies=1,
-                nominal_weight=cfg["files"][base_file_name]["weight"],
-              )
-            ],
-            extra_sel = up_extra_sel,
-            sum_w_selections = bins
-          )
+            up_yield = dp.GetFull(
+              method="sum_w_selections",
+              functions_to_apply = [
+                partial(
+                  self._CalculateDatasetWithVariations, 
+                  shifts=up_shifts, 
+                  calculate=cfg["files"][base_file_name]["calculate"], 
+                  post_calculate_selection=post_calculate_selection,
+                  weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+                  n_copies=1,
+                  nominal_weight=cfg["files"][base_file_name]["weight"],
+                )
+              ],
+              extra_sel = up_extra_sel,
+              sum_w_selections = bins
+            )
 
-          down_yield = dp.GetFull(
-            method="sum_w_selections",
-            functions_to_apply = [
-              partial(
-                self._CalculateDatasetWithVariations, 
-                shifts=down_shifts, 
-                calculate=cfg["files"][base_file_name]["calculate"], 
-                post_calculate_selection=post_calculate_selection,
-                weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
-                n_copies=1,
-                nominal_weight=cfg["files"][base_file_name]["weight"],
-              )
-            ],
-            extra_sel = down_extra_sel,
-            sum_w_selections = bins
-          )
+            down_yield = dp.GetFull(
+              method="sum_w_selections",
+              functions_to_apply = [
+                partial(
+                  self._CalculateDatasetWithVariations, 
+                  shifts=down_shifts, 
+                  calculate=cfg["files"][base_file_name]["calculate"], 
+                  post_calculate_selection=post_calculate_selection,
+                  weight_shifts=cfg["files"][base_file_name]["weight_shifts"],
+                  n_copies=1,
+                  nominal_weight=cfg["files"][base_file_name]["weight"],
+                )
+              ],
+              extra_sel = down_extra_sel,
+              sum_w_selections = bins
+            )
 
-          if bins == [None]:
-            up_yield = up_yield[0]
-            down_yield = down_yield[0]
+            if bins == [None]:
+              up_yield = up_yield[0]
+              down_yield = down_yield[0]
 
-          if isinstance(up_yield, list):
-            yields["lnN"][nui] = [[down_yield[i]/yields["nominal"][i], up_yield[i]/yields["nominal"][i]] if yields["nominal"][i] != 0 else [1.0, 1.0] for i in range(len(up_yield))]
-          else:
-            yields["lnN"][nui] = [down_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0, up_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0]
+            if isinstance(up_yield, list):
+              yields["lnN"][nui] = [[down_yield[i]/yields["nominal"][i], up_yield[i]/yields["nominal"][i]] if yields["nominal"][i] != 0 else [1.0, 1.0] for i in range(len(up_yield))]
+            else:
+              yields["lnN"][nui] = [down_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0, up_yield/yields["nominal"] if yields["nominal"] != 0 else 1.0]
+
 
     # Add log normals that are in the models
     if file_name in cfg["inference"]["lnN"].keys():
@@ -559,7 +562,7 @@ class PreProcess():
       )
 
       for wp in wps.values():
-        wp.collect()
+        wp.collect(memory_safe=True)
 
 
   def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict, write_parquet=None, keep_write_parquet=False):
@@ -773,7 +776,7 @@ class PreProcess():
           for k, v in defaults.items():
             if k not in value["parameters"]:
               value_copy["shifts"][k] = {"type":"fixed","value":v}
-          density_split_model_val = {"X":cfg["variables"],"Y":value["parameters"],"wt":["wt"]}
+          density_split_model_val = {"X":cfg["variables"],"Y":sorted(value["parameters"]),"wt":["wt"]}
           for k, v in density_split_model.items(): density_split_model_val[k] = v
           if not split_density_model:
             self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", data_split, split_dict=density_split_model_val)
@@ -1094,6 +1097,84 @@ class PreProcess():
             os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
 
 
+  def _DoDoubleNuisanceNormalisation(self, file_name, cfg, yields):
+
+    for data_split in ["val","train_inf","test_inf","full"]:
+
+      # Get defaults
+      params_in_model = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True, category=self.category)
+
+      for nui_1_ind, nui_1 in enumerate(cfg["nuisances"]):
+        if nui_1 not in params_in_model.keys(): continue
+        for nui_1_shift in ["up","down"]:
+          for nui_2_ind, nui_2 in enumerate(cfg["nuisances"]):
+            if nui_2 not in params_in_model.keys(): continue
+            if nui_1_ind >= nui_2_ind: continue
+            for nui_2_shift in ["up", "down"]:
+
+              sorted_nuis, sorted_shifts = zip(*sorted(zip([nui_1, nui_2], [nui_1_shift, nui_2_shift])))
+              val_key = f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}"
+
+              if self.nuisance_shift is None or self.nuisance_shift == val_key:
+
+                outfile = f"{val_key}/wt_{data_split}_norm.parquet"
+                nomfile = f"{val_key}/wt_{data_split}.parquet"
+
+                # Delete file
+                if os.path.isfile(outfile):
+                  os.system(f"rm {outfile}")
+
+                # Build dataprocessor
+                dp = DataProcessor(
+                  [[f"{self.data_output}/{nomfile}"]],
+                  "parquet",
+                  options = {
+                    "wt_name" : "wt",
+                  },
+                  use_pbar = self.use_pbar,
+                  batch_size=self.batch_size,
+                )
+
+                # Get normalisation
+                if np.sum(dp.num_batches) == 0:
+                  continue
+
+                norm = dp.GetFull(method="sum")
+
+                def normalisation(df, norm):
+                  if len(df) == 0: 
+                    return df
+                  df["wt"] = df["wt"]/norm
+                  return df
+
+                yield_class = Yields(
+                  yields["nominal"],
+                  lnN = yields["lnN"],
+                  physics_model = None,
+                  rate_param = f"mu_{file_name}" if file_name in cfg["inference"]["rate_parameters"] else None,
+                )
+
+                Y_vals = copy.deepcopy(params_in_model)
+                Y_vals[nui_1] = 1.0 if nui_1_shift == "up" else -1.0
+                Y_vals[nui_2] = 1.0 if nui_2_shift == "up" else -1.0
+
+                scaler = yield_class.GetYield(pd.DataFrame({k:[v] for k, v in Y_vals.items()}))
+                # Normalise dataset
+                wp = WriteParquet(
+                  name = outfile.split(".parquet")[0],
+                  data_output = self.data_output,
+                )
+                dp.GetFull(
+                  method=None,
+                  functions_to_apply = [
+                    partial(normalisation, norm=norm/scaler),
+                    wp
+                  ]
+                )
+                wp.collect()
+                # Move over
+                os.system(f"mv {self.data_output}/{outfile} {self.data_output}/{nomfile}")
+
 
   def _GetBinnedFitInputs(self, file_name, cfg):
 
@@ -1148,7 +1229,8 @@ class PreProcess():
           file_name,
           cfg,
           base_file_name=base_file_name,
-          bins=bins
+          bins=bins,
+          force_nuisance_yield_effect=True,
         )
 
       else:
@@ -1159,6 +1241,7 @@ class PreProcess():
           bins=bins,
           base_file_name=base_file_name,
           change_defaults={cfg["pois"][0]: poi_val},
+          force_nuisance_yield_effect=True,
         )
 
     # Build store
@@ -2185,10 +2268,88 @@ class PreProcess():
                 os.system(f"rm {outfile}")      
 
             # Do variations            
-            val_split_model = {"X":cfg["variables"], "Y":val_shift["parameters"], "wt":["wt"]}
+            val_split_model = {"X":cfg["variables"], "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
             if extra_cols is not None:
               val_split_model["Extra"] = extra_cols 
             self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{default_index}/{base_file_name}_{data_split}", cfg, f"{val_key}", data_split, split_dict=val_split_model)
+
+    if do_clear:
+      # Clear up old files
+      for k in cfg["files"].keys():
+        for data_split in ["val","train_inf","test_inf","full"]:
+          for ind in range(len(GetValidationLoop(cfg, file_name, include_rate=True, include_lnN=True))):
+            if ind != default_index: continue
+            outfile = f"{self.data_output}/val_ind_{ind}/{k}_{data_split}.parquet"
+            if os.path.isfile(outfile):
+              os.system(f"rm {outfile}")  
+
+
+  def _DoDoubleNuisanceVariations(self, file_name, cfg, do_clear=True):
+    
+    if len(cfg["nuisances"]) == 0:
+      return
+    
+    # Get parameters in model
+    parameters_in_model = GetParametersInModel(file_name, cfg, category=self.category)
+
+    # Get extra columns
+    extra_cols = None
+    if "save_extra_columns" in cfg["preprocess"]:
+      if file_name in cfg["preprocess"]["save_extra_columns"]:
+        extra_cols = cfg["preprocess"]["save_extra_columns"][file_name]
+
+    # Get defaults
+    defaults = GetDefaults(cfg)
+    default_index = GetValidationDefaultIndex(cfg, file_name)
+
+    for nui_1_ind, nui_1 in enumerate(cfg["nuisances"]):
+      if nui_1 not in parameters_in_model: continue
+      for nui_1_shift in ["up","down"]:
+        for nui_2_ind, nui_2 in enumerate(cfg["nuisances"]):
+          if nui_2 not in parameters_in_model: continue
+          if nui_1_ind >= nui_2_ind: continue
+          for nui_2_shift in ["up","down"]:
+            sorted_nuis, sorted_shifts = zip(*sorted(zip([nui_1, nui_2], [nui_1_shift, nui_2_shift])))
+            val_key = f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}"
+
+            if self.nuisance_shift is None or self.nuisance_shift == val_key:
+
+              # Get base file from validation
+              base_file_name = None
+              for value in cfg["validation"]["files"][file_name]:
+                if "categories" not in value.keys() or self.category is None or self.category in value["categories"]:
+                  base_file_name = value["file"]
+                  break
+
+              # Setup shift dictionary
+              parameters_in_file = cfg["files"][base_file_name]["parameters"]
+              shifts = {}
+              for k, v in defaults.items():
+                if k not in parameters_in_file:
+                  shifts[k] = {"type":"fixed","value":v}
+              shifts[nui_1] = {"type":"fixed", "value": 1.0 if nui_1_shift=="up" else -1.0}
+              shifts[nui_2] = {"type":"fixed", "value": 1.0 if nui_2_shift=="up" else -1.0}
+              val_shift = {
+                "parameters" : parameters_in_model,
+                "file" : base_file_name,
+                "n_copies" : 1,
+                "shifts" : shifts
+              }
+
+              # Loop through validation types
+              for data_split in ["val","train_inf","test_inf","full"]:
+                
+                # Clear previous files
+                for k in ["X","Y","wt","Extra"]:
+                  outfile = f"{self.data_output}/{val_key}/{k}_{data_split}.parquet"
+                  if os.path.isfile(outfile):
+                    os.system(f"rm {outfile}")      
+
+                # Do variations            
+                val_split_model = {"X":cfg["variables"], "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
+                if extra_cols is not None:
+                  val_split_model["Extra"] = extra_cols 
+                self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{default_index}/{base_file_name}_{data_split}", cfg, f"{val_key}", data_split, split_dict=val_split_model)
 
     if do_clear:
       # Clear up old files
@@ -2258,7 +2419,7 @@ class PreProcess():
 
 
     # Load yields
-    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations", "train_test_val_split"]:
+    if self.partial is not None and self.partial in ["model", "validation", "nuisance_variations", "nuisance_double_variations", "train_test_val_split"]:
       if self.verbose:
         print("- Loading in yields")
       # load initial parameters file
@@ -2358,8 +2519,22 @@ class PreProcess():
       self._DoNuisanceNormalisation(self.file_name, cfg, yields)
 
 
+    # Make nuisance double variation samples (not done by default)
+    if self.partial == "nuisance_double_variations":
+      
+      # Make nuisance variation datasets
+      if self.verbose:
+        print("- Calculating double nuisance variation datasets")
+      self._DoDoubleNuisanceVariations(self.file_name, cfg, do_clear=(self.partial is None))
+
+      # Normalise nuisance variation datasets to correct yield
+      if self.verbose:
+        print("- Normalising double nuisance variation datasets to correct yield")
+      self._DoDoubleNuisanceNormalisation(self.file_name, cfg, yields)
+
+
     # Write parameters
-    if self.partial is None or self.partial not in ["merge","nuisance_variations"]:
+    if self.partial is None or self.partial not in ["merge","nuisance_variations","nuisance_double_variations"]:
       if self.verbose:
         print("- Writing parameters")
       self._DoParametersFile(self.file_name, cfg, yields=yields, eff_events=eff_events, standardisation=standardisation_parameters)
@@ -2466,6 +2641,25 @@ class PreProcess():
               for k in density_loop:
                 outputs += [f"{self.data_output}/{val_key}/{k}_{data_split}.parquet"]
 
+    # Do double nuisance variations
+    if self.partial == "nuisance_double_variations":
+      
+      for nui_1_ind, nui_1 in enumerate(cfg["nuisances"]):
+        parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
+        if nui_1 not in parameters_in_model: continue
+        for nui_1_shift in ["up","down"]:
+          for nui_2_ind, nui_2 in enumerate(cfg["nuisances"]):
+            if nui_2 not in parameters_in_model: continue
+            if nui_1_ind >= nui_2_ind: continue
+            for nui_2_shift in ["up","down"]:
+              sorted_nuis, sorted_shifts = zip(*sorted(zip([nui_1, nui_2], [nui_1_shift, nui_2_shift])))
+              val_key = f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}"
+              if self.nuisance_shift is None or self.nuisance_shift == val_key:
+                for data_split in ["val","train_inf","test_inf","full"]:
+                  for k in density_loop:
+                    outputs += [f"{self.data_output}/{val_key}/{k}_{data_split}.parquet"]
+
+
     return outputs
 
 
@@ -2508,7 +2702,7 @@ class PreProcess():
         inputs += [shift_file_name]
 
     # Add initial parameters
-    if self.partial in ["model", "validation", "nuisance_variations", "merge", "train_test_val_split"]:
+    if self.partial in ["model", "validation", "nuisance_variations", "nuisance_double_variations", "merge", "train_test_val_split"]:
       inputs += [f"{self.data_output}/parameters_initial.yaml"]
 
     # Add train test split files
