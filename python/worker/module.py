@@ -187,7 +187,7 @@ class Module():
     """
 
     argv = self._MakeCommandOptions(self.args)
-    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--replace-inputs", "--replace-outputs"]
+    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--add-inputs", "--add-outputs"]
     for remove in to_remove:
       remove_str = None
       for string in argv:
@@ -286,18 +286,26 @@ class Module():
       # Configure class
       class_instance.Configure(config)
 
+      # Get the total inputs
+      total_inputs = class_instance.Inputs()
+      total_inputs += self.args.add_inputs.split(",") if self.args.add_inputs is not None else []
+
       # Check inputs exist
       if not self.args.ignore_inputs_and_outputs:
-        for i in class_instance.Inputs():
+        for i in total_inputs:
           if not os.path.isfile(i):
             raise FileNotFoundError(f"The input file '{i}' was not found.")
 
       # Run
       class_instance.Run()
 
+      # Get the total outputs      
+      total_outputs = class_instance.Outputs()
+      total_outputs += self.args.add_outputs.split(",") if self.args.add_outputs is not None else []
+
       # Check outputs exist
       if not self.args.ignore_inputs_and_outputs:
-        for o in class_instance.Outputs():
+        for o in total_outputs:
           if not os.path.isfile(o):
             raise FileNotFoundError(f"The output file '{o}' was not found.")
 
@@ -323,7 +331,9 @@ class Module():
       class_instance = module_class()
       class_instance.Configure(config)
       self.input_store += class_instance.Inputs()
+      self.input_store += self.args.add_inputs.split(",") if self.args.add_inputs is not None else []
       self.output_store += class_instance.Outputs()
+      self.output_store += self.args.add_outputs.split(",") if self.args.add_outputs is not None else []
       self.input_store = sorted(list(set(self.input_store)))
       self.output_store = sorted(list(set(self.output_store)))
       # if output is in the inputs change to dummy file and add dummy file creation to cmd store
