@@ -60,7 +60,30 @@ def AdjustArgs(args):
   if args.overwrite_regression_architecture != "":
     args.regression_architecture = OverwriteArchitecture(args.regression_architecture, args.overwrite_regression_architecture)
 
+  # Change other inputs and other outputs if they are using common names
+  if args.add_inputs is not None or args.add_outputs is not None:
+    cfg = LoadConfig(args.cfg)
+    if args.add_inputs is not None:
+      args.add_inputs = ChangeCommonNames(args.add_inputs, cfg["name"])
+    if args.add_outputs is not None:
+      args.add_outputs = ChangeCommonNames(args.add_outputs, cfg["name"])
+
   return args
+
+def ChangeCommonNames(input_string, cfg_name):
+
+  prep_data_dir = str(os.getenv("PREP_DATA_DIR"))
+  eval_data_dir = str(os.getenv("EVAL_DATA_DIR"))
+  models_dir = str(os.getenv("MODELS_DIR"))
+  plots_dir = str(os.getenv("PLOTS_DIR"))
+
+  output_string = input_string.replace("$CFG_NAME", cfg_name)
+  output_string = output_string.replace("$PREP_DATA_DIR", prep_data_dir)
+  output_string = output_string.replace("$EVAL_DATA_DIR", eval_data_dir)
+  output_string = output_string.replace("$MODELS_DIR", models_dir)
+  output_string = output_string.replace("$PLOTS_DIR", plots_dir)
+
+  return output_string
 
 """
 def BuildBinYields(params, rate_parameters, col):
@@ -1840,7 +1863,14 @@ def SetupSnakeMakeFile(args, default_args, main):
       args_copy.submit = step_info["submit"]
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
-        setattr(args_copy, arg_name, arg_val)
+        if "add_inputs" in arg_name:
+          cfg = LoadConfig(args_copy.cfg)
+          setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
+        elif "add_outputs" in arg_name:
+          cfg = LoadConfig(args_copy.cfg)
+          setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
+        else:
+          setattr(args_copy, arg_name, arg_val)
 
     # Open config when available
     if not args_copy.step in ["MakeBenchmark"] and clear_file:
