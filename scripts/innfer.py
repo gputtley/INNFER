@@ -943,8 +943,8 @@ def main(args, default_args, module_options={}):
               "file_loc": model_info["file_loc"],
               "file_type": model_info["type"],
               "model_input": f"{models_dir}",
-              "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
-              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+              "extra_model_dir": f"{model_info['name']}{args.extra_classifier_model_name}",
+              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_classifier_model_name}",
               "do_loss": "loss" in args.classifier_performance_metrics,
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
               "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
@@ -1278,15 +1278,9 @@ def main(args, default_args, module_options={}):
 
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a hyperparameter scan for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    architectures = lambda model_name: GetScanArchitectures(getattr(args, f"{model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
-    performance_metrics = getattr(args, f"{model_type}_performance_metrics")
-    for model_info in model_loop:
-      for architecture_ind, architecture in enumerate(architectures(model_info['name'])):
+    print(f"<< Running a hyperparameter scan for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
+      for architecture_ind, architecture in enumerate(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")):
           module.Run(
           module_name = "hyperparameter_scan",
           class_name = "HyperparameterScan",
@@ -1306,7 +1300,7 @@ def main(args, default_args, module_options={}):
             "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
             "disable_tqdm" : args.disable_tqdm,
             "save_extra_name" : f"_{architecture_ind}",
-            "performance_metrics": performance_metrics,
+            "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
             "verbose" : not args.quiet,        
           },
           loop = {"model_name" : model_info['name'], "architecture_ind" : architecture_ind}
@@ -1314,12 +1308,8 @@ def main(args, default_args, module_options={}):
 
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a hyperparameter scan collection for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    for model_info in model_loop:
+    print(f"<< Running a hyperparameter scan collection for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
@@ -1327,7 +1317,7 @@ def main(args, default_args, module_options={}):
           "file_name" : model_info["file_name"],
           "data_input" : f"{eval_data_dir}/HyperparameterScan{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "data_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
-          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.density_architecture, write=False)))],
+          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), write=False)))],
           "metric" : args.hyperparameter_metric,
           "verbose" : not args.quiet,        
         },
@@ -1337,38 +1327,32 @@ def main(args, default_args, module_options={}):
 
   # Perform a hyperparameter scan
   if args.step == "BayesianHyperparameterTuning":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a bayesian hyperparameter tuning for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    performance_metrics = getattr(args, f"{model_type}_performance_metrics")
-    tuning_architecture = getattr(args, f"{model_type}_architecture")
-    for model_info in model_loop:
+    print(f"<< Running a bayesian hyperparameter tuning for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
         config = {
-            "cfg" : args.cfg,
-            "model_type": model_info["type"],
-            "data_input" : f"{prep_data_dir}/PreProcess",
-            "parameters" : model_info["parameters"],
-            "parameter":  model_info["parameter"],
-            "tune_architecture" : tuning_architecture,
-            "category" : model_info['category'],
-            "file_name" : model_info["file_name"],
-            "file_loc" : model_info['file_loc'],
-            "val_file_loc" : model_info['val_file_loc'],
-            "best_model_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
-            "data_output" : f"{eval_data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-            "use_wandb" : args.use_wandb,
-            "wandb_project_name" : args.wandb_project_name,
-            "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
-            "disable_tqdm" : args.disable_tqdm,
-            "performance_metrics": performance_metrics,
-            "n_trials" : args.number_of_trials,
-            "metric" : args.hyperparameter_metric,
-            "verbose" : not args.quiet,     
+          "cfg" : args.cfg,
+          "model_type": model_info["type"],
+          "data_input" : f"{prep_data_dir}/PreProcess",
+          "parameters" : model_info["parameters"],
+          "parameter":  model_info["parameter"],
+          "tune_architecture" : getattr(args, f"{args.model_type}_architecture"),
+          "category" : model_info['category'],
+          "file_name" : model_info["file_name"],
+          "file_loc" : model_info['file_loc'],
+          "val_file_loc" : model_info['val_file_loc'],
+          "best_model_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
+          "data_output" : f"{eval_data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "use_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
+          "disable_tqdm" : args.disable_tqdm,
+          "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
+          "n_trials" : args.number_of_trials,
+          "metric" : args.hyperparameter_metric,
+          "verbose" : not args.quiet,     
         },
         loop = {"model_name" : model_info['name']}
       )
