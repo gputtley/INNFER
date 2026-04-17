@@ -11,13 +11,13 @@ lr_scheduler_options:
   alpha: 0.000005
   warmup_fraction: 0.1
   step_power: 0.5
-lr_scheduler_options: {}
+# lr_scheduler_options: {}
 gradient_clipping_norm: null
 # architecture
 dropout: 0.02
 dense_layers:
-  - 64
-  - 64
+  layer_1: 64
+  layer_2: 64
 activation: relu
 l2_lambda: 0.00001
 normalise_batch_categories: true
