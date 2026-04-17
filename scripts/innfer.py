@@ -13,6 +13,7 @@ from useful_functions import (
     AdjustArgs,
     CommonInferConfigOptions,
     DescribeStep,
+    GetBaseFileLoop,
     GetBestFitFromYaml,
     GetBestFitWithShiftedNuisancesFromYaml,
     GetCategoryLoop,
@@ -20,13 +21,14 @@ from useful_functions import (
     GetDataInput,
     GetDefaultsInModel,
     GetDictionaryEntryFromYaml,
-    GetBaseFileLoop,
+    GetFactorisationMetricsPlotInput,
     GetFreezeLoop,
     GetModelLoop,
     GetModelFileLoop,
     GetParametersInModel,
     GetParameterLoop,
     GetScanArchitectures,
+    GetValidationDatasetLoop,
     GetValidationDefaultIndex,
     GetValidationLoop,
     ListSteps,
@@ -39,6 +41,8 @@ from useful_functions import (
 def parse_args():
 
   parser = argparse.ArgumentParser()
+  parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
+  parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
@@ -60,6 +64,8 @@ def parse_args():
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory', type=str, default='')
+  parser.add_argument('--extra-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
+  parser.add_argument('--extra-postfit-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
   parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
   parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
@@ -67,6 +73,7 @@ def parse_args():
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--plot-metric', help='Metric for factorisation plots, colon separated in many keys', type=str, default='chi_squared_per_dof:mean')
   parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--ignore-inputs-and-outputs', help='Do not check the inputs and outputs exist.', action='store_true')
   parser.add_argument('--include-per-model-lnN', help='Include the lnN in the non-combined likelihood.', action='store_true')
@@ -88,6 +95,7 @@ def parse_args():
   parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
+  parser.add_argument('--number-of-integral-events', help='The number of integral events', type=int, default=10**5)
   parser.add_argument('--number-of-scan-points', help='The number of scan points run', type=int, default=41)
   parser.add_argument('--number-of-shuffles', help='The number of times to loop through the dataset when shuffling in preprocess', type=int, default=20)
   parser.add_argument('--number-of-toys', help='The number of toys for p-value dataset comparisons', type=int, default=100)
@@ -95,6 +103,8 @@ def parse_args():
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--no-likelihood-print-out', help='Do not print the likelihood values', action='store_true')
   parser.add_argument('--no-spline', help='Do not use the normalisaing splines when creating asimov', action='store_true')
+  parser.add_argument('--no-sweep', help='Do not sweep up jobs in module (internal option)', action='store_true')
+  parser.add_argument('--no-sweep-final', help='Do not sweep up jobs in innfer (internal option)', action='store_true')
   parser.add_argument('--only-default-asimov', help='Build asimov for only the default validation indices', action='store_true')
   parser.add_argument('--only-density', help='Build asimov from only the density model', action='store_true')
   parser.add_argument('--other-input', help='Other inputs to likelihood and summary plotting', type=str, default=None)
@@ -107,22 +117,23 @@ def parse_args():
   parser.add_argument('--plot-var-and-bins', help='For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced.', type=str, default=None)
   parser.add_argument('--plot-weight-distribution', help='Plot weight distribution when running InputPlotValidation.', action='store_true')
   parser.add_argument('--points-per-job', help='The number of points ran per job', type=int, default=1)
+  parser.add_argument('--prefit-nuisance-constraints', help='Make postfit plots with prefit nuisance constraints', action='store_true')
   parser.add_argument('--prefit-nuisance-values', help='Make postfit plots with prefit nuisance values', action='store_true')
   parser.add_argument('--preprocess-merge', help='Comma separated list of steps to merge in preprocess', type=str, default='initial,model,validation')
   parser.add_argument('--prune-classifier-models', help='Comma separated list of key>values keep shape effects for', type=str, default=None)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--ratio-range', help='Range for ratio plot', type=str, default='0.5,1.5')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
-  parser.add_argument('--replace-inputs', help='Colon and comma separated string to replace the inputs', type=str, default=None)
-  parser.add_argument('--replace-outputs', help='Colon and comma separated string to replace the outputs and write a dummy file', type=str, default=None)
+  parser.add_argument('--rezero-scan', help='Re-zero the likelihood scan, when running ScanPlot', action='store_true')
   parser.add_argument('--save-model-per-epoch', help='Save a model at each epoch', action='store_true')
   parser.add_argument('--scale-to-eff-events', help='Scale to the number of effective events rather than the yield.', action='store_true')
   parser.add_argument('--scan-nominal-name', help='Name of nominal for scan', type=str, default='Nominal')
   parser.add_argument('--scan-plot-breakdown', help='Do the syst and stat breakdown, assuming the main input if the full and other-input is stat.', action='store_true')
   parser.add_argument('--scan-points-input', help='Input for scan points, comma separated bracketed list of min and max, e.g. (171.5,173.5)', type=str, default=None)
-  parser.add_argument('--sigma-between-scan-points', help='The estimated unprofiled sigma between the scanning points', type=float, default=0.2)
+  parser.add_argument('--sigma-between-scan-points', help='The estimated sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
   parser.add_argument('--simplex', help='The simplex used for likelihood minimisation.', type=str, default=None)
+  parser.add_argument('--skip-initial-fit', help='Skip the initial fit if running a scan', action='store_true')
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
@@ -134,6 +145,7 @@ def parse_args():
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
+  parser.add_argument('--submit-in-one-job', help='Will submit all steps in one job', action='store_true')
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
@@ -144,6 +156,7 @@ def parse_args():
   parser.add_argument('--use-scenario-labels', help='Use Scenario 1, for example, labelling on plots rather than the string name', action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
+  parser.add_argument('--validation-performance-metrics-datasets', help='Comma separated list of types of dataset (validation, nuisance_variations, nuisance_double_variations)', type=str, default='validation')
   parser.add_argument('--wandb-project-name', help='Name of project on wandb', type=str, default='innfer')
   default_args = parser.parse_args([])
   args = parser.parse_args()
@@ -154,7 +167,7 @@ def parse_args():
   return args, default_args
 
 
-def main(args, default_args):
+def main(args, default_args, module_options={}):
 
   # Get extra input and output directory name
   if args.extra_dir_name != "":
@@ -166,6 +179,7 @@ def main(args, default_args):
     sys.argv,
     args,
     default_args,
+    options = module_options,
   )
 
 
@@ -493,6 +507,37 @@ def main(args, default_args):
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
+
+
+  # PreProcess the dataset - nuisance variations
+  if args.step == "PreProcessParallelNuisanceDoubleVariations":
+    print("<< Running nuisance double variations of preprocess >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance_1_ind, nuisance_1 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+          for nuisance_1_shift in ["up","down"]:
+            for nuisance_2_ind, nuisance_2 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+              for nuisance_2_shift in ["up","down"]:
+                if nuisance_1_ind >= nuisance_2_ind: continue
+                sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+                module.Run(
+                  module_name = "preprocess",
+                  class_name = "PreProcess",
+                  config = {
+                    "partial": "nuisance_double_variations",
+                    "cfg" : args.cfg,
+                    "file_name" : file_name,
+                    "data_input" : f"{prep_data_dir}/LoadData",
+                    "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
+                    "number_of_shuffles" : args.number_of_shuffles,
+                    "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
+                    "category" : category,
+                    "nuisance_shift" : f"{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+                    "use_pbar" : not args.disable_tqdm,
+                    "verbose" : not args.quiet,
+                  },
+                  loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+                )
 
 
   # PreProcess the dataset - Merge
@@ -898,8 +943,8 @@ def main(args, default_args):
               "file_loc": model_info["file_loc"],
               "file_type": model_info["type"],
               "model_input": f"{models_dir}",
-              "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
-              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+              "extra_model_dir": f"{model_info['name']}{args.extra_classifier_model_name}",
+              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_classifier_model_name}",
               "do_loss": "loss" in args.classifier_performance_metrics,
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
               "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
@@ -981,6 +1026,45 @@ def main(args, default_args):
             )
 
 
+  # Make the asimov datasets for the double nuisance variations
+  if args.step == "MakeAsimovNuisanceDoubleVariations":
+    print(f"<< Making the asimov datasets for double nuisance variations >>")
+    for file_name in GetModelFileLoop(cfg):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        nuisances = [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]
+        for nuisance_1_ind, nuisance_1 in enumerate(nuisances):
+          for nuisance_1_shift in ["up","down"]:
+            for nuisance_2_ind, nuisance_2 in enumerate(nuisances):
+              for nuisance_2_shift in ["up","down"]:
+                if nuisance_1_ind >= nuisance_2_ind: continue
+                sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
+                module.Run(
+                  module_name = "make_asimov",
+                  class_name = "MakeAsimov",
+                  config = {
+                    "cfg" : args.cfg,
+                    "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
+                    "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
+                    "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+                    "model_input" : f"{models_dir}",
+                    "extra_density_model_name" : args.extra_density_model_name,
+                    "extra_regression_model_name" : args.extra_regression_model_name,
+                    "extra_classifier_model_name" : args.extra_classifier_model_name,
+                    "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
+                    "data_output" : f"{eval_data_dir}/MakeAsimovNuisanceDoubleVariations{args.extra_output_dir_name}/{file_name}/{category}/{sorted_nuis[0]}_{sorted_shifts[0]}_{sorted_nuis[1]}_{sorted_shifts[1]}",
+                    "n_asimov_events" : args.number_of_asimov_events,
+                    "seed" : args.asimov_seed,
+                    "val_info" : {nuisances[0]: 1.0 if nuisance_1_shift=="up" else -1.0, nuisances[1]: 1.0 if nuisance_2_shift=="up" else -1.0},
+                    "only_density" : args.only_density,
+                    "verbose" : not args.quiet,
+                    "file_name" : file_name,
+                    "use_asimov_scaling" : args.use_asimov_scaling,
+                    "skip_spline" : args.no_spline,
+                  },
+                  loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+                )
+
+
   # Make the asimov datasets for classifier/regressor normalisation spline
   if args.step == "MakeAsimovForNormalisationSpline":
     print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
@@ -1018,7 +1102,7 @@ def main(args, default_args):
         config = {
           "cfg" : args.cfg,
           "data_input" : model_info['file_loc'],
-          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_output_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
+          "asimov_input" : f"{eval_data_dir}/MakeAsimovForNormalisationSpline{args.extra_asimov_input_dir_name}/density_{model_info['file_name']}_{model_info['category']}/asimov.parquet",
           "plots_output" : f"{plots_dir}/NormalisationSplineClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "model_input" : f"{models_dir}",
           "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
@@ -1194,15 +1278,9 @@ def main(args, default_args):
 
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a hyperparameter scan for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    architectures = lambda model_name: GetScanArchitectures(getattr(args, f"{model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")
-    performance_metrics = getattr(args, f"{model_type}_performance_metrics")
-    for model_info in model_loop:
-      for architecture_ind, architecture in enumerate(architectures(model_info['name'])):
+    print(f"<< Running a hyperparameter scan for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
+      for architecture_ind, architecture in enumerate(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")):
           module.Run(
           module_name = "hyperparameter_scan",
           class_name = "HyperparameterScan",
@@ -1222,7 +1300,7 @@ def main(args, default_args):
             "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
             "disable_tqdm" : args.disable_tqdm,
             "save_extra_name" : f"_{architecture_ind}",
-            "performance_metrics": performance_metrics,
+            "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
             "verbose" : not args.quiet,        
           },
           loop = {"model_name" : model_info['name'], "architecture_ind" : architecture_ind}
@@ -1230,12 +1308,8 @@ def main(args, default_args):
 
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a hyperparameter scan collection for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    for model_info in model_loop:
+    print(f"<< Running a hyperparameter scan collection for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
@@ -1243,7 +1317,7 @@ def main(args, default_args):
           "file_name" : model_info["file_name"],
           "data_input" : f"{eval_data_dir}/HyperparameterScan{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
           "data_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
-          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(args.density_architecture, write=False)))],
+          "save_extra_names" : [f"_{architecture_ind}" for architecture_ind in range(len(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), write=False)))],
           "metric" : args.hyperparameter_metric,
           "verbose" : not args.quiet,        
         },
@@ -1253,38 +1327,32 @@ def main(args, default_args):
 
   # Perform a hyperparameter scan
   if args.step == "BayesianHyperparameterTuning":
-    model_type = args.model_type.lower()
-    if model_type not in ["density", "classifier", "regression"]:
-      raise ValueError(f"Model type {model_type} not recognized for hyperparameter scan.")   
-    print(f"<< Running a bayesian hyperparameter tuning for {model_type} >>")
-    model_loop = GetModelLoop(cfg, only_density=(model_type=="density"), only_classification=(model_type=="classifier"), only_regression=(model_type=="regression"))
-    performance_metrics = getattr(args, f"{model_type}_performance_metrics")
-    tuning_architecture = getattr(args, f"{model_type}_architecture")
-    for model_info in model_loop:
+    print(f"<< Running a bayesian hyperparameter tuning for {args.model_type} >>")
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
         config = {
-            "cfg" : args.cfg,
-            "model_type": model_info["type"],
-            "data_input" : f"{prep_data_dir}/PreProcess",
-            "parameters" : model_info["parameters"],
-            "parameter":  model_info["parameter"],
-            "tune_architecture" : tuning_architecture,
-            "category" : model_info['category'],
-            "file_name" : model_info["file_name"],
-            "file_loc" : model_info['file_loc'],
-            "val_file_loc" : model_info['val_file_loc'],
-            "best_model_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
-            "data_output" : f"{eval_data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-            "use_wandb" : args.use_wandb,
-            "wandb_project_name" : args.wandb_project_name,
-            "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
-            "disable_tqdm" : args.disable_tqdm,
-            "performance_metrics": performance_metrics,
-            "n_trials" : args.number_of_trials,
-            "metric" : args.hyperparameter_metric,
-            "verbose" : not args.quiet,     
+          "cfg" : args.cfg,
+          "model_type": model_info["type"],
+          "data_input" : f"{prep_data_dir}/PreProcess",
+          "parameters" : model_info["parameters"],
+          "parameter":  model_info["parameter"],
+          "tune_architecture" : getattr(args, f"{args.model_type}_architecture"),
+          "category" : model_info['category'],
+          "file_name" : model_info["file_name"],
+          "file_loc" : model_info['file_loc'],
+          "val_file_loc" : model_info['val_file_loc'],
+          "best_model_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
+          "data_output" : f"{eval_data_dir}/BayesianHyperparameterTuning{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+          "use_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
+          "disable_tqdm" : args.disable_tqdm,
+          "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
+          "n_trials" : args.number_of_trials,
+          "metric" : args.hyperparameter_metric,
+          "verbose" : not args.quiet,     
         },
         loop = {"model_name" : model_info['name']}
       )
@@ -1327,7 +1395,7 @@ def main(args, default_args):
             config = {
               "cfg" : args.cfg,
               "data_input" : GetDataInput("sim" if args.data_type != "data" and not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
-              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
+              "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
               "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -1358,7 +1426,7 @@ def main(args, default_args):
             "cfg" : args.cfg,
             "val_loop" : validation_loop,
             "data_input" : [{k:f"{prep_data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
-            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_asimov_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
             "sim_type" : args.sim_type,
             "plots_output" : f"{plots_dir}/GeneratorSummary{args.extra_output_dir_name}/{file_name}/{category}",
             "extra_plot_name" : args.extra_plot_name,
@@ -1386,8 +1454,8 @@ def main(args, default_args):
               "up_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "down_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "nominal_asimov_input": GetDataInput("asimov", cfg, file_name, default_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
-              "up_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_up/asimov.parquet"],
-              "down_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_input_dir_name}/{file_name}/{category}/{nuisance}_down/asimov.parquet"],
+              "up_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_asimov_input_dir_name}/{file_name}/{category}/{nuisance}_up/asimov.parquet"],
+              "down_asimov_input": [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_asimov_input_dir_name}/{file_name}/{category}/{nuisance}_down/asimov.parquet"],
               "plots_output" : f"{plots_dir}/GeneratorNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "nuisance" : nuisance,
               "extra_plot_name" : args.extra_plot_name,
@@ -1397,6 +1465,56 @@ def main(args, default_args):
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
           )
+
+
+  # Get performance metrics comparing simulated vs synthetic for different validation scenarios
+  if args.step == "ValidationPerformanceMetrics":
+    print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for val_dataset_ind, val_dataset_info in enumerate(GetValidationDatasetLoop(cfg, file_name, f"{prep_data_dir}/PreProcess", f"{eval_data_dir}/MakeAsimov", extra_asimov_name=args.extra_asimov_input_dir_name, category=category, dataset_type=args.validation_performance_metrics_datasets.split(","), sim_type=args.sim_type)):
+          module.Run(
+            module_name = "validation_performance_metrics",
+            class_name = "ValidationPerformanceMetrics",
+            config = {
+              "cfg" : args.cfg,
+              "sim_files" : val_dataset_info["files"],
+              "synth_files" : val_dataset_info["asimov_files"],
+              "sim_wt_name" : "wt",
+              "synth_wt_name" : "wt",
+              "do_histogram_metrics" : True,
+              "do_multidimensional_dataset_metrics" : True,
+              "data_output" : f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_output_dir_name}/{file_name}/{category}/{val_dataset_info['output_name']}",
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "val_dataset_ind" : val_dataset_ind},
+          )
+          
+
+  # Plot the performance metrics for factorisation assumption
+  if args.step == "PlotFactorisation":
+    print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True):
+      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for nuisance_1_shift in ["up", "down"]:
+          for nuisance_2_shift in ["up", "down"]:
+            if nuisance_1_shift == "down" and nuisance_2_shift == "up": continue
+            metrics, columns = GetFactorisationMetricsPlotInput(cfg, file_name, f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_input_dir_name}/{file_name}/{category}", nuisance_1_shift, nuisance_2_shift, category=category)
+            module.Run(
+              module_name = "plot_factorisation",
+              class_name = "PlotFactorisation",
+              config = {
+                "metric" : args.plot_metric.split(":") if ":" in args.plot_metric else [args.plot_metric],
+                "metrics_files" : metrics,
+                "plots_output" : f"{plots_dir}/PlotFactorisation{args.extra_output_dir_name}/{file_name}/{category}",
+                "extra_plot_name" : f"x_{nuisance_2_shift}_y_{nuisance_1_shift}",
+                "columns" : columns,
+                "x_shift" : nuisance_2_shift,
+                "y_shift" : nuisance_1_shift,
+                "verbose" : not args.quiet,
+              },
+              loop = {"file_name" : file_name, "category" : category, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
+            )
 
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
@@ -1871,6 +1989,7 @@ def main(args, default_args):
                   "scan_value" : GetDictionaryEntryFromYaml(f"{eval_data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml", ["scan_values",scan_ind]),
                   "scan_ind" : str(scan_ind),
                   "other_input_files": [f"{eval_data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
+                  "skip_initial_fit" : args.skip_initial_fit,
                 },
                 loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind},
                 save_class = not ((scan_ind + 1 == args.number_of_scan_points))
@@ -1923,6 +2042,7 @@ def main(args, default_args):
                 "val_info" : val_info,
                 "nominal_name" : args.scan_nominal_name,
                 "stat_syst_breakdown" : args.scan_plot_breakdown,
+                "rezero_scan" : args.rezero_scan,
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "column" : column, "freeze_ind" : freeze_ind},
@@ -1960,6 +2080,8 @@ def main(args, default_args):
                 "file_name" : asimov_file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
+                "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+                "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category},
@@ -1979,7 +2101,7 @@ def main(args, default_args):
             for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
               for nuisance_value in ["up","down"]:
                 summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-                val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values)
+                val_info = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values, prefit_nuisance_constraints=args.prefit_nuisance_constraints)
                 module.Run(
                   module_name = "make_asimov",
                   class_name = "MakeAsimov",
@@ -2004,6 +2126,8 @@ def main(args, default_args):
                     "file_name" : asimov_file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
                     "skip_spline" : args.no_spline,
+                    "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+                    "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                     "verbose" : not args.quiet,
                   },
                   loop = {"file_name" : file_name, "asimov_file_name" : asimov_file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
@@ -2024,8 +2148,8 @@ def main(args, default_args):
               class_name = "Generator",
               config = {
                 "cfg" : args.cfg,
-                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
-                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}/{file_name}")[category],
+                "data_input" : GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
+                "asimov_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
                 "plots_output" : f"{plots_dir}/PostFitPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "do_2d_unrolled" : args.plot_2d_unrolled,
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -2035,7 +2159,7 @@ def main(args, default_args):
                 "data_label" : {"data":"Data", "sim":"Simulated", "asimov":"Asimov"}[args.data_type],
                 "stack_label" : "",
                 "include_postfit_uncertainty" : args.include_postfit_uncertainty,
-                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_ind}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
+                "uncertainty_input" : {fn : {nuisance : {nuisance_value : f"{eval_data_dir}/MakePostFitUncertaintyAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{GetCombinedValdidationIndices(cfg, file_name, val_ind)[fn]}/{nuisance}/{nuisance_value}/asimov.parquet" for nuisance_value in ["up","down"]} for nuisance in GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True)} for fn in (GetModelFileLoop(cfg) if file_name=="combined" else [file_name])},
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
                 "plot_var_and_bins" : args.plot_var_and_bins,
                 "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
@@ -2051,7 +2175,7 @@ def main(args, default_args):
               constraints[nuisance] = {}
               for nuisance_value in ["up","down"]:
                 summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-                constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values) 
+                constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{nuisance}_{val_ind}.yaml", cfg, file_name, nuisance_value, prefit_nuisance_values=args.prefit_nuisance_values, prefit_nuisance_constraints=args.prefit_nuisance_constraints) 
             module.Run(
               module_name = "binned_distributions",
               class_name = "BinnedDistributions",
@@ -2088,8 +2212,8 @@ def main(args, default_args):
             class_name = "PostFitTruthComparison",
             config = {
               "cfg" : args.cfg,
-              "truth_input" : GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_input_dir_name}")[category],
-              "best_fit_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakePostFitAsimov{args.extra_input_dir_name}/{file_name}")[category],
+              "truth_input" : GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
+              "best_fit_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
               "fit_data_input": GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "plots_output" : f"{plots_dir}/PostFitTruthComparison{args.extra_output_dir_name}/{file_name}/{category}", 
@@ -2213,7 +2337,10 @@ def main(args, default_args):
 
 
   # Run the sweep
-  module.Sweep()
+  if not args.no_sweep_final:
+    module.Sweep()
+
+  return module
 
 
 if __name__ == "__main__":
@@ -2246,9 +2373,30 @@ if __name__ == "__main__":
 
       # Loop through steps
       steps = args.step.split(",")
-      for step in steps:
+      previous_module = None
+      for step_ind, step in enumerate(steps):
         args.step = step
-        main(args, default_args)
+
+        # Check if we need to sweep
+        if args.submit is not None and args.submit_in_one_job:
+          args.no_sweep = True
+          if step_ind != len(steps)-1:
+            args.no_sweep_final = True
+          else:
+            args.no_sweep_final = False
+        else:
+          args.no_sweep = False
+          args.no_sweep_final = False
+        module_options = {}
+        if previous_module is not None and args.no_sweep:
+          module_options = {
+            "cmd_store" : previous_module.cmd_store,
+            "extra_names" : previous_module.extra_names,
+            "input_store" : previous_module.input_store,
+            "output_store" : previous_module.output_store
+          }
+
+        previous_module = main(args, default_args, module_options)
 
     else: # Run snakemake
 
