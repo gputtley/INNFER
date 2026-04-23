@@ -10,6 +10,7 @@ import warnings
 from bayesflow.helper_functions import extract_current_lr
 import numpy as np
 import pandas as pd
+import random
 import tensorflow as tf
 from tensorflow.keras import layers, models, regularizers, losses
 from tqdm.autonotebook import tqdm
@@ -31,6 +32,14 @@ if gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 else:
   print("INFO: Using CPU for FCNNNetwork")
+
+
+seed = 42
+os.environ['PYTHONHASHSEED'] = str(seed)
+tf.random.set_seed(seed)
+tf.keras.utils.set_random_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
 
 class FCNNNetwork():
   """
