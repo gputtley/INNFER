@@ -898,7 +898,7 @@ def main(args, default_args):
               "file_loc": model_info["file_loc"],
               "file_type": model_info["type"],
               "model_input": f"{models_dir}",
-              "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
+              "extra_model_dir": f"{model_info['name']}{args.extra_classifier_model_name}",
               "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
               "do_loss": "loss" in args.classifier_performance_metrics,
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
