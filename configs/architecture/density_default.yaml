@@ -5,7 +5,7 @@ coupling_design: "interleaved"
 permutation: "fixed"
 num_coupling_layers: 10
 # training
-epochs: 1
+epochs: 20
 batch_size: 2048
 learning_rate: 0.01
 optimizer_name: "AdamW"
