@@ -2347,7 +2347,15 @@ def plot_classsifier_nuisance_variations(
 ):
   
   # Build 3 vertical pads
-  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(10, 12))
+  fig, (ax1, ax2) = plt.subplots(
+      2, 1,
+      sharex=True,
+      gridspec_kw={
+          'height_ratios': [3, 1],
+          'hspace': 0.08,
+      },
+      figsize=(10, 12),
+  )
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
   hep.cms.text(cms_label,ax=ax1)
   lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
