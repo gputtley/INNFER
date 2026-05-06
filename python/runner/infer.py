@@ -11,7 +11,6 @@ from pprint import pprint
 from scipy.interpolate import CubicSpline, UnivariateSpline
 
 from useful_functions import (
-  GetBinValues,
   GetBinValuesParallelised,
   GetDictionaryEntry,
   InitiateDensityModel, 
@@ -92,6 +91,7 @@ class Infer():
     self.merge_binned_nuisances = {}
     self.n_integral_events = 10**5
     self.skip_initial_fit = False
+    self.binned_from_predicted_bins = False
 
 
   def Configure(self, options):
@@ -107,20 +107,6 @@ class Infer():
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
 
-    if (self.binned_data_input is None or self.binned_data_input == {}) and self.binned_data_input_parameters_key is not None and self.likelihood_type in ["binned","binned_extended"]:
-      self.binned_data_input = {}
-      for cat, pars in self.parameters.items():
-        first = True
-        for k, v in pars.items():
-          with open(v, 'r') as yaml_file:
-            parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
-          entry = GetDictionaryEntry(parameters, self.binned_data_input_parameters_key[cat][k])
-          if first:
-            self.binned_data_input[cat] = np.array(entry)
-            first = False
-          else:
-            self.binned_data_input[cat] += np.array(entry)
-
 
   def Run(self):
 
@@ -135,6 +121,9 @@ class Infer():
     # Make likelihood or use exisiting
     if self.lkld is None:
       self.lkld = self._BuildLikelihood()
+
+    # Make bin yields or use existing
+    self._BuildBinnedFitInput()
 
     # Make likelihood inputs
     if self.lkld_input is None:
@@ -159,6 +148,7 @@ class Infer():
         filename=f"{self.data_output}/best_fit{self.extra_file_name}.yaml", 
         minimisation_method=self.minimisation_method, 
         freeze=self.freeze,
+        scipy_method="Nelder-Mead",
       )
 
 
@@ -671,14 +661,76 @@ class Infer():
     first_loop = True
     shape_direction = {}
 
+    # Open all parameters
+    all_parameters = {}
     for cat, par in self.parameters.items():
+      all_parameters[cat] = {}
+      for file_name, v in par.items():
+        with open(v, 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        all_parameters[cat][file_name] = copy.deepcopy(parameters)
+
+
+    # Remove total rate of nuisances if remove_lnN_if_rate_param is True and this file is a rate parameter, as the total rate will be floating and the lnN will not make sense
+    all_nuisances = []
+    for cat, par in all_parameters.items():
+      for file_name, v in par.items():
+        if (self.remove_lnN_if_rate_param and file_name in self.inference_options["rate_parameters"]): 
+          for bin in all_parameters[cat][file_name]["binned_fit_input"]:
+            for poi_val, poi_val_info in bin["yields"].items():
+              all_nuisances += list(poi_val_info["lnN"].keys())
+    all_nuisances = list(set(all_nuisances))
+
+    total_count = {}
+    nominal_counts = {}
+    for cat, par in all_parameters.items():
+      for file_name, v in par.items():
+        if not (self.remove_lnN_if_rate_param and file_name in self.inference_options["rate_parameters"]): continue
+        if file_name not in total_count.keys():
+          total_count[file_name] = {}
+        if file_name not in nominal_counts.keys():
+          nominal_counts[file_name] = {}
+        parameters = copy.deepcopy(all_parameters[cat][file_name])
+        for bin_ind, bin in enumerate(parameters["binned_fit_input"]):
+          for poi_val, poi_val_info in bin["yields"].items():
+            if poi_val not in total_count[file_name].keys():
+              total_count[file_name][poi_val] = {}
+            if poi_val not in nominal_counts[file_name].keys():
+              nominal_counts[file_name][poi_val] = 0.0
+            nominal_counts[file_name][poi_val] += bin["yields"][poi_val]["nominal"]
+            for nuisance in all_nuisances:
+              if nuisance not in total_count[file_name][poi_val].keys():
+                total_count[file_name][poi_val][nuisance] = {"up": 0.0, "down": 0.0}
+              if nuisance not in poi_val_info["lnN"].keys(): 
+                total_count[file_name][poi_val][nuisance]["up"] += bin["yields"][poi_val]["nominal"]
+                total_count[file_name][poi_val][nuisance]["down"] += bin["yields"][poi_val]["nominal"]
+              else:
+                lnN = poi_val_info["lnN"][nuisance]
+                total_count[file_name][poi_val][nuisance]["up"] += bin["yields"][poi_val]["nominal"] * lnN[1]
+                total_count[file_name][poi_val][nuisance]["down"] += bin["yields"][poi_val]["nominal"] * lnN[0]
+
+    for cat, par in all_parameters.items():
+      for file_name, poi_val_info in total_count.items():
+        for poi_val, nuisance_info in poi_val_info.items():
+          if nominal_counts[file_name][poi_val] == 0: continue
+          for nuisance, counts in nuisance_info.items():
+            up_norm = counts["up"] / nominal_counts[file_name][poi_val]
+            down_norm = counts["down"] / nominal_counts[file_name][poi_val]
+            for bin_ind, bin in enumerate(all_parameters[cat][file_name]["binned_fit_input"]):
+              if poi_val not in bin["yields"].keys(): continue
+              if nuisance not in bin["yields"][poi_val]["lnN"].keys(): continue
+              new_up = all_parameters[cat][file_name]["binned_fit_input"][bin_ind]["yields"][poi_val]["lnN"][nuisance][1] / up_norm
+              new_down = all_parameters[cat][file_name]["binned_fit_input"][bin_ind]["yields"][poi_val]["lnN"][nuisance][0] / down_norm
+              all_parameters[cat][file_name]["binned_fit_input"][bin_ind]["yields"][poi_val]["lnN"][nuisance] = [new_down, new_up]
+
+    # Do final loop
+    for cat, par in all_parameters.items():
 
       bin_yields[cat] = {}
       for file_name, v in par.items():
 
         # Open data parameters
-        with open(v, 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        parameters = copy.deepcopy(all_parameters[cat][file_name])
 
         # Do nuisance merging
         if len(self.merge_binned_nuisances) > 0:
@@ -763,6 +815,7 @@ class Infer():
 
         # Make binned inputs
         rate_param = f"mu_{file_name}" if file_name in self.inference_options["rate_parameters"] else None
+
         #bin_yields[cat][file_name] = GetBinValues(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
         bin_yields[cat][file_name] = GetBinValuesParallelised(parameters["binned_fit_input"], col=self.binned_fit_morph_col, rate_param=rate_param)
 
@@ -1150,3 +1203,32 @@ class Infer():
     lkld.integral_events_per_batch = int(os.getenv("EVENTS_PER_BATCH"))
 
     return lkld
+  
+  def _BuildBinnedFitInput(self):
+
+    if not self.binned_from_predicted_bins:
+
+      if (self.binned_data_input is None or self.binned_data_input == {}) and self.binned_data_input_parameters_key is not None and self.likelihood_type in ["binned","binned_extended"]:
+        self.binned_data_input = {}
+        for cat, pars in self.parameters.items():
+          first = True
+          for k, v in pars.items():
+            with open(v, 'r') as yaml_file:
+              parameters = yaml.load(yaml_file, Loader=yaml.CLoader)
+            entry = GetDictionaryEntry(parameters, self.binned_data_input_parameters_key[cat][k])
+            if first:
+              self.binned_data_input[cat] = np.array(entry)
+              first = False
+            else:
+              self.binned_data_input[cat] += np.array(entry)
+
+    else:
+      
+      yields = self._BuildBinYields()
+      self.binned_data_input = {}
+      for cat in yields.keys():
+        for name, func in yields[cat].items():
+          if cat not in self.binned_data_input.keys():
+            self.binned_data_input[cat] = np.array(func(self.true_Y))
+          else:
+            self.binned_data_input[cat] += np.array(func(self.true_Y))

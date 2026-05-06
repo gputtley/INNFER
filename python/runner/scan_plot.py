@@ -25,6 +25,9 @@ class ScanPlot():
     self.nominal_name = "Nominal"
     self.stat_syst_breakdown = False
     self.rezero_scan = False
+    self.scan_colours = None
+    self.scan_linestyles = None
+    self.scan_no_result_text = False
 
   def Configure(self, options):
     """
@@ -99,6 +102,9 @@ class ScanPlot():
       other_lklds=other_lklds,
       other_crossings=other_crossings,
       stat_syst_breakdown=self.stat_syst_breakdown,
+      colours = self.scan_colours,
+      linestyles = self.scan_linestyles,
+      no_result_text = self.scan_no_result_text
     )
 
   def Outputs(self):

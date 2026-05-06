@@ -10,6 +10,7 @@ class Generator():
 
   def __init__(self):
 
+    self.cfg = None
     self.data_input = None
     self.asimov_input = None
     self.plots_output = "plots/"
@@ -24,11 +25,12 @@ class Generator():
     self.no_text = True
     self.data_label = "Simulated"
     self.stack_label = "Synthetic"
-    self.include_postfit_uncertainty = False
+    self.include_uncertainty = False
     self.uncertainty_input = None
     self.use_expected_data_uncertainty = False
     self.plot_var_and_bins = None
     self.ratio_range = [0.5, 1.5]
+    self.extra_hypothesis_files = []
 
 
   def Configure(self, options):
@@ -50,7 +52,7 @@ class Generator():
     if self.verbose:
       print("- Loading in config")
     cfg = LoadConfig(self.cfg)
-
+    
     sim_dps = {}
     synth_dps = {}
     synth_uncert_dps = None
@@ -89,7 +91,7 @@ class Generator():
 
 
     # Postfit uncertainty synth data processors
-    if self.include_postfit_uncertainty:
+    if self.include_uncertainty:
       synth_uncert_dps = {}
       for k, v in self.uncertainty_input.items():
         synth_uncert_dps[k] = {}
@@ -106,6 +108,21 @@ class Generator():
                 "check_wt" : True,
               }
             )
+
+    # Extra hypothesis data processors
+    extra_hypothesis_dps = {}
+    for extra_hypothesis_file in self.extra_hypothesis_files:
+      if self.verbose:
+        print(f"- Making data processor for extra hypothesis {extra_hypothesis_file['hypothesis']}")
+      name = ", ".join([f"{Translate(k)}={v}" for k,v in extra_hypothesis_file["hypothesis"].items()])
+      extra_hypothesis_dps[name] = DataProcessor(
+        extra_hypothesis_file['files'],
+        "parquet",
+        wt_name = "wt",
+        options = {
+          "check_wt" : True,
+        }
+      )
 
     # Get names for plot
     sim_plot_name = self.data_label
@@ -130,6 +147,8 @@ class Generator():
         extra_name=self.extra_plot_name,
         axis_text=val_ind_text,
         synth_uncert_dps=synth_uncert_dps,
+        remove_uncert_yield = {file_name: file_name in cfg["inference"]["rate_parameters"] for file_name in synth_dps.keys()},
+        extra_hypothesis_dps = extra_hypothesis_dps,
       )
       if self.do_transformed:
         self._PlotGeneration(
@@ -143,6 +162,8 @@ class Generator():
           extra_name=self.extra_plot_name,
           axis_text=val_ind_text,
           synth_uncert_dps=synth_uncert_dps,
+          remove_uncert_yield = {file_name: file_name in cfg["inference"]["rate_parameters"] for file_name in synth_dps.keys()},
+          extra_hypothesis_dps = extra_hypothesis_dps,
         )
 
     if self.do_2d_unrolled:
@@ -222,6 +243,22 @@ class Generator():
     for k in self.asimov_input.keys():
       inputs += self.asimov_input[k]
 
+    if self.uncertainty_input is not None:
+      for k, v in self.uncertainty_input.items():
+        for nuisance, nuisance_values in v.items():
+          for nuisance_value, file_name in nuisance_values.items():
+            if isinstance(file_name, list):
+              inputs += np.array(file_name).flatten().tolist()
+            else:
+              inputs += file_name
+
+    if self.extra_hypothesis_files is not None:
+      for extra_hypothesis_file in self.extra_hypothesis_files:
+        if isinstance(extra_hypothesis_file['files'], list):
+          inputs += np.array(extra_hypothesis_file['files']).flatten().tolist()
+        else:
+          inputs += extra_hypothesis_file['files']
+
     return inputs
 
   def _PlotGeneration(
@@ -238,6 +275,8 @@ class Generator():
     extra_name="",
     axis_text="",
     synth_uncert_dps=None,
+    remove_uncert_yield = {},
+    extra_hypothesis_dps=None,
     ):
 
 
@@ -272,7 +311,7 @@ class Generator():
           functions_to_apply = functions_to_apply,
           bins = n_bins,
           column = col,
-          ignore_quantile = 0.01,
+          ignore_quantile = 0.001,
         )      
 
       # Make synth hists
@@ -319,6 +358,19 @@ class Generator():
           sim_hist_uncert_squared += (sim_hist_uncert**2)
           sim_hist_total += sim_hist
 
+      # Make extra hypothesis hists
+      extra_hypothesis_hists = {}
+      if extra_hypothesis_dps is not None:
+        for extra_hypothesis_name, extra_hypothesis_dp in extra_hypothesis_dps.items():
+
+          extra_hypothesis_hist, extra_hypothesis_hist_uncert, bins = extra_hypothesis_dp.GetFull(
+            method = "histogram_and_uncert",
+            functions_to_apply = functions_to_apply,
+            bins = bins,
+            column = col,
+          )
+          extra_hypothesis_hists[extra_hypothesis_name] = extra_hypothesis_hist
+
       # Change synth hist uncertainties to asymmetric uncertainties
       sim_hist_uncert = np.sqrt(sim_hist_uncert_squared)
       synth_hist_uncert = np.sqrt(synth_hist_uncert_squared)
@@ -344,6 +396,10 @@ class Generator():
                 bins = bins,
                 column = col,
               )[0]
+              # if rate parameter, scale to nominal histogram
+              if file_name in remove_uncert_yield.keys():
+                synth_extra_hist_uncerts[file_name][nuisance][nuisance_value] *= np.sum(synth_hists[f"{file_name}{synth_plot_name}"])/np.sum(synth_extra_hist_uncerts[file_name][nuisance][nuisance_value])
+
         # Get the totals
         synth_extra_hist_uncerts_total = {}
         for nuisance in total_nuisances:
@@ -408,6 +464,7 @@ class Generator():
           use_stat_err=False,
           axis_text=axis_text,
           ratio_range=self.ratio_range,
+          extra_hists=extra_hypothesis_hists,
           )
 
       if 2 in self.plot_styles:

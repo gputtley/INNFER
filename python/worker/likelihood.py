@@ -1659,7 +1659,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.2, constraint_step_size=1.0, save_best_fit=True):
+  def GetBestFit(self, X_dps, initial_guess, method="scipy", scipy_method="Nelder-Mead", freeze={}, initial_step_size=0.2, constraint_step_size=1.0, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -1748,7 +1748,7 @@ class Likelihood():
 
     # Minimise
     if method in ["scipy"]:
-      result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex)
+      result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex, scipy_method=scipy_method)
     elif method in ["scipy-with-gradients"]:
       result = self.Minimise(func, initial_guess, method="scipy-with-gradients", jac=jac, initial_simplex=initial_simplex)
     elif method in ["minuit"]:
@@ -2117,7 +2117,7 @@ class Likelihood():
     return lower_scan_vals + [float(self.best_fit[best_fit_col_index])] + upper_scan_vals
 
 
-  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None):
+  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None, scipy_method="Nelder-Mead"):
     """
     Minimizes the given function using numerical optimization.
 
@@ -2142,7 +2142,7 @@ class Likelihood():
       if initial_simplex is not None:
         options['initial_simplex'] = initial_simplex
 
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options=options)
+      minimisation = minimize(func, initial_guess, method=scipy_method, tol=0.01, options=options)
       res = minimisation.x, minimisation.fun
     
     # scipy with gradients
@@ -2277,7 +2277,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteBestFitToYaml(self, X_dps, initial_guess, row=None, filename="best_fit.yaml", minimisation_method="nominal", freeze={}):
+  def GetAndWriteBestFitToYaml(self, X_dps, initial_guess, row=None, filename="best_fit.yaml", minimisation_method="nominal", scipy_method="Nelder-Mead", freeze={}):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -2288,7 +2288,7 @@ class NLLAndGradient():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetBestFit(X_dps, initial_guess, method=minimisation_method, freeze=freeze)
+    result = self.GetBestFit(X_dps, initial_guess, method=minimisation_method, freeze=freeze, scipy_method=scipy_method)
     self.best_fit = []
     ind = 0
     for col in self.Y_columns:

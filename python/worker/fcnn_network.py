@@ -60,6 +60,7 @@ class FCNNNetwork():
     # Training parameters
     self.early_stopping = False
     self.patience = 3
+    self.wait_till = 5
     self.epochs = 15
     self.batch_size = 2**6
     self.learning_rate = 1e-3
@@ -273,6 +274,9 @@ class FCNNNetwork():
     elif self.task == "classification":
       output_dim = self.num_classes
 
+    if isinstance(self.dense_layers, list):
+      self.dense_layers = {f"layer_{i+1}": units for i, units in enumerate(self.dense_layers)}
+
     nn_layers = [layers.Input(shape=input_dim),]
     for ind in range(len(self.dense_layers.keys())):
       layer = self.dense_layers[f"layer_{ind+1}"]
@@ -417,7 +421,7 @@ class FCNNNetwork():
         }
         wandb.log(metrics)
 
-      if self.early_stopping and patience_counter >= self.patience:
+      if self.early_stopping and patience_counter >= self.patience and ep >= self.wait_till:
         print(f"Early stopping triggered.")
         break
 

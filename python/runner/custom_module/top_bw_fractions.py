@@ -489,6 +489,8 @@ class top_bw_fractions():
     for category in GetCategoryLoop(cfg):
 
       base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      if "_signal" or "_control" in base_file_name:
+        base_file_name = base_file_name.replace("_signal","").replace("_control","")
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
 
       # Define functions
@@ -583,6 +585,9 @@ class top_bw_fractions():
     for category in GetCategoryLoop(cfg):
 
       base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      if "_signal" or "_control" in base_file_name:
+        base_file_name = base_file_name.replace("_signal","").replace("_control","")
+
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
       inputs += [base_file]
 
