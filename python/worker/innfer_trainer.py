@@ -14,8 +14,6 @@ from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
 from useful_functions import Resample, MakeDirectories
 
-import time 
-
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 seed = 42
@@ -209,7 +207,6 @@ class InnferTrainer(bf.trainers.Trainer):
          sum_loss += (float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))*np.sum(conf["loss_weights"]))
          sum_wts += np.sum(conf["loss_weights"])
       loss = tf.constant(sum_loss/sum_wts)
-      #print(float(sum_loss), float(sum_wts), float(loss))
       X.ChangeBatchSize(X_old_batch_size)
       Y.ChangeBatchSize(Y_old_batch_size)
       wt.ChangeBatchSize(wt_old_batch_size)

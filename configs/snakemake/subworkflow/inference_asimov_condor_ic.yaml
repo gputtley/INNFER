@@ -5,23 +5,151 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    points_per_job: 6
-- step: "HessianParallel"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+
+- step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    points_per_job: 12
-- step: "HessianCollect"
-  submit: "configs/submit/condor_avx.yaml"
-  run_options: 
-    specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+
 - step: "Covariance"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
+
+- step: "ScanPointsFromHessian"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    number_of_scan_points: 11
+    sigma_between_scan_points: 0.4
+
+- step: "Scan"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    number_of_scan_points: 11
+    sigma_between_scan_points: 0.4
+
+- step: "ScanCollect"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+
+- step: "ApproximateImpacts"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+
+- step: "ImpactsPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+
+# Stat only fit
+- step: "InitialFit"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    freeze: "all-nuisances"
+
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    freeze: "all-nuisances"
+
+- step: "Covariance"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+    freeze: "all-nuisances"
+
+- step: "ScanPointsFromHessian"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    number_of_scan_points: 11
+    sigma_between_scan_points: 0.4
+    freeze: "all-nuisances"
+
+- step: "Scan"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+    prune_classifier_models: "roc_auc_test:0.505"
+    number_of_integral_events: 100000
+    number_of_scan_points: 11
+    sigma_between_scan_points: 0.4
+    freeze: "all-nuisances"
+
+- step: "ScanCollect"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "AsimovStatOnly"
+
+# Make combined scan plot
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific_combined_default_val: True
+    data_type: "asimov"
+    extra_dir_name: "Asimov"
+    scan_plot_breakdown: True
+    other_input: "Stat. Only:ScanCollectAsimovStatOnly:scan_collect"
+    scan_nominal_name: "Stat. + Syst."
+    extra_plot_name: "with_stat"
+

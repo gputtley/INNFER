@@ -29,6 +29,8 @@ class BinnedDistributions():
     self.include_uncertainty = False
     self.extra_hypotheses = []
     self.ratio_range = [0.5, 1.5]
+    self.extra_inputs = []
+    self.binned_observed_from_predicted = False
 
   def Configure(self, options):
     """
@@ -72,15 +74,20 @@ class BinnedDistributions():
       stack_hists[k] = np.array(v(Y))
 
     # Get the data histogram
-    data_hist = None
-    for k, v in self.data_input_keys.items():
-      with open(self.parameters[k], 'r') as yaml_file:
-        parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      entry = GetDictionaryEntry(parameters, v)
-      if data_hist is None:
-        data_hist = np.array(entry)
-      else:
-        data_hist += np.array(entry)
+    if not self.binned_observed_from_predicted:
+      data_hist = None
+      for k, v in self.data_input_keys.items():
+        with open(self.parameters[k], 'r') as yaml_file:
+          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        entry = GetDictionaryEntry(parameters, v)
+        if data_hist is None:
+          data_hist = np.array(entry)
+        else:
+          data_hist += np.array(entry)
+    else:
+      data_hist = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
+      for k, v in yields.items():
+        data_hist += np.array(v(Y))
 
     # Get the uncertainty on the stack histograms from the constraints if required
     stack_uncertainty_up = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
@@ -165,5 +172,7 @@ class BinnedDistributions():
     inputs = []
     for v in self.parameters.values():
       inputs += [v]
+
+    inputs += self.extra_inputs
 
     return inputs

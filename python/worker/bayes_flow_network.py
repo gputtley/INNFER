@@ -83,6 +83,9 @@ class BayesFlowNetwork():
     self.active_learning_options = {}
     self.resample = False
     self.gradient_clipping_norm = None
+    self.patience = 3
+    self.tolerance = 0.02
+    self.wait_till = 5
 
     # Other
     self.disable_tqdm = False
@@ -794,6 +797,9 @@ class BayesFlowNetwork():
       resample=self.resample,
       model_name=name,
       save_model_per_epoch=self.save_model_per_epoch,
+      patience=self.patience,
+      tolerance=self.tolerance,
+      wait_till=self.wait_till,
     )
 
     if self.plot_loss:

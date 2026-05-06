@@ -14,12 +14,14 @@ class DataLoader():
         batch_size (int, optional): The batch size. Default is 1024.
     """
     self.parquet_file_name = parquet_file_name
-    self.parquet_file = pq.ParquetFile(parquet_file_name)
+    #self.parquet_file = pq.ParquetFile(parquet_file_name)
+    self.parquet_file = None
+    pf = pq.ParquetFile(parquet_file_name)
     self.batch_size = batch_size
     self.generator = None
     self.batch_num = 0
-    self.num_rows = self.parquet_file.metadata.num_rows
-    self.columns = [str(i) for i in self.parquet_file.schema.names if i != '__index_level_0__']
+    self.num_rows = pf.metadata.num_rows
+    self.columns = [str(i) for i in pf.schema.names if i != '__index_level_0__']
     self.num_columns = len(self.columns)
     self.num_batches = int(np.ceil(self.num_rows/self.batch_size))
     
@@ -32,9 +34,18 @@ class DataLoader():
     """
     if self.num_rows > 0:
       if self.batch_num == 0:
+        self.parquet_file = pq.ParquetFile(self.parquet_file_name)
         self.generator = self.parquet_file.iter_batches(batch_size=self.batch_size)
+
       self.batch_num = (self.batch_num + 1) % self.num_batches
-      return next(self.generator).to_pandas(split_blocks=True, self_destruct=True)
+      batch = next(self.generator).to_pandas(split_blocks=True, self_destruct=True)
+      
+      if self.batch_num == 0:
+        self.parquet_file.close()
+        self.parquet_file = None
+        self.generator = None
+
+      return batch
     else:
       return pd.DataFrame(index=range(self.batch_size))
 
