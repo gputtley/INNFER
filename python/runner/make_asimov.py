@@ -201,11 +201,10 @@ class MakeAsimov():
         )
 
         # Open normalising spline
-        if self.verbose:
-          print(f"- Loading the normalising spline for {regression_model_name}")
-
         spline_name = f"{regression_model_name}_norm_spline.pkl"
         if not self.skip_spline:
+          if self.verbose:
+            print(f"- Loading the normalising spline for {regression_model_name}")
           with open(spline_name, 'rb') as f:
             spl = pickle.load(f)
         else:
@@ -287,11 +286,10 @@ class MakeAsimov():
         )
 
         # Open normalising spline
-        if self.verbose:
-          print(f"- Loading the normalising spline for {classifier_model_name}")
-
         spline_name = f"{classifier_model_name}_norm_spline.pkl"
         if not self.skip_spline:
+          if self.verbose:
+            print(f"- Loading the normalising spline for {classifier_model_name}")
           with open(spline_name, 'rb') as f:
             spl = pickle.load(f)
         else:

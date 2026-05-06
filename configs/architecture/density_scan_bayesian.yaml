@@ -4,9 +4,8 @@ coupling_design: "interleaved"
 permutation: "fixed"
 num_coupling_layers: [5,15]
 # training
-epochs: 1
+epochs: 20
 batch_size: [1000,10000]
-early_stopping: False
 learning_rate: [0.0001,0.01]
 optimizer_name: "AdamW"
 lr_scheduler_name: "CosineDecayWithWarmUp"
@@ -17,6 +16,10 @@ lr_scheduler_options:
 active_learning: False
 resample: False
 gradient_clipping_norm: null
+early_stopping: true
+patience: 3
+tolerance: 0.02
+wait_till: 5
 # affine or interleaved only
 affine_units_per_dense_layer: [100,500]
 affine_num_dense_layers: [1,3]

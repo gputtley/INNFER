@@ -281,7 +281,9 @@ class DensityPerformanceMetrics():
         f"{self.open_parameters['density']['file_loc']}/Y_{data_type}.parquet", 
         f"{self.open_parameters['density']['file_loc']}/wt_{data_type}.parquet"
       )
-
+    if "train" in self.loss_datasets and "test" in self.loss_datasets:
+      self.metrics["loss_difference"] = self.metrics["loss_test"] - self.metrics["loss_train"]
+      self.metrics["loss_test_plus_difference"] = self.metrics["loss_test"] + self.metrics["loss_difference"]
 
   def DoHistogramMetrics(self):
 

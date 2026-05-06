@@ -1,7 +1,15 @@
 # Make asimov
 - step: "MakeAsimov"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    no_spline: true
+    prune_classifier_models: "roc_auc_test:0.505"
+    use_asimov_scaling: 100
 
 # Make asimov for nuisance variations
 - step: "MakeAsimovNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    no_spline: true
+    prune_classifier_models: "roc_auc_test:0.505"
+    use_asimov_scaling: 100
