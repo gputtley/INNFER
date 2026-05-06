@@ -5,7 +5,6 @@ import pickle
 import re
 import textwrap
 import yaml
-import random
 import secrets
 import string
 
@@ -187,8 +186,11 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
   #binned_data_input = {}
   binned_data_input = None
   binned_data_input_parameters_key = None
+  binned_observed_from_predicted = False
   if args.likelihood_type in ["binned","binned_extended"]:
     if data_type in ["asimov","sim"]:
+      if args.binned_observed_from_predicted:
+        binned_observed_from_predicted = True
       binned_data_input_parameters_key = {}
       for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
         binned_data_input_parameters_key[cat] = {}
@@ -228,7 +230,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "integrate_density_with_ratios" : args.integrate_density_with_ratios,
     "no_likelihood_print_out" : args.no_likelihood_print_out,
     "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
-    "n_integral_events" : args.number_of_integral_events
+    "n_integral_events" : args.number_of_integral_events,
+    "binned_from_predicted_bins" : binned_observed_from_predicted,
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -831,9 +834,15 @@ def GetDefaults(cfg):
     else:
       print(f"WARNING: Default value for {param} not set")
   for param in cfg["nuisances"]:
-    defaults[param] = 0.0
+    if param in cfg["default_values"].keys():
+      defaults[param] = cfg["default_values"][param]
+    else:
+      defaults[param] = 0.0
   for rate in cfg["inference"]["rate_parameters"]:
-    defaults[f"mu_{rate}"] = 1.0
+    if f"mu_{rate}" in cfg["default_values"].keys():
+      defaults[f"mu_{rate}"] = cfg["default_values"][f"mu_{rate}"]
+    else:
+      defaults[f"mu_{rate}"] = 1.0
   return defaults
 
 
@@ -843,6 +852,32 @@ def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False, ca
     return defaults
   params_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, category=category)
   return {k:v for k, v in defaults.items() if k in params_in_model}
+
+
+def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, prep_data_dir, sim_type="val"):
+
+  extra_hypothesis = [{value.split("=")[0] : float(value.split("=")[1]) for value in hypothesis.split(",")} for hypothesis in plot_extra_hypothesis.split(";")] if plot_extra_hypothesis is not None else []
+
+  indices = {}
+  for fn in GetModelFileLoop(cfg) if file_name == "combined" else [file_name]:
+    parameters_in_model = GetParametersInModel(fn, cfg, include_rate=True, include_lnN=True)
+    extra_hypothesis_in_model = [{k: v for k, v in extra_hypothesis_entry.items() if k in parameters_in_model} for extra_hypothesis_entry in extra_hypothesis]
+    val_loop = GetValidationLoop(cfg, fn, include_rate=True, include_lnN=True)
+    indices[fn] = []
+    for extra_hypothesis_in_model in extra_hypothesis_in_model:
+      if extra_hypothesis_in_model in val_loop:
+        indices[fn].append(val_loop.index(extra_hypothesis_in_model))
+      else:
+        raise ValueError(f"Extra hypothesis {extra_hypothesis_in_model} not in validation loop for file {fn}")
+      
+  extra_hypothesis_files = []
+  for ind, extra_hypothesis_in_model in enumerate(extra_hypothesis):
+    extra_hypothesis_files.append({
+      "hypothesis" : extra_hypothesis[ind],
+      "files" : [[f"{prep_data_dir}/PreProcess/{fn}/{category}/val_ind_{indices[fn][ind]}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fn in indices.keys()]
+    })
+
+  return extra_hypothesis_files
 
 
 def GetFilesInModel(file_name, cfg, category=None):
@@ -1010,9 +1045,10 @@ def GetCombinedValdidationIndices(cfg, file_name, val_ind):
   combined_val = GetValidationLoop(cfg, file_name)[val_ind]
   indices = {}
   for fn in GetModelFileLoop(cfg):
+    parameters_in_model = GetParametersInModel(fn, cfg)
     indiv_val_loop = GetValidationLoop(cfg, fn)
     for ind, val in enumerate(indiv_val_loop):
-      skimmed_combined_val = {k:v for k,v in combined_val.items() if k in val.keys()}
+      skimmed_combined_val = {k:v for k,v in combined_val.items() if k in parameters_in_model}
       if val == skimmed_combined_val:
         indices[fn] = ind
         break
@@ -1223,6 +1259,9 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
 
   val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  if val_info is not None:
+    for k, v in val_info.items():
+      val_info_with_defaults[k] = v
   ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
   freeze_loop = []
@@ -1281,6 +1320,43 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
 
   return list(sorted(par_loop))
 
+
+def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=None, val_ind=None, summary_from=None, extra_input_dir_name="", prefit_nuisance_constraints=False, prefit_nuisance_values=False):
+
+  # Define input files
+  input_files = []
+
+  # Get the default values for the parameters in the model, and replace with the provided values if given
+  if values is not None:
+
+    nominal = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
+    for k in values.keys():
+      nominal[k] = values[k]
+
+    constraints = {}
+    for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
+      constraints[nuisance] = {}
+      for nuisance_value in ["up","down"]:
+        constraints[nuisance][nuisance_value] = 1.0 if nuisance_value == "up" else -1.0
+
+  # If no values provided, get the best fit from the yaml file for the given validation index
+  elif val_ind is not None:
+
+    bf_file = f"{data_dir}/InitialFit{extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml"
+    input_files.append(bf_file)
+    nominal = GetBestFitFromYaml(bf_file, cfg, file_name, prefit_nuisance_values=prefit_nuisance_values)
+
+    constraints = {}
+    for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
+      constraints[nuisance] = {}
+      for nuisance_value in ["up","down"]:
+        summary_from_name = summary_from if summary_from not in ["Scan","Bootstrap"] else summary_from+"Collect"
+        constraint_file = f"{data_dir}/{summary_from_name}{extra_input_dir_name}/{file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml"
+        if not prefit_nuisance_constraints:
+          input_files.append(constraint_file)
+        constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(bf_file, constraint_file, cfg, file_name, nuisance_value, prefit_nuisance_values=prefit_nuisance_values, prefit_nuisance_constraints=prefit_nuisance_constraints) 
+
+  return nominal, constraints, input_files
 
 def GetScanArchitectures(cfg, data_output="data/", write=True):
   """
@@ -1349,6 +1425,30 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=[]):
       output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg)
 
   return output_cfg
+
+
+def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=False, extra_postfit_asimov_input_dir_name=""):
+
+  uncert_files = {}
+
+  # Loop over file names
+  file_loop = GetModelFileLoop(cfg) if file_name == "combined" else [file_name]
+  for fn in file_loop:
+    uncert_files[fn] = {}
+
+    # Get nuisances for this file
+    nuisances = GetParametersInModel(fn, cfg, include_lnN=True, only_nuisances=True, category=category)
+    for nuisance in nuisances:
+      uncert_files[fn][nuisance] = {}
+      for nuisance_value in ["up", "down"]:
+        val_index = GetCombinedValdidationIndices(cfg, file_name, val_ind)[fn]
+        if not data_vs_simulation:
+          path = [f"{eval_data_dir}/MakePostFitUncertaintyAsimov{extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_index}/{nuisance}/{nuisance_value}/asimov.parquet"]
+        else:
+          path = [f"{prep_data_dir}/PreProcess/{fn}/{category}/{nuisance}_{nuisance_value}/{i}_full.parquet" for i in ["X","wt"]]
+        uncert_files[fn][nuisance][nuisance_value] = path
+
+  return uncert_files
 
 
 def GetYName(ur, purpose="plot", round_to=2, prefix=""):
@@ -1856,6 +1956,7 @@ def SetupSnakeMakeFile(args, default_args, main):
 
   # Make snakemake file
   args.make_snakemake_inputs = True
+  previous_module = None
   for step_info in snakemake_loop:
     args_copy = copy.deepcopy(args)
     args_copy.step = step_info["step"]
@@ -1881,7 +1982,13 @@ def SetupSnakeMakeFile(args, default_args, main):
       clear_file = False
 
     # Write info to file
-    main(args_copy, default_args)
+    if previous_module is None:
+      module_options = {}
+    else:
+      module_options = {
+        "jobs_inds" : previous_module.jobs_inds,
+      }
+    previous_module = main(args_copy, default_args, module_options)
 
   # make final outputs
   cfg = LoadConfig(args_copy.cfg)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from plotting import plot_correlation_matrix
+from plotting import plot_correlation_matrix, plot_factorisation_results
 from useful_functions import GetDictionaryEntryFromYaml
 
 class PlotFactorisation():
@@ -58,12 +58,39 @@ class PlotFactorisation():
       zlabel = f", ".join(self.metric),
     )
 
+    # Make plot of different style
+    column_indices = {col: self.columns.index(col) for col in self.columns}
+
+    nominal_value = metric_values[column_indices["Nominal"]][column_indices["Nominal"]]
+    one_shift_values = [metric_values[column_indices["Nominal"]][column_indices[col]] for col in self.columns if col != "Nominal"]
+    two_shift_values = [[metric_values[column_indices[col_1]][column_indices[col_2]] for col_2 in self.columns if col_2 != "Nominal"] for col_1 in self.columns if col_1 != "Nominal"]
+
+    plot_name = f"{self.plots_output}/FactorisationMatrixStyle2_{'_'.join(self.metric)}"
+    if self.extra_plot_name != "":
+      plot_name += f"_{self.extra_plot_name}"
+    plot_factorisation_results(
+      nominal_value,
+      one_shift_values,
+      two_shift_values,
+      [col for col in self.columns if col != "Nominal"],
+      name = plot_name,
+      xlabel = f"Parameter shifted {self.x_shift}",
+      ylabel = f"Parameter shifted {self.y_shift}",
+      zlabel = f", ".join(self.metric),
+    )
+
+
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
     outputs = []
     plot_name = f"{self.plots_output}/FactorisationMatrix_{'_'.join(self.metric)}"
+    if self.extra_plot_name != "":
+      plot_name += f"_{self.extra_plot_name}"
+    outputs += [f"{plot_name}.pdf"]
+
+    plot_name = f"{self.plots_output}/FactorisationMatrixStyle2_{'_'.join(self.metric)}"
     if self.extra_plot_name != "":
       plot_name += f"_{self.extra_plot_name}"
     outputs += [f"{plot_name}.pdf"]

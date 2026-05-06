@@ -374,7 +374,12 @@ def plot_likelihood(
     spline=True,
     draw_1sigma_crossings = True,
     draw_2sigma_crossings = False,
-    show_other_results = True
+    show_other_results = True,
+    colours = None,
+    linestyles = None,
+    no_result_text = False,
+    interval_colour = "gray",
+    linewidth = 3,
   ):
   """
   Plot likelihood curve.
@@ -425,16 +430,22 @@ def plot_likelihood(
   fig, ax = plt.subplots()
   hep.cms.text(cms_label,ax=ax)
 
+  if colours is None:
+    colors = ["blue"] + sns.color_palette("Set2", len(list(other_lklds.keys())))
+  else:
+    colors = colours
+  if linestyles is None:
+    linestyles = ["-"]*len(list(other_lklds.keys()))
+
   if spline:
     spline_x = np.linspace(min(x), max(x), num=500)
     spline_y = UnivariateSpline(x, y, s=0)
-    plt.plot(spline_x, spline_y(spline_x), label=label, color="blue")
+    plt.plot(spline_x, spline_y(spline_x), label=label, color=colors[0], linestyle=linestyles[0], linewidth=linewidth)
   else:
-    plt.plot(x, y, label=label, color="blue")
+    plt.plot(x, y, label=label, color=colors[0], linestyle=linestyles[0], linewidth=linewidth)
 
   ax.xaxis.get_major_formatter().set_useOffset(False)
 
-  colors = sns.color_palette("Set2", len(list(other_lklds.keys())))
   color_ind = 0
   for k, v in other_lklds.items():
 
@@ -448,10 +459,10 @@ def plot_likelihood(
     y_vals = [i for i in v[1] if i < cap_at]
 
     if not stat_syst_breakdown:
-      plt.plot(x_vals, y_vals, label=k, color=colors[color_ind])
+      plt.plot(x_vals, y_vals, label=k, color=colors[color_ind+1], linestyle=linestyles[color_ind+1], linewidth=linewidth)
       color_ind += 1
     else:
-      plt.plot(x_vals, y_vals, label=k, linestyle='--', color="blue")
+      plt.plot(x_vals, y_vals, label=k, linestyle='--', color="blue", linewidth=linewidth)
 
   if true_value != None:
     plt.plot([true_value,true_value], [0,cap_at], linestyle='--', color='black')
@@ -461,24 +472,24 @@ def plot_likelihood(
         transform=ax.transAxes)
 
   if -1 in crossings.keys() and draw_1sigma_crossings:  
-    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color='orange')
+    plt.plot([crossings[-1],crossings[-1]], [0,1], linestyle='--', color=interval_colour)
   if -2 in crossings.keys() and draw_2sigma_crossings:  
-    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color='orange')
+    plt.plot([crossings[-2],crossings[-2]], [0,4], linestyle='--', color=interval_colour)
   if 1 in crossings.keys() and draw_1sigma_crossings:  
-    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color='orange')
+    plt.plot([crossings[1],crossings[1]], [0,1], linestyle='--', color=interval_colour)
   if 2 in crossings.keys() and draw_2sigma_crossings:  
-    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color='orange')
+    plt.plot([crossings[2],crossings[2]], [0,4], linestyle='--', color=interval_colour)
 
 
   for other_key, other_val in other_crossings.items():
     if -1 in other_val.keys() and draw_1sigma_crossings:  
-      plt.plot([other_val[-1],other_val[-1]], [0,1], linestyle='--', color='orange')
+      plt.plot([other_val[-1],other_val[-1]], [0,1], linestyle='--', color=interval_colour)
     if 1 in other_val.keys() and draw_1sigma_crossings:  
-      plt.plot([other_val[1],other_val[1]], [0,1], linestyle='--', color='orange')
+      plt.plot([other_val[1],other_val[1]], [0,1], linestyle='--', color=interval_colour)
     if -2 in other_val.keys() and draw_2sigma_crossings:  
-      plt.plot([other_val[-2],other_val[-2]], [0,4], linestyle='--', color='orange')
+      plt.plot([other_val[-2],other_val[-2]], [0,4], linestyle='--', color=interval_colour)
     if 2 in other_val.keys() and draw_2sigma_crossings:  
-      plt.plot([other_val[2],other_val[2]], [0,4], linestyle='--', color='orange')
+      plt.plot([other_val[2],other_val[2]], [0,4], linestyle='--', color=interval_colour)
 
   plt.plot([x[0],x[-1]], [1,1], linestyle='--', color='gray')
   plt.plot([x[0],x[-1]], [4,4], linestyle='--', color='gray')
@@ -486,7 +497,9 @@ def plot_likelihood(
   if label is not None:
     plt.legend(loc='upper right')
 
-  if -1 in crossings.keys() and 1 in crossings.keys():
+  next_position = 0.96
+  if -1 in crossings.keys() and 1 in crossings.keys() and not no_result_text:
+    next_position -= 0.06
     # round crossings difference to two SF
     sig_figs = 2
     decimal_places_up = sig_figs - int(np.floor(np.log10(abs(crossings[1]-crossings[0])))) - 1
@@ -494,11 +507,10 @@ def plot_likelihood(
     decimal_places = min(decimal_places_down,decimal_places_up)
 
     if show_other_results and not stat_syst_breakdown and len(other_crossings) > 0:
-      color = "blue"
+      color = colors[0]
     else:
       color = "black"
 
-    next_position = 0.9
     if not stat_syst_breakdown:
       text = rf"{xlabel} = {round(crossings[0], decimal_places)}" \
               rf"$^{{+{round(crossings[1]-crossings[0], decimal_places)}}}_{{-{round(crossings[0]-crossings[-1], decimal_places)}}}$"
@@ -527,7 +539,7 @@ def plot_likelihood(
       for k, v in other_crossings.items():
         text = rf"{xlabel} = {round(v[0], decimal_places)}" \
                 rf"$^{{+{round(v[1]-v[0], decimal_places)}}}_{{-{round(v[0]-v[-1], decimal_places)}}}$"
-        ax.text(0.03, next_position, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=colors[color_ind])
+        ax.text(0.03, next_position, text, transform=ax.transAxes, va='top', ha='left', fontsize=20, color=colors[color_ind+1])
         color_ind += 1
         next_position -= 0.06
 
@@ -544,7 +556,7 @@ def plot_likelihood(
   plt.close()
 
 
-def  plot_many_comparisons(
+def plot_many_comparisons(
   sim_hists,
   synth_hists,
   sim_hist_uncerts,
@@ -2117,3 +2129,338 @@ def plot_correlation_matrix(
   plt.savefig(output_name+".pdf", bbox_inches='tight')
   plt.close()
   print("Created "+output_name+".pdf")
+
+
+def plot_barred_comparison(
+    compare_dict,
+    x_columns,
+    scale_values = None, # if not 1 write on figure
+    y_label = "",
+    name = "bared_comparison",
+):
+  
+  fig, ax = plt.subplots(figsize=(20, 10))
+
+  # Add CMS label
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label,ax=ax, fontsize=22)
+
+  for ind, (col, vals) in enumerate(compare_dict.items()):
+    x = range(len(vals))
+    y = vals
+      
+    # draw as a bar but I want to offset the bars for each column so they don't overlap, so I will add a small value to x based on the index of the column
+    width = 0.6 / len(compare_dict) 
+    x_offset = [i + ind * width for i in x]
+    ax.bar(x_offset, y, width=width, label=col)
+
+    for i in range(len(x)):
+      if scale_values is not None and scale_values[i] != 1.0 and ind == 0:
+        # y value should be the maximum of the bars at this x value plus 10% of the maximum y value across all bars
+        max_y = max([compare_dict[c][i] for c in compare_dict.keys()])
+        y_offset = max_y + 0.01*max_y
+        # x should be the center of the bars at this x value
+        x_center = x[i]
+        # rotate 
+        ax.text(x_center, y_offset, f"x{scale_values[i]:.3f}", ha='left', va='bottom', fontsize=15, rotation=90)
+
+
+  # set x ticks as the column names
+  ax.set_xticks(range(len(x_columns)))
+  ax.set_xticklabels(x_columns, rotation=90)
+
+  # set y axis range
+  ax.set_ylim(0, max([max(vals) for vals in compare_dict.values()])*1.2)
+
+  ax.set_ylabel(y_label)
+  ax.legend()
+  print("Created "+name+".pdf")
+  MakeDirectories(name+".pdf")
+  plt.savefig(name+".pdf", bbox_inches='tight')
+  plt.close()
+
+
+def plot_factorisation_results(
+    nominal_value,
+    one_shift_values,
+    two_shift_values,
+    xlabels,
+    name="factorisation_plot",
+    xlabel = "",
+    ylabel = "",
+    zlabel = "Value",
+):
+  one_shift_values = np.asarray(one_shift_values, dtype=float)
+  two_shift_values = np.asarray(two_shift_values, dtype=float)
+  nominal_value = float(nominal_value)
+
+  n_cols = len(one_shift_values)
+  n_rows = two_shift_values.shape[0]
+
+  if len(xlabels) != n_cols:
+      raise ValueError("xlabels must match one_shift_values length")
+
+  if two_shift_values.ndim != 2 or two_shift_values.shape[1] != n_cols:
+      raise ValueError("two_shift_values must have shape (n_rows, len(xlabels))")
+
+  if n_rows != len(xlabels):
+      raise ValueError("For y-axis labels, two_shift_values must have len(xlabels) rows")
+
+  all_values = np.concatenate(
+      [
+          np.array([nominal_value]),
+          one_shift_values.ravel(),
+          two_shift_values.ravel(),
+      ]
+  )
+
+  vmin = np.nanmin(all_values)
+  vmax = np.nanmax(all_values)
+
+  cmap = plt.cm.Blues.copy()
+  cmap.set_bad("black")
+
+  max_label_len = max(len(str(x)) for x in ["Nominal", *xlabels])
+
+  fig_width = max(8, 0.75 * n_cols + 0.12 * max_label_len)
+  fig_height = max(8, 0.75 * n_rows + 4.0)
+
+  fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=False)
+
+  # 3 columns:
+  #   col 0: nominal pad
+  #   col 1: two-shift / one-shift pads
+  #   col 2: colorbar only
+  #
+  # The one-shift pad is aligned only to col 1, i.e. the two-shift matrix,
+  # not to the matrix + colorbar.
+  gs = fig.add_gridspec(
+      2,
+      3,
+      width_ratios=[1, n_cols, 0.22],
+      height_ratios=[n_rows, 1],
+      left=0.22,
+      right=0.90,
+      bottom=0.22,
+      top=0.88,
+      wspace=0.04,
+      hspace=0.04,
+  )
+
+  ax_two_shift = fig.add_subplot(gs[0, 1])
+  ax_nominal = fig.add_subplot(gs[1, 0])
+  ax_one_shift = fig.add_subplot(gs[1, 1])
+  cax = fig.add_subplot(gs[0, 2])
+
+  im = ax_two_shift.imshow(
+      np.ma.masked_invalid(two_shift_values),
+      vmin=vmin,
+      vmax=vmax,
+      cmap=cmap,
+      aspect="auto",
+  )
+
+  ax_one_shift.imshow(
+      np.ma.masked_invalid(one_shift_values[None, :]),
+      vmin=vmin,
+      vmax=vmax,
+      cmap=cmap,
+      aspect="auto",
+  )
+
+  ax_nominal.imshow(
+      np.ma.masked_invalid(np.array([[nominal_value]])),
+      vmin=vmin,
+      vmax=vmax,
+      cmap=cmap,
+      aspect="auto",
+  )
+
+  label_fs = 11
+  cms_fs = 16
+
+  ax_two_shift.set_xticks([])
+  ax_two_shift.set_yticks(np.arange(n_rows))
+  ax_two_shift.set_yticklabels(xlabels, fontsize=label_fs)
+
+  ax_two_shift.set_ylabel(ylabel, fontsize=14)
+
+  ax_one_shift.set_xticks(np.arange(n_cols))
+  ax_one_shift.set_xticklabels(
+      xlabels,
+      rotation=90,
+      ha="center",
+      va="top",
+      fontsize=label_fs,
+  )
+  ax_one_shift.set_yticks([])
+
+  ax_one_shift.set_xlabel(xlabel, fontsize=14)
+
+  ax_nominal.set_xticks([0])
+  ax_nominal.set_xticklabels(
+      ["Nominal"],
+      rotation=90,
+      ha="center",
+      va="top",
+      fontsize=label_fs,
+  )
+  ax_nominal.set_yticks([])
+
+  for ax in [ax_two_shift, ax_one_shift, ax_nominal]:
+      ax.tick_params(axis="both", which="both", length=0)
+      #ax.set_xlabel("")
+      #ax.set_ylabel("")
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL") or "")
+  hep.cms.text(cms_label, ax=ax_two_shift, fontsize=cms_fs)
+
+  cbar = fig.colorbar(im, cax=cax)
+  cbar.set_label(zlabel, fontsize=14)
+  cbar.ax.tick_params(labelsize=label_fs)
+
+  # Hide unused bottom-right colorbar column cell by simply not creating an axis there.
+
+  print(f"Created {name}.pdf")
+  MakeDirectories(f"{name}.pdf")
+  plt.savefig(f"{name}.pdf")
+  plt.close()
+
+
+def plot_classsifier_nuisance_variations(
+  nominal_hist,
+  up_hist,
+  down_hist,
+  nominal_uncert,
+  up_uncert,
+  down_uncert,
+  up_synth_hist,
+  down_synth_hist,
+  bins,
+  xlabel="",
+  output_name="classifier_nuisance_variation",
+  ratio_range_variations=(0.9,1.1),
+  axis_text = "",
+  sim_caption = "Simulated",
+  synth_caption = "Classifier weighted",
+  ylabel = "Events"
+):
+  
+  # Build 3 vertical pads
+  fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]}, figsize=(10, 12))
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label,ax=ax1)
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+  ax1.text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes, fontsize=22)
+
+  # Put axis text in top left corner of pad
+  ax1.text(0.03, 0.98, axis_text, transform=ax1.transAxes, 
+      va='top', ha='left', fontsize=18,
+      bbox=dict(facecolor='white', edgecolor='none', boxstyle='round,pad=0.3'))
+
+  # Plot sim as solid lines on top pad
+  bin_edges = np.append(bins, 2*bins[-1]-bins[-2])
+  ax1.step(
+    bin_edges, 
+    np.append(np.insert(up_hist,0,0.0),0.0), 
+    where='pre',
+    alpha=1.0,
+    label=f"{synth_caption} Up",
+    color='red',
+  )
+  ax1.step(
+    bin_edges, 
+    np.append(np.insert(down_hist,0,0.0),0.0), 
+    where='pre',
+    alpha=1.0,
+    label=f"{synth_caption} Down",
+    color='blue',
+  )
+
+  # Plot asimov as error bars
+  bin_centers = (bins[:-1] + bins[1:])/2
+  ax1.errorbar(
+    bin_centers, 
+    nominal_hist, 
+    yerr=nominal_uncert, 
+    fmt='o', 
+    color='black', 
+    label=f"{sim_caption} Nominal",
+    capsize=5,
+  )
+  ax1.errorbar(
+    bin_centers, 
+    up_hist, 
+    yerr=up_uncert, 
+    fmt='o', 
+    color='red', 
+    label=f"{sim_caption} Up",
+    capsize=5,
+  )
+  ax1.errorbar(
+    bin_centers, 
+    down_hist, 
+    yerr=down_uncert, 
+    fmt='o', 
+    color='blue', 
+    label=f"{sim_caption} Down",
+    capsize=5,
+  )
+
+  ax1.set_ylabel(ylabel)
+  ax1.legend(fontsize=18, loc='upper right')
+
+  # Set y range as 1.1 times the max of all histograms
+  max_y = max(
+    max(up_synth_hist),
+    max(down_synth_hist),
+    max(nominal_hist + nominal_uncert),
+    max(up_hist + up_uncert),
+    max(down_hist + down_uncert),
+  )
+  ax1.set_ylim(0, 1.1*max_y)
+
+
+  # Draw ratios of up/down to nominal on bottom pad for sim (lines) and synth (points)
+  ax2.step(
+    bin_edges, 
+    np.append(np.insert(up_synth_hist/nominal_hist,0,1.0),1.0), 
+    where='pre',
+    alpha=1.0,
+    color='red',
+  )
+  ax2.step(
+    bin_edges, 
+    np.append(np.insert(down_synth_hist/nominal_hist,0,1.0),1.0), 
+    where='pre',
+    alpha=1.0,
+    color='blue',
+  )
+  ax2.errorbar(
+    bin_centers, 
+    up_hist/nominal_hist, 
+    yerr=up_uncert/nominal_hist, 
+    fmt='o', 
+    color='red', 
+    capsize=5,
+  )
+  ax2.errorbar(
+    bin_centers, 
+    down_hist/nominal_hist, 
+    yerr=down_uncert/nominal_hist, 
+    fmt='o', 
+    color='blue', 
+    capsize=5,
+  )
+  ax2.axhline(y=1.0, color='black', linestyle='--')
+  ax2.set_ylabel(f"$\\frac{{\\mathrm{{Variation}}}}{{\\mathrm{{Nominal}}}}$")
+  ax2.set_xlabel(xlabel)
+  ax2.set_ylim(ratio_range_variations)
+
+  # save figure
+  print("Created "+output_name+".pdf")
+  MakeDirectories(output_name+".pdf")
+  plt.savefig(output_name+".pdf", bbox_inches='tight')
+  plt.close()

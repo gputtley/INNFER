@@ -2572,7 +2572,6 @@ class PreProcess():
           for ind in range(len(GetValidationLoop(cfg, self.file_name, include_rate=True, include_lnN=True))):
             outputs += [f"{self.data_output}/val_ind_{ind}/{uf}_{data_split}.parquet"]
 
-
     # Check if we output Extra
     density_loop = ["X","Y","wt"]
     regression_loop = ["X","y","wt"]

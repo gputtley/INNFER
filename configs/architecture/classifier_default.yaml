@@ -11,7 +11,6 @@ lr_scheduler_options:
   alpha: 0.000005
   warmup_fraction: 0.1
   step_power: 0.5
-# lr_scheduler_options: {}
 gradient_clipping_norm: null
 # architecture
 dropout: 0.02

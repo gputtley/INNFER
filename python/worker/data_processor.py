@@ -188,7 +188,7 @@ class DataProcessor():
         if len(df) != len(tmp):
           raise ValueError(f"DataFrames have different number of rows: {len(df)} and {len(tmp)}")
         new_cols = tmp.columns.difference(df.columns)
-        df[new_cols] = tmp[new_cols].to_numpy()
+        df = pd.concat([df, tmp[new_cols].reset_index(drop=True)], axis=1)
 
     if df is None: 
       self.finished = True

@@ -43,6 +43,7 @@
   submit: "configs/submit/condor.yaml"
   run_options: 
     disable_tqdm: True
+    preprocess_merge: initial,validation
 
 # Make plots of preprocessed data
 - step: InputPlotTraining

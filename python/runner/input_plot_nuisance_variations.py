@@ -24,6 +24,7 @@ class InputPlotNuisanceVariations():
     self.plots_output = "plots/"
     self.sim_type = "val"
     self.nuisance = None
+    self.ratio_range = [0.9,1.1]
 
   def Configure(self, options):
     """
@@ -159,7 +160,7 @@ class InputPlotNuisanceVariations():
         ylabel = "Events",
         anchor_y_at_0 = True,
         first_ratio = True,
-        ratio_range = [0.9,1.1],
+        ratio_range = self.ratio_range,
         axis_text = self.nuisance
       )
 
@@ -181,6 +182,6 @@ class InputPlotNuisanceVariations():
         ylabel = "Density",
         anchor_y_at_0 = True,
         first_ratio = True,
-        ratio_range = [0.9,1.1],
+        ratio_range = self.ratio_range,
         axis_text = self.nuisance
       )
