@@ -205,6 +205,7 @@ class ClassifierNuisanceVariations():
         bins,
         ylabel = "Density",
         xlabel = Translate(variable),
+        axis_text = self.classifier_model['parameter'],
         output_name = f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}",
       )
 
