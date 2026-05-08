@@ -2372,7 +2372,7 @@ def plot_classsifier_nuisance_variations(
   bin_edges = np.append(bins, 2*bins[-1]-bins[-2])
   ax1.step(
     bin_edges, 
-    np.append(np.insert(up_hist,0,0.0),0.0), 
+    np.append(np.insert(up_synth_hist,0,0.0),0.0), 
     where='pre',
     alpha=1.0,
     label=f"{synth_caption} Up",
@@ -2380,7 +2380,7 @@ def plot_classsifier_nuisance_variations(
   )
   ax1.step(
     bin_edges, 
-    np.append(np.insert(down_hist,0,0.0),0.0), 
+    np.append(np.insert(down_synth_hist,0,0.0),0.0), 
     where='pre',
     alpha=1.0,
     label=f"{synth_caption} Down",
