@@ -31,7 +31,7 @@ class top_bw_fractions():
     # Required input which is the location of a file
     self.cfg = None
     self.options = {}
-    self.batch_size = 10**7
+    self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
 
 
   def _ApplyBWReweight(self, df, m=172.5, l=1.32):
@@ -489,6 +489,8 @@ class top_bw_fractions():
     for category in GetCategoryLoop(cfg):
 
       base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      if "_signal" or "_control" in base_file_name:
+        base_file_name = base_file_name.replace("_signal","").replace("_control","")
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
 
       # Define functions
@@ -583,6 +585,9 @@ class top_bw_fractions():
     for category in GetCategoryLoop(cfg):
 
       base_file_name = self.base_file_name.replace("$CATEGORY",category)
+      if "_signal" or "_control" in base_file_name:
+        base_file_name = base_file_name.replace("_signal","").replace("_control","")
+
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
       inputs += [base_file]
 

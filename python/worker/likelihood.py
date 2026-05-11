@@ -676,7 +676,6 @@ class Likelihood():
         #st = time.time()
 
         ### Classification ###
-        #st1 = time.time()
 
         # Check if you need to do classifier shift
         do_shift = False
@@ -685,22 +684,15 @@ class Likelihood():
             if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
               do_shift = True
 
-        #print(f"Time for checking classifier cache for {name}: {time.time()-st1:.4f} seconds")
 
         if do_shift:
-
-          #st1 = time.time()
 
           # See if can load cached results from all classifier shifts
           classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys()) if "pdf_shifts_with_classifier" in self.models.keys() else []
           cache_dict_total_classifier = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_classifier", Y_columns_per_model=classifier_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
           load_from_cache_total_classifier = self._CheckIfInCacheLogProbs(cache_dict_total_classifier, model_type="total_classifier")
 
-          #print(f"Time for checking total classifier cache for {name}: {time.time()-st1:.4f} seconds")
-
           if not load_from_cache_total_classifier:
-
-            #st = time.time()
 
             cache_dict_classifiers = {}
             load_from_cache_classifiers = {}
@@ -708,17 +700,12 @@ class Likelihood():
               cache_dict_classifiers[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
               load_from_cache_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_classifiers[k], model_type="classifier")
 
-            #print(f"Time for creating classifier cache dicts for {name}: {time.time()-st1:.4f} seconds")
-            #st1 = time.time()
-
             # if all of load from cache is true, skip combining
             if not all(load_from_cache_classifiers.values()):
               vals = Y[self.Y_columns].iloc[0].to_dict()
               combined = X[self.X_columns].assign(**vals)
               combined_columns = combined.columns.tolist()
               combined = combined.to_numpy(copy=False)
-
-            #print(f"Time for combining for {name}: {time.time()-st1:.4f} seconds")
       
             # Loop through classifier models
             total_classifier_shifts = None
@@ -815,6 +802,8 @@ class Likelihood():
 
           log_probs[name][0] -= np.log(integral)
 
+        #if not skip_integral:
+        #  print(f"Time for normalisation for {name}: {time.time()-st:.4f} seconds")
 
         # write total cache
         self._WriteCache(log_probs[name], gradient, cache_dict_total, load_from_cache_total, None, model_type="total")
@@ -1350,10 +1339,8 @@ class Likelihood():
     elif max(gradient_loop) == 2:
       get_gradient = [0,1,2]
 
-    #st1 = time.time()
     #probs = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
     probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=combined_columns)
-    #print(f"Time for classifier prediction: {time.time()-st1:.4f} seconds")
 
     for ind, grad in enumerate(gradient_loop):
       if grad == 0:
@@ -1511,7 +1498,7 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 95:
+    #if self.minimisation_step == 93:
     #  exit()
 
     return lkld_val
@@ -1662,6 +1649,7 @@ class Likelihood():
     ln_lkld = []
     for grad in gradient:
       if grad == 0:
+        print(self.data_yield[category], preds[0])
         ln_lkld += [self.data_yield[category]*np.log(preds[0]) - preds[0]]
       elif grad == 1:
         ln_lkld += [self.data_yield[category]*preds[1]/preds[0] - preds[1]]
@@ -1671,7 +1659,7 @@ class Likelihood():
     return ln_lkld
 
 
-  def GetBestFit(self, X_dps, initial_guess, method="scipy", freeze={}, initial_step_size=0.2, constraint_step_size=1.0, save_best_fit=True):
+  def GetBestFit(self, X_dps, initial_guess, method="scipy", scipy_method="Nelder-Mead", freeze={}, initial_step_size=0.2, constraint_step_size=1.0, save_best_fit=True):
     """
     Finds the best-fit parameters using numerical optimization.
 
@@ -1760,7 +1748,7 @@ class Likelihood():
 
     # Minimise
     if method in ["scipy"]:
-      result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex)
+      result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex, scipy_method=scipy_method)
     elif method in ["scipy-with-gradients"]:
       result = self.Minimise(func, initial_guess, method="scipy-with-gradients", jac=jac, initial_simplex=initial_simplex)
     elif method in ["minuit"]:
@@ -2129,7 +2117,7 @@ class Likelihood():
     return lower_scan_vals + [float(self.best_fit[best_fit_col_index])] + upper_scan_vals
 
 
-  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None):
+  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None, scipy_method="Nelder-Mead"):
     """
     Minimizes the given function using numerical optimization.
 
@@ -2154,7 +2142,7 @@ class Likelihood():
       if initial_simplex is not None:
         options['initial_simplex'] = initial_simplex
 
-      minimisation = minimize(func, initial_guess, method='Nelder-Mead', tol=0.01, options=options)
+      minimisation = minimize(func, initial_guess, method=scipy_method, tol=0.01, options=options)
       res = minimisation.x, minimisation.fun
     
     # scipy with gradients
@@ -2289,7 +2277,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteBestFitToYaml(self, X_dps, initial_guess, row=None, filename="best_fit.yaml", minimisation_method="nominal", freeze={}):
+  def GetAndWriteBestFitToYaml(self, X_dps, initial_guess, row=None, filename="best_fit.yaml", minimisation_method="nominal", scipy_method="Nelder-Mead", freeze={}):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -2300,7 +2288,7 @@ class NLLAndGradient():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "best_fit.yaml").
     """
-    result = self.GetBestFit(X_dps, initial_guess, method=minimisation_method, freeze=freeze)
+    result = self.GetBestFit(X_dps, initial_guess, method=minimisation_method, freeze=freeze, scipy_method=scipy_method)
     self.best_fit = []
     ind = 0
     for col in self.Y_columns:

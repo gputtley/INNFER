@@ -118,7 +118,7 @@ class ClassifierPerformanceMetrics():
           wp,
         ]
       )
-      wp.collect()
+      wp.collect(memory_safe=True)
 
     # Set up metrics dictionary
     self.metrics = {}
@@ -233,6 +233,10 @@ class ClassifierPerformanceMetrics():
       if self.verbose:
         print(f"  - Getting loss for {data_type}")
       self.metrics[f"loss_{data_type}"] = float(self.network._GetEpochLoss(data_type=data_type))
+    if "train" in self.loss_datasets and "test" in self.loss_datasets:
+      self.metrics["loss_difference"] = self.metrics["loss_test"] - self.metrics["loss_train"]
+      self.metrics["loss_test_plus_difference"] = self.metrics["loss_test"] + self.metrics["loss_difference"]
+
 
   def DoMultiDimensionalDatasetMetrics(self):
 

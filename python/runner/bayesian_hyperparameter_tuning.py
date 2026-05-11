@@ -36,6 +36,7 @@ class BayesianHyperparameterTuning():
     self.file_loc = None
     self.val_file_loc = None
     self.data_input = "data/"
+    self.plots_output = "plots/"
     self.use_wandb = False
     self.wandb_project_name = "innfer"
     self.wandb_submit_name = "innfer"
@@ -246,7 +247,7 @@ class BayesianHyperparameterTuning():
         "file_name" : self.file_name,
         "data_input" : self.file_loc,
         "data_output" : self.data_output,
-        "no_plot" : True,
+        "plots_output" : f"{self.plots_output}/trial_{self.objective_ind}",
         "disable_tqdm" : self.disable_tqdm,
         "use_wandb" : self.use_wandb,
         "initiate_wandb" : self.use_wandb,
