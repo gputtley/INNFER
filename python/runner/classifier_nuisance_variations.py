@@ -206,7 +206,7 @@ class ClassifierNuisanceVariations():
         ylabel = "Density",
         xlabel = Translate(variable),
         axis_text = self.classifier_model['parameter'],
-        output_name = f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}",
+        output_name = f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}",
       )
 
   def Outputs(self):
@@ -217,7 +217,7 @@ class ClassifierNuisanceVariations():
 
     cfg = LoadConfig(self.cfg)
     for variable in cfg["variables"]:
-      outputs += [f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}.pdf"]
+      outputs += [f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}.pdf"]
 
     return outputs
 
