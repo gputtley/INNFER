@@ -30,4 +30,4 @@ python/worker/benchmarks/__pycache__/*
 python/*/*.pyc
 snakemake/*
 wandb/*
-.snakemake/*
+.snakemake/*configs/setup/tmp/
