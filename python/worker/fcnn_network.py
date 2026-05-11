@@ -245,10 +245,12 @@ class FCNNNetwork():
 
   def loss(self, predictions, y_data, wt_data=None):
 
+    reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
+
     if self.task == "regression":
-      return self._MSE(predictions, y_data, wt_data)
+      return self._MSE(predictions, y_data, wt_data) + reg_loss
     elif self.task == "classification":
-      return self._CrossEntropy(predictions, y_data, wt_data)
+      return self._CrossEntropy(predictions, y_data, wt_data) + reg_loss
     else:
       raise ValueError("Unknown task")
   
