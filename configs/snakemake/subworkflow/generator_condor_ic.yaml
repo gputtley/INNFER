@@ -11,3 +11,5 @@
 # Make generation plots for nuisance variations
 - step: "GeneratorNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    points_per_job: 10

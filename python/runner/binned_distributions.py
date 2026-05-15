@@ -66,7 +66,8 @@ class BinnedDistributions():
       }
     )
     yields = infer_class._BuildBinYields()[self.category]
-    Y = pd.DataFrame({k: [v] for k, v in self.val_info.items()})
+    base_dict = {k: [v] for k, v in self.val_info.items()}
+    Y = pd.DataFrame(base_dict)
 
     # Evaluate the bins values at the hypotheses points
     stack_hists = {}
@@ -95,8 +96,12 @@ class BinnedDistributions():
     sum_stack_hists = np.sum(list(stack_hists.values()), axis=0)
     if self.include_uncertainty:
       for k, v in self.constraints.items():
-        v_Y_up = pd.DataFrame({k1: [v1] for k1, v1 in v["up"].items()})
-        v_Y_down = pd.DataFrame({k1: [v1] for k1, v1 in v["down"].items()})
+        up_dict = copy.deepcopy(base_dict)
+        down_dict = copy.deepcopy(base_dict)
+        up_dict[k] = [v["up"]]
+        down_dict[k] = [v["down"]]
+        v_Y_up = pd.DataFrame(up_dict)
+        v_Y_down = pd.DataFrame(down_dict)
         total_shifted_hist_up = np.zeros_like(sum_stack_hists)
         total_shifted_hist_down = np.zeros_like(sum_stack_hists)
         for k, v in yields.items():

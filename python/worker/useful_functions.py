@@ -648,21 +648,33 @@ def GetBinValue(df, func_entry, col):
     if column_val < min(func_keys) or column_val > max(func_keys):
       return np.nan
     else:
-      closest_up = min([i for i in func_keys if i >= column_val])
-      closest_down = max([i for i in func_keys if i < column_val])      
+      if column_val == min(func_keys):
+        return func_entry[min(func_keys)](df)
+      elif column_val == max(func_keys):
+        return func_entry[max(func_keys)](df)
+      else:
+        closest_up = min([i for i in func_keys if i >= column_val])
+        closest_down = max([i for i in func_keys if i < column_val])      
       return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
 
 
 def GetBinValueParallelised(df, func_entry, col):
 
   column_val = df[col].to_numpy().flatten()[0]
+  if np.isnan(column_val):
+    return np.nan
   func_keys = list(func_entry.keys())
   if column_val < min(func_keys) or column_val > max(func_keys):
     return np.nan
   else:
-    closest_up = min([i for i in func_keys if i >= column_val])
-    closest_down = max([i for i in func_keys if i < column_val])      
-    return np.array(func_entry[closest_down](df)) + (np.array(func_entry[closest_up](df)) - np.array(func_entry[closest_down](df))) * (column_val - closest_down) / (closest_up - closest_down)
+    if column_val == min(func_keys):
+      return np.array(func_entry[min(func_keys)](df))
+    elif column_val == max(func_keys):
+      return np.array(func_entry[max(func_keys)](df))
+    else:
+      closest_up = min([i for i in func_keys if i >= column_val])
+      closest_down = max([i for i in func_keys if i < column_val])      
+      return np.array(func_entry[closest_down](df)) + (np.array(func_entry[closest_up](df)) - np.array(func_entry[closest_down](df))) * (column_val - closest_down) / (closest_up - closest_down)
 
 
 def GetBinValues(binned_fit_input, col, rate_param=None):
@@ -892,6 +904,34 @@ def GetFilesInModel(file_name, cfg, category=None):
     if category is None or "categories" not in v.keys() or category in v["categories"]:
       parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   return parameters_in_model
+
+
+def GetImpactsLoop(cfg, file_name, uncertainty_directory, val_ind, summary_from="covariance"):
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=True, include_lnN=True)
+
+  loop = []
+  for parameter in parameters_in_model:
+    for shift in ["up", "down"]:
+
+      freeze = {}
+      uncert_file_name = f"{uncertainty_directory}/{summary_from.lower()}_results_{parameter}_{val_ind}.yaml"
+      if os.path.isfile(uncert_file_name):
+        with open(uncert_file_name, 'r') as yaml_file:
+          uncertainty = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        freeze = {parameter: uncertainty["crossings"][1 if shift == "up" else -1]}
+
+      loop.append({
+        "parameter" : parameter,
+        "shift" : shift,
+        "name" : f"{parameter}_{shift}",
+        "freeze" : freeze,
+        "files" : [uncert_file_name]
+      })
+
+  return loop
+
+
 
 
 def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
@@ -1327,11 +1367,12 @@ def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=Non
   input_files = []
 
   # Get the default values for the parameters in the model, and replace with the provided values if given
-  if values is not None:
+  if values is not None or (prefit_nuisance_constraints and prefit_nuisance_values):
 
     nominal = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
-    for k in values.keys():
-      nominal[k] = values[k]
+    if values is not None:
+      for k in values.keys():
+        nominal[k] = values[k]
 
     constraints = {}
     for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
@@ -1352,9 +1393,10 @@ def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=Non
       for nuisance_value in ["up","down"]:
         summary_from_name = summary_from if summary_from not in ["Scan","Bootstrap"] else summary_from+"Collect"
         constraint_file = f"{data_dir}/{summary_from_name}{extra_input_dir_name}/{file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml"
+        shifts = GetBestFitWithShiftedNuisancesFromYaml(bf_file, constraint_file, cfg, file_name, nuisance_value, prefit_nuisance_values=prefit_nuisance_values, prefit_nuisance_constraints=prefit_nuisance_constraints)
         if not prefit_nuisance_constraints:
           input_files.append(constraint_file)
-        constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(bf_file, constraint_file, cfg, file_name, nuisance_value, prefit_nuisance_values=prefit_nuisance_values, prefit_nuisance_constraints=prefit_nuisance_constraints) 
+        constraints[nuisance][nuisance_value] = shifts[nuisance] if isinstance(shifts, dict) else shifts
 
   return nominal, constraints, input_files
 

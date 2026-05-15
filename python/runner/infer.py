@@ -608,8 +608,6 @@ class Infer():
               if not self.integrate_density_with_ratios:
                 inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
 
-
-
         # Add classifier model inputs
         for cat, models in self.classifier_models.items():
           for k, v in models.items():
@@ -669,7 +667,6 @@ class Infer():
         with open(v, 'r') as yaml_file:
           parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
         all_parameters[cat][file_name] = copy.deepcopy(parameters)
-
 
     # Remove total rate of nuisances if remove_lnN_if_rate_param is True and this file is a rate parameter, as the total rate will be floating and the lnN will not make sense
     all_nuisances = []
