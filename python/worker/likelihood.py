@@ -49,7 +49,7 @@ class Likelihood():
     self.skip_nan_check = True
     self.nn_columns = nn_columns
     self.constraint_range=[-3.0,3.0]
-    self.cap_column_print = False
+    self.cap_column_print = True
     self.no_print_minimisation_step = False
 
     # saved parameters
@@ -1992,6 +1992,7 @@ class Likelihood():
       first = True
       Y = copy.deepcopy(self.best_fit)
       interval_searches = [1,-1]
+      factor = 2
 
       for sign in interval_searches:
 
@@ -2021,6 +2022,7 @@ class Likelihood():
           if self.verbose:
             print(f"Result: {column}={Y[col_index]}, NLL={result[1]}")
 
+
           # Check if negative
           if result[1] < 0.0:
             print("Found better best fit value during uncertainty scan. Restarting from new best fit.")
@@ -2030,9 +2032,10 @@ class Likelihood():
             break
 
           # Add to points tried
-          points_tried.append(Y[col_index])
-          nll_vals.append(result[1])
-
+          if not np.isnan(result[1]):
+            points_tried.append(Y[col_index])
+            nll_vals.append(result[1])
+            
           # Stop if the value is small
           if (result[1] < (1+stopping_precision)) and (result[1] > (1-stopping_precision)):
             break
@@ -2042,6 +2045,12 @@ class Likelihood():
             m = (nll_vals[-1] - nll_vals[-2]) / (points_tried[-1] - points_tried[-2])
             c = nll_vals[-1] - m*points_tried[-1]
             Y[col_index] = (1 - c) / m
+            if np.isnan(result[1]):
+              Y[col_index] = self.best_fit[col_index] + ((Y[col_index] - self.best_fit[col_index]) / factor)
+              factor *= 2
+            else:
+              factor = 2
+
           else:
             ordered_inds = np.argsort(points_tried)
             sorted_points = [points_tried[ind] for ind in ordered_inds]

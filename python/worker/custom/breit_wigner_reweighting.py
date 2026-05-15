@@ -12,6 +12,11 @@ def bw_reweight(df, mass_to="bw_mass", mass_from="sim_mass", gen_mass="GenTop1_m
 def width(m):
   return ((0.0270*m) - 3.3455)
 
+# def width(m):
+#  return ((1.54273504e-07) * m**3) + ((7.37963703e-05) * m**2) + ((-1.14361883e-02) * m) + (3.41586014e-01))
+
+#def width(m): # https://arxiv.org/pdf/2309.00762
+#  return (0.027037*m) - 3.34801
 
 def bw(m, gen_m):
   return (1/(((gen_m**2)-(m**2))**2 + ((m*width(m))**2)))
@@ -21,7 +26,16 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
   
   # Load splines (yaml file)
   with open(spline_locations, "r") as f:
-    splines = yaml.safe_load(f)[category]
+    all_splines = yaml.safe_load(f)
+
+  if category not in all_splines:
+    if any(key in all_splines for key in ["run2_signal", "2223_signal"]):
+      splines = all_splines[f"{category}_signal"]
+    else:
+      raise ValueError(f"Category {category} not found in spline locations and no alternative keys found.")
+  else:
+    splines = all_splines[category]
+    
 
   # Loop through mass_from values
   spl = {}
