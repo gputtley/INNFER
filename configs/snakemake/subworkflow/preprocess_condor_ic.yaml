@@ -19,7 +19,7 @@
     disable_tqdm: True
 
 - step: "PreProcessParallelTrainTestValSplit"
-  submit: "configs/submit/condor_4_cpus.yaml"
+  submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     disable_tqdm: True
 

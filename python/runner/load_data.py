@@ -183,7 +183,7 @@ class LoadData():
           df = loader.LoadNextBatch()
           if file_info.get("selection", False):
             df = df.loc[df.eval(file_info["selection"]),:]
-
+          
         # Skip if dataframe is empty
         if len(df) == 0: continue
 
