@@ -29,6 +29,13 @@ def btm_cal(df):
   df["LeptonicTop_mass"] = vlepb["mass"]
   df["LeptonicTop_pt"] = vlepb["pt"]
 
+  v12 = CombineObjects(
+    {"pt": df["SubJet1_pt"].values, "eta": df["SubJet1_eta"].values, "phi": df["SubJet1_phi"].values, "mass": df["SubJet1_mass"].values},
+    {"pt": df["SubJet2_pt"].values, "eta": df["SubJet2_eta"].values, "phi": df["SubJet2_phi"].values, "mass": df["SubJet2_mass"].values}
+  )
+  df["CombinedSubJets_mass"] = v12["mass"]
+  df["CombinedSubJets_pt"] = v12["pt"]
+
   # Temporary fix for missing column
   df["Extra_BTagWeightCorrection"] = (df["Extra_BTagWeightCorrection_up"] + df["Extra_BTagWeightCorrection_down"]) / 2
 

@@ -61,9 +61,7 @@ class ScanPlot():
       y = scan_results["nlls"]
       crossings = scan_results["crossings"]
     else:
-      print(scan_results["crossings"])
       y, crossings = self._rezero_scan(scan_results["scan_values"], scan_results["nlls"], scan_results["crossings"])
-      print(crossings)
 
     row = scan_results["row"]
     ind = scan_results["columns"].index(self.column)

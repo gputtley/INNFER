@@ -41,6 +41,11 @@ class ApproximateImpacts():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
+    if self.impact_to is None:
+      print("- No impact_to specified, using first poi in config")
+      cfg = LoadConfig(self.cfg)
+      self.impact_to = cfg["pois"][0]
+
     # Get the poi
     poi = self.impact_to if self.impact_to is not None else cfg["pois"][0]
     poi_index = data["columns"].index(poi)
@@ -51,10 +56,11 @@ class ApproximateImpacts():
     impacts = {}
     for ind, var in enumerate(data["matrix_columns"]):
       if var == poi: continue
-      impacts[var] = float(data["covariance"][poi_index][ind] / np.sqrt(data["covariance"][ind][ind])) if data["covariance"][ind][ind] > 0 else 0.0
+      up_impact = float(data["covariance"][poi_index][ind] / np.sqrt(data["covariance"][ind][ind])) if data["covariance"][ind][ind] > 0 else 0.0
+      impacts[var] = [-up_impact, up_impact]
 
     # Sort the impacts by absolute value
-    impacts = dict(sorted(impacts.items(), key=lambda item: abs(item[1]), reverse=True))
+    impacts = dict(sorted(impacts.items(), key=lambda item: abs(item[1][1]), reverse=True))
 
     # print the impacts
     if self.verbose:

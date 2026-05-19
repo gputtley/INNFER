@@ -8,7 +8,7 @@ def get_jec_nuisance_dict():
     "AbsoluteMPFBias": {"Correlation" : 1, "Type" : "corrFactor"},
     "AbsoluteScale": {"Correlation" : 1, "Type" : "corrFactor"},
     "AbsoluteStat": {"Correlation" : 0, "Type" : "corrFactor"},
-    "FlavorQCD": {"Correlation" : 1, "Type" : "corrFactor"},
+    #"FlavorQCD": {"Correlation" : 1, "Type" : "corrFactor"}, # Replace by flavour pure uncertainties
     "Fragmentation": {"Correlation" : 1, "Type" : "corrFactor"},
     "PileUpDataMC": {"Correlation" : 1, "Type" : "corrFactor"},
     "PileUpPtBB": {"Correlation" : 1, "Type" : "corrFactor"},

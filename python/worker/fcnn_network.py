@@ -4,6 +4,7 @@ import copy
 import gc
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import random
 import wandb
 import warnings
 
@@ -32,7 +33,6 @@ if gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 else:
   print("INFO: Using CPU for FCNNNetwork")
-
 
 seed = 42
 os.environ['PYTHONHASHSEED'] = str(seed)
@@ -176,7 +176,7 @@ class FCNNNetwork():
         y_data = tf.one_hot(y_data, depth=self.num_classes)
 
       predictions = self._GraphPredict(X_data)
-      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data))  # Compute loss
+      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data, training=False))  # Compute loss
       sum_wts += tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 
     loss = tf.constant(sum_loss/sum_wts)
@@ -252,8 +252,9 @@ class FCNNNetwork():
       weighted_loss = tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(wt_data)
       return weighted_loss
 
-  def loss(self, predictions, y_data, wt_data=None):
+  def loss(self, predictions, y_data, wt_data=None, training=True):
 
+    #reg_loss = tf.add_n(self.model.losses) if self.model.losses and training else 0.0
     reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
 
     if self.task == "regression":
@@ -310,9 +311,10 @@ class FCNNNetwork():
 
   @tf.function
   def _train_step(self, X_data, y_data, wt_data):
+
     with tf.GradientTape() as tape:
       predictions = self.model(X_data, training=True)  # Forward pass
-      loss = self.loss(predictions, y_data, wt_data)  # Compute loss
+      loss = self.loss(predictions, y_data, wt_data, training=True)  # Compute loss
     
     # Compute gradients and apply them
     gradients = tape.gradient(loss, self.model.trainable_variables)
@@ -321,6 +323,8 @@ class FCNNNetwork():
 
 
   def Train(self, name="model.h5"):
+
+    tf.config.experimental.enable_op_determinism()
 
     # Get loss before training
     epoch_train_loss = self._GetEpochLoss(data_type="train")
