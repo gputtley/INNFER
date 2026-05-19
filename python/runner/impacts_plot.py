@@ -1,5 +1,7 @@
 import yaml
 
+import numpy as np
+
 from plotting import plot_pulls_and_impacts
 from useful_functions import LoadConfig, Translate
 
@@ -67,6 +69,17 @@ class ImpactsPlot():
         if k in cfg["inference"]["nuisance_constraints"]:
           pulls_and_impacts[-1]["constrained_parameter"] = True
 
+      # Add alternative pulls (different definition)
+      if not pulls_and_impacts[-1]["constrained_parameter"]:
+        pulls_and_impacts[-1]["alternative_pulls"] = None
+      elif pulls_data["crossings"][0] == 0:
+        pulls_and_impacts[-1]["alternative_pulls"] = 0.0
+      elif pulls_data["crossings"][0] > 0:
+        pulls_and_impacts[-1]["alternative_pulls"] = pulls_data["crossings"][0]/ np.sqrt(1 - (pulls_data["crossings"][1]-pulls_data["crossings"][0])**2)
+      elif pulls_data["crossings"][0] < 0:
+        pulls_and_impacts[-1]["alternative_pulls"] = pulls_data["crossings"][0]/ np.sqrt(1 - (pulls_data["crossings"][-1]-pulls_data["crossings"][0])**2)
+      
+
     # Sort by impacts absolute value (biggest first)
     pulls_and_impacts = sorted(pulls_and_impacts, key=lambda x: max(abs(x["impacts"][0]), abs(x["impacts"][1])), reverse=True)
 
@@ -74,7 +87,7 @@ class ImpactsPlot():
     pages = [pulls_and_impacts[i:i + self.impacts_per_page] for i in range(0, len(pulls_and_impacts), self.impacts_per_page)]
     for page_ind, page in enumerate(pages):
       plot_name = f"{self.plots_output}/impacts{self.extra_input_name}_page{page_ind+1}"
-      plot_pulls_and_impacts(page, plot_name, poi_name=Translate(impacts_data['poi']), poi_crossings=poi_data["crossings"])
+      plot_pulls_and_impacts(page, plot_name, poi_name=Translate(impacts_data['poi']), poi_crossings=poi_data["crossings"], alternative_pulls=True)
 
 
   def Outputs(self):
