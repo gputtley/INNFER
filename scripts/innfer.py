@@ -143,6 +143,9 @@ def parse_args():
   parser.add_argument('--scan-points-input', help='Input for scan points, comma separated bracketed list of min and max, e.g. (171.5,173.5)', type=str, default=None)
   parser.add_argument('--sigma-between-scan-points', help='The estimated sigma between the scanning points', type=float, default=0.2)
   parser.add_argument('--sim-type', help='The split of simulated data to use with Infer.', type=str, default='val')
+  parser.add_argument('--sim-to-data-norm', help='Normalise simulation to data in PreProcessParallelYieldsNominal step', action='store_true')
+  parser.add_argument('--sim-to-data-norm-groups', help='The category groups to normalise simulation to data for. Comma separated category names, for groups to merge, then semi colon separated.', type=str, default=None)
+  parser.add_argument('--sim-to-data-norm-processes', help='The processes to normalise simulation to data for. Comma separated process names, all means all processes', type=str, default="all")
   parser.add_argument('--simplex', help='The simplex used for likelihood minimisation.', type=str, default=None)
   parser.add_argument('--skip-initial-fit', help='Skip the initial fit if running a scan', action='store_true')
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
@@ -308,6 +311,23 @@ def main(args, default_args, module_options={}):
         )
 
 
+  # Get normalisation factors between data and nominal
+  if args.step == "SimToDataFactors":
+    print("<< Getting simulation to data normalisation factors >>")
+    module.Run(
+      module_name = "sim_to_data_factors",
+      class_name = "SimToDataFactors",
+      config = {
+        "parameters_input" : {c: [f"{prep_data_dir}/PreProcess/{f}/{c}/parameters_yields_nominal.yaml" for f in GetModelFileLoop(cfg)] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+        "data_input" : {c: [f"{prep_data_dir}/DataCategories/{c}/data.parquet"] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+        "groups" : [group.split(",") for group in args.sim_to_data_norm_groups.split(";")],
+        "processes" : args.sim_to_data_norm_processes.split(",") if args.sim_to_data_norm_processes != "all" else GetModelFileLoop(cfg),
+        "data_output" : f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors.yaml",
+        "verbose" : not args.quiet,
+      },
+    )
+
+
   # PreProcess the dataset - initial - yields parameters
   if args.step == "PreProcessParallelYieldsParameters":
     print("<< Running yields parameters split of preprocess step >>")
@@ -352,6 +372,7 @@ def main(args, default_args, module_options={}):
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
             "use_pbar" : not args.disable_tqdm,
+            "sim_to_data_norm" : None if not args.sim_to_data_norm else f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors.yaml",
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -1526,7 +1547,6 @@ def main(args, default_args, module_options={}):
           )
         
 
-
   # Get performance metrics comparing simulated vs synthetic for different validation scenarios
   if args.step == "ValidationPerformanceMetrics":
     print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
@@ -2562,7 +2582,8 @@ if __name__ == "__main__":
         snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
       if not args.snakemake_dry_run: # Run snakemake
-        os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
+        if not args.snakemake_use_file:
+          os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
         snakemake_extra = " --forceall" if args.snakemake_force else ""
         os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
 

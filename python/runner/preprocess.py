@@ -79,6 +79,8 @@ class PreProcess():
     self.nuisance_shift = None
     self.stratify_bins = 20
     self.use_pbar = True
+    self.sim_to_data_norm = None
+    self.sim_to_data_norm_values = None
 
     # Stores
     self.parameters = {}
@@ -438,7 +440,7 @@ class PreProcess():
           val_ind_df = val_df.copy()
         wps["val_"+str(ind)](val_ind_df)
         del val_ind_df
-        gc.collect()
+        #gc.collect()
 
         if train_df is not None:
           if sel is not None:
@@ -449,7 +451,7 @@ class PreProcess():
           train_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
         wps["train_inf_"+str(ind)](train_ind_df)
         del train_ind_df
-        gc.collect()
+        #gc.collect()
 
         if test_df is not None:
           if sel is not None:
@@ -460,15 +462,16 @@ class PreProcess():
           test_ind_df = pd.DataFrame(columns=list(val_ind_df.columns))
         wps["test_inf_"+str(ind)](test_ind_df)
         del test_ind_df
-        gc.collect()
-        
+        #gc.collect()
+
         if sel is not None:
           full_ind_df = df.loc[(df.eval(sel)),:]
         else:
           full_ind_df = df
         wps["full_"+str(ind)](full_ind_df)
         del full_ind_df
-        gc.collect()
+
+    gc.collect()
 
     return df
     
@@ -2381,6 +2384,10 @@ class PreProcess():
     # Set seed
     np.random.seed(self.seed)
 
+    if self.sim_to_data_norm is not None:
+      with open(self.sim_to_data_norm, 'r') as yaml_file:
+        self.sim_to_data_norm_values = yaml.safe_load(yaml_file)
+
     # Set parameters needed
     eff_events = {}
     standardisation_parameters = {}
@@ -2409,6 +2416,10 @@ class PreProcess():
         with open(nominal_file_name, 'r') as yaml_file:
           pf = yaml.safe_load(yaml_file)
         yields["nominal"] = pf["yields"]["nominal"]
+        if self.sim_to_data_norm is not None:
+          if self.file_name in self.sim_to_data_norm_values.keys():
+            if self.category in self.sim_to_data_norm_values[self.file_name].keys():
+              yields["nominal"] *= self.sim_to_data_norm_values[self.file_name][self.category]
         yields["lnN"] = {}
         for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
           shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"
@@ -2699,6 +2710,8 @@ class PreProcess():
       for nui in ["nominal"] + [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
         shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"
         inputs += [shift_file_name]
+      if self.sim_to_data_norm is not None:
+        inputs += [self.sim_to_data_norm]
 
     # Add initial parameters
     if self.partial in ["model", "validation", "nuisance_variations", "nuisance_double_variations", "merge", "train_test_val_split"]:
