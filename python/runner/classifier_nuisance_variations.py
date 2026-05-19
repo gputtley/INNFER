@@ -5,6 +5,7 @@ import numpy as np
 from functools import partial
 
 from data_processor import DataProcessor
+from histogram_metrics import HistogramMetrics
 from plotting import plot_classsifier_nuisance_variations
 from useful_functions import InitiateClassifierModel, LoadConfig, Translate
 from write_parquet import WriteParquet
@@ -43,7 +44,6 @@ class ClassifierNuisanceVariations():
     """
     Run the code utilising the worker classes
     """
-
     # Open the config file
     cfg = LoadConfig(self.cfg)
 
@@ -82,8 +82,8 @@ class ClassifierNuisanceVariations():
     def apply_classifier(df, func, X_columns, add_columns={}):
       for k,v in add_columns.items(): df.loc[:,k] = v
       probs = func(df.loc[:,X_columns])
-      df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
-      return df.loc[:,["wt"]]
+      df["wt_shifted"] = df["wt"] * probs[:,1]/probs[:,0]
+      return df.loc[:,["wt_shifted"]]
     
     if self.verbose:
       print("- Applying classifier to nominal data for up variation")
@@ -139,20 +139,30 @@ class ClassifierNuisanceVariations():
     up_synth_dp = DataProcessor(
       [f for f in self.nominal_files if not f.split("/")[-1].startswith("wt")] + [f"{self.data_output}/{up_wt_name}.parquet"],
       "parquet",
-      wt_name = "wt",
+      wt_name = "wt_shifted",
       options = {}
     )
     down_synth_dp = DataProcessor(
       [f for f in self.nominal_files if not f.split("/")[-1].startswith("wt")] + [f"{self.data_output}/{down_wt_name}.parquet"],
       "parquet",
-      wt_name = "wt",
+      wt_name = "wt_shifted",
       options = {}
     )
+
 
     if self.verbose:
       print("- Plotting classifier variations")
 
     # Loop through variables
+    up_sim_hists = {}
+    up_synth_hists = {}
+    up_sim_hist_uncerts = {}
+    up_synth_hist_uncerts = {}
+    down_sim_hists = {}
+    down_synth_hists = {}
+    down_sim_hist_uncerts = {}
+    down_synth_hist_uncerts = {}
+
     for variable in cfg["variables"]:
 
       bins = nominal_dp.GetFull(
@@ -166,32 +176,54 @@ class ClassifierNuisanceVariations():
         method = "histogram_and_uncert",
         column = variable,
         bins = bins,
-        density = True,
       )
       up_sim_hist, up_sim_hist_uncert, _ = up_sim_dp.GetFull(
         method = "histogram_and_uncert",
         column = variable,
         bins = bins,
-        density = True
       )
       down_sim_hist, down_sim_hist_uncert, _ = down_sim_dp.GetFull(
         method = "histogram_and_uncert",
         column = variable,
         bins = bins,
-        density = True
       )
       up_synth_hist, up_synth_hist_uncert, _ = up_synth_dp.GetFull(
         method = "histogram_and_uncert",
         column = variable,
         bins = bins,
-        density = True
       )
       down_synth_hist, down_synth_hist_uncert, _ = down_synth_dp.GetFull(
         method = "histogram_and_uncert",
         column = variable,
         bins = bins,
-        density = True
       )
+
+
+      # Turn all into densities
+      sum_nom_hist = np.sum(nom_hist)
+      sum_up_sim_hist = np.sum(up_sim_hist)
+      sum_down_sim_hist = np.sum(down_sim_hist)
+      sum_up_synth_hist = np.sum(up_synth_hist)
+      sum_down_synth_hist = np.sum(down_synth_hist)
+      nom_hist = nom_hist / sum_nom_hist
+      up_sim_hist = up_sim_hist / sum_up_sim_hist
+      down_sim_hist = down_sim_hist / sum_down_sim_hist
+      up_synth_hist = up_synth_hist / sum_up_synth_hist
+      down_synth_hist = down_synth_hist / sum_down_synth_hist
+      up_sim_hist_uncert = up_sim_hist_uncert / sum_up_sim_hist
+      down_sim_hist_uncert = down_sim_hist_uncert / sum_down_sim_hist
+      up_synth_hist_uncert = up_synth_hist_uncert / sum_up_synth_hist
+      down_synth_hist_uncert = down_synth_hist_uncert / sum_down_synth_hist
+
+      # Save to dictionary
+      up_sim_hists[variable] = up_sim_hist
+      up_synth_hists[variable] = up_synth_hist
+      up_sim_hist_uncerts[variable] = up_sim_hist_uncert
+      up_synth_hist_uncerts[variable] = np.zeros_like(up_synth_hist_uncert)
+      down_sim_hists[variable] = down_sim_hist
+      down_synth_hists[variable] = down_synth_hist
+      down_sim_hist_uncerts[variable] = down_sim_hist_uncert
+      down_synth_hist_uncerts[variable] = np.zeros_like(down_synth_hist_uncert)
 
       plot_classsifier_nuisance_variations(
         nom_hist,
@@ -209,6 +241,33 @@ class ClassifierNuisanceVariations():
         output_name = f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}",
       )
 
+    # Initiate histogram metrics
+    if self.verbose:
+      print("- Calculating chi squared values for variations")
+    hm = HistogramMetrics(None, None, cfg["variables"])
+    hm.sim_hists = up_sim_hists
+    hm.sim_hist_uncerts = up_sim_hist_uncerts
+    hm.synth_hists = up_synth_hists
+    hm.synth_hist_uncerts = up_synth_hist_uncerts
+    hm.hists_exist = True
+    up_chi_squared_dict, up_dof_dict, up_chi_squared_per_dof_dict = hm.GetChiSquared()
+
+
+    hm.sim_hists = down_sim_hists
+    hm.sim_hist_uncerts = down_sim_hist_uncerts
+    hm.synth_hists = down_synth_hists
+    hm.synth_hist_uncerts = down_synth_hist_uncerts
+    hm.hists_exist = True
+    down_chi_squared_dict, down_dof_dict, down_chi_squared_per_dof_dict = hm.GetChiSquared()
+
+    # Write to yaml file
+    out_name = f"{self.data_output}/nuisance_variations_performance_metrics_{self.classifier_model['parameter']}{self.extra_plot_name}.yaml"
+    with open(out_name, 'w') as f:
+      yaml.dump({
+        "up": up_chi_squared_per_dof_dict,
+        "down": down_chi_squared_per_dof_dict
+      }, f)
+
   def Outputs(self):
     """
     Return a list of outputs given by class
@@ -218,6 +277,9 @@ class ClassifierNuisanceVariations():
     cfg = LoadConfig(self.cfg)
     for variable in cfg["variables"]:
       outputs += [f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}.pdf"]
+
+    out_name = f"{self.data_output}/nuisance_variations_performance_metrics_{self.classifier_model['parameter']}{self.extra_plot_name}.yaml"
+    outputs += [out_name]
 
     return outputs
 

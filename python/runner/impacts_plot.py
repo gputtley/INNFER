@@ -16,6 +16,7 @@ class ImpactsPlot():
     self.extra_input_name = ""
     self.impacts_per_page = 20
     self.verbose = False
+    self.summary_from = "Covariance"
 
   def Configure(self, options):
     """
@@ -39,7 +40,7 @@ class ImpactsPlot():
       impacts_data = yaml.safe_load(f)
 
     # Open the POI file
-    poi_file = f"{self.pulls_input}/covariance_results_{impacts_data['poi']}{self.extra_input_name}.yaml"
+    poi_file = f"{self.pulls_input}/{self.summary_from.lower()}_results_{impacts_data['poi']}{self.extra_input_name}.yaml"
     with open(poi_file, 'r') as f:
       poi_data = yaml.safe_load(f)
 
@@ -50,10 +51,10 @@ class ImpactsPlot():
     for k, v in impacts_data["impacts"].items():
 
       # Add impacts
-      pulls_and_impacts.append({"parameter": k, "impacts" : [-v, v] if isinstance(v, float) else [v[-1],v[-1]]})
+      pulls_and_impacts.append({"parameter": k, "impacts" : v})
 
       # Open pulls
-      pulls_file = f"{self.pulls_input}/covariance_results_{k}{self.extra_input_name}.yaml"
+      pulls_file = f"{self.pulls_input}/{self.summary_from.lower()}_results_{k}{self.extra_input_name}.yaml"
       with open(pulls_file, 'r') as f:
         pulls_data = yaml.safe_load(f)
 
@@ -95,7 +96,7 @@ class ImpactsPlot():
 
     # Loop through parameters
     for par in cfg["pois"] + cfg["nuisances"]:
-      pulls_file = f"{self.pulls_input}/covariance_results_{par}{self.extra_input_name}.yaml"
+      pulls_file = f"{self.pulls_input}/{self.summary_from.lower()}_results_{par}{self.extra_input_name}.yaml"
       inputs.append(pulls_file)
 
     return inputs

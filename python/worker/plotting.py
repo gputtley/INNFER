@@ -435,7 +435,7 @@ def plot_likelihood(
   else:
     colors = colours
   if linestyles is None:
-    linestyles = ["-"]*len(list(other_lklds.keys()))
+    linestyles = ["-"]*(len(list(other_lklds.keys())) + 1)
 
   if spline:
     spline_x = np.linspace(min(x), max(x), num=500)
