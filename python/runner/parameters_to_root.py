@@ -14,6 +14,7 @@ class ParametersToROOT():
     """
     # Default values - these will be set by the configure function
     self.cfg = None
+    self.open_cfg = None
     self.parameters = None
     self.data_output = "data/"
     self.verbose = False
@@ -33,7 +34,10 @@ class ParametersToROOT():
     Run the code utilising the worker classes
     """
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Load the parameters
     parameters = {}
