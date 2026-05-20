@@ -231,6 +231,7 @@ def main(args, default_args, module_options={}):
         class_name = "LoadData",
         config = {
           "cfg" : args.cfg,
+          "open_cfg" : cfg,
           "file_name" : base_file_name,
           "data_output" : f"{prep_data_dir}/LoadData{args.extra_output_dir_name}",
           "verbose" : not args.quiet,
@@ -249,6 +250,7 @@ def main(args, default_args, module_options={}):
           class_name = "PreProcess",
           config = {
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -273,6 +275,7 @@ def main(args, default_args, module_options={}):
           config = {
             "partial": "initial",
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -298,6 +301,7 @@ def main(args, default_args, module_options={}):
             "partial": "yields",
             "parameter_name" : "nominal",
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -341,6 +345,7 @@ def main(args, default_args, module_options={}):
               "partial": "yields",
               "parameter_name" : parameter_name,
               "cfg" : args.cfg,
+              "open_cfg" : cfg,
               "file_name" : file_name,
               "data_input" : f"{prep_data_dir}/LoadData",
               "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -365,6 +370,7 @@ def main(args, default_args, module_options={}):
           config = {
             "partial": "collect_yields",
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -394,6 +400,7 @@ def main(args, default_args, module_options={}):
               "poi_value" : poi_value,
               "poi_value_ind" : poi_value_ind,
               "cfg" : args.cfg,
+              "open_cfg" : cfg,
               "file_name" : file_name,
               "data_input" : f"{prep_data_dir}/LoadData",
               "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -423,6 +430,7 @@ def main(args, default_args, module_options={}):
                 "poi_value" : poi_value,
                 "poi_value_ind" : poi_value_ind,
                 "cfg" : args.cfg,
+                "open_cfg" : cfg,
                 "file_name" : file_name,
                 "data_input" : f"{prep_data_dir}/LoadData",
                 "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -447,6 +455,7 @@ def main(args, default_args, module_options={}):
           config = {
             "partial": "train_test_val_split",
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -475,6 +484,7 @@ def main(args, default_args, module_options={}):
                 "model_type" : model_type,
                 "parameter_name" : parameter_name,
                 "cfg" : args.cfg,
+                "open_cfg" : cfg,
                 "file_name" : file_name,
                 "data_input" : f"{prep_data_dir}/LoadData",
                 "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -501,6 +511,7 @@ def main(args, default_args, module_options={}):
               "partial": "validation",
               "val_ind" : val_ind,
               "cfg" : args.cfg,
+              "open_cfg" : cfg,
               "file_name" : file_name,
               "data_input" : f"{prep_data_dir}/LoadData",
               "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -527,6 +538,7 @@ def main(args, default_args, module_options={}):
               config = {
                 "partial": "nuisance_variations",
                 "cfg" : args.cfg,
+                "open_cfg" : cfg,
                 "file_name" : file_name,
                 "data_input" : f"{prep_data_dir}/LoadData",
                 "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -558,6 +570,7 @@ def main(args, default_args, module_options={}):
                   config = {
                     "partial": "nuisance_double_variations",
                     "cfg" : args.cfg,
+                    "open_cfg" : cfg,
                     "file_name" : file_name,
                     "data_input" : f"{prep_data_dir}/LoadData",
                     "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -599,6 +612,7 @@ def main(args, default_args, module_options={}):
             "partial": "merge",
             "merge_parameters" : merge_parameters,
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "data_input" : f"{prep_data_dir}/LoadData",
             "data_output" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -655,13 +669,13 @@ def main(args, default_args, module_options={}):
       class_name = "ParametersToROOT",
       config = {
         "cfg" : args.cfg,
+        "open_cfg" : cfg,
         "parameters" : {category: {file_name: f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml" for file_name in GetModelFileLoop(cfg)} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
         "data_output" : f"{eval_data_dir}/ParametersToROOT/datacards.root",
         "verbose" : not args.quiet,
       },
       loop = {},
     )
-
 
 
   # Custom
@@ -687,6 +701,7 @@ def main(args, default_args, module_options={}):
         class_name = "InputPlotTraining",
         config = {
           "cfg" : args.cfg,
+          "open_cfg" : cfg,
           "parameters" : model_info["parameters"],
           "data_input" : model_info['file_loc'],
           "plots_output" : f"{plots_dir}/InputPlotTraining{args.extra_output_dir_name}/{model_info['name']}",
@@ -711,6 +726,7 @@ def main(args, default_args, module_options={}):
           class_name = "InputPlotValidation",
           config = {
             "cfg" : args.cfg,
+            "open_cfg" : cfg,
             "file_name" : file_name,
             "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
             "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
@@ -738,6 +754,7 @@ def main(args, default_args, module_options={}):
             class_name = "InputPlotNuisanceVariations",
             config = {
               "cfg" : args.cfg,
+              "open_cfg" : cfg,
               "file_name" : file_name,
               "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
               "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
