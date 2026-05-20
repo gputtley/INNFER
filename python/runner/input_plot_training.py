@@ -14,6 +14,7 @@ class InputPlotTraining():
     """
     # Required input which is the location of a file
     self.cfg = None
+    self.open_cfg = None
     self.parameters = None
 
     # Other
@@ -42,7 +43,10 @@ class InputPlotTraining():
     """    
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Open parameters
     with open(self.parameters, 'r') as yaml_file:
@@ -81,8 +85,11 @@ class InputPlotTraining():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
-
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
+      
     # Find columns
     columns = cfg["variables"]
     if self.model_type == "density":

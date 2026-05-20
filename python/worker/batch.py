@@ -1,4 +1,7 @@
 import os
+import stat
+
+from pathlib import Path
 
 from useful_functions import MakeDirectories
 
@@ -129,23 +132,37 @@ class Batch():
       os.system(f"condor_submit {self.job_name.replace('.sh','.sub')}")
 
 
+  #def _CreateJob(self, cmd_list, job_name, delete_job=True):
+  #  """
+  #  Create a job script with the specified command list.
+  #
+  #  Args:
+  #      cmd_list (list): List of commands to be included in the job script.
+  #  """
+  #  MakeDirectories(job_name)
+  #  if os.path.exists(job_name) and delete_job: os.system(f'rm {job_name}')
+  #  for cmd in cmd_list:
+  #    prep_cmd = cmd.replace('"','\\"')
+  #    os.system(f'echo "{prep_cmd}" >> {job_name}')
+  #  os.system(f'chmod +x {job_name}' % vars())
+  #  if delete_job:
+  #    print("Created job:",job_name)
+  #  else:
+  #    print("Adding to:",job_name)
+
+
   def _CreateJob(self, cmd_list, job_name, delete_job=True):
     """
-    Create a job script with the specified command list.
-
-    Args:
-        cmd_list (list): List of commands to be included in the job script.
+    Create or append to a job script with the specified command list.
     """
     MakeDirectories(job_name)
-    if os.path.exists(job_name) and delete_job: os.system(f'rm {job_name}')
-    for cmd in cmd_list:
-      prep_cmd = cmd.replace('"','\\"')
-      os.system(f'echo "{prep_cmd}" >> {job_name}')
-    os.system(f'chmod +x {job_name}' % vars())
-    if delete_job:
-      print("Created job:",job_name)
-    else:
-      print("Adding to:",job_name)
+    path = Path(job_name)
+    mode = "w" if delete_job else "a"
+    with path.open(mode, encoding="utf-8") as f:
+      f.write("\n".join(cmd_list))
+      f.write("\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    print(("Created job:" if delete_job else "Adding to:"), job_name)
 
 
   def _CreateBatchJob(self, cmd_list):

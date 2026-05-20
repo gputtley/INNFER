@@ -164,6 +164,7 @@ def CombineObjects(obj1, obj2):
   return {"pt": pt, "eta": eta, "phi": phi, "mass": mass}
 
 
+import time
 def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name="MakeAsimov", asimov_extra_dir=None, force_asimov=False):
 
   if force_asimov:
@@ -199,6 +200,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
+  """
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -232,6 +234,61 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
     "n_integral_events" : args.number_of_integral_events,
     "binned_from_predicted_bins" : binned_observed_from_predicted,
+  }
+  """
+  specific_categories = (args.specific_category.split(",") if args.specific_category is not None else None)
+  categories = GetCategoryLoop(cfg, specific_category=specific_categories)
+  model_files = ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))
+  validation_indices = GetCombinedValdidationIndices(cfg, file_name, val_ind)
+  params_in_file = GetParametersInModel(file_name, cfg)
+  params_in_file_full = GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True)
+  model_params = {k: GetParametersInModel(k, cfg) for k in model_files}
+
+  density_models = {}
+  regression_models = {}
+  classifier_models = {}
+  for category in categories:
+    density_models[category] = {}
+    regression_models[category] = {}
+    classifier_models[category] = {}
+    for model_file in model_files:
+      density_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_density=True, specific_category=category)[0]
+      regression_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_regression=True, specific_category=category)
+      classifier_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_classification=True, specific_category=category)
+
+  common_config = {
+    "density_models": density_models,
+    "regression_models": regression_models,
+    "classifier_models": classifier_models,
+    "model_input": models_dir,
+    "extra_density_model_name": args.extra_density_model_name,
+    "parameters": {category: {k: f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in validation_indices.keys()} for category in categories},
+    "data_input": data_input,
+    "true_Y": pd.DataFrame({k: [val_info[k] if k in val_info else v] for k, v in defaults_in_model.items()}),
+    "initial_best_fit_guess": pd.DataFrame({k: [v] for k, v in defaults_in_model.items()}),
+    "inference_options": (cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != "nuisance_constraints"}),
+    "likelihood_type": args.likelihood_type,
+    "scale_to_eff_events": args.scale_to_eff_events,
+    "verbose": not args.quiet,
+    "minimisation_method": args.minimisation_method,
+    "sim_type": args.sim_type,
+    "X_columns": cfg["variables"],
+    "Y_columns": sorted(defaults_in_model.keys()),
+    "Y_columns_per_model": model_params,
+    "only_density": args.only_density,
+    "non_nn_columns": [k for k in params_in_file_full if k not in params_in_file],
+    "binned_fit_morph_col": cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
+    "binned_data_input": binned_data_input,
+    "binned_data_input_parameters_key": binned_data_input_parameters_key,
+    "simplex": ({key: float(value) for key, value in (v.split(":") for v in args.simplex.split(","))} if args.simplex is not None else {}),
+    "remove_lnN_if_rate_param": (args.include_per_model_rate if file_name != "combined" else True),
+    "prune_classifier_models": ({key: float(value) for key, value in (v.split(":") for v in args.prune_classifier_models.split(","))} if args.prune_classifier_models is not None else None),
+    "bootstrap_method": args.bootstrap_method,
+    "integrate_density_with_ratios": args.integrate_density_with_ratios,
+    "no_likelihood_print_out": args.no_likelihood_print_out,
+    "merge_binned_nuisances": ({key: value.split(",") for key, value in (v.split(":") for v in args.merge_binned_nuisances.split(";"))} if args.merge_binned_nuisances is not None else {}),
+    "n_integral_events": args.number_of_integral_events,
+    "binned_from_predicted_bins": binned_observed_from_predicted,
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -1549,7 +1606,6 @@ def ListSteps(step_description):
   print("-" * width)
   print()
 
-
 def LoadConfig(config_name):
 
   if ".yaml" in config_name:
@@ -1998,8 +2054,18 @@ def SetupSnakeMakeFile(args, default_args, main):
 
   # Make snakemake file
   args.make_snakemake_inputs = True
+  cfg = None
   previous_module = None
   for step_info in snakemake_loop:
+
+    # Open config when available
+    if cfg is None and args.step not in ["MakeBenchmark"]:
+      cfg = LoadConfig(args.cfg)
+      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+      if os.path.isfile(snakemake_file):
+        os.system(f"rm {snakemake_file}")
+      clear_file = False # Not sure what this was for
+
     args_copy = copy.deepcopy(args)
     args_copy.step = step_info["step"]
     if "submit" in step_info.keys():
@@ -2007,21 +2073,11 @@ def SetupSnakeMakeFile(args, default_args, main):
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
         if "add_inputs" in arg_name:
-          cfg = LoadConfig(args_copy.cfg)
           setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
         elif "add_outputs" in arg_name:
-          cfg = LoadConfig(args_copy.cfg)
           setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
         else:
           setattr(args_copy, arg_name, arg_val)
-
-    # Open config when available
-    if not args_copy.step in ["MakeBenchmark"] and clear_file:
-      cfg = LoadConfig(args_copy.cfg)
-      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
-      if os.path.isfile(snakemake_file):
-        os.system(f"rm {snakemake_file}")
-      clear_file = False
 
     # Write info to file
     if previous_module is None:
@@ -2033,7 +2089,6 @@ def SetupSnakeMakeFile(args, default_args, main):
     previous_module = main(args_copy, default_args, module_options)
 
   # make final outputs
-  cfg = LoadConfig(args_copy.cfg)
   snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
   # Find outputs

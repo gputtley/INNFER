@@ -23,6 +23,7 @@ class LoadData():
 
     # Required input which is the location of a file
     self.cfg = None
+    self.open_cfg = None
 
     # Required input which can just be parsed
     self.file_name = None
@@ -321,7 +322,10 @@ class LoadData():
   def Run(self):
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     self._FindColumns(self.file_name, cfg)
 
