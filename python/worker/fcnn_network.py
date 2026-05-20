@@ -176,7 +176,7 @@ class FCNNNetwork():
         y_data = tf.one_hot(y_data, depth=self.num_classes)
 
       predictions = self._GraphPredict(X_data)
-      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data))  # Compute loss
+      sum_loss += (tf.reduce_sum(tf.cast(wt_data, predictions.dtype)) * self.loss(predictions, y_data, wt_data, training=False))  # Compute loss
       sum_wts += tf.reduce_sum(tf.cast(wt_data, predictions.dtype))
 
     loss = tf.constant(sum_loss/sum_wts)
@@ -252,17 +252,20 @@ class FCNNNetwork():
       weighted_loss = tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(wt_data)
       return weighted_loss
 
-  def loss(self, predictions, y_data, wt_data=None):
 
-    reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
+  def loss(self, predictions, y_data, wt_data=None, training=True):
 
-    if self.task == "regression":
-      return self._MSE(predictions, y_data, wt_data) + reg_loss
-    elif self.task == "classification":
-      return self._CrossEntropy(predictions, y_data, wt_data) + reg_loss
-    else:
-      raise ValueError("Unknown task")
-  
+      reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
+
+      if self.task == "regression":
+          base_loss = self._MSE(predictions, y_data, wt_data)
+      elif self.task == "classification":
+          base_loss = self._CrossEntropy(predictions, y_data, wt_data)
+      else:
+          raise ValueError(f"Unknown task: {self.task}")
+
+      return base_loss + reg_loss if training else base_loss
+    
 
   def BuildModel(self):
 
@@ -310,9 +313,10 @@ class FCNNNetwork():
 
   @tf.function
   def _train_step(self, X_data, y_data, wt_data):
-    with tf.GradientTape() as tape:
+
+    with tf.GradientTape() as tape:  
       predictions = self.model(X_data, training=True)  # Forward pass
-      loss = self.loss(predictions, y_data, wt_data)  # Compute loss
+      loss = self.loss(predictions, y_data, wt_data, training=True)  # Compute loss
     
     # Compute gradients and apply them
     gradients = tape.gradient(loss, self.model.trainable_variables)
