@@ -51,6 +51,7 @@ class PreProcess():
     """
     # Required input which is the location of a file
     self.cfg = None
+    self.open_cfg = None
 
     # Required input which can just be parsed
     self.file_name = None
@@ -2394,9 +2395,12 @@ class PreProcess():
     yields = {}
 
     # Load config
-    if self.verbose:
-      print("- Loading in config")
-    cfg = LoadConfig(self.cfg) 
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      if self.verbose:
+        print("- Loading in config")
+      cfg = LoadConfig(self.cfg)
   
 
     # Do initial methods
@@ -2566,7 +2570,10 @@ class PreProcess():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Add parameters file
     if self.partial is None or self.partial in ["initial", "yields", "collect_yields", "binned_fit_inputs", "model", "validation","merge"]:
@@ -2641,8 +2648,8 @@ class PreProcess():
     # Do nuisance variations
     if self.partial is None or self.partial == "nuisance_variations":
       
+      parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
       for nui in cfg["nuisances"]:
-        parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
         if nui not in parameters_in_model: continue
         for shift in ["up","down"]:
           val_key = f"{nui}_{shift}"
@@ -2681,7 +2688,10 @@ class PreProcess():
     inputs = [self.cfg]
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Add yields base files
     if "yields" in cfg["models"][self.file_name]:
