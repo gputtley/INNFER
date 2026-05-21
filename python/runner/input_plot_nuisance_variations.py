@@ -15,6 +15,7 @@ class InputPlotNuisanceVariations():
     """
     # Required input which is the location of a file
     self.cfg = None
+    self.open_cfg = None
     self.parameters = None
 
     # Other
@@ -41,9 +42,10 @@ class InputPlotNuisanceVariations():
     Run the code utilising the worker classes
     """    
     # Load config
-    if self.verbose:
-      print("- Loading in config")
-    cfg = LoadConfig(self.cfg) 
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Open parameters
     with open(self.parameters, 'r') as yaml_file:
@@ -100,7 +102,10 @@ class InputPlotNuisanceVariations():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     for col in cfg["variables"]:
       outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_{self.sim_type}.pdf"]
@@ -122,7 +127,10 @@ class InputPlotNuisanceVariations():
     inputs += [self.parameters]  
 
     # Add data
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
     default_val_ind = GetValidationDefaultIndex(cfg, self.file_name)
     inputs += [f"{self.data_input}/val_ind_{default_val_ind}/X_{self.sim_type}.parquet"]
     inputs += [f"{self.data_input}/val_ind_{default_val_ind}/wt_{self.sim_type}.parquet"]

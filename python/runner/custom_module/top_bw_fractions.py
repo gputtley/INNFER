@@ -80,7 +80,7 @@ class top_bw_fractions():
     def apply_wt(df, wt_func):
       if self.bw_mass_name not in df.columns:
         df.loc[:,self.bw_mass_name] = 172.5*np.ones(len(df))
-      df.loc[:,"wt"] = df.eval(wt_func)
+      df["wt"] = df.eval(wt_func)
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
 
@@ -92,7 +92,7 @@ class top_bw_fractions():
       options = {
         "wt_name" : "wt",
         "selection" : selection,
-        "functions" : [apply_wt_partial] + functions,
+        "functions" : [apply_wt_partial] + functions + ["selection"],
         "sort_columns" : False,
       }
     )

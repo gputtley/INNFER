@@ -435,7 +435,7 @@ def plot_likelihood(
   else:
     colors = colours
   if linestyles is None:
-    linestyles = ["-"]*len(list(other_lklds.keys()))
+    linestyles = ["-"]*(len(list(other_lklds.keys())) + 1)
 
   if spline:
     spline_x = np.linspace(min(x), max(x), num=500)
@@ -1983,7 +1983,8 @@ def plot_pulls_and_impacts(
     pulls_and_impacts,
     output_name="pulls_and_impacts",
     poi_name="r",
-    poi_crossings = {0:1.0, 1:1.2, -1:0.8}
+    poi_crossings = {0:1.0, 1:1.2, -1:0.8},
+    alternative_pulls = False
 ):
   
   # Reverse pulls and impacts order
@@ -2007,10 +2008,16 @@ def plot_pulls_and_impacts(
     up = info["pulls"][1]
     down = info["pulls"][-1]
     y_pos = ind + 1
+    alternative_pull = None
+    extra_y_pos = 0.0
+    if alternative_pulls:
+      alternative_pull = info["alternative_pulls"]
+      extra_y_pos = 0.2
+
     if info["constrained_parameter"]:
       ax_pulls.errorbar(
         nominal, 
-        y_pos, 
+        y_pos+extra_y_pos, 
         xerr=[[nominal - down], [up - nominal]], 
         fmt='o', 
         color='black', 
@@ -2018,6 +2025,11 @@ def plot_pulls_and_impacts(
       )
       #ax_pulls.axvline(x=0.0, color='black', linestyle='--')
       ax_pulls.plot([0.0, 0.0], [y_pos - 0.4, y_pos + 0.4], color='black', linestyle='--')
+
+      if alternative_pull is not None:
+        ax_pulls.plot(alternative_pull, y_pos-extra_y_pos, marker='x', color='blue', markersize=10)
+
+
     else:
       # round to 2 sf of the up - nominal and then round everything else to those decimal places
       decimal_places = max(0, int(-np.floor(np.log10(up - nominal)))) + 1
@@ -2026,7 +2038,31 @@ def plot_pulls_and_impacts(
       ax_pulls.axhline(y=y_pos + 0.5, color='black', linestyle='--')
   ax_pulls.set_yticks(range(1, len(pulls_and_impacts)+1))
   ax_pulls.set_yticklabels([i["parameter"] for i in pulls_and_impacts], fontsize=12)
-  ax_pulls.set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$")
+  if not alternative_pulls:
+    ax_pulls.set_xlabel(r"$(\hat{\theta}-\theta_{0})/\Delta\theta$")
+  else:
+    # Need two lables, one in black and then one in blue for the alternative pulls
+    ax_pulls.text(
+        0.3, -0.1,
+        r"$(\hat{\theta}-\theta_{0})/\Delta\theta_{0}$",
+        transform=ax_pulls.transAxes,
+        ha="right",
+        va="bottom",
+        color="black",
+        fontsize=18,
+    )
+
+    ax_pulls.text(
+        0.3, -0.1,
+        r" $(\hat{\theta}-\theta_{0})/\sqrt{(\Delta\theta_{0})^{2} - (\Delta\hat{\theta})^{2}}$",
+        transform=ax_pulls.transAxes,
+        ha="left",
+        va="bottom",
+        color="blue",
+        fontsize=18,
+
+    )
+
   ax_pulls.set_ylim(0.2, len(pulls_and_impacts)+0.8)
 
   # Draw impacts

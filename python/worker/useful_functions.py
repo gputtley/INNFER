@@ -164,6 +164,7 @@ def CombineObjects(obj1, obj2):
   return {"pt": pt, "eta": eta, "phi": phi, "mass": mass}
 
 
+import time
 def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name="MakeAsimov", asimov_extra_dir=None, force_asimov=False):
 
   if force_asimov:
@@ -199,6 +200,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
+  """
   common_config = {
     "density_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
     "regression_models" : {category:{k:GetModelLoop(cfg, model_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
@@ -232,6 +234,61 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
     "n_integral_events" : args.number_of_integral_events,
     "binned_from_predicted_bins" : binned_observed_from_predicted,
+  }
+  """
+  specific_categories = (args.specific_category.split(",") if args.specific_category is not None else None)
+  categories = GetCategoryLoop(cfg, specific_category=specific_categories)
+  model_files = ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))
+  validation_indices = GetCombinedValdidationIndices(cfg, file_name, val_ind)
+  params_in_file = GetParametersInModel(file_name, cfg)
+  params_in_file_full = GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True)
+  model_params = {k: GetParametersInModel(k, cfg) for k in model_files}
+
+  density_models = {}
+  regression_models = {}
+  classifier_models = {}
+  for category in categories:
+    density_models[category] = {}
+    regression_models[category] = {}
+    classifier_models[category] = {}
+    for model_file in model_files:
+      density_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_density=True, specific_category=category)[0]
+      regression_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_regression=True, specific_category=category)
+      classifier_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_classification=True, specific_category=category)
+
+  common_config = {
+    "density_models": density_models,
+    "regression_models": regression_models,
+    "classifier_models": classifier_models,
+    "model_input": models_dir,
+    "extra_density_model_name": args.extra_density_model_name,
+    "parameters": {category: {k: f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in validation_indices.keys()} for category in categories},
+    "data_input": data_input,
+    "true_Y": pd.DataFrame({k: [val_info[k] if k in val_info else v] for k, v in defaults_in_model.items()}),
+    "initial_best_fit_guess": pd.DataFrame({k: [v] for k, v in defaults_in_model.items()}),
+    "inference_options": (cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != "nuisance_constraints"}),
+    "likelihood_type": args.likelihood_type,
+    "scale_to_eff_events": args.scale_to_eff_events,
+    "verbose": not args.quiet,
+    "minimisation_method": args.minimisation_method,
+    "sim_type": args.sim_type,
+    "X_columns": cfg["variables"],
+    "Y_columns": sorted(defaults_in_model.keys()),
+    "Y_columns_per_model": model_params,
+    "only_density": args.only_density,
+    "non_nn_columns": [k for k in params_in_file_full if k not in params_in_file],
+    "binned_fit_morph_col": cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
+    "binned_data_input": binned_data_input,
+    "binned_data_input_parameters_key": binned_data_input_parameters_key,
+    "simplex": ({key: float(value) for key, value in (v.split(":") for v in args.simplex.split(","))} if args.simplex is not None else {}),
+    "remove_lnN_if_rate_param": (args.include_per_model_rate if file_name != "combined" else True),
+    "prune_classifier_models": ({key: float(value) for key, value in (v.split(":") for v in args.prune_classifier_models.split(","))} if args.prune_classifier_models is not None else None),
+    "bootstrap_method": args.bootstrap_method,
+    "integrate_density_with_ratios": args.integrate_density_with_ratios,
+    "no_likelihood_print_out": args.no_likelihood_print_out,
+    "merge_binned_nuisances": ({key: value.split(",") for key, value in (v.split(":") for v in args.merge_binned_nuisances.split(";"))} if args.merge_binned_nuisances is not None else {}),
+    "n_integral_events": args.number_of_integral_events,
+    "binned_from_predicted_bins": binned_observed_from_predicted,
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -648,21 +705,33 @@ def GetBinValue(df, func_entry, col):
     if column_val < min(func_keys) or column_val > max(func_keys):
       return np.nan
     else:
-      closest_up = min([i for i in func_keys if i >= column_val])
-      closest_down = max([i for i in func_keys if i < column_val])      
+      if column_val == min(func_keys):
+        return func_entry[min(func_keys)](df)
+      elif column_val == max(func_keys):
+        return func_entry[max(func_keys)](df)
+      else:
+        closest_up = min([i for i in func_keys if i >= column_val])
+        closest_down = max([i for i in func_keys if i < column_val])      
       return func_entry[closest_down](df) + (func_entry[closest_up](df) - func_entry[closest_down](df)) * (column_val - closest_down) / (closest_up - closest_down)
 
 
 def GetBinValueParallelised(df, func_entry, col):
 
   column_val = df[col].to_numpy().flatten()[0]
+  if np.isnan(column_val):
+    return np.nan
   func_keys = list(func_entry.keys())
   if column_val < min(func_keys) or column_val > max(func_keys):
     return np.nan
   else:
-    closest_up = min([i for i in func_keys if i >= column_val])
-    closest_down = max([i for i in func_keys if i < column_val])      
-    return np.array(func_entry[closest_down](df)) + (np.array(func_entry[closest_up](df)) - np.array(func_entry[closest_down](df))) * (column_val - closest_down) / (closest_up - closest_down)
+    if column_val == min(func_keys):
+      return np.array(func_entry[min(func_keys)](df))
+    elif column_val == max(func_keys):
+      return np.array(func_entry[max(func_keys)](df))
+    else:
+      closest_up = min([i for i in func_keys if i >= column_val])
+      closest_down = max([i for i in func_keys if i < column_val])      
+      return np.array(func_entry[closest_down](df)) + (np.array(func_entry[closest_up](df)) - np.array(func_entry[closest_down](df))) * (column_val - closest_down) / (closest_up - closest_down)
 
 
 def GetBinValues(binned_fit_input, col, rate_param=None):
@@ -892,6 +961,34 @@ def GetFilesInModel(file_name, cfg, category=None):
     if category is None or "categories" not in v.keys() or category in v["categories"]:
       parameters_in_model = sorted(list(set(parameters_in_model + [v["file"]])))
   return parameters_in_model
+
+
+def GetImpactsLoop(cfg, file_name, uncertainty_directory, val_ind, summary_from="covariance"):
+
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=True, include_lnN=True)
+
+  loop = []
+  for parameter in parameters_in_model:
+    for shift in ["up", "down"]:
+
+      freeze = {}
+      uncert_file_name = f"{uncertainty_directory}/{summary_from.lower()}_results_{parameter}_{val_ind}.yaml"
+      if os.path.isfile(uncert_file_name):
+        with open(uncert_file_name, 'r') as yaml_file:
+          uncertainty = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        freeze = {parameter: uncertainty["crossings"][1 if shift == "up" else -1]}
+
+      loop.append({
+        "parameter" : parameter,
+        "shift" : shift,
+        "name" : f"{parameter}_{shift}",
+        "freeze" : freeze,
+        "files" : [uncert_file_name]
+      })
+
+  return loop
+
+
 
 
 def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
@@ -1327,11 +1424,12 @@ def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=Non
   input_files = []
 
   # Get the default values for the parameters in the model, and replace with the provided values if given
-  if values is not None:
+  if values is not None or (prefit_nuisance_constraints and prefit_nuisance_values):
 
     nominal = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True)
-    for k in values.keys():
-      nominal[k] = values[k]
+    if values is not None:
+      for k in values.keys():
+        nominal[k] = values[k]
 
     constraints = {}
     for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
@@ -1352,9 +1450,10 @@ def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=Non
       for nuisance_value in ["up","down"]:
         summary_from_name = summary_from if summary_from not in ["Scan","Bootstrap"] else summary_from+"Collect"
         constraint_file = f"{data_dir}/{summary_from_name}{extra_input_dir_name}/{file_name}/{summary_from.lower()}_results_{nuisance}_{val_ind}.yaml"
+        shifts = GetBestFitWithShiftedNuisancesFromYaml(bf_file, constraint_file, cfg, file_name, nuisance_value, prefit_nuisance_values=prefit_nuisance_values, prefit_nuisance_constraints=prefit_nuisance_constraints)
         if not prefit_nuisance_constraints:
           input_files.append(constraint_file)
-        constraints[nuisance][nuisance_value] = GetBestFitWithShiftedNuisancesFromYaml(bf_file, constraint_file, cfg, file_name, nuisance_value, prefit_nuisance_values=prefit_nuisance_values, prefit_nuisance_constraints=prefit_nuisance_constraints) 
+        constraints[nuisance][nuisance_value] = shifts[nuisance] if isinstance(shifts, dict) else shifts
 
   return nominal, constraints, input_files
 
@@ -1506,7 +1605,6 @@ def ListSteps(step_description):
     print(wrapped)
   print("-" * width)
   print()
-
 
 def LoadConfig(config_name):
 
@@ -1956,8 +2054,18 @@ def SetupSnakeMakeFile(args, default_args, main):
 
   # Make snakemake file
   args.make_snakemake_inputs = True
+  cfg = None
   previous_module = None
   for step_info in snakemake_loop:
+
+    # Open config when available
+    if cfg is None and args.step not in ["MakeBenchmark"]:
+      cfg = LoadConfig(args.cfg)
+      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+      if os.path.isfile(snakemake_file):
+        os.system(f"rm {snakemake_file}")
+      clear_file = False # Not sure what this was for
+
     args_copy = copy.deepcopy(args)
     args_copy.step = step_info["step"]
     if "submit" in step_info.keys():
@@ -1965,21 +2073,11 @@ def SetupSnakeMakeFile(args, default_args, main):
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
         if "add_inputs" in arg_name:
-          cfg = LoadConfig(args_copy.cfg)
           setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
         elif "add_outputs" in arg_name:
-          cfg = LoadConfig(args_copy.cfg)
           setattr(args_copy, arg_name, ChangeCommonNames(arg_val, cfg['name']))
         else:
           setattr(args_copy, arg_name, arg_val)
-
-    # Open config when available
-    if not args_copy.step in ["MakeBenchmark"] and clear_file:
-      cfg = LoadConfig(args_copy.cfg)
-      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
-      if os.path.isfile(snakemake_file):
-        os.system(f"rm {snakemake_file}")
-      clear_file = False
 
     # Write info to file
     if previous_module is None:
@@ -1991,7 +2089,6 @@ def SetupSnakeMakeFile(args, default_args, main):
     previous_module = main(args_copy, default_args, module_options)
 
   # make final outputs
-  cfg = LoadConfig(args_copy.cfg)
   snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
 
   # Find outputs

@@ -15,6 +15,7 @@ class InputPlotValidation():
     """
     # Required input which is the location of a file
     self.cfg = None
+    self.open_cfg = None
     self.parameters = None
 
     # Other
@@ -44,9 +45,10 @@ class InputPlotValidation():
     Run the code utilising the worker classes
     """    
     # Load config
-    if self.verbose:
-      print("- Loading in config")
-    cfg = LoadConfig(self.cfg) 
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Open parameters
     with open(self.parameters, 'r') as yaml_file:
@@ -110,7 +112,10 @@ class InputPlotValidation():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Add plots
     defaults = GetDefaultsInModel(self.file_name, cfg, category=self.category)

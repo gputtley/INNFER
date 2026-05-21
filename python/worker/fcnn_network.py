@@ -4,6 +4,7 @@ import copy
 import gc
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import random
 import wandb
 import warnings
 
@@ -32,7 +33,6 @@ if gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 else:
   print("INFO: Using CPU for FCNNNetwork")
-
 
 seed = 42
 os.environ['PYTHONHASHSEED'] = str(seed)
@@ -252,8 +252,15 @@ class FCNNNetwork():
       weighted_loss = tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(wt_data)
       return weighted_loss
 
+<<<<<<< HEAD
 
   def loss(self, predictions, y_data, wt_data=None, training=True):
+=======
+  def loss(self, predictions, y_data, wt_data=None, training=True):
+
+    #reg_loss = tf.add_n(self.model.losses) if self.model.losses and training else 0.0
+    reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
+>>>>>>> origin
 
       reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
 
@@ -314,7 +321,11 @@ class FCNNNetwork():
   @tf.function
   def _train_step(self, X_data, y_data, wt_data):
 
+<<<<<<< HEAD
     with tf.GradientTape() as tape:  
+=======
+    with tf.GradientTape() as tape:
+>>>>>>> origin
       predictions = self.model(X_data, training=True)  # Forward pass
       loss = self.loss(predictions, y_data, wt_data, training=True)  # Compute loss
     
@@ -325,6 +336,8 @@ class FCNNNetwork():
 
 
   def Train(self, name="model.h5"):
+
+    tf.config.experimental.enable_op_determinism()
 
     # Get loss before training
     epoch_train_loss = self._GetEpochLoss(data_type="train")
