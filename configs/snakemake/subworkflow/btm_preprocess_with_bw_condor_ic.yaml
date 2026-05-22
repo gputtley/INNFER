@@ -1,0 +1,93 @@
+# Load data
+- step: "LoadData"
+  submit: "configs/submit/condor_4_cpus.yaml"
+
+# Do Breit-Wigner fractions
+- step: "Custom"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options:
+    custom_module: "top_bw_fractions"
+    custom_options: "gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass;plot=True"
+
+# Preprocess data
+- step: "PreProcessParallelYieldsNominal"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+
+- step: "PreProcessParallelYieldsParameters"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    points_per_job: 1
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+
+- step: "SimToDataFactors"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options:
+    sim_to_data_norm_groups: "run2;2223"
+    sim_to_data_norm_processes: "ttbar"
+
+- step: "PreProcessParallelYieldsCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+    sim_to_data_norm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+
+- step: "PreProcessParallelTrainTestValSplit"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelModel"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options:
+    number_of_shuffles: 50
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+    specific: "model_type=density_models"
+
+- step: "PreProcessParallelModel"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options:
+    number_of_shuffles: 50
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+    specific: "model_type=classifier_models"
+
+- step: "PreProcessParallelValidation"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+
+- step: "PreProcessParallelNuisanceVariations"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options: 
+    points_per_job: 2
+    disable_tqdm: True
+    add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
+
+- step: "PreProcessParallelMerge"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+    preprocess_merge: initial,validation,model
+
+# Make plots of preprocessed data
+- step: InputPlotTraining
+  points_per_job: 2
+  submit: "configs/submit/condor.yaml"
+
+- step: InputPlotValidation
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    sim_type: "full"
+
+- step: InputPlotNuisanceVariations
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    points_per_job: 2
+    sim_type: "full"
