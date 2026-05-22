@@ -23,14 +23,14 @@
 - step: "PreProcessParallelYieldsParameters"
   submit: "configs/submit/condor_2_cpus.yaml"
   run_options: 
-    points_per_job: 5
+    points_per_job: 1
     disable_tqdm: True
     add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
 
 - step: "SimToDataFactors"
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options:
-    sim_to_data_norm_groups: "run2_signal,run2_control;22_signal,22_control"
+    sim_to_data_norm_groups: "run2_signal,run2_control;2223_signal,2223_control"
     sim_to_data_norm_processes: "ttbar"
 
 - step: "PreProcessParallelYieldsCollect"
@@ -49,14 +49,14 @@
 - step: "PreProcessParallelBinnedFitInputsNominal"
   submit: "configs/submit/condor_2_cpus.yaml"
   run_options:
-    points_per_job: 5
+    points_per_job: 2
     disable_tqdm: True
     add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
 
 - step: "PreProcessParallelBinnedFitInputsParameters"
   submit: "configs/submit/condor_2_cpus.yaml"
   run_options:
-    points_per_job: 10
+    points_per_job: 2
     disable_tqdm: True
     add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
 
@@ -75,7 +75,7 @@
 - step: "PreProcessParallelNuisanceVariations"
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options: 
-    points_per_job: 5
+    points_per_job: 2
     disable_tqdm: True
     add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
 
@@ -96,6 +96,6 @@
 - step: InputPlotNuisanceVariations
   submit: "configs/submit/condor.yaml"
   run_options:
-    points_per_job: 5
+    points_per_job: 2
     sim_type: "full"
     ratio_range: "0.9,1.1"
