@@ -212,6 +212,7 @@ class ClassifierNuisanceVariations():
       down_synth_hist = down_synth_hist / sum_down_synth_hist
       up_sim_hist_uncert = up_sim_hist_uncert / sum_up_sim_hist
       down_sim_hist_uncert = down_sim_hist_uncert / sum_down_sim_hist
+      nom_hist_uncert = nom_hist_uncert / sum_nom_hist
       up_synth_hist_uncert = up_synth_hist_uncert / sum_up_synth_hist
       down_synth_hist_uncert = down_synth_hist_uncert / sum_down_synth_hist
 
