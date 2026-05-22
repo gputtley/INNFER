@@ -31,3 +31,4 @@ python/*/*.pyc
 snakemake/*
 wandb/*
 .snakemake/*configs/setup/tmp/
+configs/setup/tmp/
