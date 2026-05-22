@@ -655,6 +655,7 @@ def main(args, default_args, module_options={}):
           "add_columns" : cfg["data_add_columns"] if "data_add_columns" in cfg else {},
           "calculate" : cfg["data_calculate"] if "data_calculate" in cfg else {},
           "data_output" : f"{prep_data_dir}/DataCategories/{category}",
+          "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category] if "inference" in cfg and "binned_fit" in cfg["inference"] and "input" in cfg["inference"]["binned_fit"] else None,
           "verbose" : not args.quiet,
         },
         loop = {"category" : category},
@@ -2363,7 +2364,7 @@ def main(args, default_args, module_options={}):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
             )
           elif args.likelihood_type in ["binned", "binned_extended"]:
-            best_fit, constraints, input_files = GetParameterValuesAndUncertainties(file_name, cfg, data_dir=eval_data_dir, val_ind=val_ind, summary_from=args.summary_from, extra_input_dir_name=args.extra_input_dir_name, prefit_nuisance_constraints=args.prefit_nuisance_constraints, prefit_nuisance_values=args.prefit_nuisance_values)
+            best_fit, constraints, input_files = GetParameterValuesAndUncertainties(file_name, cfg, data_dir=eval_data_dir, val_ind=val_ind, summary_from=args.summary_from, extra_input_dir_name=args.extra_input_dir_name, prefit_nuisance_constraints=(args.prefit_nuisance_constraints or not args.include_uncertainty), prefit_nuisance_values=args.prefit_nuisance_values, values=(val_info if args.data_vs_simulation else None))
             module.Run(
               module_name = "binned_distributions",
               class_name = "BinnedDistributions",
@@ -2373,7 +2374,8 @@ def main(args, default_args, module_options={}):
                 "val_info" : best_fit,
                 "constraints" : constraints,
                 "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category],
-                "data_input_keys" :  {k:["validation_binned_fit","full",v] for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+                "data_input_file" : None if (args.data_type != "data" and not args.data_vs_simulation) else {"data" : f"{prep_data_dir}/DataCategories/{category}/data_binned_fit.yaml"},
+                "data_input_keys" :  {k:["validation_binned_fit","full",v] for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} if (args.data_type != "data" and not args.data_vs_simulation) else {"data" : ["data_binned_fit"]},
                 "plots_output" : f"{plots_dir}/DistributionPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
                 "poi" : cfg["pois"][0],
@@ -2388,7 +2390,6 @@ def main(args, default_args, module_options={}):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
             )
             
-
 
   # Separate the truth and best fit asimov and plot
   if args.step == "PostFitTruthComparison":
