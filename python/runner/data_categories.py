@@ -1,6 +1,8 @@
 import importlib
 import os
 
+import yaml
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -22,6 +24,7 @@ class DataCategories():
     self.verbose = True
     self.add_columns = {}
     self.calculate = {}
+    self.binned_fit_input = None
 
   def Configure(self, options):
     """
@@ -40,10 +43,8 @@ class DataCategories():
   def _AddColumns(self, df, ind):
     for col, value in self.add_columns.items():
       if isinstance(value, list):
-        #df[col] = value[ind]
         df = df.assign(**{col: value[ind]})
       else:
-        #df[col] = value
         df = df.assign(**{col: value})
     return df
 
@@ -112,12 +113,38 @@ class DataCategories():
     if self.verbose:
       print(f"Created file {self.data_output}/data.parquet")
   
+    # Check if binned
+    if self.binned_fit_input is not None:
+      bins = self.binned_fit_input["binning"]
+      variable = self.binned_fit_input["variable"]
+      hist_dp = DataProcessor(
+        f"{self.data_output}/data.parquet",
+        "parquet",
+        options = {}
+      )
+      hist, _ = hist_dp.GetFull(
+        method="histogram",
+        column = variable,
+        bins = bins,
+
+      )
+      out_dict = {"data_binned_fit" : hist.tolist()}
+      # write output to a yaml file
+      out_name = f"{self.data_output}/data_binned_fit.yaml"
+      MakeDirectories(out_name)
+      with open(out_name, "w") as yaml_file:
+        yaml.dump(out_dict, yaml_file)
+      if self.verbose:
+        print(f"Created file {out_name}")
+
 
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    outputs = [f"{self.data_output}/data.parquet",]
+    outputs = [f"{self.data_output}/data.parquet"]
+    if self.binned_fit_input is not None:
+      outputs.append(f"{self.data_output}/data_binned_fit.yaml")
     return outputs
 
 
