@@ -150,6 +150,7 @@ def parse_args():
   parser.add_argument('--skip-initial-fit', help='Skip the initial fit if running a scan', action='store_true')
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
+  parser.add_argument('--snakemake-directory', help='Directory for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
@@ -198,9 +199,10 @@ def main(args, default_args, module_options={}):
 
 
   # Make the benchmark scenario
+  jobs_dir = os.getenv("JOBS_DIR")
   if args.step == "MakeBenchmark":
     print("<< Making benchmark inputs >>")
-    module.job_name = f"jobs/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"jobs/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"{jobs_dir}/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}"
     module.Run(
       module_name = "make_benchmark",
       class_name = "MakeBenchmark",
@@ -214,7 +216,7 @@ def main(args, default_args, module_options={}):
   else:
     # Load in configuration file
     cfg = LoadConfig(args.cfg)
-    module.job_name = f"jobs/{cfg['name']}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/{cfg['name']}/innfer_{args.step}"
     # Set up output directories
     prep_data_dir = f"{os.getenv('PREP_DATA_DIR')}/{cfg['name']}"
     eval_data_dir = f"{os.getenv('EVAL_DATA_DIR')}/{cfg['name']}"
@@ -2596,13 +2598,24 @@ if __name__ == "__main__":
         snakemake_file = SetupSnakeMakeFile(args, default_args, main)
       else:
         cfg = LoadConfig(args.cfg)
-        snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+        jobs_dir = os.getenv("JOBS_DIR")
+        snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
 
       if not args.snakemake_dry_run: # Run snakemake
+        if args.snakemake_directory is None:
+          snakemake_directory_option = ""
+        else:
+          snakemake_directory_option = f"--directory {args.snakemake_directory}"
         if not args.snakemake_use_file:
-          os.system(f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock &> /dev/null")
+          cmd = f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock {snakemake_directory_option} &> /dev/null"
+          print(f"<< Unlocking snakemake file with command:>>")
+          print(cmd)
+          os.system(cmd)
         snakemake_extra = " --forceall" if args.snakemake_force else ""
-        os.system(f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}'")
+        cmd = f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}' --shared-fs-usage='input-output' {snakemake_directory_option}"
+        print(f"<< Running snakemake with command:>>")
+        print(cmd)
+        os.system(cmd)
 
   # Print the time elapsed
   print("<< Finished running without error >>")

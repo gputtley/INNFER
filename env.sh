@@ -28,16 +28,19 @@ fi
 export PLOTTING_CMS_LABEL="Work In Progress"
 export PLOTTING_LUMINOSITY="\$138\ fb^{-1} (13\ TeV)\$"
 
+export JOBS_DIR="jobs"
 export PREP_DATA_DIR="data"
 export EVAL_DATA_DIR="data"
 export MODELS_DIR="models"
 export PLOTS_DIR="plots"
 
+MINICONDA_BASE="${MINICONDA_BASE:-./miniconda}"
+
 ulimit -s unlimited
 
 # if option is no_conda, skip conda activation
 if [ "$1" != "no_conda" ]; then
-  source miniconda/files/etc/profile.d/conda.sh
+  source ${MINICONDA_BASE}/files/etc/profile.d/conda.sh
   conda activate innfer_env
 fi
 

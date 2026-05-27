@@ -6,23 +6,26 @@ export CONDA_PKGS_DIRS=$TMPDIR
 export PIP_CACHE_DIR=$TMPDIR
 export XDG_CACHE_HOME=$TMPDIR
 
+
 if [ $# -eq 0 ] || [ "$1" == "conda" ]; then
   echo "Installing miniconda"
-  mkdir miniconda
-  pushd miniconda
-  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86\_64.sh
-  chmod +x Miniconda3-latest-Linux-x86\_64.sh 
-  ./Miniconda3-latest-Linux-x86\_64.sh -b -p ./files
-  source files/etc/profile.d/conda.sh
-  conda update conda
-  rm ./Miniconda3-latest-Linux-x86\_64.sh
+  MINICONDA_BASE="${MINICONDA_BASE:-./miniconda}"
+  MINICONDA_BASE="$(realpath -m "$MINICONDA_BASE")"
+  CONDA_DIR="$MINICONDA_BASE/files"
+  mkdir -p "$MINICONDA_BASE"
+  pushd "$MINICONDA_BASE"
+  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+  chmod +x Miniconda3-latest-Linux-x86_64.sh 
+  ./Miniconda3-latest-Linux-x86_64.sh -b -p "$CONDA_DIR"
+  source "$CONDA_DIR/etc/profile.d/conda.sh"
+  conda update -y conda
+  rm Miniconda3-latest-Linux-x86_64.sh
   popd
-  source miniconda/files/etc/profile.d/conda.sh
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   echo "Creating enviroment"
-  source miniconda/files/etc/profile.d/conda.sh
+  source ${MINICONDA_BASE}/files/etc/profile.d/conda.sh
   conda clean -a -y
   conda config --set channel_priority flexible
   conda env create --file=configs/setup/environment.yaml
@@ -37,8 +40,8 @@ fi
 
 if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
   echo "Setting up condor for snakemake"
-  source miniconda/files/etc/profile.d/conda.sh
-  conda activate miniconda/files/envs/innfer_env
+  source ${MINICONDA_BASE}/files/etc/profile.d/conda.sh
+  conda activate ${MINICONDA_BASE}/files/envs/innfer_env
   pip3 install --user htcondor snakemake-executor-plugin-cluster-generic
   conda install -c conda-forge -c bioconda python-htcondor snakemake-executor-plugin-cluster-generic
   pip3 install cookiecutter
@@ -51,8 +54,8 @@ fi
 if [ $# -eq 0 ] || [ "$1" == "container" ]; then
   echo "Making container of conda environment"
   #conda install -c conda-forge conda-pack
-  conda activate innfer_env
-  conda-pack -n innfer_env -o innfer_env_container.tar.gz
+  conda activate ${MINICONDA_BASE}/files/envs/innfer_env
+  conda-pack -n ${MINICONDA_BASE}/files/envs/innfer_env -o innfer_env_container.tar.gz
 fi
 
 
