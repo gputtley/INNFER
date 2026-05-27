@@ -17,6 +17,9 @@ from functools import partial
 
 def AdjustArgs(args):
 
+  # Get current directory, where code is being run from
+  current_dir = os.getcwd()
+
   # Check inputs
   if args.cfg is None and args.benchmark is None:
     raise ValueError("The --cfg or --benchmark is required.")
@@ -26,23 +29,23 @@ def AdjustArgs(args):
     raise ValueError("The --scale-to-eff-events option is only valid for --data-type=sim.")
 
   # Adjust input paths
-  if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
-    args.cfg = f"configs/run/{args.cfg}"
-  if os.path.exists(f"configs/architecture/{args.density_architecture}"): # Change architecture path
-    args.density_architecture = f"configs/architecture/{args.density_architecture}"
-  if os.path.exists(f"configs/architecture/{args.regression_architecture}"): # Change architecture path
-    args.regression_architecture = f"configs/architecture/{args.regression_architecture}"
+  if os.path.exists(f"{current_dir}/configs/run/{args.cfg}"): # Change cfg path
+    args.cfg = f"{current_dir}/configs/run/{args.cfg}"
+  if os.path.exists(f"{current_dir}/configs/architecture/{args.density_architecture}"): # Change architecture path
+    args.density_architecture = f"{current_dir}/configs/architecture/{args.density_architecture}"
+  if os.path.exists(f"{current_dir}/configs/architecture/{args.regression_architecture}"): # Change architecture path
+    args.regression_architecture = f"{current_dir}/configs/architecture/{args.regression_architecture}"
   if args.snakemake_cfg is not None:
-    if os.path.exists(f"configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
-      args.snakemake_cfg = f"configs/snakemake/{args.snakemake_cfg}"
+    if os.path.exists(f"{current_dir}/configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
+      args.snakemake_cfg = f"{current_dir}/configs/snakemake/{args.snakemake_cfg}"
   if args.submit is not None: # Change submit path
-    if os.path.exists(f"configs/submit/{args.submit}"):
-      args.submit = f"configs/submit/{args.submit}"
+    if os.path.exists(f"{current_dir}/configs/submit/{args.submit}"):
+      args.submit = f"{current_dir}/configs/submit/{args.submit}"
   if args.benchmark is not None: # Change benchmark path
-    if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
-      args.benchmark = f"configs/run/{args.benchmark}"
+    if os.path.exists(f"{current_dir}/configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
+      args.benchmark = f"{current_dir}/configs/run/{args.benchmark}"
   if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
-      args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
+      args.cfg = f"{current_dir}/configs/run/Benchmark_{args.benchmark}.yaml"
   if args.submit is not None:
     args.disable_tqdm = True
 
@@ -2036,7 +2039,7 @@ def SetupSnakeMakeFile(args, default_args, main):
   str
       File path of the generated SnakeMake file.
   """
-
+  jobs_dir = os.getenv("JOBS_DIR")
   # Define variables
   clear_file = True
   rules_all = [
@@ -2061,7 +2064,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     # Open config when available
     if cfg is None and args.step not in ["MakeBenchmark"]:
       cfg = LoadConfig(args.cfg)
-      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+      snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
       if os.path.isfile(snakemake_file):
         os.system(f"rm {snakemake_file}")
       clear_file = False # Not sure what this was for
@@ -2089,7 +2092,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     previous_module = main(args_copy, default_args, module_options)
 
   # make final outputs
-  snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+  snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
 
   # Find outputs
   with open(snakemake_file, 'r') as file:
