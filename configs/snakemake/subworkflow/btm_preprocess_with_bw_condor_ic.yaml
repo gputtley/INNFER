@@ -2,6 +2,10 @@
 - step: "LoadData"
   submit: "configs/submit/condor_4_cpus.yaml"
 
+# Categorise data
+- step: "DataCategories"
+  submit: "configs/submit/condor_4_cpus.yaml"
+
 # Do Breit-Wigner fractions
 - step: "Custom"
   submit: "configs/submit/condor_4_cpus.yaml"
