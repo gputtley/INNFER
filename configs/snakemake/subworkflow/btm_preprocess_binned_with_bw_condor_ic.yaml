@@ -2,7 +2,7 @@
 - step: "LoadData"
   submit: "configs/submit/condor_4_cpus.yaml"
 
-# Categories data
+# Categorise data
 - step: "DataCategories"
   submit: "configs/submit/condor_4_cpus.yaml"
 

@@ -204,8 +204,12 @@ class Batch():
       f"export PLOTS_DIR={plots_dir}",
       f"export MODELS_DIR={models_dir}",
       f"export JOBS_DIR={jobs_dir}",
-      f"export MINICONDA_BASE={miniconda_base}",
     ]
+    if miniconda_base is not None and miniconda_base != "" and miniconda_base != "None":
+      base_cmds += [
+        f"export MINICONDA_BASE={miniconda_base}",
+      ]
+
     if not self.use_environment_container:
       base_cmds += [
         "source env.sh",

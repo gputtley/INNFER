@@ -1,6 +1,8 @@
 import os
 import copy
 import glob
+import socket
+
 import numpy as np
 
 from btm_experimental_systematics import get_jec_nuisances
@@ -12,8 +14,12 @@ def make_common_config(run_name, categories, categories_per_era):
   nom_weight = "weight"
   pre_selection = "((ClosestJetWithLeptonRemoved_deltaR>0.25) | (ClosestJetWithLeptonRemoved_ptrel>30))"
   post_selection = "((CombinedSubJets_pt > 400) & (LeptonicTop_mass < CombinedSubJets_mass) & (MET_pt>50) & (BJetLep_pt>30) & (CombinedSubJets_pt < 800) & (CombinedSubJets_mass > 50) & (CombinedSubJets_mass < 300) & (SubJet1_mass > 5) & (SubJet1_mass < 175) & (SubJet1_pt > 200) & (SubJet1_pt < 700) & (SubJet1_tau21 > 0.01) & (SubJet1_tau21 < 0.99) & (FatJet_tau21 > 0.05) & (FatJet_tau21 < 0.9) & (SubJet2_btagDeepB > 0) & (SubJet2_btagDeepB < 1))"
-  #data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #lx04/lx05
-  data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # lxplus
+
+  host = socket.getfqdn()
+  if host.endswith(".cern.ch"):
+    data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # cern
+  else:
+    data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #imperial
 
   variables = [
     "CombinedSubJets_mass",
@@ -560,8 +566,8 @@ def make_common_config(run_name, categories, categories_per_era):
     common_classifier_nuisances = list(common_weight_shifts.keys())
 
     ttbar_classifier_nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys())
-    other_classifier_nuisances += common_classifier_nuisances
-    nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys())
+    other_classifier_nuisances += common_classifier_nuisances + list(other_weight_shifts.keys())
+    nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys()) + list(other_weight_shifts.keys())
 
     # Add Breit-Wigner reweighting weight shifts
     ttbar_weight_shifts["bw_mass_leading_top"] = {
