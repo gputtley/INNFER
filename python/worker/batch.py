@@ -197,14 +197,11 @@ class Batch():
     base_cmds += [
       f"cd {os.getcwd()}",
     ]
+
     base_cmds += [
       "ulimit -s unlimited",
-      f"export PREP_DATA_DIR={prep_data_dir}",
-      f"export EVAL_DATA_DIR={eval_data_dir}",
-      f"export PLOTS_DIR={plots_dir}",
-      f"export MODELS_DIR={models_dir}",
-      f"export JOBS_DIR={jobs_dir}",
     ]
+
     if miniconda_base is not None and miniconda_base != "" and miniconda_base != "None":
       base_cmds += [
         f"export MINICONDA_BASE={miniconda_base}",
@@ -219,4 +216,12 @@ class Batch():
         "source env.sh no_conda",
       ]
       
+    base_cmds += [
+      f"export PREP_DATA_DIR={prep_data_dir}",
+      f"export EVAL_DATA_DIR={eval_data_dir}",
+      f"export PLOTS_DIR={plots_dir}",
+      f"export MODELS_DIR={models_dir}",
+      f"export JOBS_DIR={jobs_dir}",
+    ]
+
     self._CreateJob(base_cmds+cmd_list, self.job_name)
