@@ -262,7 +262,12 @@ class PreProcess():
         # if nuisance in model
         if nui in nominal_shifts.keys():
 
-          if nui not in cfg["preprocess"]["no_nuisance_yield_effect"] or force_nuisance_yield_effect:
+          no_nuisance_yield_effect = False
+          if "no_nuisance_yield_effect" in cfg["preprocess"].keys():
+              if nui in cfg["preprocess"]["no_nuisance_yield_effect"]:
+                no_nuisance_yield_effect = True
+
+          if (not no_nuisance_yield_effect) or force_nuisance_yield_effect:
 
             up_extra_sel = None
             down_extra_sel = None
@@ -2171,6 +2176,7 @@ class PreProcess():
       with open(f"{self.data_output}/parameters{en}.yaml", 'r') as yaml_file:
         temp_parameters_file = yaml.safe_load(yaml_file)
       
+
       if first:
         parameters_file = copy.deepcopy(temp_parameters_file)
         first = False
@@ -2198,14 +2204,24 @@ class PreProcess():
           sum_yields = {poi:0.0 for poi in unique_pois}
         for poi in unique_pois:
           sum_yields[poi] += bin_info["yields"][poi]["nominal"]
-      defaults = GetDefaultsInModel(file_name, cfg, category=self.category)
-      default_poi_value = "all"
-      if cfg["pois"][0] in defaults.keys():
-        default_poi_value = defaults[cfg["pois"][0]]
-      default_sum_yield = sum_yields[default_poi_value]
+      #defaults = GetDefaultsInModel(file_name, cfg, category=self.category)
+      #default_poi_value = "all"
+      #if cfg["pois"][0] in defaults.keys():
+      #  default_poi_value = defaults[cfg["pois"][0]]
+      #default_sum_yield = sum_yields[default_poi_value]
+
+      default_sum_yield = parameters_file["yields"]["nominal"]
+
       for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
         for poi in unique_pois:
           parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"] = parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"]*default_sum_yield/sum_yields[poi] if sum_yields[poi] > 0 else 0.0
+
+      for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+        unique_pois = bin_info["yields"].keys()
+        if bin_ind == 0:
+          sum_yields = {poi:0.0 for poi in unique_pois}
+        for poi in unique_pois:
+          sum_yields[poi] += bin_info["yields"][poi]["nominal"]
 
     # write parameters file
     with open(f"{self.data_output}/parameters.yaml", 'w') as yaml_file:
@@ -2421,9 +2437,11 @@ class PreProcess():
           pf = yaml.safe_load(yaml_file)
         yields["nominal"] = pf["yields"]["nominal"]
         if self.sim_to_data_norm is not None:
-          if self.file_name in self.sim_to_data_norm_values.keys():
-            if self.category in self.sim_to_data_norm_values[self.file_name].keys():
-              yields["nominal"] *= self.sim_to_data_norm_values[self.file_name][self.category]
+          if self.verbose:
+            print("- Applying sim to data normalisation to yields")
+          if self.file_name in self.sim_to_data_norm_values["factor"].keys():
+            if self.category in self.sim_to_data_norm_values["factor"][self.file_name].keys():
+              yields["nominal"] *= self.sim_to_data_norm_values["factor"][self.file_name][self.category]
         yields["lnN"] = {}
         for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
           shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"

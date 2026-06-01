@@ -17,6 +17,9 @@ from functools import partial
 
 def AdjustArgs(args):
 
+  # Get current directory, where code is being run from
+  current_dir = os.getcwd()
+
   # Check inputs
   if args.cfg is None and args.benchmark is None:
     raise ValueError("The --cfg or --benchmark is required.")
@@ -26,23 +29,23 @@ def AdjustArgs(args):
     raise ValueError("The --scale-to-eff-events option is only valid for --data-type=sim.")
 
   # Adjust input paths
-  if os.path.exists(f"configs/run/{args.cfg}"): # Change cfg path
-    args.cfg = f"configs/run/{args.cfg}"
-  if os.path.exists(f"configs/architecture/{args.density_architecture}"): # Change architecture path
-    args.density_architecture = f"configs/architecture/{args.density_architecture}"
-  if os.path.exists(f"configs/architecture/{args.regression_architecture}"): # Change architecture path
-    args.regression_architecture = f"configs/architecture/{args.regression_architecture}"
+  if os.path.exists(f"{current_dir}/configs/run/{args.cfg}"): # Change cfg path
+    args.cfg = f"{current_dir}/configs/run/{args.cfg}"
+  if os.path.exists(f"{current_dir}/configs/architecture/{args.density_architecture}"): # Change architecture path
+    args.density_architecture = f"{current_dir}/configs/architecture/{args.density_architecture}"
+  if os.path.exists(f"{current_dir}/configs/architecture/{args.regression_architecture}"): # Change architecture path
+    args.regression_architecture = f"{current_dir}/configs/architecture/{args.regression_architecture}"
   if args.snakemake_cfg is not None:
-    if os.path.exists(f"configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
-      args.snakemake_cfg = f"configs/snakemake/{args.snakemake_cfg}"
+    if os.path.exists(f"{current_dir}/configs/snakemake/{args.snakemake_cfg}"): # Change snakemake cfg path
+      args.snakemake_cfg = f"{current_dir}/configs/snakemake/{args.snakemake_cfg}"
   if args.submit is not None: # Change submit path
-    if os.path.exists(f"configs/submit/{args.submit}"):
-      args.submit = f"configs/submit/{args.submit}"
+    if os.path.exists(f"{current_dir}/configs/submit/{args.submit}"):
+      args.submit = f"{current_dir}/configs/submit/{args.submit}"
   if args.benchmark is not None: # Change benchmark path
-    if os.path.exists(f"configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
-      args.benchmark = f"configs/run/{args.benchmark}"
+    if os.path.exists(f"{current_dir}/configs/run/{args.benchmark}") and ".yaml" in args.benchmark:
+      args.benchmark = f"{current_dir}/configs/run/{args.benchmark}"
   if args.step != "MakeBenchmark" and args.benchmark is not None: # Set cfg name for benchmark scenarios
-      args.cfg = f"configs/run/Benchmark_{args.benchmark}.yaml"
+      args.cfg = f"{current_dir}/configs/run/Benchmark_{args.benchmark}.yaml"
   if args.submit is not None:
     args.disable_tqdm = True
 
@@ -164,7 +167,6 @@ def CombineObjects(obj1, obj2):
   return {"pt": pt, "eta": eta, "phi": phi, "mass": mass}
 
 
-import time
 def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_name="MakeAsimov", asimov_extra_dir=None, force_asimov=False):
 
   if force_asimov:
@@ -184,8 +186,9 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
 
   data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
 
-  #binned_data_input = {}
-  binned_data_input = None
+  category_loop = GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)
+
+  binned_data_file = None
   binned_data_input_parameters_key = None
   binned_observed_from_predicted = False
   if args.likelihood_type in ["binned","binned_extended"]:
@@ -193,10 +196,13 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
       if args.binned_observed_from_predicted:
         binned_observed_from_predicted = True
       binned_data_input_parameters_key = {}
-      for cat in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+      for cat in category_loop:
         binned_data_input_parameters_key[cat] = {}
         for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
           binned_data_input_parameters_key[cat][k] = ["validation_binned_fit","full",v] 
+    elif data_type == "data":
+      binned_data_file = {category: {"data" : f"{prep_data_dir}/DataCategories/{category}/data_binned_fit.yaml"} for category in category_loop}
+      binned_data_input_parameters_key = {category : {"data" : ["data_binned_fit"]} for category in category_loop}
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
@@ -278,8 +284,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "only_density": args.only_density,
     "non_nn_columns": [k for k in params_in_file_full if k not in params_in_file],
     "binned_fit_morph_col": cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
-    "binned_data_input": binned_data_input,
     "binned_data_input_parameters_key": binned_data_input_parameters_key,
+    "binned_data_file": binned_data_file,
     "simplex": ({key: float(value) for key, value in (v.split(":") for v in args.simplex.split(","))} if args.simplex is not None else {}),
     "remove_lnN_if_rate_param": (args.include_per_model_rate if file_name != "combined" else True),
     "prune_classifier_models": ({key: float(value) for key, value in (v.split(":") for v in args.prune_classifier_models.split(","))} if args.prune_classifier_models is not None else None),
@@ -2036,7 +2042,7 @@ def SetupSnakeMakeFile(args, default_args, main):
   str
       File path of the generated SnakeMake file.
   """
-
+  jobs_dir = os.getenv("JOBS_DIR")
   # Define variables
   clear_file = True
   rules_all = [
@@ -2061,7 +2067,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     # Open config when available
     if cfg is None and args.step not in ["MakeBenchmark"]:
       cfg = LoadConfig(args.cfg)
-      snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+      snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
       if os.path.isfile(snakemake_file):
         os.system(f"rm {snakemake_file}")
       clear_file = False # Not sure what this was for
@@ -2089,7 +2095,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     previous_module = main(args_copy, default_args, module_options)
 
   # make final outputs
-  snakemake_file = f"jobs/{cfg['name']}/innfer_SnakeMake.txt"
+  snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
 
   # Find outputs
   with open(snakemake_file, 'r') as file:

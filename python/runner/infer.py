@@ -92,6 +92,7 @@ class Infer():
     self.n_integral_events = 10**5
     self.skip_initial_fit = False
     self.binned_from_predicted_bins = False
+    self.binned_data_file = None
 
 
   def Configure(self, options):
@@ -622,6 +623,15 @@ class Infer():
                 if k in self.prune_classifier_models.keys():
                   inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
           
+    elif self.likelihood_type in ["binned", "binned_extended"]:
+
+      # Add binned fit input
+      if self.binned_data_file is not None:
+        for cat, par in self.binned_data_file.items():
+          for k, v in par.items():
+            inputs += [v]
+
+
     # Add best fit if Scan or ScanPoints
     if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       if not (self.method == "Scan" and self.skip_initial_fit): 
@@ -1204,10 +1214,14 @@ class Infer():
   def _BuildBinnedFitInput(self):
 
     if not self.binned_from_predicted_bins:
-
       if (self.binned_data_input is None or self.binned_data_input == {}) and self.binned_data_input_parameters_key is not None and self.likelihood_type in ["binned","binned_extended"]:
         self.binned_data_input = {}
-        for cat, pars in self.parameters.items():
+
+        if self.binned_data_file is None:
+          params = copy.deepcopy(self.parameters)
+        else:
+          params = copy.deepcopy(self.binned_data_file)
+        for cat, pars in params.items():
           first = True
           for k, v in pars.items():
             with open(v, 'r') as yaml_file:

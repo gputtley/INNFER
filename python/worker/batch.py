@@ -85,12 +85,12 @@ class Batch():
     if os.path.exists(output_log): os.system(f'rm {output_log}')
     error_log = self.job_name.replace('.sh','_error.log')
     if os.path.exists(error_log): os.system(f'rm {error_log}')
-    
+
     exc_and_out = [
-      f"executable = {os.getcwd()}/{self.job_name}",
-      f"output     = {os.getcwd()}/{output_log}",
-      f"error      = {os.getcwd()}/{error_log}",
-      f"log        = {os.getcwd()}/{self.job_name.replace('.sh','_condor.log')}",
+      f"executable = {self.job_name}",
+      f"output     = {output_log}",
+      f"error      = {error_log}",
+      f"log        = {self.job_name.replace('.sh','_condor.log')}",
     ]
 
     if self.use_environment_container:
@@ -178,6 +178,8 @@ class Batch():
     eval_data_dir = os.getenv('EVAL_DATA_DIR')
     plots_dir = os.getenv('PLOTS_DIR')
     models_dir = os.getenv('MODELS_DIR')
+    jobs_dir = os.getenv('JOBS_DIR')
+    miniconda_base = os.getenv('MINICONDA_BASE')
 
     base_cmds = [
       "#!/bin/bash",
@@ -196,6 +198,15 @@ class Batch():
       f"cd {os.getcwd()}",
     ]
 
+    base_cmds += [
+      "ulimit -s unlimited",
+    ]
+
+    if miniconda_base is not None and miniconda_base != "" and miniconda_base != "None":
+      base_cmds += [
+        f"export MINICONDA_BASE={miniconda_base}",
+      ]
+
     if not self.use_environment_container:
       base_cmds += [
         "source env.sh",
@@ -204,12 +215,13 @@ class Batch():
       base_cmds += [
         "source env.sh no_conda",
       ]
-
+      
     base_cmds += [
-      "ulimit -s unlimited",
       f"export PREP_DATA_DIR={prep_data_dir}",
       f"export EVAL_DATA_DIR={eval_data_dir}",
       f"export PLOTS_DIR={plots_dir}",
       f"export MODELS_DIR={models_dir}",
+      f"export JOBS_DIR={jobs_dir}",
     ]
+
     self._CreateJob(base_cmds+cmd_list, self.job_name)
