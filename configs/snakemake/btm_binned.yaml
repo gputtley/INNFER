@@ -1,2 +1,3 @@
 - workflow: configs/snakemake/subworkflow/btm_preprocess_binned_with_bw_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/btm_prefit_data_vs_sim_binned_condor_ic.yaml
 - workflow: configs/snakemake/subworkflow/inference_asimov_binned_condor_ic.yaml

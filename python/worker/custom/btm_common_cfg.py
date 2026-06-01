@@ -7,7 +7,7 @@ import numpy as np
 
 from btm_experimental_systematics import get_jec_nuisances
 
-def make_common_config(run_name, categories, categories_per_era):
+def make_common_config(run_name, categories, categories_per_era, add_classifier=False):
 
   ### Define core variables for config ###
 
@@ -63,7 +63,7 @@ def make_common_config(run_name, categories, categories_per_era):
       f"TTToHadronic{shift_mass_name}",
     ]
   ttbar_semileptonic_modelling_syst_names = {
-    "TTToSemiLeptonic_CR1" : 1, # Numbering for whether it is a systemtic file or note
+    "TTToSemiLeptonic_CR1" : 1, # Numbering for whether it is a systematic file 
     "TTToSemiLeptonic_CR2" : 2,
     "TTToSemiLeptonic_hdamp_Up" : 3,
     "TTToSemiLeptonic_hdamp_Down" : 4,
@@ -71,7 +71,6 @@ def make_common_config(run_name, categories, categories_per_era):
     "TTToSemiLeptonic_ue_Down" : 6,
     "TTToSemiLeptonic_ERDOn" : 7
   }
-  # Need a TTToSemiLeptonic flag and then a is syst file flag for each type of systematic
   other_names = [
     "WJetsToLNu",
     "WJetsToLNuHT70To100",
@@ -122,7 +121,7 @@ def make_common_config(run_name, categories, categories_per_era):
       "other": {}
     },
     "stratify_to" : "sim_mass",
-    "no_nuisance_yield_effect" : ["fsr"]
+    #"no_nuisance_yield_effect" : ["fsr"]
   }
   lnN = {
     "ttbar" : [],
@@ -294,7 +293,9 @@ def make_common_config(run_name, categories, categories_per_era):
         "inputs": jec_inputs,
         "outputs": ["CombinedSubJets_mass", "CombinedSubJets_pt", "SubJet1_mass", "SubJet1_pt", "LeptonicTop_mass", "LeptonicTop_pt", "MET_pt"],
       },
-      "btm_merged_classifier": {
+    }
+    if add_classifier:
+      common_calculate["btm_merged_classifier"] = {
         "type": "function",
         "file": "btm_merged_classifier",
         "name": "btm_merged_classifier",
@@ -302,7 +303,8 @@ def make_common_config(run_name, categories, categories_per_era):
         "inputs": ["CombinedSubJets_pt", "SubJet1_mass", "SubJet1_pt", "SubJet1_tau21", "FatJet_tau21", "SubJet2_btagDeepB"],
         "outputs": ["btm_merged_classifier", "btm_merged_classifier_pass"]
       }
-    }
+
+
     ttbar_calculate = {}
     ttbar_yield_calculate = {}
     other_calculate = {}
@@ -705,6 +707,13 @@ def make_common_config(run_name, categories, categories_per_era):
   # Ensure no nuisance is repeated
   nuisances = list(set(nuisances))
 
+  # Define data calculate
+  data_calculate = {
+    "btm_calculate": common_calculate["btm_calculate"],
+  }
+  if add_classifier:
+    data_calculate["btm_merged_classifier"] = common_calculate["btm_merged_classifier"]
+
   # Define config
   config = {
     "variables": variables,
@@ -714,7 +723,7 @@ def make_common_config(run_name, categories, categories_per_era):
     "data_file": base_data_files,
     "data_add_columns": base_data_add_columns,
     "data_selection": f"(({pre_selection}) & ({post_selection}))",
-    "data_calculate" : {"btm_calculate": common_calculate["btm_calculate"], "btm_merged_classifier": common_calculate["btm_merged_classifier"]},
+    "data_calculate" : data_calculate,
     "inference": {
       "nuisance_constraints": [nui for nui in nuisances if nui not in ["fsr"]],
       "rate_parameters": rate_parameters,

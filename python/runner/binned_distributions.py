@@ -66,6 +66,7 @@ class BinnedDistributions():
         "binned_from_predicted_bins" : self.binned_observed_from_predicted,
         "binned_data_file" : {self.category : self.data_input_file} if self.data_input_file is not None else None,
         "likelihood_type" : "binned_extended",
+        "true_Y" : pd.DataFrame({k: [v] for k, v in self.val_info.items()}),
       }
     )
     yields = infer_class._BuildBinYields()[self.category]
