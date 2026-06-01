@@ -1,0 +1,43 @@
+- step: "UncertaintyFromMinimisation"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+
+- step: "Impacts"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    summary_from: "UncertaintyFromMinimisation"
+
+- step: "ImpactsCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    extra_dir_name: "Asimov"
+    summary_from: "UncertaintyFromMinimisation"
+    impact_to: "bw_mass"
+    
+- step: "ImpactsPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    summary_from: "UncertaintyFromMinimisation"
+    impacts_from: "Impacts"
+    extra_input_dir_name: "Asimov"
+    extra_output_dir_name: "ExactAsimov"

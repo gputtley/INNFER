@@ -1,19 +1,25 @@
 import os
 import copy
 import glob
+import socket
+
 import numpy as np
 
 from btm_experimental_systematics import get_jec_nuisances
 
-def make_common_config(run_name, categories, categories_per_era):
+def make_common_config(run_name, categories, categories_per_era, add_classifier=False):
 
   ### Define core variables for config ###
 
   nom_weight = "weight"
   pre_selection = "((ClosestJetWithLeptonRemoved_deltaR>0.25) | (ClosestJetWithLeptonRemoved_ptrel>30))"
   post_selection = "((CombinedSubJets_pt > 400) & (LeptonicTop_mass < CombinedSubJets_mass) & (MET_pt>50) & (BJetLep_pt>30) & (CombinedSubJets_pt < 800) & (CombinedSubJets_mass > 50) & (CombinedSubJets_mass < 300) & (SubJet1_mass > 5) & (SubJet1_mass < 175) & (SubJet1_pt > 200) & (SubJet1_pt < 700) & (SubJet1_tau21 > 0.01) & (SubJet1_tau21 < 0.99) & (FatJet_tau21 > 0.05) & (FatJet_tau21 < 0.9) & (SubJet2_btagDeepB > 0) & (SubJet2_btagDeepB < 1))"
-  #data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #lx04/lx05
-  data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # lxplus
+
+  host = socket.getfqdn()
+  if host.endswith(".cern.ch"):
+    data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # cern
+  else:
+    data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #imperial
 
   variables = [
     "CombinedSubJets_mass",
@@ -57,7 +63,7 @@ def make_common_config(run_name, categories, categories_per_era):
       f"TTToHadronic{shift_mass_name}",
     ]
   ttbar_semileptonic_modelling_syst_names = {
-    "TTToSemiLeptonic_CR1" : 1, # Numbering for whether it is a systemtic file or note
+    "TTToSemiLeptonic_CR1" : 1, # Numbering for whether it is a systematic file 
     "TTToSemiLeptonic_CR2" : 2,
     "TTToSemiLeptonic_hdamp_Up" : 3,
     "TTToSemiLeptonic_hdamp_Down" : 4,
@@ -65,7 +71,6 @@ def make_common_config(run_name, categories, categories_per_era):
     "TTToSemiLeptonic_ue_Down" : 6,
     "TTToSemiLeptonic_ERDOn" : 7
   }
-  # Need a TTToSemiLeptonic flag and then a is syst file flag for each type of systematic
   other_names = [
     "WJetsToLNu",
     "WJetsToLNuHT70To100",
@@ -116,7 +121,7 @@ def make_common_config(run_name, categories, categories_per_era):
       "other": {}
     },
     "stratify_to" : "sim_mass",
-    "no_nuisance_yield_effect" : ["fsr"]
+    #"no_nuisance_yield_effect" : ["fsr"]
   }
   lnN = {
     "ttbar" : [],
@@ -288,7 +293,9 @@ def make_common_config(run_name, categories, categories_per_era):
         "inputs": jec_inputs,
         "outputs": ["CombinedSubJets_mass", "CombinedSubJets_pt", "SubJet1_mass", "SubJet1_pt", "LeptonicTop_mass", "LeptonicTop_pt", "MET_pt"],
       },
-      "btm_merged_classifier": {
+    }
+    if add_classifier:
+      common_calculate["btm_merged_classifier"] = {
         "type": "function",
         "file": "btm_merged_classifier",
         "name": "btm_merged_classifier",
@@ -296,7 +303,8 @@ def make_common_config(run_name, categories, categories_per_era):
         "inputs": ["CombinedSubJets_pt", "SubJet1_mass", "SubJet1_pt", "SubJet1_tau21", "FatJet_tau21", "SubJet2_btagDeepB"],
         "outputs": ["btm_merged_classifier", "btm_merged_classifier_pass"]
       }
-    }
+
+
     ttbar_calculate = {}
     ttbar_yield_calculate = {}
     other_calculate = {}
@@ -560,8 +568,8 @@ def make_common_config(run_name, categories, categories_per_era):
     common_classifier_nuisances = list(common_weight_shifts.keys())
 
     ttbar_classifier_nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys())
-    other_classifier_nuisances += common_classifier_nuisances
-    nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys())
+    other_classifier_nuisances += common_classifier_nuisances + list(other_weight_shifts.keys())
+    nuisances += common_classifier_nuisances + list(ttbar_weight_shifts.keys()) + list(other_weight_shifts.keys())
 
     # Add Breit-Wigner reweighting weight shifts
     ttbar_weight_shifts["bw_mass_leading_top"] = {
@@ -699,6 +707,13 @@ def make_common_config(run_name, categories, categories_per_era):
   # Ensure no nuisance is repeated
   nuisances = list(set(nuisances))
 
+  # Define data calculate
+  data_calculate = {
+    "btm_calculate": common_calculate["btm_calculate"],
+  }
+  if add_classifier:
+    data_calculate["btm_merged_classifier"] = common_calculate["btm_merged_classifier"]
+
   # Define config
   config = {
     "variables": variables,
@@ -708,7 +723,7 @@ def make_common_config(run_name, categories, categories_per_era):
     "data_file": base_data_files,
     "data_add_columns": base_data_add_columns,
     "data_selection": f"(({pre_selection}) & ({post_selection}))",
-    "data_calculate" : {"btm_calculate": common_calculate["btm_calculate"], "btm_merged_classifier": common_calculate["btm_merged_classifier"]},
+    "data_calculate" : data_calculate,
     "inference": {
       "nuisance_constraints": [nui for nui in nuisances if nui not in ["fsr"]],
       "rate_parameters": rate_parameters,

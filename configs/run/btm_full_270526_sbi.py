@@ -12,3 +12,4 @@ categories_per_era = {
 
 config = make_common_config(run_name, categories, categories_per_era)
 config["name"] = run_name
+config["preprocess"]["no_nuisance_yield_effect"] = ["fsr"]
