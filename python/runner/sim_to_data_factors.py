@@ -89,11 +89,6 @@ class SimToDataFactors():
           if file_name in self.processes:
             out["factor"][file_name][cat] = factor
 
-    # Save output
-    MakeDirectories(self.data_output)
-    with open(self.data_output, "w") as f:
-      yaml.dump(out, f)
-
     if self.verbose:
       for group_out in out:
         print(group_out)
@@ -102,12 +97,38 @@ class SimToDataFactors():
           for cat, factor in cat_out.items():
             print(f"    {cat}: {factor}")
 
+    new_out = {}
+    for group_out in out:
+      for file, cat_out in out[group_out].items():
+        for cat, factor in cat_out.items():
+          if cat not in new_out.keys():
+            new_out[cat] = {}
+          if file not in new_out[cat].keys():
+            new_out[cat][file] = {}
+          new_out[cat][file][group_out] = factor
+
+
+    for cat, cat_dict in new_out.items():
+
+      # Save output
+      fn = f"{self.data_output}_{cat}.yaml"
+      MakeDirectories(fn)
+      with open(fn, "w") as f:
+        yaml.dump(cat_dict, f)
+      if self.verbose:
+        print(f"Created {fn}")
+
+
 
   def Outputs(self):
     """
     Return a list of outputs given by class
     """
-    outputs = [self.data_output]
+    outputs = []
+    for group in self.groups:
+      for cat in group:
+        outputs += [f"{self.data_output}_{cat}.yaml"]
+
     return outputs
 
   def Inputs(self):

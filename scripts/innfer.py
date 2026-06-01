@@ -326,9 +326,9 @@ def main(args, default_args, module_options={}):
       config = {
         "parameters_input" : {c: [f"{prep_data_dir}/PreProcess/{f}/{c}/parameters_yields_nominal.yaml" for f in GetModelFileLoop(cfg)] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
         "data_input" : {c: [f"{prep_data_dir}/DataCategories/{c}/data.parquet"] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-        "groups" : [group.split(",") for group in args.sim_to_data_norm_groups.split(";")],
+        "groups" : [group.split(",") for group in args.sim_to_data_norm_groups.split(";") if args.specific_category is None or group in args.specific_category.split(",")],
         "processes" : args.sim_to_data_norm_processes.split(",") if args.sim_to_data_norm_processes != "all" else GetModelFileLoop(cfg),
-        "data_output" : f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors.yaml",
+        "data_output" : f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors",
         "verbose" : not args.quiet,
       },
     )
@@ -380,7 +380,7 @@ def main(args, default_args, module_options={}):
             "extra_selection" : cfg["categories"][category] if "categories" in cfg and category in cfg["categories"] and cfg["categories"][category] != "inclusive" else None,
             "category" : category,
             "use_pbar" : not args.disable_tqdm,
-            "sim_to_data_norm" : None if not args.sim_to_data_norm else f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors.yaml",
+            "sim_to_data_norm" : None if not args.sim_to_data_norm else f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors_{category}.yaml",
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
