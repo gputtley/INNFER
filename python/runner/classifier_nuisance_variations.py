@@ -214,6 +214,7 @@ class ClassifierNuisanceVariations():
       down_sim_hist_uncert = down_sim_hist_uncert / sum_down_sim_hist
       up_synth_hist_uncert = up_synth_hist_uncert / sum_up_synth_hist
       down_synth_hist_uncert = down_synth_hist_uncert / sum_down_synth_hist
+      nom_hist_uncert = nom_hist_uncert / sum_nom_hist
 
       # Save to dictionary
       up_sim_hists[variable] = up_sim_hist

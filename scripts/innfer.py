@@ -657,6 +657,7 @@ def main(args, default_args, module_options={}):
           "add_columns" : cfg["data_add_columns"] if "data_add_columns" in cfg else {},
           "calculate" : cfg["data_calculate"] if "data_calculate" in cfg else {},
           "data_output" : f"{prep_data_dir}/DataCategories/{category}",
+          "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category] if "inference" in cfg and "binned_fit" in cfg["inference"] and "input" in cfg["inference"]["binned_fit"] else None,
           "verbose" : not args.quiet,
         },
         loop = {"category" : category},
@@ -697,7 +698,7 @@ def main(args, default_args, module_options={}):
   # Plot preprocessed training and testing data 
   if args.step == "InputPlotTraining":
     print("<< Plotting training and testing datasets >>")
-    for model_info in GetModelLoop(cfg):
+    for model_info in GetModelLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "input_plot_training",
         class_name = "InputPlotTraining",
@@ -773,7 +774,7 @@ def main(args, default_args, module_options={}):
   # Train density network
   if args.step == "TrainDensity":
     print("<< Training the density networks >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "train_density",
         class_name = "TrainDensity",
@@ -800,7 +801,7 @@ def main(args, default_args, module_options={}):
   # Evaluate density network
   if args.step == "EvaluateDensity":
     print("<< Generating samples on the train and test conditions >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "evaluate_density",
         class_name = "EvaluateDensity",
@@ -820,7 +821,7 @@ def main(args, default_args, module_options={}):
   # Plot the density network
   if args.step == "PlotDensity":
     print("<< Plotting the density distribution compared to train and test >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "plot_density",
         class_name = "PlotDensity",
@@ -840,7 +841,7 @@ def main(args, default_args, module_options={}):
   # Setup density from benchmark
   if args.step == "SetupDensityFromBenchmark":
     print("<< Setup density from benchmark >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "setup_density_from_benchmark",
         class_name = "SetupDensityFromBenchmark",
@@ -858,7 +859,7 @@ def main(args, default_args, module_options={}):
   # Train regression network
   if args.step == "TrainRegression":
     print("<< Training the regression networks >>")
-    for model_info in GetModelLoop(cfg, only_regression=True):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "train_regression",
         class_name = "TrainRegression",
@@ -885,7 +886,7 @@ def main(args, default_args, module_options={}):
   # Evaluate the regression models
   if args.step == "EvaluateRegression":
     print("<< Evaluating the regression networks >>")
-    for model_info in GetModelLoop(cfg, only_regression=True):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "evaluate_regression",
         class_name = "EvaluateRegression",
@@ -907,7 +908,7 @@ def main(args, default_args, module_options={}):
   # Plot the regression models
   if args.step == "PlotRegression":
     print("<< Plotting the regression distributions >>")
-    for model_info in GetModelLoop(cfg, only_regression=True):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "plot_regression",
         class_name = "PlotRegression",
@@ -928,7 +929,7 @@ def main(args, default_args, module_options={}):
   # Train the classifier models
   if args.step == "TrainClassifier":
     print("<< Training the classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "train_classifier",
         class_name = "TrainClassifier",
@@ -955,7 +956,7 @@ def main(args, default_args, module_options={}):
   # Evaluate the classifier models
   if args.step == "EvaluateClassifier":
     print("<< Evaluating the classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "evaluate_classifier",
         class_name = "EvaluateClassifier",
@@ -978,7 +979,7 @@ def main(args, default_args, module_options={}):
   # Plot the classifier models
   if args.step == "PlotClassifier":
     print("<< Plotting the classifier distributions >>")
-    for model_info in GetModelLoop(cfg, only_classification=True):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "plot_classifier",
         class_name = "PlotClassifier",
@@ -999,7 +1000,7 @@ def main(args, default_args, module_options={}):
   # Plot the classifier models
   if args.step == "ClassifierPerformanceMetrics":
     print("<< Getting the performance metrics of the trained classifier networks >>")  
-    for model_info in GetModelLoop(cfg, only_classification=True):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_classifier_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "classifier_performance_metrics",
@@ -1137,7 +1138,7 @@ def main(args, default_args, module_options={}):
   # Make the asimov datasets for classifier/regressor normalisation spline
   if args.step == "MakeAsimovForNormalisationSpline":
     print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "make_asimov",
         class_name = "MakeAsimov",
@@ -1164,7 +1165,7 @@ def main(args, default_args, module_options={}):
   # Make the normalisation spline for the classifier models
   if args.step == "NormalisationSplineClassifier":
     print("<< Building the normalisation spline for classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "normalisation_spline_classifier",
         class_name = "NormalisationSplineClassifier",
@@ -1189,7 +1190,7 @@ def main(args, default_args, module_options={}):
   # Get performance metrics
   if args.step == "DensityPerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_density_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "density_performance_metrics",
@@ -1225,7 +1226,7 @@ def main(args, default_args, module_options={}):
   # Plot performance metrics per epoch
   if args.step == "EpochPerformanceMetricsPlot":
     print("<< Plotting the performance metrics as a function of the epoch of training >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "epoch_performance_metrics_plot",
         class_name = "EpochPerformanceMetricsPlot",
@@ -1243,7 +1244,7 @@ def main(args, default_args, module_options={}):
   # Perform a p-value dataset comparison test for sim vs synth
   if args.step == "PValueSimVsSynth":
     print("<< Getting the metrics for Sim Vs Synth comparison >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "density_performance_metrics",
         class_name = "DensityPerformanceMetrics",
@@ -1276,7 +1277,7 @@ def main(args, default_args, module_options={}):
   # Perform a p-value dataset comparison test bootstrapping synth vs synth
   if args.step == "PValueSynthVsSynth":
     print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       for toy in range(args.number_of_toys):
         module.Run(
           module_name = "density_performance_metrics",
@@ -1314,7 +1315,7 @@ def main(args, default_args, module_options={}):
   # Collect the synth vs synth tests
   if args.step == "PValueSynthVsSynthCollect":
     print("<< Collecting the classifier 2 sample test >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "p_value_synth_vs_synth_collect",
         class_name = "PValueSynthVsSynthCollect",
@@ -1331,7 +1332,7 @@ def main(args, default_args, module_options={}):
   # Plot the p values dataset comparisons
   if args.step == "PValueDatasetComparisonPlot":
     print("<< Plotting p-value dataset comparisons >>")
-    for model_info in GetModelLoop(cfg, only_density=True):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "p_value_dataset_comparison_plot",
         class_name = "PValueDatasetComparisonPlot",
@@ -1348,7 +1349,7 @@ def main(args, default_args, module_options={}):
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
     print(f"<< Running a hyperparameter scan for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       for architecture_ind, architecture in enumerate(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")):
           module.Run(
           module_name = "hyperparameter_scan",
@@ -1378,7 +1379,7 @@ def main(args, default_args, module_options={}):
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
     print(f"<< Running a hyperparameter scan collection for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
@@ -1397,7 +1398,7 @@ def main(args, default_args, module_options={}):
   # Perform a hyperparameter scan
   if args.step == "BayesianHyperparameterTuning":
     print(f"<< Running a bayesian hyperparameter tuning for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression")):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
@@ -2365,7 +2366,7 @@ def main(args, default_args, module_options={}):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
             )
           elif args.likelihood_type in ["binned", "binned_extended"]:
-            best_fit, constraints, input_files = GetParameterValuesAndUncertainties(file_name, cfg, data_dir=eval_data_dir, val_ind=val_ind, summary_from=args.summary_from, extra_input_dir_name=args.extra_input_dir_name, prefit_nuisance_constraints=args.prefit_nuisance_constraints, prefit_nuisance_values=args.prefit_nuisance_values)
+            best_fit, constraints, input_files = GetParameterValuesAndUncertainties(file_name, cfg, data_dir=eval_data_dir, val_ind=val_ind, summary_from=args.summary_from, extra_input_dir_name=args.extra_input_dir_name, prefit_nuisance_constraints=(args.prefit_nuisance_constraints or not args.include_uncertainty), prefit_nuisance_values=args.prefit_nuisance_values, values=(val_info if args.data_vs_simulation else None))
             module.Run(
               module_name = "binned_distributions",
               class_name = "BinnedDistributions",
@@ -2375,7 +2376,8 @@ def main(args, default_args, module_options={}):
                 "val_info" : best_fit,
                 "constraints" : constraints,
                 "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category],
-                "data_input_keys" :  {k:["validation_binned_fit","full",v] for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()},
+                "data_input_file" : None if (args.data_type != "data" and not args.data_vs_simulation) else {"data" : f"{prep_data_dir}/DataCategories/{category}/data_binned_fit.yaml"},
+                "data_input_keys" :  {k:["validation_binned_fit","full",v] for k, v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} if (args.data_type != "data" and not args.data_vs_simulation) else {"data" : ["data_binned_fit"]},
                 "plots_output" : f"{plots_dir}/DistributionPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
                 "poi" : cfg["pois"][0],
@@ -2390,7 +2392,6 @@ def main(args, default_args, module_options={}):
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
             )
             
-
 
   # Separate the truth and best fit asimov and plot
   if args.step == "PostFitTruthComparison":

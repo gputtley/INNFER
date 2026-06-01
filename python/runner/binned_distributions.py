@@ -20,6 +20,7 @@ class BinnedDistributions():
     self.val_info = None
     self.constraints = None
     self.binned_fit_input = None
+    self.data_input_file = None
     self.data_input_keys = None
     self.plots_output = None
     self.poi = None
@@ -62,10 +63,14 @@ class BinnedDistributions():
         "binned_fit_morph_col" : self.poi,
         "binned_data_input_parameters_key" : {self.category : self.data_input_keys},
         "inference_options" : self.inference_options,
-
+        "binned_from_predicted_bins" : self.binned_observed_from_predicted,
+        "binned_data_file" : {self.category : self.data_input_file} if self.data_input_file is not None else None,
+        "likelihood_type" : "binned_extended",
+        "true_Y" : pd.DataFrame({k: [v] for k, v in self.val_info.items()}),
       }
     )
     yields = infer_class._BuildBinYields()[self.category]
+    infer_class._BuildBinnedFitInput()
     base_dict = {k: [v] for k, v in self.val_info.items()}
     Y = pd.DataFrame(base_dict)
 
@@ -75,20 +80,24 @@ class BinnedDistributions():
       stack_hists[k] = np.array(v(Y))
 
     # Get the data histogram
-    if not self.binned_observed_from_predicted:
-      data_hist = None
-      for k, v in self.data_input_keys.items():
-        with open(self.parameters[k], 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        entry = GetDictionaryEntry(parameters, v)
-        if data_hist is None:
-          data_hist = np.array(entry)
-        else:
-          data_hist += np.array(entry)
-    else:
-      data_hist = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
-      for k, v in yields.items():
-        data_hist += np.array(v(Y))
+    data_hist = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
+    for k, v in infer_class.binned_data_input.items():
+      data_hist += np.array(v) 
+       
+    #if not self.binned_observed_from_predicted:
+    #  data_hist = None
+    #  for k, v in self.data_input_keys.items():
+    #    with open(self.parameters[k], 'r') as yaml_file:
+    #      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    #    entry = GetDictionaryEntry(parameters, v)
+    #    if data_hist is None:
+    #      data_hist = np.array(entry)
+    #    else:
+    #      data_hist += np.array(entry)
+    #else:
+    #  data_hist = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
+    #  for k, v in yields.items():
+    #    data_hist += np.array(v(Y))
 
     # Get the uncertainty on the stack histograms from the constraints if required
     stack_uncertainty_up = np.zeros_like(stack_hists[list(stack_hists.keys())[0]])
@@ -160,7 +169,6 @@ class BinnedDistributions():
       ratio_range=self.ratio_range,
       )
 
-
   def Outputs(self):
     """
     Return a list of outputs given by class
@@ -179,5 +187,9 @@ class BinnedDistributions():
       inputs += [v]
 
     inputs += self.extra_inputs
+
+    if self.data_input_file is not None:
+      for v in self.data_input_file.values():
+        inputs += [v]
 
     return inputs

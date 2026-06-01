@@ -3,21 +3,12 @@ import numpy as np
 from btm_common_cfg import make_common_config
 
 run_name = "BTM_Full_270526_Binned"
-categorisation_selection = "(btm_merged_classifier_pass > 0.5)"
-categories = {
-  "run2_signal": f"((year_ind>=0) & (year_ind<=3) & ({categorisation_selection}))",
-  "2223_signal": f"((year_ind>=4) & (year_ind<=7) & ({categorisation_selection}))",
-  "run2_control": f"((year_ind>=0) & (year_ind<=3) & ~({categorisation_selection}))",
-  "2223_control": f"((year_ind>=4) & (year_ind<=7) & ~({categorisation_selection}))",
-}
+
 categories_per_era = {
   "run2": ["run2_signal", "run2_control"],
   "2223": ["2223_signal", "2223_control"],
 }
-
-config = make_common_config(run_name, categories, categories_per_era)
-config["name"] = run_name
-config["inference"]["binned_fit"] = {
+binned_fit_input = {
   "files" : {
     "ttbar": [{"file": f"base_ttbar_{era}", "categories": categories_per_era[era]} for era in categories_per_era.keys()],
     "other": [{"file": f"base_other_{era}", "categories": categories_per_era[era]} for era in categories_per_era.keys()]
@@ -43,3 +34,18 @@ config["inference"]["binned_fit"] = {
     }
   }
 }
+
+categorisation_selection = "(btm_merged_classifier_pass > 0.5)"
+categories = {
+  "run2_signal": f"((year_ind>=0) & (year_ind<=3) & ({categorisation_selection}))",
+  "2223_signal": f"((year_ind>=4) & (year_ind<=7) & ({categorisation_selection}))",
+  "run2_control": f"((year_ind>=0) & (year_ind<=3) & ~({categorisation_selection}))",
+  "2223_control": f"((year_ind>=4) & (year_ind<=7) & ~({categorisation_selection}))",
+}
+category_keys = list(categories.keys())
+for cat in category_keys:
+  categories[cat] = f"(({categories[cat]}) & ({binned_fit_input['input'][cat]['variable']} >= {min(binned_fit_input['input'][cat]['binning'])}) & ({binned_fit_input['input'][cat]['variable']} < {max(binned_fit_input['input'][cat]['binning'])}))"
+
+config = make_common_config(run_name, categories, categories_per_era, add_classifier=True)
+config["name"] = run_name
+config["inference"]["binned_fit"] = binned_fit_input

@@ -1,0 +1,40 @@
+# Do stat only distributions
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    data_vs_simulation: true
+    extra_output_dir_name: "DataVsSimStatOnly"
+    ratio_range: "0.8,1.2"
+    sim_type: "full"
+
+# Do stat only distributions but with extra hypothesis
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    data_vs_simulation: true
+    extra_output_dir_name: "DataVsSimStatOnlyWithExtraHypothesis"
+    ratio_range: "0.8,1.2"
+    specific_combined_default_val: true
+    plot_extra_hypothesis: "bw_mass=173.5;bw_mass=171.5"
+    sim_type: "full"
+
+# Do stat + syst distributions
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    data_vs_simulation: true
+    extra_output_dir_name: "DataVsSimStatPlusSyst"
+    include_uncertainty: true
+    ratio_range: "0.8,1.2"
+    sim_type: "full"
+
+# Do stat + syst distributions but with extra hypothesis
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    data_vs_simulation: true
+    extra_output_dir_name: "DataVsSimStatPlusSystWithExtraHypothesis"
+    include_uncertainty: true
+    plot_extra_hypothesis: "bw_mass=173.5;bw_mass=171.5"
+    ratio_range: "0.8,1.2"
+    sim_type: "full"
