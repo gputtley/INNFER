@@ -2439,9 +2439,8 @@ class PreProcess():
         if self.sim_to_data_norm is not None:
           if self.verbose:
             print("- Applying sim to data normalisation to yields")
-          if self.file_name in self.sim_to_data_norm_values["factor"].keys():
-            if self.category in self.sim_to_data_norm_values["factor"][self.file_name].keys():
-              yields["nominal"] *= self.sim_to_data_norm_values["factor"][self.file_name][self.category]
+          if self.file_name in self.sim_to_data_norm_values.keys():
+              yields["nominal"] *= self.sim_to_data_norm_values[self.file_name]["factor"]
         yields["lnN"] = {}
         for nui in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(self.file_name, cfg, category=self.category)]:
           shift_file_name = f"{self.data_output}/parameters_yields_{nui}.yaml"
