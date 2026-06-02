@@ -3,13 +3,40 @@
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
     plot_2d_unrolled: True
+    extra_output_dir_name: "Val"
+    sim_type: "val"
+
+- step: "Generator"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    plot_2d_unrolled: True
+    extra_output_dir_name: "Full"
+    sim_type: "full"
 
 # Make generation summary plots
 - step: "GeneratorSummary"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    extra_output_dir_name: "Val"
+    sim_type: "val"
+
+- step: "GeneratorSummary"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    extra_output_dir_name: "Full"
+    sim_type: "full"
 
 # Make generation plots for nuisance variations
 - step: "GeneratorNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
     points_per_job: 10
+    extra_output_dir_name: "Val"
+    sim_type: "val"
+
+- step: "GeneratorNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    points_per_job: 10
+    extra_output_dir_name: "Full"
+    sim_type: "full"
