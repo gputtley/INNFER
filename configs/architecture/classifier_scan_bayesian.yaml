@@ -1,0 +1,26 @@
+# Type
+type: "FCNN"
+# training
+epochs: 30
+batch_size: [1024, 8192]
+early_stopping: true
+patience: 3
+tolerance: 0.02
+wait_till: 5
+learning_rate: [0.00005, 0.005]
+optimizer_name: "AdamW"
+lr_scheduler_name: "CosineDecayWithWarmUp"
+lr_scheduler_options:
+  alpha: 0.000005
+  warmup_fraction: 0.1
+  step_power: [0.1, 1.0]
+gradient_clipping_norm: null
+# architecture
+dropout: [0.0, 0.1]
+dense_layers:
+  layer_1: [32, 256]
+  layer_2: [32, 256]
+  layer_3: [32, 256]
+activation: relu
+l2_lambda: [0.0,0.00001]
+normalise_batch_categories: true

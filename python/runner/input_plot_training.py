@@ -91,7 +91,7 @@ class InputPlotTraining():
       cfg = LoadConfig(self.cfg)
       
     # Find columns
-    columns = cfg["variables"]
+    columns = list(cfg["variables"])
     if self.model_type == "density":
       if self.split is None:
         columns += GetParametersInModel(self.file_name, cfg, only_density=True)

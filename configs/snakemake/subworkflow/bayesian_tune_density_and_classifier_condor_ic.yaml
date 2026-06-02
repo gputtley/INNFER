@@ -1,0 +1,46 @@
+# Train density models
+- step: "BayesianHyperparameterTuning"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
+    number_of_trials: 20
+    hyperparameter_metric: "loss_test,min"
+    density_performance_metrics: "loss"
+    model_type: "density"
+
+# Get the density performance metrics for the best models
+- step: "DensityPerformanceMetrics"
+  submit: "configs/submit/condor_gpu.yaml"
+
+# Train classifier models
+- step: "BayesianHyperparameterTuning"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    disable_tqdm: True
+    classifier_architecture: "configs/architecture/classifier_scan_bayesian.yaml"
+    number_of_trials: 20
+    hyperparameter_metric: "loss_test,min"
+    classifier_performance_metrics: "loss"
+    model_type: "classifier"
+
+# Get the classifier performance metrics for the best models
+- step: "ClassifierPerformanceMetrics"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+
+# Get the classifier performance metrics for the best models
+- step: "ClassifierNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    extra_output_dir_name: "Val"
+    sim_type: "val"
+
+- step: "ClassifierNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    extra_output_dir_name: "Full"
+    sim_type: "full"
+
+# Evaluate the classifier for pruning
+- step: "EvaluateClassifier"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
