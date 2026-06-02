@@ -303,7 +303,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     for k2, v2 in v1.items():
       common_config["classifier_pruning_files"][k1][k2] = {}
       for v3 in v2:
-        common_config["classifier_pruning_files"][k1][k2][v3["parameter"]] = f"{prep_data_dir}/EvaluateClassifier/{v3['name']}/performance_metrics.yaml"
+        common_config["classifier_pruning_files"][k1][k2][v3["parameter"]] = f"{eval_data_dir}/EvaluateClassifier/{v3['name']}/performance_metrics.yaml"
 
   return common_config
 

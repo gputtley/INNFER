@@ -10,6 +10,7 @@ class GeneratorNuisanceVariations():
   def __init__(self):
 
     self.cfg = None
+    self.open_cfg = None
     self.nominal_sim_input = None
     self.up_sim_input = None
     self.down_sim_input = None
@@ -44,7 +45,10 @@ class GeneratorNuisanceVariations():
 
     if self.verbose:
       print("- Loading in config")
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Build data processors
     nominal_sim_dp = DataProcessor(
@@ -136,7 +140,10 @@ class GeneratorNuisanceVariations():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Loop through columns
     for col in cfg["variables"]:
