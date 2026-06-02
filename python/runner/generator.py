@@ -11,6 +11,7 @@ class Generator():
   def __init__(self):
 
     self.cfg = None
+    self.open_cfg = None
     self.data_input = None
     self.asimov_input = None
     self.plots_output = "plots/"
@@ -51,7 +52,10 @@ class Generator():
 
     if self.verbose:
       print("- Loading in config")
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
     
     sim_dps = {}
     synth_dps = {}
@@ -204,7 +208,10 @@ class Generator():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Loop through columns
     for col in cfg["variables"]:

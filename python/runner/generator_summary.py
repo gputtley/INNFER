@@ -9,6 +9,7 @@ class GeneratorSummary():
   def __init__(self):
 
     self.cfg = None
+    self.open_cfg = None
     self.val_loop = []
     self.data_input = []
     self.asimov_input = []
@@ -44,7 +45,10 @@ class GeneratorSummary():
 
     if self.verbose:
       print("- Loading in config")
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     val_loop = []
     for val_ind, val_info in enumerate(self.val_loop):
@@ -175,7 +179,10 @@ class GeneratorSummary():
     outputs = []
 
     # Load config
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Add the output files
     for col in cfg["variables"]:
