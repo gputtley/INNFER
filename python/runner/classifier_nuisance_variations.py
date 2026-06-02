@@ -18,6 +18,8 @@ class ClassifierNuisanceVariations():
     """
     # Default values - these will be set by the configure function
     self.cfg = None
+    self.file_name = None
+    self.open_cfg = None
     self.parameters = None
     self.nominal_files = None
     self.up_files = None
@@ -45,7 +47,10 @@ class ClassifierNuisanceVariations():
     Run the code utilising the worker classes
     """
     # Open the config file
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
 
     # Open parameters yaml file
     with open(self.parameters, 'r') as yaml_file:
@@ -275,7 +280,11 @@ class ClassifierNuisanceVariations():
     """
     outputs = []
 
-    cfg = LoadConfig(self.cfg)
+    if self.open_cfg is not None:
+      cfg = self.open_cfg
+    else:
+      cfg = LoadConfig(self.cfg)
+
     for variable in cfg["variables"]:
       outputs += [f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}.pdf"]
 
@@ -294,6 +303,10 @@ class ClassifierNuisanceVariations():
     inputs += list((np.array(self.nominal_files).flatten()))
     inputs += list((np.array(self.up_files).flatten()))
     inputs += list((np.array(self.down_files).flatten()))
+
+    # Need to add the model
+    classifier_model_name = f"{self.model_input}/{self.classifier_model['name']}{self.extra_classifier_model_name}/{self.file_name}"
+    inputs += [f"{classifier_model_name}_architecture.yaml", f"{classifier_model_name}.h5"]
 
     return inputs
 
