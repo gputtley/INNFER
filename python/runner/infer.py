@@ -93,6 +93,7 @@ class Infer():
     self.skip_initial_fit = False
     self.binned_from_predicted_bins = False
     self.binned_data_file = None
+    self.classifier_divide_by_nominal = False
 
 
   def Configure(self, options):
@@ -1208,6 +1209,7 @@ class Infer():
     lkld.no_print_minimisation_step = self.no_likelihood_print_out
     lkld.n_integral_events = self.n_integral_events
     lkld.integral_events_per_batch = int(os.getenv("EVENTS_PER_BATCH"))
+    lkld.classifier_divide_by_nominal = self.classifier_divide_by_nominal
 
     return lkld
   

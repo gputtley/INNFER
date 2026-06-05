@@ -295,6 +295,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "merge_binned_nuisances": ({key: value.split(",") for key, value in (v.split(":") for v in args.merge_binned_nuisances.split(";"))} if args.merge_binned_nuisances is not None else {}),
     "n_integral_events": args.number_of_integral_events,
     "binned_from_predicted_bins": binned_observed_from_predicted,
+    "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
   }
 
   common_config["classifier_pruning_files"] = {}

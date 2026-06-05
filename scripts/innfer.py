@@ -54,6 +54,8 @@ def parse_args():
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
+  parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
+  parser.add_argument('--classifier-divide-by-nominal', help='Divide the classifier by the nominal value', action='store_true')
   parser.add_argument('--collect-skip-diagonal', help='Do not load the diagonal HessianParallel files, used for numerical where they are not created', action='store_true')
   parser.add_argument('--compare-sim-types', help='Compare different simulation types in InputPlotValidation', action='store_true')
   parser.add_argument('--compare-constraints-and-impacts-input', help='Compare the constraints and impacts from this extra directory', type=str, default=None)
@@ -65,7 +67,6 @@ def parse_args():
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
-  parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
   parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
@@ -1057,6 +1058,7 @@ def main(args, default_args, module_options={}):
               "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
               "classifier_pruning_files" : {v["parameter"]: f"{eval_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category)},
               "skip_spline" : args.no_spline,
+              "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
@@ -1091,6 +1093,7 @@ def main(args, default_args, module_options={}):
                 "file_name" : file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
+                "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
@@ -1130,6 +1133,7 @@ def main(args, default_args, module_options={}):
                     "file_name" : file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
                     "skip_spline" : args.no_spline,
+                    "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                   },
                   loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
                 )
@@ -1157,6 +1161,7 @@ def main(args, default_args, module_options={}):
           "file_name" : model_info['file_name'],
           "model_input" : f"{models_dir}",
           "skip_spline" : args.no_spline,
+          "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
         },
         loop = {"model_name" : model_info['name']},
       )
@@ -1566,6 +1571,7 @@ def main(args, default_args, module_options={}):
               "data_output" : f"{eval_data_dir}/ClassifierNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "nuisance" : nuisance,
               "extra_plot_name" : args.extra_plot_name,
+              "divide_by_nominal" : args.classifier_divide_by_nominal,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
