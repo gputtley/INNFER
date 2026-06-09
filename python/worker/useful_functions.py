@@ -258,9 +258,9 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     regression_models[category] = {}
     classifier_models[category] = {}
     for model_file in model_files:
-      density_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_density=True, specific_category=category)[0]
-      regression_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_regression=True, specific_category=category)
-      classifier_models[category][model_file] = GetModelLoop(cfg, model_file_name=model_file, only_classification=True, specific_category=category)
+      density_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_density=True, specific_category=category)[0]
+      regression_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_regression=True, specific_category=category)
+      classifier_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_classification=True, specific_category=category)
 
   common_config = {
     "density_models": density_models,
@@ -295,6 +295,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "merge_binned_nuisances": ({key: value.split(",") for key, value in (v.split(":") for v in args.merge_binned_nuisances.split(";"))} if args.merge_binned_nuisances is not None else {}),
     "n_integral_events": args.number_of_integral_events,
     "binned_from_predicted_bins": binned_observed_from_predicted,
+    "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -789,25 +790,31 @@ def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
     return partial(GetBinValueParallelised, func_entry=yield_funcs, col=col)
 
 
-def GetModelFileLoop(cfg, with_combined=False):
+def GetModelFileLoop(cfg, with_combined=False, specific_file_name=None):
   model_files = list(cfg["models"].keys())
   if with_combined and len(model_files) > 1: 
     model_files += ["combined"]
-  return model_files
+
+  if specific_file_name is not None:
+    return [i for i in model_files if i in specific_file_name]
+  else:
+    return model_files
 
 
-def GetModelLoop(cfg, only_density=False, only_regression=False, only_classification=False, model_file_name=None, specific_category=None):
+def GetModelLoop(cfg, only_density=False, only_regression=False, only_classification=False, specific_file_name=None, specific_category=None):
 
   data_dir = str(os.getenv("PREP_DATA_DIR"))
 
   if isinstance(specific_category, str):
     specific_category = [specific_category]
+  if isinstance(specific_file_name, str):
+    specific_file_name = [specific_file_name]
 
   models = []
   for k, v in cfg["models"].items():
 
-    if model_file_name is not None:
-      if model_file_name != k:
+    if specific_file_name is not None:
+      if k not in specific_file_name:
         continue
 
     split_inds = {}

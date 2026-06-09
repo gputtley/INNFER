@@ -31,6 +31,7 @@ class ClassifierNuisanceVariations():
     self.model_input = None
     self.extra_classifier_model_name = None
     self.extra_plot_name = ""
+    self.divide_by_nominal = False
 
   def Configure(self, options):
     """
@@ -84,10 +85,18 @@ class ClassifierNuisanceVariations():
     )
 
     # Make classifier application files
-    def apply_classifier(df, func, X_columns, add_columns={}):
+    def apply_classifier(df, func, X_columns, add_columns={}, divide_by_nominal=False, nominal_columns={}):
       for k,v in add_columns.items(): df.loc[:,k] = v
-      probs = func(df.loc[:,X_columns])
-      df["wt_shifted"] = df["wt"] * probs[:,1]/probs[:,0]
+      probs = func(df.loc[:,X_columns])[:,1]
+
+      df["wt_shifted"] = df["wt"] * probs/(1-probs)
+
+      if divide_by_nominal:
+        copy_df = df.copy()
+        for k,v in nominal_columns.items(): copy_df.loc[:,k] = v
+        nominal_probs = func(copy_df.loc[:,X_columns])[:,1]
+        df["wt_shifted"] = df["wt_shifted"] / (nominal_probs/(1-nominal_probs))
+
       return df.loc[:,["wt_shifted"]]
     
     if self.verbose:
@@ -102,7 +111,9 @@ class ClassifierNuisanceVariations():
           apply_classifier,
           func = network.Predict,
           X_columns = parameters['classifier'][self.classifier_model['parameter']]["X_columns"],
-          add_columns = {self.classifier_model['parameter']: 1.0}
+          add_columns = {self.classifier_model['parameter']: 1.0},
+          divide_by_nominal = self.divide_by_nominal,
+          nominal_columns = {self.classifier_model['parameter']: 0.0}
         ),
         wp
       ]

@@ -46,6 +46,7 @@ class MakeAsimov():
     self.classifier_pruning_files = {}
     self.verbose = True
     self.skip_spline = False
+    self.classifier_divide_by_nominal = False
 
 
   def Configure(self, options):
@@ -296,13 +297,21 @@ class MakeAsimov():
           spl = None
 
 
-        def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None):
+        def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None, divide_by_nominal=False, nominal_columns={}):
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
           probs = func(df.loc[:,X_columns])
           df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
+
+          if divide_by_nominal:
+            copy_df = df.copy()
+            for k,v in nominal_columns.items(): copy_df.loc[:,k] = v
+            nominal_probs = func(copy_df.loc[:,X_columns])[:,1]/func(copy_df.loc[:,X_columns])[:,0]
+            df["wt"] = df["wt"] / (nominal_probs)
+
           if spl is not None:
             df["wt"] = df["wt"] * spl(df.loc[:,parameter]).flatten()
+
           return df.loc[:,cols_in]
 
         wt_shifter_name = f"asimov_wt_shifter_classifier_{classifier_model['parameter']}"
@@ -317,7 +326,9 @@ class MakeAsimov():
               X_columns=parameters['classifier'][classifier_model['parameter']]["X_columns"],
               add_columns={classifier_model['parameter']: model_parameters[classifier_model['parameter']]},
               spl = spl,
-              parameter = classifier_model['parameter']
+              parameter = classifier_model['parameter'],
+              divide_by_nominal = self.classifier_divide_by_nominal,
+              nominal_columns = {classifier_model['parameter']: 0.0}
             ),
             wp
           ]

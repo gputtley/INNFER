@@ -1,5 +1,7 @@
 import copy
 import importlib
+import json
+import hashlib
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
@@ -18,6 +20,10 @@ from scipy.optimize import minimize, root_scalar
 
 from minimise import Minimise as CustomMinimise
 from useful_functions import MakeDirectories, RandomString
+
+import warnings
+from pandas.errors import PerformanceWarning
+warnings.filterwarnings("ignore", category=PerformanceWarning)
 
 class Likelihood():
   """
@@ -51,6 +57,7 @@ class Likelihood():
     self.constraint_range=[-3.0,3.0]
     self.cap_column_print = True
     self.no_print_minimisation_step = False
+    self.classifier_divide_by_nominal = False
 
     # saved parameters
     self.best_fit = None
@@ -309,6 +316,10 @@ class Likelihood():
     return ln_constraint
 
 
+  def _dict_code(self, d, length=10):
+    s = json.dumps(d, sort_keys=True, separators=(",", ":"))
+    return hashlib.blake2s(s.encode()).hexdigest()[:length]
+
   def _CreateCacheDict(self, name, model, Y, gradient, category, column_1=None, column_2=None, model_type="density", extra_options={}, parameter_name=None, extra_save_name="", Y_columns_per_model=None):
 
 
@@ -318,13 +329,14 @@ class Likelihood():
       else:
         Y_columns_per_model = [parameter_name] if parameter_name is not None else self.Y_columns # Temporary?
 
+    Y_dict = Y.loc[:, Y_columns_per_model].to_dict()
 
     cache_dict = {
       "name": name,
-      "Y": Y.loc[:, Y_columns_per_model].to_dict(),
+      "Y": Y_dict,
       "gradient": gradient,
       "category": category,
-      "cache_file_name": f"{self.cache_dir}/{self.cache_name}_log_probs_{name}_{model_type}_{category}_{int(self.cached_log_probs_ind)}_{int(self.cached_log_probs_batch_ind)}{extra_save_name}",
+      "cache_file_name": f"{self.cache_dir}/{self.cache_name}_{self._dict_code(Y_dict)}_log_probs_{name}_{model_type}_{category}_{int(self.cached_log_probs_ind)}_{int(self.cached_log_probs_batch_ind)}{extra_save_name}",
       "log_probs_ind": int(self.cached_log_probs_ind),
       "log_probs_batch_ind": int(self.cached_log_probs_batch_ind),
       "model_type": model_type,
@@ -477,19 +489,19 @@ class Likelihood():
 
     # Enforce cache length limit
     if len(cache_list) > self.n_caches:
-        cache_to_remove = cache_list.pop(0)
-        for grad in cache_to_remove["gradient"]:
-          if not self.save_cache_to_memory:
-            try:
-              os.remove(f"{cache_to_remove['cache_file_name']}_grad{grad}.parquet")
-            except FileNotFoundError:
-              pass
-          else:
-            try:
-              del self.cache_memory[f"{cache_to_remove['cache_file_name']}_grad{grad}"]
-            except KeyError:
-              print(f"Failed to remove {cache_to_remove['cache_file_name']}")
-              pass
+      cache_to_remove = cache_list.pop(0)
+      for grad in cache_to_remove["gradient"]:
+        if not self.save_cache_to_memory:
+          try:
+            os.remove(f"{cache_to_remove['cache_file_name']}_grad{grad}.parquet")
+          except FileNotFoundError:
+            pass
+        else:
+          try:
+            del self.cache_memory[f"{cache_to_remove['cache_file_name']}_grad{grad}"]
+          except KeyError:
+            print(f"Failed to remove {cache_to_remove['cache_file_name']}")
+            pass
 
 
   def _LoadFromCache(self, cache_dict, gradient, model_type="density"):
@@ -687,6 +699,8 @@ class Likelihood():
 
         if do_shift:
 
+          st = time.time()
+
           # See if can load cached results from all classifier shifts
           classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys()) if "pdf_shifts_with_classifier" in self.models.keys() else []
           cache_dict_total_classifier = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_classifier", Y_columns_per_model=classifier_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
@@ -699,14 +713,29 @@ class Likelihood():
             for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
               cache_dict_classifiers[k] = self._CreateCacheDict(name, v, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
               load_from_cache_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_classifiers[k], model_type="classifier")
+            cache_dict_nominal_classifiers = {}
+            load_from_cache_nominal_classifiers = {}
+            if self.classifier_divide_by_nominal:
+              for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+                Y_nom = Y.copy()
+                Y_nom.loc[0, k] = 0.0
+                cache_dict_nominal_classifiers[k] = self._CreateCacheDict(name, v, Y_nom, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
+                load_from_cache_nominal_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifiers[k], model_type="classifier")
+
 
             # if all of load from cache is true, skip combining
-            if not all(load_from_cache_classifiers.values()):
+            if not all(list(load_from_cache_classifiers.values())):
               vals = Y[self.Y_columns].iloc[0].to_dict()
               combined = X[self.X_columns].assign(**vals)
               combined_columns = combined.columns.tolist()
               combined = combined.to_numpy(copy=False)
-      
+            if self.classifier_divide_by_nominal:
+              if not all(load_from_cache_nominal_classifiers.values()):
+                zerod_vals = {k: 0.0  for k in vals.keys()}
+                combined_nominal = X[self.X_columns].assign(**zerod_vals)
+                combined_nominal_columns = combined_nominal.columns.tolist()
+                combined_nominal = combined_nominal.to_numpy(copy=False)
+
             # Loop through classifier models
             total_classifier_shifts = None
             for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
@@ -734,12 +763,40 @@ class Likelihood():
               else:
                 classifier_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="classifier")
 
+              self._WriteCache(classifier_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="classifier")
+
+
+              # Do division by nominal if required
+              if self.classifier_divide_by_nominal:
+                
+                cache_dict_nominal_classifier = cache_dict_nominal_classifiers[k]
+                load_from_cache_nominal_classifier = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifier, model_type="classifier")
+
+                if not load_from_cache_nominal_classifier:
+                  nominal_classifier = self._ShiftDensityByClassifier(
+                    [np.zeros_like(i) for i in log_probs[name]],
+                    combined_nominal,
+                    name,
+                    k,
+                    v,
+                    gradient=gradient, 
+                    column_1=column_1, 
+                    column_2=column_2,
+                    category=category,
+                    skip_spline = integrate_density,
+                    combined_columns=combined_nominal_columns,        
+                  )
+                else:
+                  nominal_classifier = self._LoadFromCache(cache_dict_nominal_classifier, gradient, model_type="classifier")
+
+                self._WriteCache(nominal_classifier, gradient, cache_dict_nominal_classifier, load_from_cache_nominal_classifier, pdf, model_type="classifier")
+
+                classifier_shift = [classifier_shift[i] - nominal_classifier[i] for i in range(len(gradient))]
+
               if total_classifier_shifts is None:
                 total_classifier_shifts = classifier_shift
               else:
                 total_classifier_shifts = [total_classifier_shifts[i] + classifier_shift[i] for i in range(len(gradient))]
-
-              self._WriteCache(classifier_shift, gradient, cache_dict_classifier, load_from_cache_classifier, pdf, model_type="classifier")
 
           else:
 
@@ -1498,7 +1555,7 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 93:
+    #if self.minimisation_step == 17:
     #  exit()
 
     return lkld_val
@@ -1649,7 +1706,6 @@ class Likelihood():
     ln_lkld = []
     for grad in gradient:
       if grad == 0:
-        print(self.data_yield[category], preds[0])
         ln_lkld += [self.data_yield[category]*np.log(preds[0]) - preds[0]]
       elif grad == 1:
         ln_lkld += [self.data_yield[category]*preds[1]/preds[0] - preds[1]]
