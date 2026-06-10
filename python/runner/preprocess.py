@@ -489,13 +489,13 @@ class PreProcess():
 
     # get base files
     model_base_files = []
-    for density_model in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+    for density_model in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
       value = cfg["models"][file_name]["density_models"][density_model["loop_index"]]
       model_base_files.append(value["file"])
-    for regression_model in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+    for regression_model in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
       value = cfg["models"][file_name]["regression_models"][regression_model["loop_index"]]
       model_base_files.append(value["file"])
-    for classifier_model in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+    for classifier_model in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
       value = cfg["models"][file_name]["classifier_models"][classifier_model["loop_index"]]
       model_base_files.append(value["file"])
     model_base_files = sorted(list(set(model_base_files)))
@@ -742,7 +742,7 @@ class PreProcess():
       for k in ["X","Y","wt","Extra"]:
 
         if self.model_type is None or self.model_type == "density_models":
-          for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
             value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
             if not split_density_model:
               outfile = f"{self.data_output}/density/{k}_{data_split}.parquet"
@@ -753,7 +753,7 @@ class PreProcess():
 
         if self.model_type is None or self.model_type == "regression_models":
           for k in ["X","y","wt","Extra"]:
-            for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
               value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outfile = f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"
@@ -762,7 +762,7 @@ class PreProcess():
 
         if self.model_type is None or self.model_type == "classifier_models":
           for k in ["X","y","wt","Extra"]:
-            for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
               value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outfile = f"{self.data_output}/classifier/{value['parameter']}/{k}_{data_split}.parquet"
@@ -777,7 +777,7 @@ class PreProcess():
 
       # Do density models
       if self.model_type is None or self.model_type == "density_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
           if self.verbose:
             print(f" - Processing density model variation for {file_name}, split: {data_split}, model index: {loop_value['loop_index']}")
           value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
@@ -794,7 +794,7 @@ class PreProcess():
 
       # Do regression models
       if self.model_type is None or self.model_type == "regression_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
             if self.verbose:
@@ -810,7 +810,7 @@ class PreProcess():
 
       # Do classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
             if self.verbose:
@@ -861,7 +861,7 @@ class PreProcess():
 
       # Do density models
       if self.model_type is None or self.model_type == "density_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
           value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
           value_copy = copy.deepcopy(value)
           for k, v in defaults.items():
@@ -874,7 +874,7 @@ class PreProcess():
 
       # Do regression models
       if self.model_type is None or self.model_type == "regression_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
             value_copy = copy.deepcopy(value)
@@ -885,7 +885,7 @@ class PreProcess():
 
       # Do classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           if self.parameter_name is None or self.parameter_name == value["parameter"]:
             value_copy = copy.deepcopy(value)
@@ -1400,7 +1400,7 @@ class PreProcess():
         sp = GetDictionaryEntry(cfg["preprocess"], ["standardisation",self.file_name,self.category,"density"])
         if sp is None:
           split_density_files = []
-          for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
             value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
             if loop_value["split"] not in split_density_files:
               split_density_files.append(value["split"])
@@ -1425,7 +1425,7 @@ class PreProcess():
         # Get Y standardisation parameters
         for col in GetParametersInModel(file_name, cfg, only_density=True, category=self.category):
           density_files = []
-          for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
             value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
             ind = loop_value["split"]
             if col in value["parameters"]:
@@ -1458,7 +1458,7 @@ class PreProcess():
     # regression models
     if self.model_type is None or self.model_type == "regression_models":
       standardisation_parameters["regression"] = {}
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+      for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
         value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
         name = value["parameter"]
         if self.parameter_name is None or self.parameter_name == name:
@@ -1494,7 +1494,7 @@ class PreProcess():
     # classifier models
     if self.model_type is None or self.model_type == "classifier_models":
       standardisation_parameters["classifier"] = {}
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+      for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
         value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
         name = value["parameter"]
         if self.parameter_name is None or self.parameter_name == name:
@@ -1540,7 +1540,7 @@ class PreProcess():
         # Check if we need to split density models
         split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
 
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
           value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
           if not split_density_model:
             extra_dir = "density"
@@ -1577,7 +1577,7 @@ class PreProcess():
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
 
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           name = value["parameter"]
 
@@ -1611,7 +1611,7 @@ class PreProcess():
       # classifier models
       if self.model_type is None or self.model_type == "classifier_models":
 
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -1651,7 +1651,7 @@ class PreProcess():
       density_loop = ["density"]
     else:
       split_density_inds = []
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+      for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
         value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
         split_density_inds.append(value["split"])
       density_loop = [f"density/split_{ind}" for ind in split_density_inds]
@@ -1667,7 +1667,7 @@ class PreProcess():
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -1677,7 +1677,7 @@ class PreProcess():
 
       # classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -1857,7 +1857,7 @@ class PreProcess():
       parameters_file["density"]["standardisation"] = standardisation["density"]
     parameters_file["density"]["X_columns"] = cfg["variables"]
     parameters_in_density_model = []
-    for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+    for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
       v = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
       parameters_in_density_model = sorted(list(set(parameters_in_density_model + v["parameters"])))
     parameters_file["density"]["Y_columns"] = parameters_in_density_model
@@ -1865,12 +1865,12 @@ class PreProcess():
     # check if we need to split density models
     if GetSplitDensityModel(cfg, file_name, category=self.category):
       parameters_file["density"]["split_Y_columns"] = []
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+      for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
         v = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
         parameters_file["density"]["split_Y_columns"].append(v["parameters"])
       parameters_file["density"]["split_Y_columns"] = sorted(list(set(parameters_file["density"]["split_Y_columns"])))
 
-    for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+    for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
       v = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
       name = v["parameter"]
       parameters_file["regression"][name] = {}
@@ -1881,7 +1881,7 @@ class PreProcess():
       parameters_file["regression"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
       parameters_file["regression"][name]["y_columns"] = ["wt_shift"]
 
-    for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+    for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
       v = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
       name = v["parameter"]
       parameters_file["classifier"][name] = {}
@@ -1940,14 +1940,14 @@ class PreProcess():
           load_files.append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
           edit_files.append(f"density/wt_{data_split}.parquet")
         else:
-          for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
             ind = loop_value["split"]
             load_files.append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
             edit_files.append(f"density/split_{ind}/wt_{data_split}.parquet")
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -1956,7 +1956,7 @@ class PreProcess():
 
       # classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -2015,14 +2015,14 @@ class PreProcess():
           load_files[data_split].append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
           edit_files[data_split].append(f"density/wt_{data_split}.parquet")
         else:
-          for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=self.category):
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
             ind = loop_value["split"]
             load_files[data_split].append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
             edit_files[data_split].append(f"density/split_{ind}/wt_{data_split}.parquet")
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=self.category):
           value = cfg["models"][file_name]["regression_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -2031,7 +2031,7 @@ class PreProcess():
 
       # classifier models
       if self.model_type is None or self.model_type == "classifier_models":
-        for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
           value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
           name = value["parameter"]
           if self.parameter_name is None or self.parameter_name == name:
@@ -2105,7 +2105,7 @@ class PreProcess():
 
     if self.model_type is None or self.model_type == "classifier_models":
 
-      for loop_value in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=self.category):
+      for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=self.category):
         value = cfg["models"][file_name]["classifier_models"][loop_value["loop_index"]]
 
         if self.parameter_name is None or self.parameter_name == value["parameter"]:
@@ -2636,7 +2636,7 @@ class PreProcess():
         # Add regression files
         if self.model_type is None or self.model_type == "regression_models":
           for k in regression_loop:
-            for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_regression=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, specific_file_name=self.file_name, only_regression=True, specific_category=self.category):
               value = cfg["models"][self.file_name]["regression_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outputs += [f"{self.data_output}/regression/{value['parameter']}/{k}_{data_split}.parquet"]
@@ -2644,7 +2644,7 @@ class PreProcess():
         # Add classifier files
         if self.model_type is None or self.model_type == "classifier_models":
           for k in classifier_loop:
-            for loop_value in GetModelLoop(cfg, model_file_name=self.file_name, only_classification=True, specific_category=self.category):
+            for loop_value in GetModelLoop(cfg, specific_file_name=self.file_name, only_classification=True, specific_category=self.category):
               value = cfg["models"][self.file_name]["classifier_models"][loop_value["loop_index"]]
               if self.parameter_name is None or self.parameter_name == value["parameter"]:
                 outputs += [f"{self.data_output}/classifier/{value['parameter']}/{k}_{data_split}.parquet"]

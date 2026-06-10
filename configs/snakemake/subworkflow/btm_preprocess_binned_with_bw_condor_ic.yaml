@@ -99,3 +99,11 @@
     points_per_job: 2
     sim_type: "full"
     ratio_range: "0.9,1.1"
+
+- step: InputPlotNuisanceVariations
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    points_per_job: 2
+    sim_type: "full"
+    ratio_range: "0.9,1.1"
+    likelihood_type: "binned"
