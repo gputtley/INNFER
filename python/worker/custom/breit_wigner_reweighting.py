@@ -39,9 +39,22 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
 
   # Loop through mass_from values
   spl = {}
+  yaml_dir = os.path.dirname(os.path.abspath(spline_locations))
+
   for k, v in splines.items():
 
-    # Check if spline file exists
+    if not os.path.isabs(v) and not os.path.isfile(v):
+      root = yaml_dir
+      while True:
+        candidate = os.path.join(root, v)
+        if os.path.isfile(candidate):
+          v = candidate
+          break
+        parent = os.path.dirname(root)
+        if parent == root:
+          break
+        root = parent
+
     if not os.path.isfile(v):
       raise FileNotFoundError(f"Spline file not found: {v}")
     
