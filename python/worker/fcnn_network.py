@@ -252,27 +252,18 @@ class FCNNNetwork():
       weighted_loss = tf.reduce_sum(per_sample_loss * wt_data) / tf.reduce_sum(wt_data)
       return weighted_loss
 
-<<<<<<< HEAD
-
-  def loss(self, predictions, y_data, wt_data=None, training=True):
-=======
   def loss(self, predictions, y_data, wt_data=None, training=True):
 
     #reg_loss = tf.add_n(self.model.losses) if self.model.losses and training else 0.0
     reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
->>>>>>> origin
 
-      reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
-
-      if self.task == "regression":
-          base_loss = self._MSE(predictions, y_data, wt_data)
-      elif self.task == "classification":
-          base_loss = self._CrossEntropy(predictions, y_data, wt_data)
-      else:
-          raise ValueError(f"Unknown task: {self.task}")
-
-      return base_loss + reg_loss if training else base_loss
-    
+    if self.task == "regression":
+      return self._MSE(predictions, y_data, wt_data) + reg_loss
+    elif self.task == "classification":
+      return self._CrossEntropy(predictions, y_data, wt_data) + reg_loss
+    else:
+      raise ValueError("Unknown task")
+  
 
   def BuildModel(self):
 
@@ -321,11 +312,7 @@ class FCNNNetwork():
   @tf.function
   def _train_step(self, X_data, y_data, wt_data):
 
-<<<<<<< HEAD
-    with tf.GradientTape() as tape:  
-=======
     with tf.GradientTape() as tape:
->>>>>>> origin
       predictions = self.model(X_data, training=True)  # Forward pass
       loss = self.loss(predictions, y_data, wt_data, training=True)  # Compute loss
     

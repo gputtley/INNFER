@@ -49,7 +49,6 @@ def plot_histograms(
     legend_right=False,  # New option to move legend to the right
     y_lim = None,
     spline_hists = False,
-    save_png=False
 ):
   """
   Plot histograms with optional error bars and an optional right-side legend.
@@ -156,9 +155,8 @@ def plot_histograms(
   MakeDirectories(name+".pdf")
   plt.savefig(f"{name}.pdf")
   print(f"Created {name}.pdf")
-  if save_png:
-    plt.savefig(f"{name}.png")
-    print(f"Created {name}.png")
+  plt.savefig(f"{name}.png")
+  print(f"Created {name}.png")
   plt.close()
 
 
@@ -355,6 +353,8 @@ def plot_histograms_with_ratio(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  plt.savefig(name+".png")
+  print("Created "+name+".png")
   plt.close()
 
 def plot_likelihood(
@@ -553,6 +553,8 @@ def plot_likelihood(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig("{}.pdf".format(name))
+  plt.savefig("{}.png".format(name))
+  print("Created "+name+".png")
   plt.close()
 
 
@@ -630,6 +632,8 @@ def plot_many_comparisons(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  print("Created "+name+".png")
+  plt.savefig(name+".png")
   plt.close()
 
 
@@ -688,6 +692,8 @@ def plot_spline_and_thresholds(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  print("Created "+name+".png")
+  plt.savefig(name+".png")
   plt.close()
 
 def plot_stacked_histogram_with_ratio(
@@ -901,6 +907,8 @@ def plot_stacked_histogram_with_ratio(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  print("Created "+name+".png")
+  plt.savefig(name+".png")
   plt.close()
 
 def plot_stacked_unrolled_2d_histogram_with_ratio(
@@ -1165,6 +1173,8 @@ def plot_stacked_unrolled_2d_histogram_with_ratio(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf", bbox_inches='tight')
+  print("Created "+name+".png")
+  plt.savefig(name+".png", bbox_inches='tight')
   plt.close()
 
 
@@ -1325,6 +1335,8 @@ def plot_unrolled_2d_histogram(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf", bbox_inches='tight')
+  print("Created "+name+".png")
+  plt.savefig(name+".png", bbox_inches='tight')
   plt.close()
 
 
@@ -1560,6 +1572,8 @@ def plot_summary(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf")
+  print("Created "+name+".png")
+  plt.savefig(name+".png")
   plt.close()
 
 
@@ -1795,6 +1809,8 @@ def plot_summary_per_val(
   print("Created "+plot_name+".pdf")
   MakeDirectories(plot_name+".pdf")
   plt.savefig(plot_name+".pdf")
+  print("Created "+plot_name+".png")
+  plt.savefig(plot_name+".png")
   plt.close()
 
 
@@ -1976,6 +1992,8 @@ def plot_learned_nuisance_variations(
   print("Created "+output_name+".pdf")
   MakeDirectories(output_name+".pdf")
   plt.savefig(output_name+".pdf", bbox_inches='tight')
+  print("Created "+output_name+".png")
+  plt.savefig(output_name+".png", bbox_inches='tight')
   plt.close()
 
 
@@ -2119,8 +2137,10 @@ def plot_pulls_and_impacts(
   # Save figure
   MakeDirectories(output_name+".pdf")
   plt.savefig(output_name+".pdf")  
+  plt.savefig(output_name+".png")
   plt.close()
   print("Created "+output_name+".pdf")
+  print("Created "+output_name+".png")
 
 
 def plot_correlation_matrix(
@@ -2163,8 +2183,10 @@ def plot_correlation_matrix(
 
   MakeDirectories(output_name+".pdf")
   plt.savefig(output_name+".pdf", bbox_inches='tight')
+  plt.savefig(output_name+".png", bbox_inches='tight')
   plt.close()
   print("Created "+output_name+".pdf")
+  print("Created "+output_name+".png")
 
 
 def plot_barred_comparison(
@@ -2213,6 +2235,8 @@ def plot_barred_comparison(
   print("Created "+name+".pdf")
   MakeDirectories(name+".pdf")
   plt.savefig(name+".pdf", bbox_inches='tight')
+  print("Created "+name+".png")
+  plt.savefig(name+".png", bbox_inches='tight')
   plt.close()
 
 
@@ -2360,6 +2384,8 @@ def plot_factorisation_results(
   print(f"Created {name}.pdf")
   MakeDirectories(f"{name}.pdf")
   plt.savefig(f"{name}.pdf")
+  print(f"Created {name}.png")
+  plt.savefig(f"{name}.png")
   plt.close()
 
 
@@ -2507,4 +2533,6 @@ def plot_classsifier_nuisance_variations(
   print("Created "+output_name+".pdf")
   MakeDirectories(output_name+".pdf")
   plt.savefig(output_name+".pdf", bbox_inches='tight')
+  print("Created "+output_name+".png")
+  plt.savefig(output_name+".png", bbox_inches='tight')
   plt.close()

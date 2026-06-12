@@ -105,7 +105,6 @@ class Flow():
         [None],
         name = f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_cl0{self.extra_plot_name}",
         y_label = "Density",
-        save_png=True,
         y_lim = (0, y_max),
         title_right = "Coupling Layer 0",
         x_label = f'Standardised {column_name}'
@@ -121,7 +120,6 @@ class Flow():
           [None],
           name = f"{self.plots_output}/flow_{parameters['density']['X_columns'][col]}_cl{ind+1}{self.extra_plot_name}",
           y_label = "Density",
-          save_png=True,
           y_lim = (0, y_max),
           title_right = f"Coupling Layer {ind+1}",
           x_label = f'Standardised {column_name}'

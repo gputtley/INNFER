@@ -54,6 +54,8 @@ def parse_args():
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
+  parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
+  parser.add_argument('--classifier-divide-by-nominal', help='Divide the classifier by the nominal value', action='store_true')
   parser.add_argument('--collect-skip-diagonal', help='Do not load the diagonal HessianParallel files, used for numerical where they are not created', action='store_true')
   parser.add_argument('--compare-sim-types', help='Compare different simulation types in InputPlotValidation', action='store_true')
   parser.add_argument('--compare-constraints-and-impacts-input', help='Compare the constraints and impacts from this extra directory', type=str, default=None)
@@ -65,7 +67,6 @@ def parse_args():
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
-  parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt,wasserstein,kmeans')
   parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
@@ -157,6 +158,7 @@ def parse_args():
   parser.add_argument('--snakemake-use-file', help='Use already created snakemake file', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated list.', type=str, default=None)
+  parser.add_argument('--specific-file-name', help='Run for only a subset of files, comma separated list.', type=str, default=None)
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
@@ -188,6 +190,12 @@ def main(args, default_args, module_options={}):
   if args.extra_dir_name != "":
     args.extra_input_dir_name = args.extra_dir_name
     args.extra_output_dir_name = args.extra_dir_name
+
+
+  # Define useful variables
+  specific_category_list = args.specific_category.split(",") if args.specific_category is not None else None
+  specific_file_name_list = args.specific_file_name.split(",") if args.specific_file_name is not None else None
+
 
   # Initiate module class
   module = Module(
@@ -245,8 +253,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset
   if args.step == "PreProcess":
     print("<< Preprocessing datasets for training, testing and validation >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
@@ -269,8 +277,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial
   if args.step == "PreProcessParallelInitial":
     print("<< Running initial split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
@@ -294,8 +302,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial - yields nominal
   if args.step == "PreProcessParallelYieldsNominal":
     print("<< Running yields nominal split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
@@ -324,10 +332,10 @@ def main(args, default_args, module_options={}):
       module_name = "sim_to_data_factors",
       class_name = "SimToDataFactors",
       config = {
-        "parameters_input" : {c: [f"{prep_data_dir}/PreProcess/{f}/{c}/parameters_yields_nominal.yaml" for f in GetModelFileLoop(cfg)] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-        "data_input" : {c: [f"{prep_data_dir}/DataCategories/{c}/data.parquet"] for c in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-        "groups" : [group.split(",") for group in args.sim_to_data_norm_groups.split(";") if args.specific_category is None or group in args.specific_category.split(",")],
-        "processes" : args.sim_to_data_norm_processes.split(",") if args.sim_to_data_norm_processes != "all" else GetModelFileLoop(cfg),
+        "parameters_input" : {c: [f"{prep_data_dir}/PreProcess/{f}/{c}/parameters_yields_nominal.yaml" for f in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list)] for c in GetCategoryLoop(cfg, specific_category=specific_category_list)},
+        "data_input" : {c: [f"{prep_data_dir}/DataCategories/{c}/data.parquet"] for c in GetCategoryLoop(cfg, specific_category=specific_category_list)},
+        "groups" : [group.split(",") for group in args.sim_to_data_norm_groups.split(";") if specific_category_list is None or group in specific_category_list],
+        "processes" : args.sim_to_data_norm_processes.split(",") if args.sim_to_data_norm_processes != "all" else GetModelFileLoop(cfg, specific_file_name=specific_file_name_list),
         "data_output" : f"{prep_data_dir}/SimToDataFactors{args.extra_output_dir_name}/normalisation_factors",
         "verbose" : not args.quiet,
       },
@@ -337,8 +345,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial - yields parameters
   if args.step == "PreProcessParallelYieldsParameters":
     print("<< Running yields parameters split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for parameter_name in [p for p in GetParametersInModel(file_name, cfg, category=category) if p in cfg["nuisances"]]:
           module.Run(
             module_name = "preprocess",
@@ -364,8 +372,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial - yields collect
   if args.step == "PreProcessParallelYieldsCollect":
     print("<< Running yields collect split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
@@ -390,8 +398,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial - binned fit inputs - nominal
   if args.step == "PreProcessParallelBinnedFitInputsNominal":
     print("<< Running binned fit inputs nominal split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for poi_value_ind, poi_value in enumerate(cfg["inference"]["binned_fit"]["shape_poi_values"] if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in GetParametersInModel(file_name, cfg, category=category)) else ["all"]):
           module.Run(
             module_name = "preprocess",
@@ -419,8 +427,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - initial - binned fit inputs - nominal
   if args.step == "PreProcessParallelBinnedFitInputsParameters":
     print("<< Running binned fit inputs parameters split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for poi_value_ind, poi_value in enumerate(cfg["inference"]["binned_fit"]["shape_poi_values"] if not (len(cfg["pois"]) == 0 or cfg["pois"][0] not in GetParametersInModel(file_name, cfg, category=category)) else ["all"]):
           for parameter_name in [p for p in GetParametersInModel(file_name, cfg, category=category) if p in cfg["nuisances"]]:
             module.Run(
@@ -449,8 +457,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - train test val split
   if args.step == "PreProcessParallelTrainTestValSplit":
     print("<< Running train test val split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "preprocess",
           class_name = "PreProcess",
@@ -474,10 +482,10 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - model
   if args.step == "PreProcessParallelModel":
     print("<< Running model split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for model_type in [v for v in list(cfg["models"][file_name].keys()) if v != "yields"]:
-          for parameter_name in [value["parameter"] for value in GetModelLoop(cfg, model_file_name=file_name, specific_category=category, only_classification=(model_type=="classifier_models"), only_regression=(model_type=="regression_models"))] if model_type != "density_models" else [None]:
+          for parameter_name in [value["parameter"] for value in GetModelLoop(cfg, specific_file_name=file_name, specific_category=category, only_classification=(model_type=="classifier_models"), only_regression=(model_type=="regression_models"))] if model_type != "density_models" else [None]:
             module.Run(
               module_name = "preprocess",
               class_name = "PreProcess",
@@ -503,8 +511,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - validation
   if args.step == "PreProcessParallelValidation":
     print("<< Running validation split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for val_ind, _ in enumerate(GetValidationLoop(cfg, file_name)):
           module.Run(
             module_name = "preprocess",
@@ -530,8 +538,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - nuisance variations
   if args.step == "PreProcessParallelNuisanceVariations":
     print("<< Running nuisance variations split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
           for shift in ["up","down"]:
             module.Run(
@@ -558,8 +566,8 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - nuisance variations
   if args.step == "PreProcessParallelNuisanceDoubleVariations":
     print("<< Running nuisance double variations of preprocess >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for nuisance_1_ind, nuisance_1 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
           for nuisance_1_shift in ["up","down"]:
             for nuisance_2_ind, nuisance_2 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
@@ -590,12 +598,12 @@ def main(args, default_args, module_options={}):
   # PreProcess the dataset - Merge
   if args.step == "PreProcessParallelMerge":
     print("<< Running merge split of preprocess step >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         param_models_names = [
             f"model_type_{model_name}_{value['parameter']}" if model_name != "density_models" else f"model_type_{model_name}"
             for model_name in cfg["models"][file_name].keys() if model_name != "yields"
-            for value in (GetModelLoop(cfg, model_file_name=file_name, specific_category=category, only_classification=(model_name=="classifier_models"), only_regression=(model_name=="regression_models")) if model_name != "density_models" else [None])
+            for value in (GetModelLoop(cfg, specific_file_name=file_name, specific_category=category, only_classification=(model_name=="classifier_models"), only_regression=(model_name=="regression_models")) if model_name != "density_models" else [None])
         ]
         merge_steps = args.preprocess_merge.split(",")
         merge_parameters = []
@@ -630,13 +638,13 @@ def main(args, default_args, module_options={}):
 
   # Create a "toy" dataset from oversampling the validation data for 0
   if args.step == "ResampleValidationForData":
-    for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
       module.Run(
         module_name = "resample_validation_for_data",
         class_name = "ResampleValidationForData",
         config = {
           "data_output" : f"{prep_data_dir}/DataCategories/{category}/data.parquet",
-          "data_inputs" : {file_name : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{GetValidationDefaultIndex(cfg, file_name, category=category)}" for file_name in GetModelFileLoop(cfg)},
+          "data_inputs" : {file_name : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{GetValidationDefaultIndex(cfg, file_name, category=category)}" for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list)},
           "verbose" : not args.quiet,
         },
         loop = {"category" : category},
@@ -646,7 +654,7 @@ def main(args, default_args, module_options={}):
   # Make data categories
   if args.step == "DataCategories":
     print("<< Making data categories >>")
-    for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
       module.Run(
         module_name = "data_categories",
         class_name = "DataCategories",
@@ -673,7 +681,7 @@ def main(args, default_args, module_options={}):
       config = {
         "cfg" : args.cfg,
         "open_cfg" : cfg,
-        "parameters" : {category: {file_name: f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml" for file_name in GetModelFileLoop(cfg)} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
+        "parameters" : {category: {file_name: f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml" for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list)} for category in GetCategoryLoop(cfg, specific_category=specific_category_list)},
         "data_output" : f"{eval_data_dir}/ParametersToROOT/datacards.root",
         "verbose" : not args.quiet,
       },
@@ -698,7 +706,7 @@ def main(args, default_args, module_options={}):
   # Plot preprocessed training and testing data 
   if args.step == "InputPlotTraining":
     print("<< Plotting training and testing datasets >>")
-    for model_info in GetModelLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "input_plot_training",
         class_name = "InputPlotTraining",
@@ -722,8 +730,8 @@ def main(args, default_args, module_options={}):
   # Plot preprocessed validation data
   if args.step == "InputPlotValidation":
     print("<< Plotting validation datasets >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "input_plot_validation",
           class_name = "InputPlotValidation",
@@ -749,8 +757,8 @@ def main(args, default_args, module_options={}):
   # Plot the input nuisance variations
   if args.step == "InputPlotNuisanceVariations":
     print("<< Plotting input nuisance variations >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
           module.Run(
             module_name = "input_plot_nuisance_variations",
@@ -759,12 +767,14 @@ def main(args, default_args, module_options={}):
               "cfg" : args.cfg,
               "open_cfg" : cfg,
               "file_name" : file_name,
+              "category" : category,
               "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
               "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}",
               "plots_output" : f"{plots_dir}/InputPlotNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "nuisance" : nuisance,
               "sim_type" : args.sim_type,
               "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
+              "binned" : args.likelihood_type in ["binned", "binned_extended"],
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
@@ -774,7 +784,7 @@ def main(args, default_args, module_options={}):
   # Train density network
   if args.step == "TrainDensity":
     print("<< Training the density networks >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "train_density",
         class_name = "TrainDensity",
@@ -801,7 +811,7 @@ def main(args, default_args, module_options={}):
   # Evaluate density network
   if args.step == "EvaluateDensity":
     print("<< Generating samples on the train and test conditions >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "evaluate_density",
         class_name = "EvaluateDensity",
@@ -821,7 +831,7 @@ def main(args, default_args, module_options={}):
   # Plot the density network
   if args.step == "PlotDensity":
     print("<< Plotting the density distribution compared to train and test >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "plot_density",
         class_name = "PlotDensity",
@@ -841,7 +851,7 @@ def main(args, default_args, module_options={}):
   # Setup density from benchmark
   if args.step == "SetupDensityFromBenchmark":
     print("<< Setup density from benchmark >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "setup_density_from_benchmark",
         class_name = "SetupDensityFromBenchmark",
@@ -859,7 +869,7 @@ def main(args, default_args, module_options={}):
   # Train regression network
   if args.step == "TrainRegression":
     print("<< Training the regression networks >>")
-    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "train_regression",
         class_name = "TrainRegression",
@@ -886,7 +896,7 @@ def main(args, default_args, module_options={}):
   # Evaluate the regression models
   if args.step == "EvaluateRegression":
     print("<< Evaluating the regression networks >>")
-    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "evaluate_regression",
         class_name = "EvaluateRegression",
@@ -908,7 +918,7 @@ def main(args, default_args, module_options={}):
   # Plot the regression models
   if args.step == "PlotRegression":
     print("<< Plotting the regression distributions >>")
-    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_regression=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "plot_regression",
         class_name = "PlotRegression",
@@ -929,7 +939,7 @@ def main(args, default_args, module_options={}):
   # Train the classifier models
   if args.step == "TrainClassifier":
     print("<< Training the classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "train_classifier",
         class_name = "TrainClassifier",
@@ -956,7 +966,7 @@ def main(args, default_args, module_options={}):
   # Evaluate the classifier models
   if args.step == "EvaluateClassifier":
     print("<< Evaluating the classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "evaluate_classifier",
         class_name = "EvaluateClassifier",
@@ -979,7 +989,7 @@ def main(args, default_args, module_options={}):
   # Plot the classifier models
   if args.step == "PlotClassifier":
     print("<< Plotting the classifier distributions >>")
-    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "plot_classifier",
         class_name = "PlotClassifier",
@@ -1000,7 +1010,7 @@ def main(args, default_args, module_options={}):
   # Plot the classifier models
   if args.step == "ClassifierPerformanceMetrics":
     print("<< Getting the performance metrics of the trained classifier networks >>")  
-    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_classifier_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "classifier_performance_metrics",
@@ -1013,8 +1023,8 @@ def main(args, default_args, module_options={}):
               "file_loc": model_info["file_loc"],
               "file_type": model_info["type"],
               "model_input": f"{models_dir}",
-              "extra_model_dir": f"{model_info['name']}{args.extra_density_model_name}",
-              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+              "extra_model_dir": f"{model_info['name']}{args.extra_classifier_model_name}",
+              "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_classifier_model_name}",
               "do_loss": "loss" in args.classifier_performance_metrics,
               "do_histogram_metrics": "histogram" in args.classifier_performance_metrics,
               "do_multidimensional_dataset_metrics": "multidim" in args.classifier_performance_metrics,
@@ -1028,19 +1038,19 @@ def main(args, default_args, module_options={}):
   # Make the asimov datasets
   if args.step == "MakeAsimov":
     print(f"<< Making the asimov datasets >>")
-    for file_name in GetModelFileLoop(cfg):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.only_default_asimov, allow_non_combined=True): continue
-        for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           module.Run(
             module_name = "make_asimov",
             class_name = "MakeAsimov",
             config = {
               "cfg" : args.cfg,
-              "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
-              "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-              "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+              "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
+              "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
+              "classifier_models" : GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category),
               "model_input" : f"{models_dir}",
               "extra_density_model_name" : args.extra_density_model_name,
               "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1055,8 +1065,9 @@ def main(args, default_args, module_options={}):
               "file_name" : file_name,
               "use_asimov_scaling" : args.use_asimov_scaling,
               "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
-              "classifier_pruning_files" : {v["parameter"]: f"{eval_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category)},
+              "classifier_pruning_files" : {v["parameter"]: f"{eval_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category)},
               "skip_spline" : args.no_spline,
+              "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
@@ -1065,8 +1076,8 @@ def main(args, default_args, module_options={}):
   # Make asimov for nuisance variations
   if args.step == "MakeAsimovNuisanceVariations":
     print(f"<< Making the asimov datasets for nuisance variations >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
           for shift in ["up","down"]:
             module.Run(
@@ -1074,9 +1085,9 @@ def main(args, default_args, module_options={}):
               class_name = "MakeAsimov",
               config = {
                 "cfg" : args.cfg,
-                "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
-                "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-                "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+                "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
+                "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
+                "classifier_models" : GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category),
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1091,6 +1102,7 @@ def main(args, default_args, module_options={}):
                 "file_name" : file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
+                "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
@@ -1099,8 +1111,8 @@ def main(args, default_args, module_options={}):
   # Make the asimov datasets for the double nuisance variations
   if args.step == "MakeAsimovNuisanceDoubleVariations":
     print(f"<< Making the asimov datasets for double nuisance variations >>")
-    for file_name in GetModelFileLoop(cfg):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         nuisances = [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]
         for nuisance_1_ind, nuisance_1 in enumerate(nuisances):
           for nuisance_1_shift in ["up","down"]:
@@ -1113,9 +1125,9 @@ def main(args, default_args, module_options={}):
                   class_name = "MakeAsimov",
                   config = {
                     "cfg" : args.cfg,
-                    "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
-                    "regression_models" : GetModelLoop(cfg, model_file_name=file_name, only_regression=True, specific_category=category),
-                    "classifier_models" : GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category),
+                    "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
+                    "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
+                    "classifier_models" : GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category),
                     "model_input" : f"{models_dir}",
                     "extra_density_model_name" : args.extra_density_model_name,
                     "extra_regression_model_name" : args.extra_regression_model_name,
@@ -1130,6 +1142,7 @@ def main(args, default_args, module_options={}):
                     "file_name" : file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
                     "skip_spline" : args.no_spline,
+                    "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                   },
                   loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
                 )
@@ -1138,7 +1151,7 @@ def main(args, default_args, module_options={}):
   # Make the asimov datasets for classifier/regressor normalisation spline
   if args.step == "MakeAsimovForNormalisationSpline":
     print(f"<< Making the asimov datasets for classifier/regressor normalisation splines >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "make_asimov",
         class_name = "MakeAsimov",
@@ -1157,6 +1170,7 @@ def main(args, default_args, module_options={}):
           "file_name" : model_info['file_name'],
           "model_input" : f"{models_dir}",
           "skip_spline" : args.no_spline,
+          "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
         },
         loop = {"model_name" : model_info['name']},
       )
@@ -1165,7 +1179,7 @@ def main(args, default_args, module_options={}):
   # Make the normalisation spline for the classifier models
   if args.step == "NormalisationSplineClassifier":
     print("<< Building the normalisation spline for classifier networks >>")
-    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_classification=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "normalisation_spline_classifier",
         class_name = "NormalisationSplineClassifier",
@@ -1190,7 +1204,7 @@ def main(args, default_args, module_options={}):
   # Get performance metrics
   if args.step == "DensityPerformanceMetrics":
     print("<< Getting the performance metrics of the trained networks >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       for extra_name in [f"_epoch_{i}" for i in range(GetDictionaryEntryFromYaml(f"{models_dir}/{model_info['name']}{args.extra_density_model_name}/{model_info['file_name']}_architecture.yaml", ["epochs"])+1)] if args.loop_over_epochs else [""]:
         module.Run(
           module_name = "density_performance_metrics",
@@ -1226,7 +1240,7 @@ def main(args, default_args, module_options={}):
   # Plot performance metrics per epoch
   if args.step == "EpochPerformanceMetricsPlot":
     print("<< Plotting the performance metrics as a function of the epoch of training >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "epoch_performance_metrics_plot",
         class_name = "EpochPerformanceMetricsPlot",
@@ -1244,7 +1258,7 @@ def main(args, default_args, module_options={}):
   # Perform a p-value dataset comparison test for sim vs synth
   if args.step == "PValueSimVsSynth":
     print("<< Getting the metrics for Sim Vs Synth comparison >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "density_performance_metrics",
         class_name = "DensityPerformanceMetrics",
@@ -1277,7 +1291,7 @@ def main(args, default_args, module_options={}):
   # Perform a p-value dataset comparison test bootstrapping synth vs synth
   if args.step == "PValueSynthVsSynth":
     print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       for toy in range(args.number_of_toys):
         module.Run(
           module_name = "density_performance_metrics",
@@ -1315,7 +1329,7 @@ def main(args, default_args, module_options={}):
   # Collect the synth vs synth tests
   if args.step == "PValueSynthVsSynthCollect":
     print("<< Collecting the classifier 2 sample test >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "p_value_synth_vs_synth_collect",
         class_name = "PValueSynthVsSynthCollect",
@@ -1332,7 +1346,7 @@ def main(args, default_args, module_options={}):
   # Plot the p values dataset comparisons
   if args.step == "PValueDatasetComparisonPlot":
     print("<< Plotting p-value dataset comparisons >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "p_value_dataset_comparison_plot",
         class_name = "PValueDatasetComparisonPlot",
@@ -1349,7 +1363,7 @@ def main(args, default_args, module_options={}):
   # Perform a hyperparameter scan
   if args.step == "HyperparameterScan":
     print(f"<< Running a hyperparameter scan for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       for architecture_ind, architecture in enumerate(GetScanArchitectures(getattr(args, f"{args.model_type}_architecture"), data_output=f"{eval_data_dir}/HyperparameterScan/{model_info['name']}/")):
           module.Run(
           module_name = "hyperparameter_scan",
@@ -1379,7 +1393,7 @@ def main(args, default_args, module_options={}):
   # Collect a hyperparameter scan
   if args.step == "HyperparameterScanCollect":
     print(f"<< Running a hyperparameter scan collection for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "hyperparameter_scan_collect",
         class_name = "HyperparameterScanCollect",
@@ -1398,7 +1412,7 @@ def main(args, default_args, module_options={}):
   # Perform a hyperparameter scan
   if args.step == "BayesianHyperparameterTuning":
     print(f"<< Running a bayesian hyperparameter tuning for {args.model_type} >>")
-    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for model_info in GetModelLoop(cfg, only_density=(args.model_type=="density"), only_classification=(args.model_type=="classifier"), only_regression=(args.model_type=="regression"), specific_category=specific_category_list, specific_file_name=specific_file_name_list):
       module.Run(
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
@@ -1432,16 +1446,16 @@ def main(args, default_args, module_options={}):
   # Making plots of the flow of the network
   if args.step == "Flow":
     print("<< Making plots looking at the flow of the network >>")
-    for file_name in GetModelFileLoop(cfg):
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
-        for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           module.Run(
             module_name = "flow",
             class_name = "Flow",
             config = {
               "model_input" : f"{models_dir}",
-              "density_model" : GetModelLoop(cfg, model_file_name=file_name, only_density=True, specific_category=category)[0],
+              "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
               "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{val_ind}",
               "plots_output" : f"{plots_dir}/Flow{args.extra_output_dir_name}/{file_name}/{category}",
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -1455,12 +1469,12 @@ def main(args, default_args, module_options={}):
   # Making plots using the network as a generator for individual Y values
   if args.step == "Generator":
     print("<< Making plots using the network as a generator for individual Y values >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       if args.data_vs_simulation and (file_name == "combined"): continue
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           module.Run(
             module_name = "generator",
             class_name = "Generator",
@@ -1489,9 +1503,9 @@ def main(args, default_args, module_options={}):
   # Making a summary plot using the network as a generator for individual Y values
   if args.step == "GeneratorSummary":
     print("<< Making plots using the network as a generator summarising all Y values >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       validation_loop = GetValidationLoop(cfg, file_name)
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "generator_summary",
           class_name = "GeneratorSummary",
@@ -1515,8 +1529,8 @@ def main(args, default_args, module_options={}):
 
   # Make plots of nuisances shifts and what has been learned
   if args.step == "GeneratorNuisanceVariations":
-    for file_name in GetModelFileLoop(cfg, with_combined=False):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, with_combined=False, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         default_val_ind = GetValidationDefaultIndex(cfg, file_name)
         for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
           module.Run(
@@ -1544,8 +1558,8 @@ def main(args, default_args, module_options={}):
 
   # Make the nuisance variations plot for just the classifier output
   if args.step == "ClassifierNuisanceVariations":
-    for file_name in GetModelFileLoop(cfg, with_combined=False):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, with_combined=False, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         default_val_ind = GetValidationDefaultIndex(cfg, file_name)
         for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
           module.Run(
@@ -1559,13 +1573,14 @@ def main(args, default_args, module_options={}):
               "nominal_files" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{default_val_ind}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "up_files" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "down_files" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
-              "classifier_model" : [ml for ml in GetModelLoop(cfg, model_file_name=file_name, only_classification=True, specific_category=category) if ml["name"] == f"classifier_{file_name}_{nuisance}_{category}"][0],
+              "classifier_model" : [ml for ml in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category) if ml["name"] == f"classifier_{file_name}_{nuisance}_{category}"][0],
               "model_input" : f"{models_dir}",
               "extra_classifier_model_name" : args.extra_classifier_model_name,
               "plots_output" : f"{plots_dir}/ClassifierNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "data_output" : f"{eval_data_dir}/ClassifierNuisanceVariations{args.extra_output_dir_name}/{file_name}/{category}",
               "nuisance" : nuisance,
               "extra_plot_name" : args.extra_plot_name,
+              "divide_by_nominal" : args.classifier_divide_by_nominal,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
@@ -1575,8 +1590,8 @@ def main(args, default_args, module_options={}):
   # Get performance metrics comparing simulated vs synthetic for different validation scenarios
   if args.step == "ValidationPerformanceMetrics":
     print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for val_dataset_ind, val_dataset_info in enumerate(GetValidationDatasetLoop(cfg, file_name, f"{prep_data_dir}/PreProcess", f"{eval_data_dir}/MakeAsimov", extra_asimov_name=args.extra_asimov_input_dir_name, category=category, dataset_type=args.validation_performance_metrics_datasets.split(","), sim_type=args.sim_type)):
           module.Run(
             module_name = "validation_performance_metrics",
@@ -1599,8 +1614,8 @@ def main(args, default_args, module_options={}):
   # Plot the performance metrics for factorisation assumption
   if args.step == "PlotFactorisation":
     print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
-      for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         for nuisance_1_shift in ["up", "down"]:
           for nuisance_2_shift in ["up", "down"]:
             if nuisance_1_shift == "down" and nuisance_2_shift == "up": continue
@@ -1624,7 +1639,7 @@ def main(args, default_args, module_options={}):
   # Run likelihood debug
   if args.step == "LikelihoodDebug":
     print(f"<< Running a single likelihood value for Y={args.debug_input} >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1645,7 +1660,7 @@ def main(args, default_args, module_options={}):
   # Run initial fits from a full dataset
   if args.step == "InitialFit":
     print(f"<< Running initial fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1669,7 +1684,7 @@ def main(args, default_args, module_options={}):
   # Run bootstrapped fits from a full dataset
   if args.step == "BootstrapFit":
     print(f"<< Running bootstrapped fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1695,7 +1710,7 @@ def main(args, default_args, module_options={}):
   # Collect bootstrapped fits
   if args.step == "BootstrapCollect":
     print(f"<< Collecting bootstrapped fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1717,7 +1732,7 @@ def main(args, default_args, module_options={}):
   # Collect bootstrapped fits
   if args.step == "BootstrapPlot":
     print(f"<< Collecting bootstrapped fits >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1739,7 +1754,7 @@ def main(args, default_args, module_options={}):
   # Run approximate uncertainties
   if args.step == "ApproximateUncertainty":
     print(f"<< Finding the approximate uncertainties >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1765,7 +1780,7 @@ def main(args, default_args, module_options={}):
   # Run approximate uncertainties
   if args.step == "UncertaintyFromMinimisation":
     print(f"<< Finding the uncertainties by minimisation>>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1792,7 +1807,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian matrix
   if args.step == "Hessian" and args.likelihood_type in ["unbinned", "unbinned_extended"]:
     print(f"<< Calculating the Hessian matrix >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1817,7 +1832,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian matrix running in parallel
   if args.step == "HessianParallel":
     print(f"<< Calculating the Hessian matrix in parallel >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1848,7 +1863,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian matrix running in parallel
   if args.step == "HessianCollect":
     print(f"<< Collecting the Hessian matrix >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1874,7 +1889,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian matrix numerically
   if (args.step == "HessianNumerical") or ((args.step == "Hessian") and (args.likelihood_type in ["binned", "binned_extended"])):
     print(f"<< Calculating the Hessian matrix numerically >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1899,7 +1914,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian matrix numerically running in parallel
   if (args.step == "HessianNumericalParallel") or ((args.step == "HessianParallel") and (args.likelihood_type in ["binned", "binned_extended"])):
     print(f"<< Calculating the Hessian matrix numerically in parallel >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1930,7 +1945,7 @@ def main(args, default_args, module_options={}):
   # Get the Covariance matrix
   if args.step == "Covariance":
     print(f"<< Calculating the Covariance matrix >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1955,7 +1970,7 @@ def main(args, default_args, module_options={}):
   # Get the D matrix
   if args.step == "DMatrix":
     print(f"<< Calculating the D matrix >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -1980,7 +1995,7 @@ def main(args, default_args, module_options={}):
   # Get the Hessian, D matrix and the Covariance matrix
   if args.step == "CovarianceWithDMatrix":
     print(f"<< Calculating the Covariance matrix with the D matrix correction >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2006,7 +2021,7 @@ def main(args, default_args, module_options={}):
   # Calculate the impacts
   if args.step == "Impacts":
     print(f"<< Running impacts >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2033,7 +2048,7 @@ def main(args, default_args, module_options={}):
   # Collect the impacts
   if args.step == "ImpactsCollect":
     print(f"<< Running impacts >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2058,7 +2073,7 @@ def main(args, default_args, module_options={}):
   # Get the approximate impacts from the covariance matrix
   if args.step == "ApproximateImpacts":
     print(f"<< Calculating the approximate impacts from the covariance matrix >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2080,7 +2095,7 @@ def main(args, default_args, module_options={}):
   # Plot the approximate impacts
   if args.step == "ImpactsPlot":
     print(f"<< Plotting the pulls and impacts >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2106,7 +2121,7 @@ def main(args, default_args, module_options={}):
   # Compare the constraints and impacts
   if args.step == "CompareConstraintsAndImpacts":
     print(f"<< Making plots comparing the constraints and impacts >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2130,7 +2145,7 @@ def main(args, default_args, module_options={}):
   # Find sensible scan points
   if args.step in ["ScanPointsFromApproximate","ScanPointsFromHessian","ScanPointsFromInput"]:
     print(f"<< Finding points to scan over >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2161,7 +2176,7 @@ def main(args, default_args, module_options={}):
   # Run profiled likelihood scan
   if args.step == "Scan":
     print(f"<< Running profiled likelihood scans >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2197,7 +2212,7 @@ def main(args, default_args, module_options={}):
   # Collect likelihood scan
   if args.step == "ScanCollect":
     print(f"<< Collecting likelihood scan results >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2221,7 +2236,7 @@ def main(args, default_args, module_options={}):
   # Plot likelihood scan
   if args.step == "ScanPlot":
     print(f"<< Plot likelihood scan >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2253,21 +2268,21 @@ def main(args, default_args, module_options={}):
   # Make the postfit asimov datasets
   if args.step == "MakePostFitAsimov":
     print(f"<< Making the postfit asimov datasets >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         best_fit = GetBestFitFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
         for asimov_file_name, asimov_val_ind in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+          for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
             module.Run(
               module_name = "make_asimov",
               class_name = "MakeAsimov",
               config = {
                 "cfg" : args.cfg,
-                "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
-                "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
-                "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
+                "density_model" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
+                "regression_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_regression=True, specific_category=category),
+                "classifier_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category),
                 "model_input" : f"{models_dir}",
                 "extra_density_model_name" : args.extra_density_model_name,
                 "extra_regression_model_name" : args.extra_regression_model_name,
@@ -2282,7 +2297,7 @@ def main(args, default_args, module_options={}):
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
                 "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
-                "classifier_pruning_files" : {v["parameter"]: f"{eval_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
+                "classifier_pruning_files" : {v["parameter"]: f"{eval_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "asimov_file_name": asimov_file_name, "val_ind" : val_ind, "category" : category},
@@ -2292,13 +2307,13 @@ def main(args, default_args, module_options={}):
   # Make asimov datasets for uncertainty bands for postfit plots
   if args.step == "MakePostFitUncertaintyAsimov":
     print(f"<< Making the postfit asimov datasets for the uncertainty bands >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         best_fit = GetBestFitFromYaml(f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}/{file_name}/best_fit_{val_ind}.yaml", cfg, file_name, prefit_nuisance_values=args.prefit_nuisance_values)
         for asimov_file_name, asimov_val_ind in GetCombinedValdidationIndices(cfg, file_name, val_ind).items():
-          for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+          for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
             for nuisance in GetParametersInModel(file_name, cfg, include_lnN=True, only_nuisances=True):
               for nuisance_value in ["up","down"]:
                 summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
@@ -2308,10 +2323,10 @@ def main(args, default_args, module_options={}):
                   class_name = "MakeAsimov",
                   config = {
                     "cfg" : args.cfg,
-                    "density_model" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
-                    "regression_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_regression=True, specific_category=category),
+                    "density_model" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
+                    "regression_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_regression=True, specific_category=category),
                     "regression_spline_input" : f"{eval_data_dir}/EvaluateRegression",                
-                    "classifier_models" : GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category),
+                    "classifier_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category),
                     "classifier_spline_input" : f"{eval_data_dir}/EvaluateClassifier",
                     "model_input" : f"{models_dir}",
                     "extra_density_model_name" : args.extra_density_model_name,
@@ -2328,7 +2343,7 @@ def main(args, default_args, module_options={}):
                     "use_asimov_scaling" : args.use_asimov_scaling,
                     "skip_spline" : args.no_spline,
                     "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
-                    "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, model_file_name=asimov_file_name, only_classification=True, specific_category=category)},
+                    "classifier_pruning_files" : {v["parameter"]: f"{prep_data_dir}/EvaluateClassifier/{v['name']}/performance_metrics.yaml" for v in GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                     "verbose" : not args.quiet,
                   },
                   loop = {"file_name" : file_name, "asimov_file_name" : asimov_file_name, "val_ind" : val_ind, "category" : category, "nuisance" : nuisance, "nuisance_value" : nuisance_value},
@@ -2338,12 +2353,12 @@ def main(args, default_args, module_options={}):
   # Making plots of the distributions, can be used for prefit and postfit plots
   if args.step == "DistributionPlot":
     print(f"<< Drawing the distributions >>")
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       if args.data_vs_simulation and not (file_name == "combined"): continue
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data" or (args.data_vs_simulation and args.include_uncertainty))): continue
-        for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           if args.likelihood_type in ["unbinned", "unbinned_extended", "poisson"]:
             module.Run(
               module_name = "generator",
@@ -2400,11 +2415,11 @@ def main(args, default_args, module_options={}):
 
   # Separate the truth and best fit asimov and plot
   if args.step == "PostFitTruthComparison":
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           module.Run(
             module_name = "postfit_truth_comparison",
             class_name = "PostFitTruthComparison",
@@ -2425,7 +2440,7 @@ def main(args, default_args, module_options={}):
   if args.step == "SummaryChiSquared":
     print(f"<< Getting the chi squared of the summary >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
       if len(column_loop) == 0: continue
       validation_loop = GetValidationLoop(cfg, file_name)
@@ -2449,7 +2464,7 @@ def main(args, default_args, module_options={}):
   if args.step == "SummaryAllButOneCollect":
     print(f"<< Collecting all-but-one results for the summary plot >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
@@ -2474,7 +2489,7 @@ def main(args, default_args, module_options={}):
   if args.step == "Summary":
     print(f"<< Plot the summary of results >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
       if len(column_loop) == 0: continue
       validation_loop = GetValidationLoop(cfg, file_name)
@@ -2506,7 +2521,7 @@ def main(args, default_args, module_options={}):
   if args.step == "SummaryPerVal":
     print(f"<< Plot the summary of results per validation index >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
-    for file_name in GetModelFileLoop(cfg, with_combined=True):
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
         column_loop = GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)

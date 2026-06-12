@@ -2,10 +2,11 @@ import copy
 import yaml
 
 import numpy as np
+import pandas as pd
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import LoadConfig, Translate, GetValidationDefaultIndex
+from useful_functions import LoadConfig, Translate, GetValidationDefaultIndex, GetDefaultsInModel
 
 class InputPlotNuisanceVariations():
 
@@ -26,6 +27,8 @@ class InputPlotNuisanceVariations():
     self.sim_type = "val"
     self.nuisance = None
     self.ratio_range = [0.9,1.1]
+    self.binned = False
+    self.category = None
 
   def Configure(self, options):
     """
@@ -51,47 +54,95 @@ class InputPlotNuisanceVariations():
     with open(self.parameters, 'r') as yaml_file:
       parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)   
 
-    # Get validation index
-    default_val_ind = GetValidationDefaultIndex(cfg, self.file_name)
+    # If binned load in the relevant stuff
+    if self.binned:
 
-    # Default data processor
-    default_dp = DataProcessor(
-      [[f"{self.data_input}/val_ind_{default_val_ind}/X_{self.sim_type}.parquet", f"{self.data_input}/val_ind_{default_val_ind}/wt_{self.sim_type}.parquet"]], 
-      "parquet",
-      options = {
-        "wt_name" : "wt",
-      }
-    )
+      from infer import Infer
+      infer_class = Infer()
+      infer_class.Configure(
+        {
+          "parameters" : {self.category : {self.file_name: self.parameters}},
+          "binned_fit_morph_col" : cfg["pois"][0],
+          "likelihood_type" : "binned_extended",
+          "inference_options" : {
+            "rate_parameters" : []
+          },
+        }
+      )
+      binned_yields = infer_class._BuildBinYields()[self.category][self.file_name]
 
-    # Up data processor
-    up_dp = DataProcessor(
-      [[f"{self.data_input}/{self.nuisance}_up/X_{self.sim_type}.parquet", f"{self.data_input}/{self.nuisance}_up/wt_{self.sim_type}.parquet"]], 
-      "parquet",
-      options = {
-        "wt_name" : "wt",
-      }
-    )   
+      nominal_Y = GetDefaultsInModel(self.file_name, cfg, include_lnN=True)
+      nominal_hist = binned_yields(pd.DataFrame({k: [v] for k, v in nominal_Y.items()}))
+      up_Y = copy.deepcopy(nominal_Y)
+      down_Y = copy.deepcopy(nominal_Y)
+      up_Y[self.nuisance] = 1.0
+      down_Y[self.nuisance] = -1.0
+      up_hist = binned_yields(pd.DataFrame({k: [v] for k, v in up_Y.items()}))
+      down_hist = binned_yields(pd.DataFrame({k: [v] for k, v in down_Y.items()}))
+      bins = cfg["inference"]["binned_fit"]["input"][self.category]["binning"]
+      var = cfg["inference"]["binned_fit"]["input"][self.category]["variable"]
 
-    # Down data processor
-    down_dp = DataProcessor(
-      [[f"{self.data_input}/{self.nuisance}_down/X_{self.sim_type}.parquet", f"{self.data_input}/{self.nuisance}_down/wt_{self.sim_type}.parquet"]], 
-      "parquet",
-      options = {
-        "wt_name" : "wt",
-      }
-    )
+      # Plot variations
+      if self.verbose:
+        print("- Plotting nuisance variations")
+      self._PlotVariations(
+        None,
+        None,
+        None,
+        [var],
+        extra_name_for_plot = f"_binned_{self.sim_type}",
+        bins = bins,
+        nominal_hist = nominal_hist,
+        nominal_hist_uncert = np.zeros_like(nominal_hist),
+        up_hist = up_hist,
+        up_hist_uncert = np.zeros_like(up_hist),
+        down_hist = down_hist,
+        down_hist_uncert = np.zeros_like(down_hist),
+      )
 
-    # Plot variations
-    if self.verbose:
-      print("- Plotting nuisance variations")
-    self._PlotVariations(
-      default_dp,
-      up_dp,
-      down_dp,
-      parameters["density"]["X_columns"],
-      n_bins=40,
-      extra_name_for_plot = f"_{self.sim_type}"
-    )
+    else:
+
+      # Get validation index
+      default_val_ind = GetValidationDefaultIndex(cfg, self.file_name)
+
+      # Default data processor
+      default_dp = DataProcessor(
+        [[f"{self.data_input}/val_ind_{default_val_ind}/X_{self.sim_type}.parquet", f"{self.data_input}/val_ind_{default_val_ind}/wt_{self.sim_type}.parquet"]], 
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        }
+      )
+
+      # Up data processor
+      up_dp = DataProcessor(
+        [[f"{self.data_input}/{self.nuisance}_up/X_{self.sim_type}.parquet", f"{self.data_input}/{self.nuisance}_up/wt_{self.sim_type}.parquet"]], 
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        }
+      )   
+
+      # Down data processor
+      down_dp = DataProcessor(
+        [[f"{self.data_input}/{self.nuisance}_down/X_{self.sim_type}.parquet", f"{self.data_input}/{self.nuisance}_down/wt_{self.sim_type}.parquet"]], 
+        "parquet",
+        options = {
+          "wt_name" : "wt",
+        }
+      )
+
+      # Plot variations
+      if self.verbose:
+        print("- Plotting nuisance variations")
+      self._PlotVariations(
+        default_dp,
+        up_dp,
+        down_dp,
+        parameters["density"]["X_columns"],
+        n_bins=40,
+        extra_name_for_plot = f"_{self.sim_type}",
+      )
 
       
   def Outputs(self):
@@ -107,8 +158,12 @@ class InputPlotNuisanceVariations():
     else:
       cfg = LoadConfig(self.cfg)
 
-    for col in cfg["variables"]:
-      outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_{self.sim_type}.pdf"]
+    if not self.binned:
+      for col in cfg["variables"]:
+        outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_{self.sim_type}.pdf"]
+    else:
+      col = cfg["inference"]["binned_fit"]["input"][self.category]["variable"]
+      outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_binned_{self.sim_type}.pdf"]
 
     return outputs
 
@@ -131,26 +186,47 @@ class InputPlotNuisanceVariations():
       cfg = self.open_cfg
     else:
       cfg = LoadConfig(self.cfg)
-    default_val_ind = GetValidationDefaultIndex(cfg, self.file_name)
-    inputs += [f"{self.data_input}/val_ind_{default_val_ind}/X_{self.sim_type}.parquet"]
-    inputs += [f"{self.data_input}/val_ind_{default_val_ind}/wt_{self.sim_type}.parquet"]
-    inputs += [f"{self.data_input}/{self.nuisance}_up/X_{self.sim_type}.parquet"]
-    inputs += [f"{self.data_input}/{self.nuisance}_up/wt_{self.sim_type}.parquet"]
-    inputs += [f"{self.data_input}/{self.nuisance}_down/X_{self.sim_type}.parquet"]
-    inputs += [f"{self.data_input}/{self.nuisance}_down/wt_{self.sim_type}.parquet"]
 
+    if not self.binned:
+      default_val_ind = GetValidationDefaultIndex(cfg, self.file_name)
+      inputs += [f"{self.data_input}/val_ind_{default_val_ind}/X_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/val_ind_{default_val_ind}/wt_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/{self.nuisance}_up/X_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/{self.nuisance}_up/wt_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/{self.nuisance}_down/X_{self.sim_type}.parquet"]
+      inputs += [f"{self.data_input}/{self.nuisance}_down/wt_{self.sim_type}.parquet"]
+      
     return inputs
 
 
-  def _PlotVariations(self, nominal_dp, up_dp, down_dp, X_columns, n_bins=40, extra_name_for_plot=""):
+  def _PlotVariations(
+    self, 
+    nominal_dp, 
+    up_dp, 
+    down_dp, 
+    X_columns, 
+    n_bins=40, 
+    extra_name_for_plot="",
+    bins = None,
+    nominal_hist=None,
+    nominal_hist_uncert=None,
+    up_hist=None,
+    up_hist_uncert=None,
+    down_hist=None,
+    down_hist_uncert=None,
+  ):
 
     for col in X_columns:
 
-      bins = nominal_dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
+      if bins is None:
+        bins = nominal_dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
 
-      nominal_hist, nominal_hist_uncert, _ = nominal_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
-      up_hist, up_hist_uncert, _ = up_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
-      down_hist, down_hist_uncert, _ = down_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
+      if nominal_hist is None:
+        nominal_hist, nominal_hist_uncert, _ = nominal_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
+      if up_hist is None:
+        up_hist, up_hist_uncert, _ = up_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
+      if down_hist is None:
+        down_hist, down_hist_uncert, _ = down_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
 
       plot_name = f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}{extra_name_for_plot}"
 
