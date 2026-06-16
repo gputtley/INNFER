@@ -1,5 +1,6 @@
 import optuna
 import os
+import time
 import wandb
 import yaml
 
@@ -11,6 +12,12 @@ from train_density import TrainDensity
 from train_classifier import TrainClassifier
 from density_performance_metrics import DensityPerformanceMetrics
 from classifier_performance_metrics import ClassifierPerformanceMetrics
+from optuna.trial import create_trial
+from optuna.distributions import (
+    FloatDistribution,
+    IntDistribution,
+    CategoricalDistribution,
+)
 from useful_functions import FindKeysAndValuesInDictionaries, MakeDictionaryEntry, GetDictionaryEntryFromYaml, MakeDirectories
 
 class BayesianHyperparameterTuning():
@@ -45,10 +52,24 @@ class BayesianHyperparameterTuning():
     self.data_output = "data/"
     self.performance_metrics = None
     self.n_trials = 10
+    self.load_trials = None
+    self.no_copy = False
 
     self.objective_ind = 0
     self.tune_architecture_name = None
     self.no_output = False
+    self.use_timeout = False
+    self.timeout = 2.5 * 60*60  # 2.5 hours
+    self.timeout_index = 0
+
+  def _get_load_trials(self):
+    if self.load_trials is None:
+      return []
+    elif ":" in self.load_trials:
+      start, end = map(int, self.load_trials.split(":"))
+      return list(range(start, end + 1))
+    else:
+      return [int(x) for x in self.load_trials.split(",")]
 
 
   def _TrainAndPerformanceMetric(self):
@@ -119,8 +140,58 @@ class BayesianHyperparameterTuning():
     elif self.metric.split(",")[1] == "max":
       direction = "maximize"
 
-    study = optuna.create_study(direction=direction)
-    study.optimize(self._Objective, n_trials=self.n_trials)
+    sampler = optuna.samplers.TPESampler(seed=42, n_startup_trials=0)
+    study = optuna.create_study(direction=direction, sampler=sampler)
+
+    # Load in trials if they exist
+    if not (self.use_timeout and self.timeout_index > 0):
+      load_trials = self._get_load_trials()
+    else:
+      load_trials = []
+      timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index-1}.yaml"
+      with open(timeout_file_name, 'r') as yaml_file:
+        load_trials = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    if len(load_trials) > 0:
+      self.objective_ind = max(load_trials) + 1
+      with open(self.tune_architecture, 'r') as yaml_file:
+        config = yaml.load(yaml_file, Loader=yaml.FullLoader)  
+
+    for trial_ind in sorted(load_trials):
+      if self.verbose:
+        print(f"- Loading trial {trial_ind}")
+      trial_architecture_file = f"{self.data_output}/tune_architecture_{trial_ind}.yaml"
+      keys, vals = FindKeysAndValuesInDictionaries(config, keys=[], results_keys=[], results_vals=[])
+      params = {}
+      dists = {}
+      for key, val in zip(keys, vals):
+        name = ":".join(key)
+        if isinstance(val, list):
+          if isinstance(val[0], float):
+            params[name] = GetDictionaryEntryFromYaml(trial_architecture_file, key)
+            dists[name] = FloatDistribution(val[0], val[1])
+          elif isinstance(val[0], int):
+            params[name] = GetDictionaryEntryFromYaml(trial_architecture_file, key)
+            dists[name] = IntDistribution(val[0], val[1])
+          elif isinstance(val[0], str):
+            params[name] = GetDictionaryEntryFromYaml(trial_architecture_file, key)
+            dists[name] = CategoricalDistribution(val)
+
+      metrics_name = f"{self.data_output}/metrics_{trial_ind}.yaml"
+      trial = create_trial(
+        params=params,
+        distributions=dists,
+        value=GetDictionaryEntryFromYaml(metrics_name, self.metric.split(",")[0].split(":")),
+        state=optuna.trial.TrialState.COMPLETE
+      )
+      study.add_trial(trial)
+    if len(load_trials) > 0:
+      self.objective_ind = max(load_trials) + 1
+
+    if not self.use_timeout:
+      study.optimize(self._Objective, n_trials=self.n_trials)
+    else:
+      study.optimize(self._Objective, n_trials=self.n_trials, timeout=self.timeout)
 
     # Get best trial
     best_trial = study.best_trial.number
@@ -136,12 +207,31 @@ class BayesianHyperparameterTuning():
       print(f"  {best_model_name}")
       print(f"  {best_architecture_name}")
 
-    MakeDirectories(model_output_name)
-    os.system(f"cp {best_model_name} {model_output_name}")
-    os.system(f"cp {best_architecture_name} {model_architecture_name}")
+    if not self.no_copy:
+      MakeDirectories(model_output_name)
+      os.system(f"cp {best_model_name} {model_output_name}")
+      os.system(f"cp {best_architecture_name} {model_architecture_name}")
+
+    # Write file of indices ran if using timeout
+    if self.use_timeout:
+      indices_ran = []
+      for ind in load_trials:
+        indices_ran.append(ind)
+      start_ind = 0
+      if len(load_trials) > 0:
+        start_ind = max(load_trials) + 1
+      for ind in range(start_ind, self.objective_ind):
+        indices_ran.append(ind)
+      timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index}.yaml"
+      with open(timeout_file_name, 'w') as yaml_file:
+        yaml.dump(indices_ran, yaml_file, default_flow_style=False)
+      if self.verbose:
+        print(f"- Wrote file of indices ran to {timeout_file_name}")
 
 
   def _Objective(self, trial):
+
+    st = time.time()
 
     # Open tuning architecture
     with open(self.tune_architecture, 'r') as yaml_file:
@@ -187,6 +277,8 @@ class BayesianHyperparameterTuning():
     # Increment indices
     self.objective_ind += 1
 
+    print("- Trial time: ", time.time() - st)
+
     return metric_val
 
 
@@ -195,10 +287,27 @@ class BayesianHyperparameterTuning():
     Return a list of outputs given by class
     """
     outputs = []
-    outputs += [
-      f"{self.best_model_output}/{self.file_name}.h5",
-      f"{self.best_model_output}/{self.file_name}_architecture.yaml"      
-    ]
+
+    if not self.use_timeout:
+      start_ind = 0
+      load_trials = self._get_load_trials()
+      if len(load_trials) > 0:
+        start_ind = max(load_trials) + 1
+      for ind in range(self.n_trials):
+        outputs += [
+          f"{self.data_output}/metrics_{start_ind+ind}.yaml",
+          f"{self.data_output}/tune_architecture_{start_ind+ind}.yaml"
+        ]
+    else:
+      timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index}.yaml"
+      outputs += [timeout_file_name]
+
+    if not self.no_copy:
+      outputs += [
+        f"{self.best_model_output}/{self.file_name}.h5",
+        f"{self.best_model_output}/{self.file_name}_architecture.yaml"      
+      ]
+
     return outputs
 
 
@@ -226,6 +335,20 @@ class BayesianHyperparameterTuning():
     pf_inputs = pf.Inputs()
     pf_unique = [i for i in pf_inputs if i not in t_outputs and i is not None]
     inputs = list(set(inputs + t_inputs + pf_unique))
+
+    # Add the loaded trials if they exist
+    if not self.use_timeout:
+      load_trials = self._get_load_trials()
+      if len(load_trials) > 0:
+        for ind in load_trials:
+          inputs += [
+            f"{self.data_output}/metrics_{ind}.yaml",
+            f"{self.data_output}/tune_architecture_{ind}.yaml"
+          ]
+    else:
+      if self.timeout_index > 0:
+        timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index-1}.yaml"
+        inputs += [timeout_file_name]
 
     return inputs
 

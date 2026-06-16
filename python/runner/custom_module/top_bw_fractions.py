@@ -17,6 +17,11 @@ from plotting import plot_histograms, plot_histograms_with_ratio
 from useful_functions import MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults
 from breit_wigner_reweighting import bw_reweight
 
+import warnings
+from pandas.errors import PerformanceWarning
+
+warnings.filterwarnings("ignore", category=PerformanceWarning)
+
 data_dir = str(os.getenv("PREP_DATA_DIR"))
 plots_dir = str(os.getenv("PLOTS_DIR"))
 
