@@ -29,7 +29,7 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
     all_splines = yaml.safe_load(f)
 
   if category not in all_splines:
-    if any(key in all_splines for key in ["run2_signal", "2223_signal"]):
+    if any(key in all_splines for key in ["run2_signal", "2223_signal", "24_signal"]):
       splines = all_splines[f"{category}_signal"]
     else:
       raise ValueError(f"Category {category} not found in spline locations and no alternative keys found.")
