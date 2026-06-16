@@ -55,6 +55,7 @@
     classifier_performance_metrics: "loss"
     model_type: "classifier"
     specific_file_name: "ttbar"
+    tuning_no_copy: True
     tuning_use_timeout: True
     tuning_timeout_duration: 6000
     tuning_timeout_index: 1
@@ -68,7 +69,6 @@
     classifier_performance_metrics: "loss"
     model_type: "classifier"
     specific_file_name: "ttbar"
-    tuning_no_copy: True
     tuning_use_timeout: True
     tuning_timeout_duration: 6000
     tuning_timeout_index: 2
