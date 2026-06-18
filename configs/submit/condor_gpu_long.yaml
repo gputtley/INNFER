@@ -1,0 +1,6 @@
+name: condor
+options:
+  extra_lines:
+    - "+MaxRuntime = 259200"
+    - "RequestGpus = 1"
+

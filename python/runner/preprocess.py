@@ -2204,11 +2204,6 @@ class PreProcess():
           sum_yields = {poi:0.0 for poi in unique_pois}
         for poi in unique_pois:
           sum_yields[poi] += bin_info["yields"][poi]["nominal"]
-      #defaults = GetDefaultsInModel(file_name, cfg, category=self.category)
-      #default_poi_value = "all"
-      #if cfg["pois"][0] in defaults.keys():
-      #  default_poi_value = defaults[cfg["pois"][0]]
-      #default_sum_yield = sum_yields[default_poi_value]
 
       default_sum_yield = parameters_file["yields"]["nominal"]
 
@@ -2216,12 +2211,43 @@ class PreProcess():
         for poi in unique_pois:
           parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"] = parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["nominal"]*default_sum_yield/sum_yields[poi] if sum_yields[poi] > 0 else 0.0
 
+      #for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+      #  unique_pois = bin_info["yields"].keys()
+      #  if bin_ind == 0:
+      #    sum_yields = {poi:0.0 for poi in unique_pois}
+      #  for poi in unique_pois:
+      #    sum_yields[poi] += bin_info["yields"][poi]["nominal"]
+
+      # Also need to do the same for all nuisances
+      all_nuisances = []
       for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
         unique_pois = bin_info["yields"].keys()
-        if bin_ind == 0:
-          sum_yields = {poi:0.0 for poi in unique_pois}
         for poi in unique_pois:
-          sum_yields[poi] += bin_info["yields"][poi]["nominal"]
+          all_nuisances += list(bin_info["yields"][poi]["lnN"].keys())
+      all_nuisances = sorted(list(set(all_nuisances)))
+
+      for shift_ind in [0,1]:
+
+        for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+          unique_pois = bin_info["yields"].keys()
+          if bin_ind == 0:
+            sum_yields_nuisances = {poi:{nui:0.0 for nui in all_nuisances} for poi in unique_pois}
+          for poi in unique_pois:
+            for nui in all_nuisances:
+              if nui in bin_info["yields"][poi]["lnN"].keys():
+                sum_yields_nuisances[poi][nui] += bin_info["yields"][poi]["nominal"]*bin_info["yields"][poi]["lnN"][nui][shift_ind]
+              else:
+                sum_yields_nuisances[poi][nui] += bin_info["yields"][poi]["nominal"]
+
+        default_sum_yields_nuisances = {nui: parameters_file["yields"]["nominal"]*parameters_file["yields"]["lnN"][nui][shift_ind] if nui in parameters_file["yields"]["lnN"].keys() else parameters_file["yields"]["nominal"] for nui in all_nuisances}
+                  
+        for bin_ind, bin_info in enumerate(parameters_file["binned_fit_input"]):
+          unique_pois = bin_info["yields"].keys()
+          for poi in unique_pois:
+            for nui in all_nuisances:
+              if nui in bin_info["yields"][poi]["lnN"].keys():
+                parameters_file["binned_fit_input"][bin_ind]["yields"][poi]["lnN"][nui][shift_ind] = bin_info["yields"][poi]["lnN"][nui][shift_ind]*default_sum_yields_nuisances[nui]/sum_yields_nuisances[poi][nui] if sum_yields_nuisances[poi][nui] > 0 else 0.0
+
 
     # write parameters file
     with open(f"{self.data_output}/parameters.yaml", 'w') as yaml_file:

@@ -142,6 +142,12 @@ class InputPlotNuisanceVariations():
         parameters["density"]["X_columns"],
         n_bins=40,
         extra_name_for_plot = f"_{self.sim_type}",
+        nominal_hist = None,
+        nominal_hist_uncert = None,
+        up_hist = None,
+        up_hist_uncert = None,
+        down_hist = None,
+        down_hist_uncert = None,
       )
 
       
@@ -216,16 +222,21 @@ class InputPlotNuisanceVariations():
     down_hist_uncert=None,
   ):
 
+    draw_bins = bins is None
+    draw_nom = nominal_hist is None
+    draw_up = up_hist is None
+    draw_down = down_hist is None
+
     for col in X_columns:
 
-      if bins is None:
+      if draw_bins:
         bins = nominal_dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
 
-      if nominal_hist is None:
+      if draw_nom:
         nominal_hist, nominal_hist_uncert, _ = nominal_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
-      if up_hist is None:
+      if draw_up:
         up_hist, up_hist_uncert, _ = up_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
-      if down_hist is None:
+      if draw_down:
         down_hist, down_hist_uncert, _ = down_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
 
       plot_name = f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}{extra_name_for_plot}"

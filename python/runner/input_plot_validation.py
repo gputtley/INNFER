@@ -2,6 +2,7 @@ import copy
 import yaml
 
 import numpy as np
+import pandas as pd
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
@@ -29,6 +30,9 @@ class InputPlotValidation():
     self.use_scenario_labels = False
     self.compare_data_splits = False
     self.plot_weight_distribution = False
+    self.binned = False
+    self.category = None
+    self.ratio_range = [0.9, 1.1]
 
   def Configure(self, options):
     """
@@ -49,6 +53,7 @@ class InputPlotValidation():
       cfg = self.open_cfg
     else:
       cfg = LoadConfig(self.cfg)
+      self.open_cfg = cfg
 
     # Open parameters
     with open(self.parameters, 'r') as yaml_file:
@@ -95,11 +100,11 @@ class InputPlotValidation():
         self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index, columns=list(defaults.keys()))
 
 
-    if self.compare_data_splits:
+    if self.compare_data_splits and not self.binned:
       for ind, val_dict in enumerate(self.val_loop):
         self._PlotDataSplits(val_dict, ind, cfg["variables"], n_bins=20)
 
-    if self.plot_weight_distribution:
+    if self.plot_weight_distribution and not self.binned:
       for ind, val_dict in enumerate(self.val_loop):
         self._PlotWeightDistribution(val_dict, ind, n_bins=40, data_splits=[self.sim_type])
 
@@ -119,8 +124,11 @@ class InputPlotValidation():
 
     # Add plots
     defaults = GetDefaultsInModel(self.file_name, cfg, category=self.category)
-    for col in cfg["variables"]:
-      outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
+    for col in cfg["variables"] if not self.binned else [cfg["inference"]["binned_fit"]["input"][self.category]["variable"]]:
+      if not self.binned:
+        outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
+      else:
+        outputs += [f"{self.plots_output}/X_distributions_{col}_binned.pdf"]
       for vary_name in defaults.keys():        
         vary_inds = []
         for ind, val_dict in enumerate(self.val_loop):
@@ -135,15 +143,18 @@ class InputPlotValidation():
           if include:
             vary_inds.append(ind)      
         if len(vary_inds) > 1:
-          outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
+          if not self.binned:
+            outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}.pdf"]
+          else:
+            outputs += [f"{self.plots_output}/X_distributions_varying_{vary_name}_{col}_binned.pdf"]
 
-    if self.compare_data_splits:
+    if self.compare_data_splits and not self.binned:
       for ind, _ in enumerate(self.val_loop):
         for col in cfg["variables"]:
           outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}.pdf"]
           outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}_ratio.pdf"]
 
-    if self.plot_weight_distribution:
+    if self.plot_weight_distribution and not self.binned:
       for ind, _ in enumerate(self.val_loop):
         outputs += [f"{self.plots_output}/weight_distribution_val_ind_{ind}_{self.sim_type}.pdf"]
 
@@ -161,20 +172,27 @@ class InputPlotValidation():
     inputs += [self.cfg]
 
     # Add parameters
-    inputs + [self.parameters]  
+    inputs += [self.parameters]  
 
     # Add data
-    for ind, _ in enumerate(self.val_loop):
-      inputs += [f"{self.data_input}/val_ind_{ind}/X_{self.sim_type}.parquet"]
-      inputs += [f"{self.data_input}/val_ind_{ind}/Y_{self.sim_type}.parquet"]
-      inputs += [f"{self.data_input}/val_ind_{ind}/wt_{self.sim_type}.parquet"]
+    if not self.binned:
+      for ind, _ in enumerate(self.val_loop):
+        inputs += [f"{self.data_input}/val_ind_{ind}/X_{self.sim_type}.parquet"]
+        inputs += [f"{self.data_input}/val_ind_{ind}/Y_{self.sim_type}.parquet"]
+        inputs += [f"{self.data_input}/val_ind_{ind}/wt_{self.sim_type}.parquet"]
 
     return inputs
 
 
   def _PlotVariations(self, variations, inds, X_columns, vary_name, n_bins=40, data_splits=["val"], extra_name_for_plot="", ratio_index=None, columns=None, scenario_inds=[]):
 
-    for data_split in data_splits:
+    data_split_loop = ["full"] if self.binned else data_splits
+    if self.binned:
+      X_columns = [self.open_cfg["inference"]["binned_fit"]["input"][self.category]["variable"]]
+      extra_name_for_plot += "_binned"
+
+
+    for data_split in data_split_loop:
 
       hists = {}
       hist_names = {}
@@ -183,24 +201,50 @@ class InputPlotValidation():
 
       for ind, variation in enumerate(variations):
 
-        dp = DataProcessor(
-          [[f"{self.data_input}/val_ind_{inds[ind]}/X_{data_split}.parquet", f"{self.data_input}/val_ind_{inds[ind]}/Y_{data_split}.parquet", f"{self.data_input}/val_ind_{inds[ind]}/wt_{data_split}.parquet"]], 
-          "parquet",
-          options = {
-            "wt_name" : "wt",
-            "selection" : " & ".join([f"({k}=={v})" for k, v in variation.items() if columns is None or k in columns]) if len(variation.keys()) > 0 else None
-          }
-        )
+        if not self.binned:
 
-        count = dp.GetFull(method="count")
-        if count == 0: continue
+          dp = DataProcessor(
+            [[f"{self.data_input}/val_ind_{inds[ind]}/X_{data_split}.parquet", f"{self.data_input}/val_ind_{inds[ind]}/Y_{data_split}.parquet", f"{self.data_input}/val_ind_{inds[ind]}/wt_{data_split}.parquet"]], 
+            "parquet",
+            options = {
+              "wt_name" : "wt",
+              "selection" : " & ".join([f"({k}=={v})" for k, v in variation.items() if columns is None or k in columns]) if len(variation.keys()) > 0 else None
+            }
+          )
+
+          count = dp.GetFull(method="count")
+          if count == 0: continue
 
         for col in X_columns:
 
-          if col not in bins.keys():
-            bins[col] = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
+          if not self.binned:
+            if col not in bins.keys():
+              bins[col] = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, column=col, ignore_quantile=0.01, ignore_discrete=False)
 
-          hist, hist_uncert, _ = dp.GetFull(method="histogram_and_uncert", bins=bins[col], column=col)
+            hist, hist_uncert, _ = dp.GetFull(method="histogram_and_uncert", bins=bins[col], column=col)
+          else:
+
+            bins[col] = self.open_cfg["inference"]["binned_fit"]["input"][self.category]["binning"]
+
+            from infer import Infer
+            infer_class = Infer()
+            infer_class.Configure(
+              {
+                "parameters" : {self.category : {self.file_name: self.parameters}},
+                "binned_fit_morph_col" : self.open_cfg["pois"][0],
+                "likelihood_type" : "binned_extended",
+                "inference_options" : {
+                  "rate_parameters" : []
+                },
+              }
+            )
+            binned_yields = infer_class._BuildBinYields()[self.category][self.file_name]
+            Y = GetDefaultsInModel(self.file_name, self.open_cfg, include_lnN=True)
+            for k, v in variation.items():
+              Y[k] = v
+            hist = binned_yields(pd.DataFrame({k: [v] for k, v in Y.items()}))
+            hist_uncert = np.zeros_like(hist)
+
           if col not in hists.keys():
             hists[col] = []
             hist_names[col] = []
@@ -209,7 +253,7 @@ class InputPlotValidation():
           hists[col].append(hist)
           hist_errs[col].append(hist_uncert)
           if not self.use_scenario_labels:
-            hist_names[col].append(", ".join([f"{Translate(k)}={v}" for k, v in variation.items()]))
+            hist_names[col].append(", ".join([f"{Translate(k)}={round(v,2)}" for k, v in variation.items()]))
           else:
             hist_names[col].append(f"Scenario {inds[ind]+1}")
 
@@ -268,7 +312,7 @@ class InputPlotValidation():
           ylabel = "Density",
           anchor_y_at_0 = True,
           first_ratio = True,
-          ratio_range = [0.9,1.1]
+          ratio_range = self.ratio_range
         )
 
 
@@ -331,7 +375,7 @@ class InputPlotValidation():
         ylabel = "Density",
         anchor_y_at_0 = True,
         first_ratio = True,
-        ratio_range = [0.9,1.1]
+        ratio_range = self.ratio_range
       )
 
       # print chi squared per dof for all histogram combinations

@@ -41,6 +41,12 @@ class SimToDataFactors():
 
       file_names = []
 
+      # If all of group not in self.data_input.keys(), skip group
+      if not all([cat in self.data_input.keys() for cat in group]):
+        if self.verbose:
+          print(f"Skipping group {group} as not all categories in data input")
+        continue
+
       for cat in group:
 
         data_dp = DataProcessor([[x] for x in self.data_input[cat]], "parquet")
@@ -126,6 +132,7 @@ class SimToDataFactors():
     """
     outputs = []
     for group in self.groups:
+      if not all([cat in self.data_input.keys() for cat in group]): continue
       for cat in group:
         outputs += [f"{self.data_output}_{cat}.yaml"]
 

@@ -64,11 +64,13 @@ def one_weight_variation(
   weight_var = df.loc[mask, weight_column_name]
   if add_one_to_weight:
     weight_var += 1.0
-  weight_var = weight_var.clip(lower=weight_clip[0], upper=weight_clip[1])
+  weight_var = weight_var
 
   if nominal_weight_column_name is not None:
-    nominal_weight_var = df.loc[mask, nominal_weight_column_name].clip(lower=weight_clip[0], upper=weight_clip[1])
+    nominal_weight_var = df.loc[mask, nominal_weight_column_name]
     weight_var /= nominal_weight_var
+
+  weight_var = weight_var.clip(lower=weight_clip[0], upper=weight_clip[1])
 
   # Get asym log normal weights
   asymln = AsymLogNormal(df.loc[mask, nuisance_column_name], kp=weight_var, km=1/weight_var, clip_down=log_normal_clip[0], clip_up=log_normal_clip[1])
@@ -102,14 +104,17 @@ def two_weight_variation(
     mask = df.query(mask).index
 
   # Apply the clip for the weights
-  up_weight_var = df.loc[mask, up_weight_column_name].clip(lower=weight_clip[0], upper=weight_clip[1])
-  down_weight_var = df.loc[mask, down_weight_column_name].clip(lower=weight_clip[0], upper=weight_clip[1])
+  up_weight_var = df.loc[mask, up_weight_column_name]
+  down_weight_var = df.loc[mask, down_weight_column_name]
 
   if nominal_weight_column_name is not None:
-    nominal_weight_var = df.loc[mask, nominal_weight_column_name].clip(lower=weight_clip[0], upper=weight_clip[1])
+    nominal_weight_var = df.loc[mask, nominal_weight_column_name]
     up_weight_var /= nominal_weight_var
     down_weight_var /= nominal_weight_var
     
+  up_weight_var = up_weight_var.clip(lower=weight_clip[0], upper=weight_clip[1])
+  down_weight_var = down_weight_var.clip(lower=weight_clip[0], upper=weight_clip[1])
+
   # Get asym log normal weights
   asymln = AsymLogNormal(df.loc[mask, nuisance_column_name], kp=up_weight_var, km=down_weight_var, clip_down=log_normal_clip[0], clip_up=log_normal_clip[1])
 

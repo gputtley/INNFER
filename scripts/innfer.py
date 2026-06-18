@@ -168,6 +168,11 @@ def parse_args():
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
   parser.add_argument('--summary-subtract', help='Use subtraction instead of division in summary', action='store_true')
+  parser.add_argument('--tuning-load-trials', help='Comma separated list of trial indices to load or colon separated range', type=str, default=None)
+  parser.add_argument('--tuning-no-copy', help='Do not copy the best model and architecture to the output directory', action='store_true')
+  parser.add_argument('--tuning-timeout-duration', help='Duration of the timeout for the Bayesian tuning', type=int, default=9000)
+  parser.add_argument('--tuning-timeout-index', help='Index of the timeout for the Bayesian tuning', type=int, default=0)
+  parser.add_argument('--tuning-use-timeout', help='Using timeout for the Bayesian tuning', action='store_true')
   parser.add_argument('--use-asimov-scaling', help='Generate asimov with this scaling up of the predicted yield', type=int, default=10)
   parser.add_argument('--use-expected-data-uncertainty', help='In postfit plots change the data uncertainty to the expected stat uncertainty', action='store_true')
   parser.add_argument('--use-scenario-labels', help='Use Scenario 1, for example, labelling on plots rather than the string name', action='store_true')
@@ -748,6 +753,9 @@ def main(args, default_args, module_options={}):
             "use_scenario_labels" : args.use_scenario_labels,
             "compare_data_splits" : args.compare_sim_types,
             "plot_weight_distribution" : args.plot_weight_distribution,
+            "binned" : args.likelihood_type in ["binned", "binned_extended"],
+            "category" : category,
+            "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
             "verbose" : not args.quiet,
           },
           loop = {"file_name" : file_name, "category" : category},
@@ -1437,6 +1445,11 @@ def main(args, default_args, module_options={}):
           "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
           "n_trials" : args.number_of_trials,
           "metric" : args.hyperparameter_metric,
+          "no_copy" : args.tuning_no_copy,
+          "load_trials" : args.tuning_load_trials,
+          "use_timeout" : args.tuning_use_timeout,
+          "timeout": args.tuning_timeout_duration,
+          "timeout_index": args.tuning_timeout_index,
           "verbose" : not args.quiet,     
         },
         loop = {"model_name" : model_info['name']}
