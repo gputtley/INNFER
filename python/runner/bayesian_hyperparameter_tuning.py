@@ -223,6 +223,7 @@ class BayesianHyperparameterTuning():
       for ind in range(start_ind, self.objective_ind):
         indices_ran.append(ind)
       timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index}.yaml"
+      MakeDirectories(timeout_file_name)
       with open(timeout_file_name, 'w') as yaml_file:
         yaml.dump(indices_ran, yaml_file, default_flow_style=False)
       if self.verbose:

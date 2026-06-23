@@ -72,6 +72,7 @@ def parse_args():
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
   parser.add_argument('--dry-run', help='Setup batch submission without running.', action='store_true')
   parser.add_argument('--extra-dir-name', help='Add extra name to step directory for input and output directory', type=str, default='')
+  parser.add_argument('--extra-extra-dir-name', help='Add another extra name to step directory for input and output directory', type=str, default='')
   parser.add_argument('--extra-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-postfit-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
@@ -81,6 +82,7 @@ def parse_args():
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
+  parser.add_argument('--global-variables', help='Define global variables, dictionary formatted', type=str, default=None)
   parser.add_argument('--plot-metric', help='Metric for factorisation plots, colon separated in many keys', type=str, default='chi_squared_per_dof:mean')
   parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
   parser.add_argument('--ignore-inputs-and-outputs', help='Do not check the inputs and outputs exist.', action='store_true')
@@ -195,7 +197,9 @@ def main(args, default_args, module_options={}):
   if args.extra_dir_name != "":
     args.extra_input_dir_name = args.extra_dir_name
     args.extra_output_dir_name = args.extra_dir_name
-
+  if args.extra_extra_dir_name != "":
+    args.extra_input_dir_name += f"{args.extra_extra_dir_name}"
+    args.extra_output_dir_name += f"{args.extra_extra_dir_name}"
 
   # Define useful variables
   specific_category_list = args.specific_category.split(",") if args.specific_category is not None else None
@@ -783,6 +787,37 @@ def main(args, default_args, module_options={}):
               "sim_type" : args.sim_type,
               "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
               "binned" : args.likelihood_type in ["binned", "binned_extended"],
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
+          )
+
+  # Plot the input nuisance variations
+  if args.step == "InputPlotComparingTrainWithVariations":
+    print("<< Plotting input nuisance variations >>")
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
+        model_loop = GetModelLoop(cfg, specific_file_name=file_name, specific_category=category)
+        for nuisance in [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]:
+          if not any([model_info["parameter"] == nuisance for model_info in model_loop]): continue
+          model_info = [model_info for model_info in model_loop if model_info["parameter"] == nuisance][0]
+          module.Run(
+            module_name = "input_plot_comparing_train_with_variations",
+            class_name = "InputPlotComparingTrainWithVariations",
+            config = {
+              "cfg" : args.cfg,
+              "open_cfg" : cfg,
+              "file_name" : file_name,
+              "category" : category,
+              "model_info" : model_info,
+              "train_data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/classifier/{nuisance}",
+              "nominal_data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{GetValidationDefaultIndex(cfg, file_name, category=category)}",
+              "up_data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up",
+              "down_data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down",
+              "plots_output" : f"{plots_dir}/InputPlotComparingTrainWithVariations{args.extra_output_dir_name}/{file_name}/{category}",
+              "nuisance" : nuisance,
+              "sim_type" : args.sim_type,
+              "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},

@@ -115,6 +115,7 @@ class PreProcess():
     for _ in range(n_copies):
       tmp = self._ApplyShifts(tmp_copy.copy(deep=False), shifts)
       dfs.append(tmp)
+
     df = pd.concat(dfs, axis=0, ignore_index=True)
 
     # do precalculate
@@ -138,9 +139,6 @@ class PreProcess():
       #df = df.loc[df.eval(self.extra_selection),:]
       df = df.query(self.extra_selection)
 
-    # Post shifts
-    df = self._ApplyShifts(copy.deepcopy(df), post_shifts)
-
     # store old weight before doing weight shift
     df["old_wt"] = df.eval(nominal_weight)
 
@@ -159,6 +157,9 @@ class PreProcess():
         else:
           raise ValueError(f"Weight shift type {v['type']} not recognised")
     df["wt_shift"] = df["wt"]/df["old_wt"]
+
+    # Post shifts
+    df = self._ApplyShifts(copy.deepcopy(df), post_shifts)
 
     # Remove events with 0 weight
     df = df.loc[(df["wt"] != 0), :]
