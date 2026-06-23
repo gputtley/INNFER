@@ -93,32 +93,33 @@ class ClassifierPerformanceMetrics():
     self.network.Load(name=f"{classifier_model_name}.h5")
 
     # Make predictions
-    for data_type in self._GetAllDatasets():
-      x, y, wt = self._GetFiles(data_type)
-      pred_df = DataProcessor(
-          [[x, y, wt]],
-          "parquet",
-          options={
-              "parameters": self.open_parameters['classifier'][self.parameter],
-          },
-      )
-      parquet_pred_file = f"pred_{data_type}"
-      wp = WriteParquet(
-        name=parquet_pred_file,
-        data_output=self.data_output,
-      )
-      pred_df.GetFull(
-        method=None,
-        functions_to_apply=[
-          partial(
-            self._ApplyClassifier,
-            func=self.network.Predict,
-            X_columns=self.open_parameters['classifier'][self.parameter]["X_columns"],
-          ),
-          wp,
-        ]
-      )
-      wp.collect(memory_safe=True)
+    if self.do_histogram_metrics or self.do_multidimensional_dataset_metrics:
+      for data_type in self._GetAllDatasets():
+        x, y, wt = self._GetFiles(data_type)
+        pred_df = DataProcessor(
+            [[x, y, wt]],
+            "parquet",
+            options={
+                "parameters": self.open_parameters['classifier'][self.parameter],
+            },
+        )
+        parquet_pred_file = f"pred_{data_type}"
+        wp = WriteParquet(
+          name=parquet_pred_file,
+          data_output=self.data_output,
+        )
+        pred_df.GetFull(
+          method=None,
+          functions_to_apply=[
+            partial(
+              self._ApplyClassifier,
+              func=self.network.Predict,
+              X_columns=self.open_parameters['classifier'][self.parameter]["X_columns"],
+            ),
+            wp,
+          ]
+        )
+        wp.collect(memory_safe=True)
 
     # Set up metrics dictionary
     self.metrics = {}
