@@ -335,8 +335,6 @@ def plot_histograms_with_ratio(
       #ax[-1].plot(bins, np.ones(len(bins))-np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
       #ax[-1].plot(bins, np.ones(len(bins))+np.append(ratio_uncert,ratio_uncert[-1]), color=colour, linestyle='--', linewidth=1, alpha=0.5)
 
-
-
   # ratio labels
   ax[-1].axhline(y=1, color='black', linestyle='-')  # Add a horizontal line at ratio=1
   ax[-1].set_xlabel(xlabel)
@@ -1919,12 +1917,11 @@ def plot_learned_nuisance_variations(
   )
   ax1.set_ylim(0, 1.1*max_y)
 
-
   # Draw ratio of sim to asimov on middle pad
   ax2.errorbar(
     bin_centers, 
     nominal_errorbar_hist/nominal_line_hist, 
-    yerr=(nominal_errorbar_uncert/nominal_line_hist), 
+    yerr=(np.maximum(0, nominal_errorbar_uncert/nominal_line_hist)), 
     fmt='o', 
     color='black', 
     capsize=5,
@@ -1932,7 +1929,7 @@ def plot_learned_nuisance_variations(
   ax2.errorbar(
     bin_centers, 
     up_errorbar_hist/up_line_hist, 
-    yerr=(up_errorbar_uncert/up_line_hist), 
+    yerr=(np.maximum(0, up_errorbar_uncert/up_line_hist)), 
     fmt='o', 
     color='red', 
     capsize=5,
@@ -1940,7 +1937,7 @@ def plot_learned_nuisance_variations(
   ax2.errorbar(
     bin_centers, 
     down_errorbar_hist/down_line_hist, 
-    yerr=(down_errorbar_uncert/down_line_hist), 
+    yerr=(np.maximum(0, down_errorbar_uncert/down_line_hist)), 
     fmt='o', 
     color='blue', 
     capsize=5,
@@ -1969,7 +1966,7 @@ def plot_learned_nuisance_variations(
   ax3.errorbar(
     bin_centers, 
     up_errorbar_hist/nominal_errorbar_hist, 
-    yerr=up_errorbar_uncert/nominal_errorbar_hist, 
+    yerr=np.maximum(0, up_errorbar_uncert/nominal_errorbar_hist), 
     fmt='o', 
     color='red', 
     capsize=5,
@@ -1977,7 +1974,7 @@ def plot_learned_nuisance_variations(
   ax3.errorbar(
     bin_centers, 
     down_errorbar_hist/nominal_errorbar_hist, 
-    yerr=down_errorbar_uncert/nominal_errorbar_hist, 
+    yerr=np.maximum(0, down_errorbar_uncert/nominal_errorbar_hist), 
     fmt='o', 
     color='blue', 
     capsize=5,
