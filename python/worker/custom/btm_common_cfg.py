@@ -7,6 +7,8 @@ import numpy as np
 
 from btm_experimental_systematics import get_jec_nuisances
 
+prep_data_dir = os.getenv('PREP_DATA_DIR')
+
 def make_common_config(run_name, categories, categories_per_era, add_classifier=False):
 
   ### Define core variables for config ###
@@ -586,11 +588,12 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       "args": {"mass_to":"bw_mass", "mass_from":"sim_mass", "gen_mass": "GenTop2_mass"},
       "inputs": ["bw_mass", "sim_mass", "GenTop2_mass"],
     }
+
     ttbar_weight_shifts["bw_fractions"] = {
       "type": "function", 
       "file": "breit_wigner_reweighting", 
       "name": "bw_fractions", 
-      "args": {"spline_locations":f"/vols/cms/gu18/innfer_v1/data/{run_name}/top_bw_fractions/top_bw_fraction_locations.yaml", "mass_to":"bw_mass", "mass_from":"sim_mass", "category":cat},
+      "args": {"spline_locations":f"{prep_data_dir}/{run_name}/top_bw_fractions/top_bw_fraction_locations.yaml", "mass_to":"bw_mass", "mass_from":"sim_mass", "category":cat},
       "inputs": ["bw_mass", "sim_mass"],
     }
 
