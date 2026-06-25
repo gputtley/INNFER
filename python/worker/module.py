@@ -212,11 +212,12 @@ class Module():
     loop : dict
         Current loop conditions.
     """
+
     # Load global config
     with open("configs/other/global.yaml", 'r') as yaml_file:
       global_config = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
-    # Set up global variables
+    # Set up global variables from loop
     for key, values in global_config.items():
       already_set = False
       for value in values:
@@ -234,6 +235,13 @@ class Module():
         if set_var and not already_set:
           already_set = True
           os.environ[key] = value["value"]
+
+    # Setup global variables from input
+    if self.args.global_variables is not None:
+      for global_var in self.args.global_variables.split(","):
+        key = global_var.split("=")[0]
+        value = global_var.split("=")[1]
+        os.environ[key] = value
 
 
   def Run(

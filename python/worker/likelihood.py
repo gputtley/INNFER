@@ -2533,7 +2533,7 @@ class NLLAndGradient():
           for ind, col in enumerate(columns_to_run):
             Y[self.Y_columns.index(col)] = x[ind]
           return self.Run(X_dps, Y, multiply_by=-1, gradient=0)
-        H = nd.Hessian(grad_func, method='central')
+        H = nd.Hessian(grad_func, method='forward', order=1, richardson_terms=1)
         hessian_partial = H([self.best_fit[self.Y_columns.index(col)] for col in columns_to_run])
 
       else:

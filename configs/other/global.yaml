@@ -17,5 +17,5 @@ PLOTTING_LUMINOSITY:
     value: "$109\\ fb^{-1}\\ (13.6\\ TeV)$"
   - category: "24_control"
     value: "$109\\ fb^{-1}\\ (13.6\\ TeV)$"
-  - value: "$200\\ fb^{-1}\\ (13,13.6\\ TeV)$"
+  - value: "$309\\ fb^{-1}\\ (13,13.6\\ TeV)$"
 
