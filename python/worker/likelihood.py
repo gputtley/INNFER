@@ -1,5 +1,4 @@
 import copy
-import importlib
 import json
 import hashlib
 import os
@@ -12,6 +11,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from iminuit import Minuit
 from pprint import pprint
@@ -19,6 +19,7 @@ from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize, root_scalar
 
 from minimise import Minimise as CustomMinimise
+from parallel_event_gradient import ParallelEventGradient
 from useful_functions import MakeDirectories, RandomString
 
 import warnings
@@ -46,6 +47,16 @@ class Likelihood():
     self.Y_columns_per_model = Y_columns_per_model
     self.categories = categories
 
+    # Set empty models if not provided
+    keys_to_add = ["pdf_shifts_with_classifier", "pdf_shifts_with_regression"]
+    for key in keys_to_add:
+      if key not in self.models.keys():
+        self.models[key] = {}
+        for cat in self.models["pdfs"].keys():
+          self.models[key][cat] = {}
+          for proc in self.models["pdfs"][cat].keys():
+            self.models[key][cat][proc] = {}
+
     self.seed = 42
     self.set_seed = False
     self.verbose = True
@@ -55,7 +66,7 @@ class Likelihood():
     self.skip_nan_check = True
     self.nn_columns = nn_columns
     self.constraint_range=[-3.0,3.0]
-    self.cap_column_print = True
+    self.cap_column_print = False
     self.no_print_minimisation_step = False
     self.classifier_divide_by_nominal = False
 
@@ -179,34 +190,68 @@ class Likelihood():
   def _CustomDPMethodForDMatrix(self, tmp, out, options={}):
 
     # Get the per event log likelihoods
+    columns = options["scan_over"] if "scan_over" in options.keys() else self.Y_columns
+
     if self.type == "unbinned":
+
       # For unbinned
-      tmp_probs = self._GetEventLoopUnbinned(
-        tmp, 
-        options["Y"], 
-        wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
-        gradient = [1], 
-        column_1 = self.Y_columns,
-        before_sum = True,
-        category = options["category"] if "category" in options.keys() else None
-      )[0]
+      if "numerical" not in options.keys() or not options["numerical"]:
+        tmp_probs = self._GetEventLoopUnbinned(
+          tmp, 
+          options["Y"], 
+          wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+          gradient = [1], 
+          column_1 = self.Y_columns,
+          before_sum = True,
+          category = options["category"] if "category" in options.keys() else None
+        )[0]
+      else:
+        raise NotImplementedError("Numerical DMatrix for unbinned likelihoods are not implemented yet.")
+
+
     elif self.type == "unbinned_extended":
+
       # For unbinned extended
-      tmp_probs = self._GetEventLoopUnbinnedExtended(
-        tmp, 
-        options["Y"], 
-        wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
-        gradient = [1], 
-        column_1 = self.Y_columns,
-        before_sum = True,
-        category = options["category"] if "category" in options.keys() else None
-      )[0]
+      if "numerical" not in options.keys() or not options["numerical"]:
+
+        tmp_probs = self._GetEventLoopUnbinnedExtended(
+          tmp, 
+          options["Y"], 
+          wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+          gradient = [1], 
+          column_1 = columns,
+          before_sum = True,
+          category = options["category"] if "category" in options.keys() else None
+        )[0]
+        
+      else:
+
+        Y_tiled = pd.concat([options["Y"][columns]]*tmp.shape[0], ignore_index=True)
+        Y_full =  pd.concat([options["Y"]]*tmp.shape[0], ignore_index=True)
+
+        def grad_func(input):
+          Y_copy = Y_full.copy()
+          Y_copy[columns] = input
+          tmp_probs_0 = self._GetEventLoopUnbinnedExtended(
+            tmp, 
+            Y_copy, 
+            wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
+            gradient = [0], 
+            column_1 = columns,
+            before_sum = True,
+            category = options["category"] if "category" in options.keys() else None
+          )[0].squeeze(axis=-1)
+          return tmp_probs_0
+
+        gradient_function = ParallelEventGradient()
+        tmp_probs = gradient_function(grad_func, Y_tiled)
+
       # Add in the extended part
       for name in self.models["yields"].keys():
-        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=self.Y_columns, category=options["category"])/options["sum_wts"]
+        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=columns, category=options["category"])/options["sum_wts"]
 
     # Add constraints
-    tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=self.Y_columns)/options["sum_wts"]
+    tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=columns)/options["sum_wts"]
 
     ## Check for nans
     #if np.isnan(tmp_probs).any():
@@ -220,7 +265,7 @@ class Likelihood():
     # Check for constant values of first derivatives
     consts = []
     for ind in range(len(options["scan_over"])):
-      if len(np.unique(tmp_probs[:,self.Y_columns.index(options["scan_over"][ind])].astype(np.float32))) == 1:
+      if len(np.unique(tmp_probs[:,columns.index(options["scan_over"][ind])].astype(np.float32))) == 1:
         consts.append(True)
       else:
         consts.append(False)
@@ -231,7 +276,7 @@ class Likelihood():
         if consts[ind_1] or consts[ind_2]:
           out[ind_1, ind_2] = np.nan
         elif out[ind_1, ind_2] is not np.nan:
-          out[ind_1, ind_2] += np.sum((tmp.loc[:,options["wt_name"]].to_numpy()**2) * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_1])] * tmp_probs[:, self.Y_columns.index(options["scan_over"][ind_2])], dtype=np.float64)
+          out[ind_1, ind_2] += np.sum((tmp.loc[:,options["wt_name"]].to_numpy()**2) * tmp_probs[:, columns.index(options["scan_over"][ind_1])] * tmp_probs[:, columns.index(options["scan_over"][ind_2])], dtype=np.float64)
 
     return out
 
@@ -558,7 +603,7 @@ class Likelihood():
 
       # Get model scaling
       rate_param = self._GetYield(name, Y, category=category)
-      if rate_param == 0: continue
+      if isinstance(rate_param, (int, float)) and rate_param == 0: continue
 
       # Check if we need to integrate density with ratios
       integrate_density = self.integrate_density_with_ratios and (gradient == 0 or gradient == [0]) and (len(self.models["pdf_shifts_with_classifier"][category][name]) + len(self.models["pdf_shifts_with_regression"][category][name]) > 0)
@@ -566,10 +611,8 @@ class Likelihood():
       # Check if we can load total density from cache
       density_columns = list(pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns)
       Y_columns_for_all_models = list(density_columns)
-      if "pdf_shifts_with_regression" in self.models.keys():
-        Y_columns_for_all_models += list(self.models["pdf_shifts_with_regression"][category][name].keys())
-      if "pdf_shifts_with_classifier" in self.models.keys():
-        Y_columns_for_all_models += list(self.models["pdf_shifts_with_classifier"][category][name].keys())
+      Y_columns_for_all_models += list(self.models["pdf_shifts_with_regression"][category][name].keys())
+      Y_columns_for_all_models += list(self.models["pdf_shifts_with_classifier"][category][name].keys())
       add_density_columns = density_columns if add_density_columns_to_cache else []
       
       cache_dict_total = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total", Y_columns_per_model=Y_columns_for_all_models, extra_save_name=extra_cache_name)
@@ -617,15 +660,13 @@ class Likelihood():
         ### Regression ###
 
         do_shift = False
-        if "pdf_shifts_with_regression" in self.models.keys():
-          if name in self.models["pdf_shifts_with_regression"][category].keys():
-            if len(self.models["pdf_shifts_with_regression"][category][name]) > 0:
-              do_shift = True
+        if len(self.models["pdf_shifts_with_regression"][category][name]) > 0:
+          do_shift = True
 
         if do_shift:
 
           # See if can load cached results from all regression shifts
-          regression_Y_columns = list(self.models["pdf_shifts_with_regression"][category][name].keys()) if "pdf_shifts_with_regression" in self.models.keys() else []
+          regression_Y_columns = list(self.models["pdf_shifts_with_regression"][category][name].keys())
           cache_dict_total_regression = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_regression", Y_columns_per_model=regression_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
           load_from_cache_total_regression = self._CheckIfInCacheLogProbs(cache_dict_total_regression, model_type="total_regression")
 
@@ -691,18 +732,16 @@ class Likelihood():
 
         # Check if you need to do classifier shift
         do_shift = False
-        if "pdf_shifts_with_classifier" in self.models.keys():
-          if name in self.models["pdf_shifts_with_classifier"][category].keys():
-            if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
-              do_shift = True
+        if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
+          do_shift = True
 
 
         if do_shift:
 
-          st = time.time()
+          #st = time.time()
 
           # See if can load cached results from all classifier shifts
-          classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys()) if "pdf_shifts_with_classifier" in self.models.keys() else []
+          classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys())
           cache_dict_total_classifier = self._CreateCacheDict(name, None, Y, gradient, category, column_1=column_1, column_2=column_2, model_type="total_classifier", Y_columns_per_model=classifier_Y_columns+add_density_columns, extra_save_name=extra_cache_name)
           load_from_cache_total_classifier = self._CheckIfInCacheLogProbs(cache_dict_total_classifier, model_type="total_classifier")
 
@@ -884,8 +923,10 @@ class Likelihood():
 
       # Get model scaling
       rate_param = self._GetYield(name, Y, category=category)
+      if isinstance(rate_param, pd.DataFrame):
+        rate_param = rate_param.to_numpy()
 
-      if rate_param == 0: continue
+      if isinstance(rate_param, (int, float)) and rate_param == 0: continue
 
       # Get rate times probability
       ln_lklds_with_rate_params = np.log(rate_param) + log_probs[name]
@@ -1953,7 +1994,7 @@ class Likelihood():
     return m1p1_vals
 
 
-  def GetDMatrix(self, X_dps, scan_over):
+  def GetDMatrix(self, X_dps, scan_over, numerical=False):
 
     # Get the D matrix
     if self.type in ["unbinned","unbinned_extended"]:
@@ -1969,7 +2010,7 @@ class Likelihood():
           dps_d_matrix = X_dp.GetFull(
             method = "custom",
             custom = self._CustomDPMethodForDMatrix,
-            custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over, "sum_wts" : sum_wts, "category" : cat}
+            custom_options = {"Y" : pd.DataFrame([self.best_fit], columns=self.Y_columns), "wt_name" : X_dp.wt_name, "scan_over" : scan_over, "sum_wts" : sum_wts, "category" : cat, "numerical" : numerical}
           )
           d_matrix += dps_d_matrix
     else:
@@ -2421,7 +2462,7 @@ class NLLAndGradient():
         yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteDMatrixToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="dmatrix.yaml"):
+  def GetAndWriteDMatrixToYaml(self, X_dps, row=None, freeze={}, scan_over=None, filename="dmatrix.yaml", numerical=False):
     """
     Finds the best-fit parameters and writes them to a YAML file.
 
@@ -2436,7 +2477,7 @@ class NLLAndGradient():
       scan_over = self.Y_columns
     scan_over = [col for col in scan_over if col not in freeze.keys()]
 
-    D_matrix, scan_over = self.GetDMatrix(X_dps, scan_over)
+    D_matrix, scan_over = self.GetDMatrix(X_dps, scan_over, numerical=numerical)
 
     dump = {
       "columns": self.Y_columns, 

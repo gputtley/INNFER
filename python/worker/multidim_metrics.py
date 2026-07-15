@@ -1,11 +1,13 @@
 import copy
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from functools import partial
+from pandas.errors import PerformanceWarning
 from sklearn.metrics import auc as roc_curve_auc
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import roc_curve
@@ -13,6 +15,8 @@ from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
 from useful_functions import Resample
+
+warnings.simplefilter("ignore", PerformanceWarning)
 
 class MultiDimMetrics():
 
@@ -144,10 +148,10 @@ class MultiDimMetrics():
       y_test = y_test.to_numpy()
       del X_wt_train, X_wt_test, total
     else:
-      self.sim_train.loc[:, "y"] = 0.0
-      self.synth_train.loc[:, "y"] = 1.0
-      self.sim_test.loc[:, "y"] = 0.0
-      self.synth_test.loc[:, "y"] = 1.0
+      self.sim_train["y"] = 0.0
+      self.synth_train["y"] = 1.0
+      self.sim_test["y"] = 0.0
+      self.synth_test["y"] = 1.0
       total_train = pd.concat([self.sim_train, self.synth_train], ignore_index=True)
       total_test = pd.concat([self.sim_test, self.synth_test], ignore_index=True)
       total_train = total_train.sample(frac=1).reset_index(drop=True)

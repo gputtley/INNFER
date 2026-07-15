@@ -1,34 +1,34 @@
-## Train density models
-#- step: "BayesianHyperparameterTuning"
-#  submit: "configs/submit/condor_gpu_long.yaml"
-#  run_options: 
-#    disable_tqdm: True
-#    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
-#    number_of_trials: 15
-#    hyperparameter_metric: "loss_test,min"
-#    density_performance_metrics: "loss"
-#    model_type: "density"
-#    specific_file_name: "ttbar"
-#- step: "BayesianHyperparameterTuning"
-#  submit: "configs/submit/condor_gpu.yaml"
-#  run_options: 
-#    disable_tqdm: True
-#    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
-#    number_of_trials: 30
-#    hyperparameter_metric: "loss_test,min"
-#    density_performance_metrics: "loss"
-#    model_type: "density"
-#    specific_file_name: "other"
-#
-## Get the density performance metrics for the best models
-#- step: "DensityPerformanceMetrics"
-#  submit: "configs/submit/condor_gpu.yaml"
-#  run_options: 
-#    specific_file_name: "ttbar"
-#- step: "DensityPerformanceMetrics"
-#  submit: "configs/submit/condor_2_cpus_avx.yaml"
-#  run_options: 
-#    specific_file_name: "other"
+# Train density models
+- step: "BayesianHyperparameterTuning"
+  submit: "configs/submit/condor_gpu_long.yaml"
+  run_options: 
+    disable_tqdm: True
+    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
+    number_of_trials: 15
+    hyperparameter_metric: "loss_test,min"
+    density_performance_metrics: "loss"
+    model_type: "density"
+    specific_file_name: "ttbar"
+- step: "BayesianHyperparameterTuning"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    disable_tqdm: True
+    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
+    number_of_trials: 30
+    hyperparameter_metric: "loss_test,min"
+    density_performance_metrics: "loss"
+    model_type: "density"
+    specific_file_name: "other"
+
+# Get the density performance metrics for the best models
+- step: "DensityPerformanceMetrics"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    specific_file_name: "ttbar"
+- step: "DensityPerformanceMetrics"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific_file_name: "other"
 
 # Train classifier models
 - step: "BayesianHyperparameterTuning"

@@ -1,6 +1,6 @@
 import numpy as np
 
-from asym_log_normal import AsymLogNormal
+from python.worker.asym_log_normal import AsymLogNormal
 
 def fsr_weight(
     df,

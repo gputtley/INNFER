@@ -1,4 +1,5 @@
 import copy
+import yaml
 
 import numpy as np
 
@@ -12,6 +13,7 @@ class Generator():
 
     self.cfg = None
     self.open_cfg = None
+    self.parameters = None
     self.data_input = None
     self.asimov_input = None
     self.plots_output = "plots/"
@@ -67,6 +69,11 @@ class Generator():
       val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
 
 
+    params = {}
+    if self.do_transformed:
+      with open(self.parameters, "r") as f:
+        params = yaml.safe_load(f)["density"]
+
     # Make sim data processors
     for k in self.data_input.keys():
       if self.verbose:
@@ -77,6 +84,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
@@ -90,6 +98,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
@@ -110,6 +119,7 @@ class Generator():
               wt_name = "wt",
               options = {
                 "check_wt" : True,
+                "parameters" : params,
               }
             )
 
@@ -125,6 +135,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
