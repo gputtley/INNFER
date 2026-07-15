@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, regularizers, losses
 from tqdm.autonotebook import tqdm
 
+from asym_log_normal import AsymLogNormal
 from data_loader import DataLoader
 from data_processor import DataProcessor
 from optimizer import Optimizer
@@ -76,6 +77,10 @@ class FCNNNetwork():
     self.save_model_per_epoch = False
     self.only_X_columns = None
     self.transform_batch_size = 10**7
+    self.two_point_interpolator = False
+    self.three_point_interpolator = False
+    self.predict_cache = {}
+    self.conditional_column = None
 
     # Running parameters
     self.plot_loss = True
@@ -488,7 +493,60 @@ class FCNNNetwork():
       return self._GraphPredictSoftMax(X)
 
 
-  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None, cache_unique_identifier=None):
+
+    if self.two_point_interpolator:
+
+      return self.PredictInterpolator(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy, interpolator_type="two_point", cache_unique_identifier=cache_unique_identifier)
+
+    elif self.three_point_interpolator:
+
+      return self.PredictInterpolator(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy, interpolator_type="three_point", cache_unique_identifier=cache_unique_identifier)
+    
+    else:
+
+      return self.PredictNominal(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+
+
+  def PredictInterpolator(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None, interpolator_type="two_point", cache_unique_identifier=None):
+
+    if order != 0 and order != [0]:
+      raise ValueError("Two point interpolator only supports order=0")
+    
+    conditional_variable = self.data_parameters.get("conditional_variable", None)
+
+    if cache_unique_identifier is None:
+
+      input_1 = input.copy()
+      input_1[conditional_variable] = 1.0
+
+      prediction = self.PredictNominal(input_1, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+      self.predict_cache[cache_unique_identifier] = {
+        1 : prediction[:,0] / (1 - prediction[:,0]),
+      }
+
+      if interpolator_type == "three_point":
+
+        input_m1 = input.copy()
+        input_m1[conditional_variable] = -1.0
+        prediction_m1 = self.PredictNominal(input_m1, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+        self.predict_cache[cache_unique_identifier][-1] = prediction_m1[:,0] / (1 - prediction_m1[:,0])
+
+    kp = self.predict_cache[cache_unique_identifier][1]
+    if interpolator_type == "two_point":
+      km = 1 / kp
+    elif interpolator_type == "three_point":
+      km = self.predict_cache[cache_unique_identifier][-1]
+
+    out_ratio = AsymLogNormal(input[conditional_variable].to_numpy(), kp=kp, km=km)
+    out_0 = out_ratio / (1 + out_ratio)
+    out_1 = 1 - out_0
+    out = np.column_stack((out_0, out_1))
+    
+    return out
+
+
+  def PredictNominal(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
 
     postprocess = True
     columns = self.only_X_columns if self.only_X_columns is not None else self.data_parameters["X_columns"]

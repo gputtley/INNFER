@@ -123,6 +123,8 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       "other": {}
     },
     "stratify_to" : "sim_mass",
+    "density_pretransform_to_gaussian" : True,
+    "density_pretransform_pca_whitening" : True,
     #"no_nuisance_yield_effect" : ["fsr"]
   }
   lnN = {
@@ -680,7 +682,15 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
     ]
 
     # Make classifier models
-    models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]} for k in ttbar_classifier_nuisances]
+    #models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]} for k in ttbar_classifier_nuisances]
+    for k in ttbar_classifier_nuisances:
+      if k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "three_point_variation_weight":
+        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "discrete", "values": [-1.0,1.0]}}, "n_copies":3, "categories": categories_per_era[cat]}]
+      elif k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "two_point_variation_weight":
+        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "fixed", "value": 1.0}}, "n_copies":3, "categories": categories_per_era[cat]}]
+      else:
+        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]}]
+
     models["other"]["classifier_models"] += [{"parameter":k, "file":f"base_other_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]} for k in other_classifier_nuisances]
 
     # Make yields

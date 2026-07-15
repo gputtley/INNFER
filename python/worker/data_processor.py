@@ -10,10 +10,13 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
+from scipy.stats import norm
 from tqdm import tqdm
 
 from data_loader import DataLoader
+from fast_pchip_inverse import FastPchipInverse
 from useful_functions import CustomHistogram, Resample
+from weighted_incremental_pca import WeightedIncrementalPCA
 
 class DataProcessor():
 
@@ -94,6 +97,9 @@ class DataProcessor():
     self.batch_ind = 0
     self.finished = False
     self.total_columns = None
+    self.spline_to_gaussian = {"forward":{}, "inverse":{}}
+    self.spline_to_gaussian_use_pchip_inverse = True
+    self.pca_whitening = None
 
     # Cache
     self.cache_to_memory = False
@@ -277,6 +283,7 @@ class DataProcessor():
       unique_threshold = 40, 
       discrete_binning = True,
       quantile = 0.01,
+      quantiles = [],
       ignore_quantile = 0.002,
       unique_combinations = None,
       sampling_fraction = 1.0,
@@ -287,6 +294,7 @@ class DataProcessor():
       print_dataset = False,
       skip_load=False,
       sum_w_selections = [],
+      columns = [],
     ):
 
     none_total_columns = False
@@ -298,8 +306,6 @@ class DataProcessor():
         sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
         means = {k : v/sum_wts for k, v in sum_cols.items()}
     elif method == "n_eff": # Get the number of effective events
-      #sum_wts_squared = self.GetFull(method="sum_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
-      #sum_wts = self.GetFull(method="sum", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       sum_wts, sum_wts_squared = self.GetFull(method="sum_w_and_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
       if sum_wts_squared != 0:
         return (sum_wts**2)/sum_wts_squared
@@ -329,7 +335,9 @@ class DataProcessor():
         unique = sorted(unique)
         return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
-        return np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
+        #out_bins = np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
+        out_bins = np.array(self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)))
+        return out_bins
     elif method in ["histogram","histogram_and_uncert"]: # Get histogram bins
       if type(bins) == int:
         bins = self.GetFull(method="bins_with_equal_spacing", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, bins=bins, ignore_discrete=ignore_discrete)
@@ -376,6 +384,8 @@ class DataProcessor():
           out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
         elif method in ["histogram"]: # make a histogram from the dataset
           out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
+        elif method in ["histograms"]: # make histograms from the dataset
+          out = self._method_histograms(tmp, out, columns, bins=bins, discrete_binning=discrete_binning)
         elif method in ["histogram_and_uncert"]: # make a histogram from the dataset
           out = self._method_histogram_and_uncert(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
         elif method in ["histogram_2d"]: # make a histogram from the dataset
@@ -408,6 +418,8 @@ class DataProcessor():
           out = self._method_unique(tmp, out, unique_threshold)
         elif method in ["quantile"]: # find a quantile of the dataset
           out = self._method_part_quantile(tmp, out, column, quantile)
+        elif method in ["quantiles"]: # find quantiles of the dataset
+          out = self._method_part_quantiles(tmp, out, column, quantiles)
         elif method in ["min_max"]: # find min and max of columns
           out = self._method_min_max(tmp, out)
         elif method in ["custom"]: # custom function
@@ -432,11 +444,19 @@ class DataProcessor():
     elif method == "histogram" and density: # normalise histograms
       sum_wt = np.sum(out[0])
       return out[0]/sum_wt, out[1]
+    elif method == "histograms" and density: # normalise histograms
+      outs = []
+      for i in range(len(out)):
+        sum_wt = np.sum(out[i][0])
+        outs.append((out[i][0]/sum_wt, out[i][1]))
+      return outs
     elif method == "histogram_and_uncert" and density: # normalise histograms
       sum_wt = np.sum(out[0])
       return out[0]/sum_wt, out[1]/sum_wt, out[2]
     elif method == "quantile": # return only average quantile
       return out[0]
+    elif method == "quantiles": # return only average quantiles
+      return [out[i][0] for i in range(len(out))]
 
     return out
 
@@ -478,11 +498,34 @@ class DataProcessor():
     Returns:
         pd.DataFrame: The transformed dataset.
     """
+
+    # Spline to gaussian transformation
+    if "spline_to_gaussian" in self.parameters.keys():
+      for col, spline_loc in self.parameters["spline_to_gaussian"]["forward"].items():
+        if col in data.columns:
+          if col not in self.spline_to_gaussian.keys():
+            with open(spline_loc, 'rb') as file:
+              self.spline_to_gaussian["forward"][col] = pickle.load(file)
+          data[col] = norm.ppf(self.spline_to_gaussian["forward"][col](data[col]))
+
+    # PCA whitening
+    if "pca_whitening" in self.parameters.keys():
+      pca_loc = self.parameters["pca_whitening"]["location"]
+      if self.pca_whitening is None:
+        self.pca_whitening = WeightedIncrementalPCA.load(pca_loc)
+      all_columns_present = all(col in data.columns for col in self.parameters["pca_whitening"]["columns"])
+      if all_columns_present:
+        z = self.pca_whitening.transform(data[self.parameters["pca_whitening"]["columns"]].to_numpy(dtype=np.float64))
+        for i, column_name in enumerate(self.parameters["pca_whitening"]["columns"]):
+          data[column_name] = z[:, i]
+
+    # Standardisation
     cols_to_standardise = [c for c in data.columns if c in self.parameters["standardisation"]]
     arr = data[cols_to_standardise].to_numpy(dtype=np.float64)
     for i, column_name in enumerate(cols_to_standardise):
       arr[:, i] = self.Standardise(arr[:, i], column_name)
     data[cols_to_standardise] = arr
+
     return data
 
   def UnTransformData(
@@ -498,6 +541,7 @@ class DataProcessor():
     Returns:
         pd.DataFrame: The Untransform dataset.
     """
+
     for column_name in data.columns:
 
       # Unstandardise the probabilities
@@ -547,6 +591,68 @@ class DataProcessor():
       # Unstandardise columns
       if column_name in list(self.parameters["standardisation"].keys()):
         data[column_name] = self.UnStandardise(data[column_name], column_name)
+
+    # Un PCA unwhiten
+    if "pca_whitening" in self.parameters.keys():
+
+      # Load PCA whitening object
+      pca_loc = self.parameters["pca_whitening"]["location"]
+      if self.pca_whitening is None:
+        self.pca_whitening = WeightedIncrementalPCA.load(pca_loc)
+      all_columns_present = all(col in data.columns for col in self.parameters["pca_whitening"]["columns"])
+      if all_columns_present:
+        inv_z = self.pca_whitening.inverse_transform(data[self.parameters["pca_whitening"]["columns"]].to_numpy(dtype=np.float64))
+        data[self.parameters["pca_whitening"]["columns"]] = inv_z
+
+      # Probabilities
+      if column_name == "prob":
+        data[column_name] *= np.exp(self.pca_whitening.log_abs_det_jacobian())
+      elif column_name == "log_prob":
+        data[column_name] += self.pca_whitening.log_abs_det_jacobian()
+       
+
+    for column_name in data.columns:
+
+      # Un spline to gaussian transformation
+      if "spline_to_gaussian" in self.parameters.keys():
+
+        # Features
+        if self.spline_to_gaussian_use_pchip_inverse:
+          if column_name in self.parameters["spline_to_gaussian"]["forward"].keys():
+            if column_name not in self.spline_to_gaussian["inverse"].keys():
+              forward_spline_loc = self.parameters["spline_to_gaussian"]["forward"][column_name]
+              with open(forward_spline_loc, 'rb') as file:
+                forward = pickle.load(file)
+              self.spline_to_gaussian["inverse"][column_name] = FastPchipInverse(forward)
+            data[column_name] = self.spline_to_gaussian["inverse"][column_name](norm.cdf(data[column_name]))
+        elif column_name in self.parameters["spline_to_gaussian"]["inverse"].keys():
+          if column_name not in self.spline_to_gaussian["inverse"].keys():
+            spline_loc = self.parameters["spline_to_gaussian"]["inverse"][column_name]
+            with open(spline_loc, 'rb') as file:
+              self.spline_to_gaussian["inverse"][column_name] = pickle.load(file)
+          #print("Before spline to gaussian:", column_name, np.min(data[column_name]), np.max(data[column_name]))
+          data[column_name] = self.spline_to_gaussian["inverse"][column_name](norm.cdf(data[column_name]))
+          #print("Spline to gaussian:", column_name, np.min(data[column_name]), np.max(data[column_name]))
+
+        # Probabilities
+        if column_name in ["prob", "log_prob"] or column_name.startswith("d_log_prob_by_d_") or column_name.startswith("d2_log_prob_by_d_"):
+          for col, spline_loc in self.parameters["spline_to_gaussian"]["forward"].items():
+            if col in data.columns:
+              if col not in self.spline_to_gaussian.keys():
+                with open(spline_loc, 'rb') as file:
+                  self.spline_to_gaussian["forward"][col] = pickle.load(file)
+              u = self.spline_to_gaussian["forward"][col](data[col])
+              z = norm.ppf(u)
+              f_x = self.spline_to_gaussian["forward"][col].derivative()(data[col])
+              if column_name == "prob":
+                phi_z = norm.pdf(z)
+                data[column_name] *= f_x / phi_z
+              elif column_name == "log_prob":
+                data[column_name] += np.log(f_x) - norm.logpdf(z)
+              elif column_name.startswith("d_log_prob_by_d_"):
+                raise NotImplementedError("Untransforming for spline to gaussian d_log_prob_by_d_ is not implemented yet.")
+              elif column_name.startswith("d2_log_prob_by_d_"):
+                raise NotImplementedError("Untransforming for spline to gaussian d2_log_prob_by_d_ is not implemented yet.")
 
     return data
 
@@ -697,6 +803,19 @@ class DataProcessor():
       out = [copy.deepcopy(tmp_hist), copy.deepcopy(bins)]
     else:
       out[0] += tmp_hist
+    return out
+
+
+  def _method_histograms(self, tmp, out, columns, bins=40, discrete_binning=False):
+
+    out = []
+    for column_index, column in enumerate(columns):
+
+      if len(out) < column_index + 1:
+        out.append(None)
+
+      out[column_index] = self._method_histogram(tmp, out[column_index], column, bins=bins, discrete_binning=discrete_binning)
+
     return out
 
 
@@ -1011,5 +1130,27 @@ class DataProcessor():
         out = [max_out]
       else:
         out = [max(max_out,out[0])]
+
+    return out
+
+
+  def _method_part_quantiles(self, tmp, out, column, quantiles):
+
+    if out is None:
+      out = []
+
+    for quant_ind, quantile in enumerate(quantiles):
+
+      if len(out) <= quant_ind:
+        out_unit = None
+      else:
+        out_unit = out[quant_ind]
+
+      out_unit = self._method_part_quantile(tmp, out_unit, column, quantile)
+
+      if len(out) <= quant_ind:
+        out.append(out_unit)
+      else:
+        out[quant_ind] = out_unit
 
     return out
