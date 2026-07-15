@@ -187,7 +187,7 @@ class Module():
     """
 
     argv = self._MakeCommandOptions(self.args)
-    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--add-inputs", "--add-outputs"]
+    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--snakemake-force", "--add-inputs", "--add-outputs"]
     for remove in to_remove:
       remove_str = None
       for string in argv:

@@ -3,6 +3,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import pickle
 import yaml
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -10,12 +11,15 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from functools import partial
+from pandas.errors import PerformanceWarning
 from scipy.interpolate import CubicSpline
 
 from data_processor import DataProcessor
 from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
 from yields import Yields
 from write_parquet import WriteParquet
+
+warnings.simplefilter("ignore", PerformanceWarning)
 
 class MakeAsimov():
 
@@ -146,10 +150,13 @@ class MakeAsimov():
         "scale" : total_yield,
       }
     )
+    #def add_truth(df, Y):
+    #  for k,v in Y.items():
+    #    df.loc[:,k] = v
+    #  return df
+
     def add_truth(df, Y):
-      for k,v in Y.items():
-        df.loc[:,k] = v
-      return df
+      return df.assign(**Y)
 
     functions_to_apply = []
     if self.add_truth:
@@ -383,20 +390,21 @@ class MakeAsimov():
     inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}_architecture.yaml"]
     inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}.h5"]
 
-    # Add regression models
-    for regression_model in self.regression_models:
-      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
-      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
-      if not self.skip_spline:
-        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
+    if not self.only_density:
+      # Add regression models
+      for regression_model in self.regression_models:
+        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
+        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
+        if not self.skip_spline:
+          inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
 
-    # Add classifier models
-    for classifier_model in self.classifier_models:
-      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
-      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
-      if not self.skip_spline:
-        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
-      if self.prune_classifier_models is not None:
-        inputs += [self.classifier_pruning_files[classifier_model['parameter']]]
+      # Add classifier models
+      for classifier_model in self.classifier_models:
+        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
+        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
+        if not self.skip_spline:
+          inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
+        if self.prune_classifier_models is not None:
+          inputs += [self.classifier_pruning_files[classifier_model['parameter']]]
 
     return inputs
