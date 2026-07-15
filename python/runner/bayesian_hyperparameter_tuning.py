@@ -61,6 +61,7 @@ class BayesianHyperparameterTuning():
     self.use_timeout = False
     self.timeout = 2.5 * 60*60  # 2.5 hours
     self.timeout_index = 0
+    self.change_type = None
 
   def _get_load_trials(self):
     if self.load_trials is None:
@@ -379,6 +380,7 @@ class BayesianHyperparameterTuning():
         "wandb_submit_name" : self.wandb_submit_name,
         "save_extra_name" : f"_{self.objective_ind}",
         "verbose" : self.verbose,        
+        "change_type" : self.change_type,
       }
     )
 

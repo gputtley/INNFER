@@ -53,6 +53,7 @@ def parse_args():
   parser.add_argument('--binned-observed-from-predicted', help='Take the binned observed data from the predicted values and not the validation samples', action='store_true')
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
+  parser.add_argument('--change-classifier-type-from-parameter', help='comma separated key=val for the parameter and the new type', type=str, default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
   parser.add_argument('--classifier-divide-by-nominal', help='Divide the classifier by the nominal value', action='store_true')
@@ -204,7 +205,7 @@ def main(args, default_args, module_options={}):
   # Define useful variables
   specific_category_list = args.specific_category.split(",") if args.specific_category is not None else None
   specific_file_name_list = args.specific_file_name.split(",") if args.specific_file_name is not None else None
-
+  change_classifier_type_from_parameter_dict = dict([x.split("=") for x in args.change_classifier_type_from_parameter.split(",")]) if args.change_classifier_type_from_parameter is not None else None
 
   # Initiate module class
   module = Module(
@@ -1000,6 +1001,7 @@ def main(args, default_args, module_options={}):
           "wandb_project_name" : args.wandb_project_name,
           "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}",
           "save_model_per_epoch" : args.save_model_per_epoch,
+          "change_type" : change_classifier_type_from_parameter_dict.get(model_info["parameter"], None),
           "verbose" : not args.quiet,        
         },
         loop = {"model_name" : model_info['name']}
@@ -1428,6 +1430,7 @@ def main(args, default_args, module_options={}):
             "disable_tqdm" : args.disable_tqdm,
             "save_extra_name" : f"_{architecture_ind}",
             "performance_metrics": getattr(args, f"{args.model_type}_performance_metrics"),
+            "change_type" : change_classifier_type_from_parameter_dict.get(model_info["parameter"], None),
             "verbose" : not args.quiet,        
           },
           loop = {"model_name" : model_info['name'], "architecture_ind" : architecture_ind}
@@ -1485,6 +1488,7 @@ def main(args, default_args, module_options={}):
           "use_timeout" : args.tuning_use_timeout,
           "timeout": args.tuning_timeout_duration,
           "timeout_index": args.tuning_timeout_index,
+          "change_type" : change_classifier_type_from_parameter_dict.get(model_info["parameter"], None),
           "verbose" : not args.quiet,     
         },
         loop = {"model_name" : model_info['name']}
@@ -1529,10 +1533,12 @@ def main(args, default_args, module_options={}):
             config = {
               "cfg" : args.cfg,
               "open_cfg" : cfg,
+              "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
               "data_input" : GetDataInput("sim" if args.data_type != "data" and not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
               "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
               "plots_output" : f"{plots_dir}/Generator{args.extra_output_dir_name}/{file_name}/{category}",
               "do_2d_unrolled" : args.plot_2d_unrolled,
+              "do_transformed" : args.plot_transformed,
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "sim_type" : args.sim_type,
               "val_info" : val_info,
@@ -1552,7 +1558,7 @@ def main(args, default_args, module_options={}):
   if args.step == "GeneratorSummary":
     print("<< Making plots using the network as a generator summarising all Y values >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      validation_loop = GetValidationLoop(cfg, file_name)
+      validation_loop = [val_info for val_info in GetValidationLoop(cfg, file_name) if not SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density) and not SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data"))]
       for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "generator_summary",
@@ -2030,6 +2036,31 @@ def main(args, default_args, module_options={}):
             config = {
               **common_options,
               "method" : "DMatrix",
+              "best_fit_input" : f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
+              "data_output" : f"{eval_data_dir}/DMatrix{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
+              "extra_file_name" : str(val_ind),
+              "freeze" : freeze["freeze"],
+              "val_ind" : val_ind,
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+          )
+
+
+  # Get the D matrix numerical
+  if args.step == "DMatrixNumerical":
+    print(f"<< Calculating the D matrix numerically >>")
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
+        common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          module.Run(
+            module_name = "infer",
+            class_name = "Infer",
+            config = {
+              **common_options,
+              "method" : "DMatrixNumerical",
               "best_fit_input" : f"{eval_data_dir}/InitialFit{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}",
               "data_output" : f"{eval_data_dir}/DMatrix{args.extra_output_dir_name}{freeze['extra_name']}/{file_name}",
               "extra_file_name" : str(val_ind),

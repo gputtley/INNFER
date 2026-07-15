@@ -1270,7 +1270,7 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
   else:
     wt_file = copy.deepcopy(wt_name)
 
-  if architecture["type"] == "FCNN":
+  if architecture["type"] in ["FCNN", "FCNN_TwoPointInterpolator", "FCNN_ThreePointInterpolator"]:
 
     from fcnn_network import FCNNNetwork
     network = FCNNNetwork(
@@ -1286,7 +1286,12 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
         **{k:v for k,v in architecture.items() if k!="type"},
         **options
       }
-    )
+    ) 
+
+    if architecture["type"] == "FCNN_TwoPointInterpolator":
+      network.two_point_interpolator = True
+    elif architecture["type"] == "FCNN_ThreePointInterpolator":
+      network.three_point_interpolator = True
   
   else:
 
@@ -1304,7 +1309,6 @@ def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
     return False
 
   return True
-
 
 
 def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False, allow_non_combined=False):
@@ -1376,7 +1380,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
 
   freeze_loop = []
 
-  if not (freeze in ["all-but-one","all-nuisances"] or (freeze is not None and freeze.startswith("all-but-"))):
+  if not (freeze in ["all-but-one","all-nuisances","all-non-density"] or (freeze is not None and freeze.startswith("all-but-"))):
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
@@ -1386,6 +1390,14 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
       "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k in cfg["nuisances"]},
       "extra_name" : "",
     }]
+  elif freeze == "all-non-density":
+    parameters_in_model = GetParametersInModel(file_name, cfg, only_density=True, include_rate=False, include_lnN=False)
+    if len(parameters_in_model) > 0:
+      freeze_loop += [{
+        "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in parameters_in_model},
+        "extra_name" : "",
+      }]
+
   elif freeze is not None and freeze.startswith("all-but-") and freeze != "all-but-one":
     params_to_float = freeze.split("all-but-")[1].split("-")
     freeze_loop += [{
@@ -2189,3 +2201,6 @@ def Translate(key, translation_file="configs/other/translate.yaml"):
     return val
   else:
     return key
+
+def UniqueFromTwo(a, b):
+  return ((a + b) * (a + b + 1)) // 2 + b

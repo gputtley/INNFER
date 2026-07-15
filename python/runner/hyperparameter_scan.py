@@ -35,6 +35,7 @@ class HyperparameterScan():
     self.save_extra_name = ""
     self.performance_metrics = None
     self.val_file_loc = None
+    self.change_type = None
  
 
   def Configure(self, options):
@@ -137,7 +138,8 @@ class HyperparameterScan():
         "wandb_project_name" : self.wandb_project_name,
         "wandb_submit_name" : self.wandb_submit_name,
         "save_extra_name" : self.save_extra_name,
-        "verbose" : self.verbose,        
+        "verbose" : self.verbose,
+        "change_type" : self.change_type,
       }
     )
 
