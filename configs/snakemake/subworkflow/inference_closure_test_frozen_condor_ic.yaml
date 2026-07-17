@@ -1,57 +1,85 @@
-# Get validation results from freezing all other parameters
+# Get validation results from freezing everything except one validation-loop parameter at a time.
+
 - step: "InitialFit"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "HessianParallel"
+    freeze: "all-but-bw_mass"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+- step: "InitialFit"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 12
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "HessianCollect"
-  submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options: 
+    points_per_job: 6
+    freeze: "all-but-fsr"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
+    points_per_job: 6
+    freeze: "all-but-bw_mass"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options:
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozen"
+    points_per_job: 6
+    freeze: "all-but-fsr"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+
 - step: "DMatrix"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "CovarianceWithDMatrix"
-  submit: "configs/submit/condor_avx.yaml"
-  run_options: 
+    freeze: "all-but-bw_mass"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+- step: "DMatrix"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "SummaryAllButOneCollect"
-  submit: "configs/submit/condor_avx.yaml"
-  run_options: 
+    points_per_job: 6
+    freeze: "all-but-fsr"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+
+- step: "CovarianceWithDMatrix"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    summary_from: "CovarianceWithDMatrix"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
+    points_per_job: 6
+    freeze: "all-but-bw_mass"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+- step: "CovarianceWithDMatrix"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozen"
+    points_per_job: 6
+    freeze: "all-but-fsr"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
