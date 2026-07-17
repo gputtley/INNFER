@@ -7,6 +7,8 @@
     extra_dir_name: "Asimov"
     prune_classifier_models: "roc_auc_test:0.505"
     number_of_integral_events: 100000
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
@@ -16,6 +18,8 @@
     extra_dir_name: "Asimov"
     prune_classifier_models: "roc_auc_test:0.505"
     number_of_integral_events: 100000
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "Covariance"
   submit: "configs/submit/condor_avx.yaml"
@@ -34,6 +38,8 @@
     number_of_integral_events: 100000
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "Scan"
   submit: "configs/submit/condor_4_cpus.yaml"
@@ -45,6 +51,8 @@
     number_of_integral_events: 100000
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "ScanCollect"
   submit: "configs/submit/condor_avx.yaml"
@@ -84,6 +92,8 @@
     prune_classifier_models: "roc_auc_test:0.505"
     number_of_integral_events: 100000
     freeze: "all-nuisances"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
@@ -94,6 +104,8 @@
     prune_classifier_models: "roc_auc_test:0.505"
     number_of_integral_events: 100000
     freeze: "all-nuisances"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "Covariance"
   submit: "configs/submit/condor_avx.yaml"
@@ -114,6 +126,8 @@
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "Scan"
   submit: "configs/submit/condor_4_cpus.yaml"
@@ -126,6 +140,8 @@
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 
 - step: "ScanCollect"
   submit: "configs/submit/condor_avx.yaml"

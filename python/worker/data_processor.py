@@ -808,13 +808,18 @@ class DataProcessor():
 
   def _method_histograms(self, tmp, out, columns, bins=40, discrete_binning=False):
 
-    out = []
+    if out is None:
+      out = []
+
     for column_index, column in enumerate(columns):
 
       if len(out) < column_index + 1:
         out.append(None)
+        try_bins = bins
+      else:
+        try_bins = out[column_index][1]
 
-      out[column_index] = self._method_histogram(tmp, out[column_index], column, bins=bins, discrete_binning=discrete_binning)
+      out[column_index] = self._method_histogram(tmp, out[column_index], column, bins=try_bins, discrete_binning=discrete_binning)
 
     return out
 

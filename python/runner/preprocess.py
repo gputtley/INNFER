@@ -2851,6 +2851,8 @@ class PreProcess():
     eff_events = {}
     standardisation_parameters = {}
     yields = {}
+    spline_to_gaussian_parameters = {}
+    pca_whitening_parameters = {}
 
     # Load config
     if self.open_cfg is not None:
@@ -2947,7 +2949,6 @@ class PreProcess():
       if self.verbose:
         print("- Doing PCA whitening for density model")
       pca_whitening_parameters = self._DoPCAWhitening(self.file_name, cfg)
-      #pca_whitening_parameters = None
 
       # Standardise
       if self.verbose:

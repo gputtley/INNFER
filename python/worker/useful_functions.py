@@ -1004,7 +1004,7 @@ def GetImpactsLoop(cfg, file_name, uncertainty_directory, val_ind, summary_from=
 
 
 
-def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, only_validation_varied_parameters=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
   parameters_in_model = []
 
   if file_name == "combined":
@@ -1036,6 +1036,12 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
 
   if only_nuisances:
     parameters_in_model = [i for i in parameters_in_model if i in cfg["nuisances"]]
+
+  if only_validation_varied_parameters:
+    validation_varied_parameters = set()
+    for val_info in cfg["validation"]["loop"]:
+      validation_varied_parameters.update(val_info.keys())
+    parameters_in_model = [i for i in parameters_in_model if i in validation_varied_parameters]
 
   return sorted(list(set(parameters_in_model)))
 
@@ -1370,7 +1376,7 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
   return skip
 
 
-def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False):
+def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False):
 
   val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
   if val_info is not None:
@@ -1414,7 +1420,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
 
     for k, v in val_info.items():
       val_info_with_defaults[k] = v
-    for col in GetParameterLoop(file_name, cfg, include_nuisances=loop_over_nuisances, include_rate=loop_over_rates, include_lnN=loop_over_lnN):
+    for col in GetParameterLoop(file_name, cfg, include_nuisances=loop_over_nuisances, include_rate=loop_over_rates, include_lnN=loop_over_lnN, only_validation_varied_parameters=only_validation_varied_parameters):
       if column is not None:
         if col != column:
           continue
@@ -1426,7 +1432,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
   return freeze_loop
 
     
-def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False, include_per_model_rate=False, include_per_model_lnN=False):
+def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False, include_lnN=False, include_per_model_rate=False, include_per_model_lnN=False, only_validation_varied_parameters=False):
 
   if not (file_name == "combined" or len(list(cfg["models"].keys())) == 1):
     if include_rate and not include_per_model_rate:
@@ -1439,6 +1445,12 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
   par_loop += [f"mu_{i}" for i in cfg["inference"]["rate_parameters"] if f"mu_{i}" in defaults_in_model.keys()]
   if include_nuisances:
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
+
+  if only_validation_varied_parameters:
+    validation_varied_parameters = set()
+    for val_info in cfg["validation"]["loop"]:
+      validation_varied_parameters.update(val_info.keys())
+    par_loop = [i for i in par_loop if i in validation_varied_parameters]
 
   return list(sorted(par_loop))
 

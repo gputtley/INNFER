@@ -1,0 +1,10 @@
+# Load data
+- step: "LoadData"
+  submit: "configs/submit/condor_4_cpus.yaml"
+
+# Do Breit-Wigner fractions
+- step: "Custom"
+  submit: "configs/submit/condor_4_cpus.yaml"
+  run_options:
+    custom_module: "top_bw_fractions"
+    custom_options: "gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass;plot=True"
