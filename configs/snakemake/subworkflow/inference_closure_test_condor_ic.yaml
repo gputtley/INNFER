@@ -1,29 +1,36 @@
 # Get validation results
 - step: "InitialFit"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTest"
     points_per_job: 6
-- step: "HessianParallel"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+- step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTest"
     points_per_job: 12
-- step: "HessianCollect"
-  submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options: 
-    data_type: "sim"
-    extra_dir_name: "ClosureTest"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 - step: "DMatrix"
   submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTest"
     points_per_job: 6
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
 - step: "CovarianceWithDMatrix"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options: 
+  run_options:
     data_type: "sim"
     extra_dir_name: "ClosureTest"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
