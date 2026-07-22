@@ -6,47 +6,54 @@
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
     freeze: "all-but-one"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
     loop_over_nuisances: True
     loop_over_rates: True
     loop_over_lnN: True
-- step: "HessianParallel"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options: 
-    data_type: "sim"
-    extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 12
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "HessianCollect"
-  submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options: 
-    data_type: "sim"
-    extra_dir_name: "ClosureTestFrozen"
-    freeze: "all-but-one"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-- step: "DMatrix"
+    loop_over_only_val_parameters: True
+- step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
     freeze: "all-but-one"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
     loop_over_nuisances: True
     loop_over_rates: True
     loop_over_lnN: True
+    loop_over_only_val_parameters: True
+- step: "DMatrixNumerical"
+  submit: "configs/submit/condor_gpu.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozen"
+    points_per_job: 6
+    freeze: "all-but-one"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
 - step: "CovarianceWithDMatrix"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     freeze: "all-but-one"
+    prune_classifier_models: "roc_auc_test:0.505"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
     loop_over_nuisances: True
     loop_over_rates: True
     loop_over_lnN: True
+    loop_over_only_val_parameters: True
 - step: "SummaryAllButOneCollect"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
@@ -55,3 +62,4 @@
     loop_over_nuisances: True
     loop_over_rates: True
     loop_over_lnN: True
+    loop_over_only_val_parameters: True

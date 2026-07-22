@@ -47,6 +47,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
   parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
+  parser.add_argument('--add-specific-category-to-dir-name', help='Add the specific category name to the directory name', action='store_true')
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
@@ -77,6 +78,7 @@ def parse_args():
   parser.add_argument('--extra-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-postfit-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
+  parser.add_argument('--extra-job-name', help='Add extra name to the submitted job', type=str, default='')
   parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
   parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--extra-classifier-model-name', help='Add extra name to classifier model name', type=str, default='')
@@ -97,6 +99,7 @@ def parse_args():
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned', 'poisson'])
   parser.add_argument('--list-steps', help='List the steps available', action='store_true')
   parser.add_argument('--load-weights-for-training', help='Path to weights to load to start the training at', default=None)
+  parser.add_argument('--loop-over-only-val-parameters', help='Loop over validation varied parameters only', action='store_true')
   parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
   parser.add_argument('--loop-over-lnN', help='Loop over log normal parameters as well as shape parameter', action='store_true')
   parser.add_argument('--loop-over-nuisances', help='Loop over nuisance parameters as well as POIs', action='store_true')
@@ -201,11 +204,16 @@ def main(args, default_args, module_options={}):
   if args.extra_extra_dir_name != "":
     args.extra_input_dir_name += f"{args.extra_extra_dir_name}"
     args.extra_output_dir_name += f"{args.extra_extra_dir_name}"
+  if args.specific_category is not None and args.add_specific_category_to_dir_name:
+    args.extra_input_dir_name += f"_{args.specific_category}"
+    args.extra_output_dir_name += f"_{args.specific_category}"
+  if args.extra_job_name != "" and args.extra_job_name[0] != "_":
+    args.extra_job_name = f"_{args.extra_job_name}"
 
   # Define useful variables
   specific_category_list = args.specific_category.split(",") if args.specific_category is not None else None
   specific_file_name_list = args.specific_file_name.split(",") if args.specific_file_name is not None else None
-  change_classifier_type_from_parameter_dict = dict([x.split("=") for x in args.change_classifier_type_from_parameter.split(",")]) if args.change_classifier_type_from_parameter is not None else None
+  change_classifier_type_from_parameter_dict = dict([x.split("=") for x in args.change_classifier_type_from_parameter.split(",")]) if args.change_classifier_type_from_parameter is not None else {}
 
   # Initiate module class
   module = Module(
@@ -220,7 +228,7 @@ def main(args, default_args, module_options={}):
   jobs_dir = os.getenv("JOBS_DIR")
   if args.step == "MakeBenchmark":
     print("<< Making benchmark inputs >>")
-    module.job_name = f"{jobs_dir}/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"{jobs_dir}/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/Benchmark_{args.benchmark}/innfer_{args.step}{args.extra_job_name}" if ".yaml" not in args.benchmark else f"{jobs_dir}/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}{args.extra_job_name}"
     module.Run(
       module_name = "make_benchmark",
       class_name = "MakeBenchmark",
@@ -234,7 +242,7 @@ def main(args, default_args, module_options={}):
   else:
     # Load in configuration file
     cfg = LoadConfig(args.cfg)
-    module.job_name = f"{jobs_dir}/{cfg['name']}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/{cfg['name']}/innfer_{args.step}{args.extra_job_name}"
     # Set up output directories
     prep_data_dir = f"{os.getenv('PREP_DATA_DIR')}/{cfg['name']}"
     eval_data_dir = f"{os.getenv('EVAL_DATA_DIR')}/{cfg['name']}"
@@ -1719,7 +1727,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -1743,7 +1751,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           for bootstrap_ind in range(args.number_of_bootstraps):
             module.Run(
               module_name = "infer",
@@ -1768,7 +1776,7 @@ def main(args, default_args, module_options={}):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "bootstrap_collect",
             class_name = "BootstrapCollect",
@@ -1790,7 +1798,7 @@ def main(args, default_args, module_options={}):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           for column in [k for k in val_info.keys() if k not in freeze['freeze'].keys()]:
             module.Run(
               module_name = "bootstrap_plot",
@@ -1814,7 +1822,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
@@ -1840,7 +1848,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
@@ -1866,7 +1874,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -1891,7 +1899,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           columns = sorted([col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()])
           for column_1_ind, column_1 in enumerate(columns):
             for column_2_ind, column_2 in enumerate(columns):
@@ -1922,7 +1930,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -1948,7 +1956,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -1973,7 +1981,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           columns = sorted([col for col in GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN).keys() if col not in freeze["freeze"].keys()])
           for column_1_ind, column_1 in enumerate(columns):
             for column_2_ind, column_2 in enumerate(columns):
@@ -2004,7 +2012,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -2029,7 +2037,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -2054,7 +2062,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -2079,7 +2087,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "infer",
             class_name = "Infer",
@@ -2105,7 +2113,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
           for impact_info in GetImpactsLoop(cfg, file_name, f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}", val_ind, summary_from=args.summary_from):
             module.Run(
@@ -2132,7 +2140,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Fit"
           module.Run(
             module_name = "impacts_collect",
@@ -2156,7 +2164,7 @@ def main(args, default_args, module_options={}):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           module.Run(
             module_name = "approximate_impacts",
             class_name = "ApproximateImpacts",
@@ -2178,7 +2186,7 @@ def main(args, default_args, module_options={}):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
           impacts_from = args.impacts_from if args.impacts_from not in ["Impacts"] else args.impacts_from+"Collect"
           module.Run(
@@ -2204,7 +2212,7 @@ def main(args, default_args, module_options={}):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
-        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+        for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
           extra_dirs = [f"{args.extra_input_dir_name}{freeze['extra_name']}"] + (args.compare_constraints_and_impacts_input.split(",") if args.compare_constraints_and_impacts_input else [])
           module.Run(
             module_name = "compare_constraints_and_impacts",
@@ -2230,7 +2238,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             module.Run(
               module_name = "infer",
               class_name = "Infer",
@@ -2261,7 +2269,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         common_options = CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind)
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             for scan_ind in range(args.number_of_scan_points):
               module.Run(
                 module_name = "infer",
@@ -2296,7 +2304,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             module.Run(
               module_name = "scan_collect",
               class_name = "ScanCollect",
@@ -2320,7 +2328,7 @@ def main(args, default_args, module_options={}):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
         for column in GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN):
-          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN)):
+          for freeze_ind, freeze in enumerate(GetFreezeLoop(args.freeze, val_info, file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, loop_over_nuisances=args.loop_over_nuisances, loop_over_rates=args.loop_over_rates, loop_over_lnN=args.loop_over_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)):
             module.Run(
               module_name = "scan_plot",
               class_name = "ScanPlot",

@@ -61,7 +61,7 @@ def get_jec_nuisances(years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_pr
 
 def btm_jec(
     df, 
-    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix"], 
+    years=["2016_PreVFP","2016_PostVFP","2017","2018","2022_preEE","2022_postEE","2023_preBPix","2023_postBPix","2024"], 
     nuisances=["AbsoluteMPFBias","AbsoluteScale"], 
     include_b=False,
     include_b_syst=False,
@@ -74,7 +74,8 @@ def btm_jec(
       "2022_preEE": 4,
       "2022_postEE": 5,
       "2023_preBPix": 6,
-      "2023_postBPix": 7
+      "2023_postBPix": 7,
+      "2024": 8
     }
   ):
 

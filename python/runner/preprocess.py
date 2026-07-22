@@ -1411,6 +1411,64 @@ class PreProcess():
     return eff_events
 
 
+  def _GetMinMax(self, file_name, cfg):
+
+    minmax_parameters = {}
+
+    # Check if we need to split density models
+    split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
+
+    # density model
+    if self.model_type is None or self.model_type == "density_models":
+      minmax_parameters["density"] = {}
+      if not split_density_model:
+
+        density_files = [[f"{self.data_output}/density/X_train.parquet", f"{self.data_output}/density/Y_train.parquet", f"{self.data_output}/density/wt_train.parquet"]]
+        dp = DataProcessor(
+          density_files,
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          use_pbar = self.use_pbar,
+          batch_size=self.batch_size,
+        )
+        min_max = dp.GetFull(method="min_max")
+
+        for col in min_max.keys():
+          minmax_parameters["density"][col] = {
+            "min" : float(min_max[col][0]),
+            "max" : float(min_max[col][1]),
+          }
+
+      else:
+
+        # Get X standardisation parameters
+        split_density_files = []
+        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+          if loop_value["split"] not in split_density_files:
+            split_density_files.append(value["split"])
+        density_files = [[f"{self.data_output}/density/split_{ind}/X_train.parquet", f"{self.data_output}/density/split_{ind}/wt_train.parquet"] for ind in split_density_files]
+        dp = DataProcessor(
+          density_files,
+          "parquet",
+          options = {
+            "wt_name" : "wt",
+          },
+          use_pbar = self.use_pbar,
+          batch_size=self.batch_size,
+        )
+        min_max = dp.GetFull(method="min_max")
+        for col in cfg["variables"]:
+          minmax_parameters["density"][col] = {
+            "min" : float(min_max[col][0]),
+            "max" : float(min_max[col][1]),
+          }
+
+    return minmax_parameters
+
+
   def _GetStandardisationParameters(self, file_name, cfg):
 
     standardisation_parameters = {}
@@ -1437,6 +1495,7 @@ class PreProcess():
           )
           density_means = dp.GetFull(method="mean")
           density_stds = dp.GetFull(method="std")
+
           for col in density_means.keys():
             standardisation_parameters["density"][col] = {
               "mean" : density_means[col],
@@ -2249,7 +2308,7 @@ class PreProcess():
     return extra_name
 
 
-  def _DoParametersFile(self, file_name, cfg, yields={}, eff_events={}, standardisation={}, spline_to_gaussian={}, pca_whitening_parameters={}):
+  def _DoParametersFile(self, file_name, cfg, yields={}, eff_events={}, standardisation={}, spline_to_gaussian={}, pca_whitening_parameters={}, minmax_parameters={}, initial_minmax_parameters={}):
 
     parameters_file = {
       "file_name": file_name, 
@@ -2260,11 +2319,13 @@ class PreProcess():
       "eff_events":eff_events
     }
 
-
     parameters_file["density"]["file_loc"] = f"{self.data_output}/density"
     if "density" in standardisation.keys():
       parameters_file["density"]["standardisation"] = standardisation["density"]
-    if spline_to_gaussian:
+    if "density" in minmax_parameters.keys():
+      parameters_file["density"]["minmax"] = minmax_parameters["density"]
+    if "density" in initial_minmax_parameters.keys():
+      parameters_file["density"]["initial_minmax"] = initial_minmax_parameters["density"]
       parameters_file["density"]["spline_to_gaussian"] = spline_to_gaussian
     if pca_whitening_parameters:
       parameters_file["density"]["pca_whitening"] = pca_whitening_parameters
@@ -2851,6 +2912,10 @@ class PreProcess():
     eff_events = {}
     standardisation_parameters = {}
     yields = {}
+    spline_to_gaussian_parameters = {}
+    pca_whitening_parameters = {}
+    initial_minmax_parameters = {}
+    minmax_parameters = {}
 
     # Load config
     if self.open_cfg is not None:
@@ -2938,6 +3003,11 @@ class PreProcess():
         print("- Normalising train and test in given selections")
       self._DoNormaliseIn(self.file_name, cfg)
 
+      # Do initial min max
+      if self.verbose:
+        print("- Getting initial min and max of each variable in train datasets")
+      initial_minmax_parameters = self._GetMinMax(self.file_name, cfg)
+
       # Do spline to gaussian transformation
       if self.verbose:
         print("- Doing spline to gaussian transformation for density model")
@@ -2947,13 +3017,17 @@ class PreProcess():
       if self.verbose:
         print("- Doing PCA whitening for density model")
       pca_whitening_parameters = self._DoPCAWhitening(self.file_name, cfg)
-      #pca_whitening_parameters = None
 
       # Standardise
       if self.verbose:
         print("- Standardising train and test datasets")
       standardisation_parameters = self._GetStandardisationParameters(self.file_name, cfg)
       self._DoStandardisation(self.file_name, cfg, standardisation_parameters)
+
+      # Get min and max of each variable in train datasets
+      if self.verbose:
+        print("- Getting min and max of each variable in train datasets")
+      minmax_parameters = self._GetMinMax(self.file_name, cfg)
 
       # Do classifier class balancing
       if self.verbose:
@@ -3022,7 +3096,7 @@ class PreProcess():
     if self.partial is None or self.partial not in ["merge","nuisance_variations","nuisance_double_variations"]:
       if self.verbose:
         print("- Writing parameters")
-      self._DoParametersFile(self.file_name, cfg, yields=yields, eff_events=eff_events, standardisation=standardisation_parameters, spline_to_gaussian=spline_to_gaussian_parameters, pca_whitening_parameters=pca_whitening_parameters)
+      self._DoParametersFile(self.file_name, cfg, yields=yields, eff_events=eff_events, standardisation=standardisation_parameters, spline_to_gaussian=spline_to_gaussian_parameters, pca_whitening_parameters=pca_whitening_parameters, minmax_parameters=minmax_parameters, initial_minmax_parameters=initial_minmax_parameters)
 
 
     # Merge parameters

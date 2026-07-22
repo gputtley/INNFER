@@ -231,7 +231,11 @@ class DataProcessor():
     for f in functions_to_apply:
       if len(df) == 0: break
       if isinstance(f, str):
-        if f == "untransform":
+        if f == "remove_outside_minmax_from_transformed":
+          df = self.RemoveEventsOutSideOfMinMax(df)
+        elif f == "remove_outside_minmax_from_untransformed":
+          df = self.RemoveEventsOutSideOfMinMax(df, name="initial_minmax")
+        elif f == "untransform":
           df = self.UnTransformData(df)
           if "selection" not in functions_to_apply:
             df = self.ApplySelection(df, extra_sel=extra_sel)
@@ -528,6 +532,21 @@ class DataProcessor():
 
     return data
 
+
+  def RemoveEventsOutSideOfMinMax(
+      self,
+      df,
+      name = "minmax"
+    ):
+
+    if name in self.parameters.keys():
+      for col in self.parameters[name].keys():
+        if col in df.columns:
+          df = df[(df[col] > self.parameters[name][col]["min"]) & (df[col] < self.parameters[name][col]["max"])]
+
+    return df
+
+
   def UnTransformData(
       self, 
       data
@@ -808,13 +827,18 @@ class DataProcessor():
 
   def _method_histograms(self, tmp, out, columns, bins=40, discrete_binning=False):
 
-    out = []
+    if out is None:
+      out = []
+
     for column_index, column in enumerate(columns):
 
       if len(out) < column_index + 1:
         out.append(None)
+        try_bins = bins
+      else:
+        try_bins = out[column_index][1]
 
-      out[column_index] = self._method_histogram(tmp, out[column_index], column, bins=bins, discrete_binning=discrete_binning)
+      out[column_index] = self._method_histogram(tmp, out[column_index], column, bins=try_bins, discrete_binning=discrete_binning)
 
     return out
 

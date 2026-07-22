@@ -41,6 +41,7 @@
     classifier_performance_metrics: "loss"
     model_type: "classifier"
     specific_file_name: "ttbar"
+    change_classifier_type_from_parameter: "CR1=FCNN_TwoPointInterpolator,CR2=FCNN_TwoPointInterpolator,ERDOn=FCNN_TwoPointInterpolator,hdamp=FCNN_ThreePointInterpolator,ue=FCNN_ThreePointInterpolator"
     tuning_no_copy: True
     tuning_use_timeout: True
     tuning_timeout_duration: 6000
@@ -55,6 +56,7 @@
     classifier_performance_metrics: "loss"
     model_type: "classifier"
     specific_file_name: "ttbar"
+    change_classifier_type_from_parameter: "CR1=FCNN_TwoPointInterpolator,CR2=FCNN_TwoPointInterpolator,ERDOn=FCNN_TwoPointInterpolator,hdamp=FCNN_ThreePointInterpolator,ue=FCNN_ThreePointInterpolator"
     tuning_no_copy: True
     tuning_use_timeout: True
     tuning_timeout_duration: 6000
@@ -69,6 +71,7 @@
     classifier_performance_metrics: "loss"
     model_type: "classifier"
     specific_file_name: "ttbar"
+    change_classifier_type_from_parameter: "CR1=FCNN_TwoPointInterpolator,CR2=FCNN_TwoPointInterpolator,ERDOn=FCNN_TwoPointInterpolator,hdamp=FCNN_ThreePointInterpolator,ue=FCNN_ThreePointInterpolator"
     tuning_use_timeout: True
     tuning_timeout_duration: 6000
     tuning_timeout_index: 2

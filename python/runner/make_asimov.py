@@ -305,16 +305,29 @@ class MakeAsimov():
 
 
         def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None, divide_by_nominal=False, nominal_columns={}):
+
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
           probs = func(df.loc[:,X_columns])
-          df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
+
+          if np.any(probs[:,0] == 0):
+            zero_indices = np.where(np.isclose(probs[:, 0], 0.0))[0]
+            probs[zero_indices,0] = 1
+            probs[zero_indices,1] = 0
+          df["wt"] = df["wt"] * probs[:,1] / probs[:,0]
 
           if divide_by_nominal:
             copy_df = df.copy()
             for k,v in nominal_columns.items(): copy_df.loc[:,k] = v
-            nominal_probs = func(copy_df.loc[:,X_columns])[:,1]/func(copy_df.loc[:,X_columns])[:,0]
-            df["wt"] = df["wt"] / (nominal_probs)
+            func_eval = func(copy_df.loc[:,X_columns])
+            if np.any(func_eval[:,0] == 0):
+              zero_indices = np.where(np.isclose(func_eval[:, 0], 0.0))[0]
+              func_eval[zero_indices,0] = 1
+              func_eval[zero_indices,1] = 0
+            nominal_probs = func_eval[:,1]/func_eval[:,0]
+
+            #df["wt"] = df["wt"] / (nominal_probs)
+            df["wt"] = np.divide(df["wt"], nominal_probs, out=np.zeros(len(df)), where=~np.isclose(nominal_probs, 0))
 
           if spl is not None:
             df["wt"] = df["wt"] * spl(df.loc[:,parameter]).flatten()

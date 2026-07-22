@@ -1,17 +1,6 @@
-# Load data
-- step: "LoadData"
-  submit: "configs/submit/condor_4_cpus.yaml"
-
 # Categorise data
 - step: "DataCategories"
   submit: "configs/submit/condor_4_cpus.yaml"
-
-# Do Breit-Wigner fractions
-- step: "Custom"
-  submit: "configs/submit/condor_4_cpus.yaml"
-  run_options:
-    custom_module: "top_bw_fractions"
-    custom_options: "gen_mass=GenTop1_mass;gen_mass_other=GenTop2_mass;mass_name=sim_mass;plot=True"
 
 # Preprocess dataset
 - step: "PreProcessParallelYieldsNominal"
@@ -85,7 +74,6 @@
     disable_tqdm: True
     preprocess_merge: "initial,validation,binned_fit_inputs"
     add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml,$PREP_DATA_DIR/$CFG_NAME/PreProcess/set_binned_to_nominal_done_CR1.txt,$PREP_DATA_DIR/$CFG_NAME/PreProcess/set_binned_to_nominal_done_CR2.txt,$PREP_DATA_DIR/$CFG_NAME/PreProcess/set_binned_to_nominal_done_ERDOn.txt,$PREP_DATA_DIR/$CFG_NAME/PreProcess/set_binned_to_nominal_done_ue.txt,$PREP_DATA_DIR/$CFG_NAME/PreProcess/set_binned_to_nominal_done_hdamp.txt"
-    #add_inputs: "$PREP_DATA_DIR/$CFG_NAME/top_bw_fractions/top_bw_fraction_locations.yaml"
 
 # Make plots of preprocessed data
 - step: InputPlotValidation

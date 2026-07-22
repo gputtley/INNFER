@@ -1,5 +1,0 @@
-- workflow: configs/snakemake/subworkflow/btm_preprocess_with_bw_condor_ic.yaml
-#- workflow: configs/snakemake/subworkflow/btm_prefit_data_vs_sim_condor_ic.yaml
-- workflow: configs/snakemake/subworkflow/btm_bayesian_tune_density_and_classifier_condor_ic.yaml
-- workflow: configs/snakemake/subworkflow/make_asimov_condor_ic.yaml
-- workflow: configs/snakemake/subworkflow/generator_condor_ic.yaml

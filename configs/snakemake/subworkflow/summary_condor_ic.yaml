@@ -8,6 +8,9 @@
     summary_show_2sigma: True
     summary_subtract: True
     loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
 
 # Get summary per val
 - step: "SummaryPerVal"
@@ -19,3 +22,4 @@
     summary_show_2sigma: True
     loop_over_rates: True
     loop_over_lnN: True
+    loop_over_only_val_parameters: True

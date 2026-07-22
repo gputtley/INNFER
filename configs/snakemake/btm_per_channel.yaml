@@ -1,0 +1,26 @@
+# Preprocess
+- workflow: configs/snakemake/subworkflow/btm_preprocess_with_bw_condor_ic.yaml
+
+# Prefit data vs sim
+- workflow: configs/snakemake/subworkflow/btm_prefit_data_vs_sim_condor_ic.yaml
+
+# Tune density and classifier models
+- workflow: configs/snakemake/subworkflow/btm_bayesian_tune_density_and_classifier_condor_ic.yaml
+
+# Make generator plots
+- workflow: configs/snakemake/subworkflow/make_asimov_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/generator_condor_ic.yaml
+
+# Do inference closure test
+- workflow: configs/snakemake/subworkflow/inference_closure_test_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
+- workflow: configs/snakemake/subworkflow/inference_closure_test_frozen_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
+- workflow: configs/snakemake/subworkflow/summary_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
+- workflow: configs/snakemake/subworkflow/summary_with_frozen_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
