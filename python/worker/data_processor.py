@@ -231,7 +231,11 @@ class DataProcessor():
     for f in functions_to_apply:
       if len(df) == 0: break
       if isinstance(f, str):
-        if f == "untransform":
+        if f == "remove_outside_minmax_from_transformed":
+          df = self.RemoveEventsOutSideOfMinMax(df)
+        elif f == "remove_outside_minmax_from_untransformed":
+          df = self.RemoveEventsOutSideOfMinMax(df, name="initial_minmax")
+        elif f == "untransform":
           df = self.UnTransformData(df)
           if "selection" not in functions_to_apply:
             df = self.ApplySelection(df, extra_sel=extra_sel)
@@ -527,6 +531,21 @@ class DataProcessor():
     data[cols_to_standardise] = arr
 
     return data
+
+
+  def RemoveEventsOutSideOfMinMax(
+      self,
+      df,
+      name = "minmax"
+    ):
+
+    if name in self.parameters.keys():
+      for col in self.parameters[name].keys():
+        if col in df.columns:
+          df = df[(df[col] > self.parameters[name][col]["min"]) & (df[col] < self.parameters[name][col]["max"])]
+
+    return df
+
 
   def UnTransformData(
       self, 

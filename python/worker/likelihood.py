@@ -69,6 +69,7 @@ class Likelihood():
     self.cap_column_print = False
     self.no_print_minimisation_step = False
     self.classifier_divide_by_nominal = False
+    self.selection_after_sampling = None
 
     # saved parameters
     self.best_fit = None
@@ -117,6 +118,7 @@ class Likelihood():
     self.integral_sample_cache_values = []
     self.n_integral_sample_caches = 100
     self.print_columns = None
+    self.time_print = False
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -620,7 +622,8 @@ class Likelihood():
 
       if not load_from_cache_total:
 
-        #st = time.time()
+        if self.time_print:
+          st = time.time()
 
         ### Density ###
         if not skip_density:
@@ -651,11 +654,12 @@ class Likelihood():
 
           log_probs[name] = [np.zeros((X.shape[0],1))]
 
-        #if not skip_integral:
-        #  print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
-        #else:
-        #  print(f"Time for integral density estimation for {name}: {time.time()-st:.4f} seconds")
-        #st = time.time()
+        if self.time_print:
+          if not skip_integral:
+            print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
+          else:
+            print(f"Time for integral density estimation for {name}: {time.time()-st:.4f} seconds")
+          st = time.time()
 
         ### Regression ###
 
@@ -722,11 +726,12 @@ class Likelihood():
 
           self._WriteCache(total_regression_shifts, gradient, cache_dict_total_regression, load_from_cache_total_regression, pdf, model_type="total_regression")
 
-        #if not skip_integral:
-        #  print(f"Time for regression shifts for {name}: {time.time()-st:.4f} seconds")
-        #else:
-        #  print(f"Time for integral regression shifts for {name}: {time.time()-st:.4f} seconds")
-        #st = time.time()
+        if self.time_print:
+          if not skip_integral:
+            print(f"Time for regression shifts for {name}: {time.time()-st:.4f} seconds")
+          else:
+            print(f"Time for integral regression shifts for {name}: {time.time()-st:.4f} seconds")
+          st = time.time()
 
         ### Classification ###
 
@@ -738,7 +743,8 @@ class Likelihood():
 
         if do_shift:
 
-          #st = time.time()
+          if self.time_print:
+            st = time.time()
 
           # See if can load cached results from all classifier shifts
           classifier_Y_columns = list(self.models["pdf_shifts_with_classifier"][category][name].keys())
@@ -784,6 +790,7 @@ class Likelihood():
 
               # Get the shift
               if not load_from_cache_classifier:
+
                 #st1 = time.time()
                 classifier_shift = self._ShiftDensityByClassifier(
                   [np.zeros_like(i) for i in log_probs[name]],
@@ -845,11 +852,12 @@ class Likelihood():
 
           self._WriteCache(total_classifier_shifts, gradient, cache_dict_total_classifier, load_from_cache_total_classifier, pdf, model_type="total_classifier")
 
-        #if not skip_integral:
-        #  print(f"Time for classifier shifts for {name}: {time.time()-st:.4f} seconds")
-        #else:
-        #  print(f"Time for integral classifier shifts for {name}: {time.time()-st:.4f} seconds")
-        #st = time.time()
+        if self.time_print:
+          if not skip_integral:
+            print(f"Time for classifier shifts for {name}: {time.time()-st:.4f} seconds")
+          else:
+            print(f"Time for integral classifier shifts for {name}: {time.time()-st:.4f} seconds")
+          st = time.time()
 
 
         ### Density normalisation ###
@@ -868,7 +876,9 @@ class Likelihood():
               n_events_this_batch = int(min(self.integral_events_per_batch, integral_events_left))
               integral_events_left -= n_events_this_batch
 
-              #st1 = time.time()
+              if self.time_print:
+                st1 = time.time()
+
               integral_sample_cache_dict = {
                 "name": name,
                 "Y": Y.loc[:, density_columns].to_dict(),
@@ -884,12 +894,15 @@ class Likelihood():
                   self.integral_sample_cache_values.pop(0)
               else:
                 sampled_events = self.integral_sample_cache_values[self.integral_sample_cache_list.index(integral_sample_cache_dict)]
-              #print(f"Time for sampling for integral for {name}: {time.time()-st1:.4f} seconds")
+
+              if self.time_print:
+                print(f"Time for sampling for integral for {name}: {time.time()-st1:.4f} seconds")
 
               log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
+
               sum_weights += np.sum(np.exp(log_weights))
 
-            integral = sum_weights / float(self.n_integral_events)
+            integral = sum_weights / float(len(sampled_events))
             self.integral_cache_list.append(integral_cache_dict)
             self.integral_cache_values.append(integral)
           else:
@@ -898,8 +911,9 @@ class Likelihood():
 
           log_probs[name][0] -= np.log(integral)
 
-        #if not skip_integral:
-        #  print(f"Time for normalisation for {name}: {time.time()-st:.4f} seconds")
+        if self.time_print:
+          if not skip_integral:
+            print(f"Time for normalisation for {name}: {time.time()-st:.4f} seconds")
 
         # write total cache
         self._WriteCache(log_probs[name], gradient, cache_dict_total, load_from_cache_total, None, model_type="total")
@@ -1094,7 +1108,7 @@ class Likelihood():
 
 
   def _GetEventLoopUnbinnedExtended(self, X, Y, wt_name=None, gradient=[0], column_1=None, column_2=None, before_sum=False, category=None):
-    
+
     # Get probabilities and other first derivative if needed
     if 2 in gradient:
       get_log_prob_gradients = [0,1,2]
@@ -1596,7 +1610,7 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 17:
+    #if self.minimisation_step == 1:
     #  exit()
 
     return lkld_val
@@ -2691,6 +2705,12 @@ class NLLAndGradient():
         "row" : [float(row.loc[0,col]) for col in self.Y_columns] if row is not None else None,
       }
     else:
+      self.use_classifier_cache = True
+      self.use_density_cache = True
+      self.use_regression_cache = True
+      self.use_total_cache = True
+      self.use_total_classifier_cache = True
+      self.use_total_regression_cache = True
       result = self.Run(X_dps, Y, multiply_by=-2)
       dump = {
         "columns" : self.Y_columns, 

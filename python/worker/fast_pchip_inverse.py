@@ -12,9 +12,9 @@ class FastPchipInverse:
         self,
         forward: PchipInterpolator,
         *,
-        newton_iter: int = 12,
+        newton_iter: int = 30,
         bisection_iter: int = 40,
-        bounds_error: bool = True,
+        bounds_error: bool = False,
     ):
         self.forward = forward
         self.x_nodes = np.asarray(forward.x, dtype=float)
