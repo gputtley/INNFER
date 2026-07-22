@@ -47,6 +47,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
   parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
+  parser.add_argument('--add-specific-category-to-dir-name', help='Add the specific category name to the directory name', action='store_true')
   parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
@@ -77,6 +78,7 @@ def parse_args():
   parser.add_argument('--extra-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-postfit-asimov-input-dir-name', help='Add extra name to asimov input to infer step directory', type=str, default='')
   parser.add_argument('--extra-input-dir-name', help='Add extra name to step directory for input directory', type=str, default='')
+  parser.add_argument('--extra-job-name', help='Add extra name to the submitted job', type=str, default='')
   parser.add_argument('--extra-output-dir-name', help='Add extra name to step directory for output directory', type=str, default='')
   parser.add_argument('--extra-plot-name', help='Add extra name to infer step end of plot', type=str, default='')
   parser.add_argument('--extra-classifier-model-name', help='Add extra name to classifier model name', type=str, default='')
@@ -202,6 +204,11 @@ def main(args, default_args, module_options={}):
   if args.extra_extra_dir_name != "":
     args.extra_input_dir_name += f"{args.extra_extra_dir_name}"
     args.extra_output_dir_name += f"{args.extra_extra_dir_name}"
+  if args.specific_category is not None and args.add_specific_category_to_dir_name:
+    args.extra_input_dir_name += f"_{args.specific_category}"
+    args.extra_output_dir_name += f"_{args.specific_category}"
+  if args.extra_job_name != "" and args.extra_job_name[0] != "_":
+    args.extra_job_name = f"_{args.extra_job_name}"
 
   # Define useful variables
   specific_category_list = args.specific_category.split(",") if args.specific_category is not None else None
@@ -221,7 +228,7 @@ def main(args, default_args, module_options={}):
   jobs_dir = os.getenv("JOBS_DIR")
   if args.step == "MakeBenchmark":
     print("<< Making benchmark inputs >>")
-    module.job_name = f"{jobs_dir}/Benchmark_{args.benchmark}/innfer_{args.step}" if ".yaml" not in args.benchmark else f"{jobs_dir}/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/Benchmark_{args.benchmark}/innfer_{args.step}{args.extra_job_name}" if ".yaml" not in args.benchmark else f"{jobs_dir}/Benchmark_{args.benchmark.split('/')[-1].split('.yaml')[0]}/innfer_{args.step}{args.extra_job_name}"
     module.Run(
       module_name = "make_benchmark",
       class_name = "MakeBenchmark",
@@ -235,7 +242,7 @@ def main(args, default_args, module_options={}):
   else:
     # Load in configuration file
     cfg = LoadConfig(args.cfg)
-    module.job_name = f"{jobs_dir}/{cfg['name']}/innfer_{args.step}"
+    module.job_name = f"{jobs_dir}/{cfg['name']}/innfer_{args.step}{args.extra_job_name}"
     # Set up output directories
     prep_data_dir = f"{os.getenv('PREP_DATA_DIR')}/{cfg['name']}"
     eval_data_dir = f"{os.getenv('EVAL_DATA_DIR')}/{cfg['name']}"

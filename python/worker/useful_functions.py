@@ -1548,17 +1548,25 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
   return outputs
 
 
-def GetSnakeMakeStepLoop(input_cfg, output_cfg=[]):
+def GetSnakeMakeStepLoop(input_cfg, output_cfg=[], run_options={}):
 
   for step in input_cfg:
 
     if "step" in step.keys():
+      
+      if "run_options" in step.keys():
+        step["run_options"] = {**run_options, **step["run_options"]}
+      elif run_options != {}:
+        step["run_options"] = run_options
       output_cfg.append(step)
 
     elif "workflow" in step.keys():
+
+      if "run_options" in step.keys():
+        run_options = {**run_options, **step["run_options"]}
       with open(step["workflow"], 'r') as yaml_file:
         workflow = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg)
+      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=run_options)
 
   return output_cfg
 

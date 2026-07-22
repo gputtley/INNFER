@@ -13,6 +13,14 @@
 
 # Do inference closure test
 - workflow: configs/snakemake/subworkflow/inference_closure_test_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
 - workflow: configs/snakemake/subworkflow/inference_closure_test_frozen_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
 - workflow: configs/snakemake/subworkflow/summary_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
 - workflow: configs/snakemake/subworkflow/summary_with_frozen_condor_ic.yaml
+  run_options:
+    add_specific_category_to_dir_name: True
