@@ -1,0 +1,40 @@
+# Do stat only distributions
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    extra_output_dir_name: "DataVsSynthStatOnly"
+    ratio_range: "0.8,1.2"
+    data_type: "data"
+    use_prefit_asimov: true
+
+# Do stat only distributions but with extra hypothesis
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    extra_output_dir_name: "DataVsSynthStatOnlyWithExtraHypothesis"
+    ratio_range: "0.8,1.2"
+    data_type: "data"
+    use_prefit_asimov: true
+    specific_combined_default_val: true
+    plot_extra_hypothesis: "bw_mass=173.5;bw_mass=171.5"
+
+# Do stat + syst distributions
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    extra_output_dir_name: "DataVsSynthStatPlusSyst"
+    include_uncertainty: true
+    ratio_range: "0.8,1.2"
+    data_type: "data"
+    use_prefit_asimov: true
+
+# Do stat + syst distributions but with extra hypothesis
+- step: "DistributionPlot"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    extra_output_dir_name: "DataVsSynthStatPlusSystWithExtraHypothesis"
+    include_uncertainty: true
+    plot_extra_hypothesis: "bw_mass=173.5;bw_mass=171.5"
+    ratio_range: "0.8,1.2"
+    data_type: "data"
+    use_prefit_asimov: true

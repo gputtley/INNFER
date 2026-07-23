@@ -65,7 +65,7 @@ def parse_args():
   parser.add_argument('--custom-module', help='Name of custom module', default=None)
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
-  parser.add_argument('--data-vs-simulation', help='For the generator step, show data vs simulation', action='store_true')
+  parser.add_argument('--data-vs-simulation', help='For the Generator and DistributionPlot step, show data vs simulation', action='store_true')
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
@@ -181,6 +181,7 @@ def parse_args():
   parser.add_argument('--tuning-use-timeout', help='Using timeout for the Bayesian tuning', action='store_true')
   parser.add_argument('--use-asimov-scaling', help='Generate asimov with this scaling up of the predicted yield', type=int, default=10)
   parser.add_argument('--use-expected-data-uncertainty', help='In postfit plots change the data uncertainty to the expected stat uncertainty', action='store_true')
+  parser.add_argument('--use-prefit-asimov', help='Use prefit asimov when running DistributionPlot.', action='store_true')
   parser.add_argument('--use-scenario-labels', help='Use Scenario 1, for example, labelling on plots rather than the string name', action='store_true')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
@@ -1530,7 +1531,7 @@ def main(args, default_args, module_options={}):
   if args.step == "Generator":
     print("<< Making plots using the network as a generator for individual Y values >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      if args.data_vs_simulation and (file_name == "combined"): continue
+      if args.data_vs_simulation and (file_name != "combined"): continue
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data")): continue
@@ -2441,10 +2442,10 @@ def main(args, default_args, module_options={}):
   if args.step == "DistributionPlot":
     print(f"<< Drawing the distributions >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      if args.data_vs_simulation and not (file_name == "combined"): continue
+      if (args.data_type == "data" or args.data_vs_simulation) and not (file_name == "combined"): continue
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, inference=True)):
         if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
-        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data" or (args.data_vs_simulation and args.include_uncertainty))): continue
+        if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or (args.data_vs_simulation and args.include_uncertainty) or (args.use_prefit_asimov and args.include_uncertainty))): continue
         for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           if args.likelihood_type in ["unbinned", "unbinned_extended", "poisson"]:
             module.Run(
@@ -2453,7 +2454,7 @@ def main(args, default_args, module_options={}):
               config = {
                 "cfg" : args.cfg,
                 "data_input" : GetDataInput(args.data_type if not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
-                "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, sim_type="full" if args.data_vs_simulation else args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
+                "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, sim_type="full" if args.data_vs_simulation else args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}" if not args.use_prefit_asimov else f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
                 "plots_output" : f"{plots_dir}/DistributionPlot{args.extra_output_dir_name}/{file_name}/{category}",
                 "do_2d_unrolled" : args.plot_2d_unrolled,
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
@@ -2463,11 +2464,11 @@ def main(args, default_args, module_options={}):
                 "data_label" : {"data":"Data", "sim":"Simulated", "asimov":"Asimov"}[args.data_type if not args.data_vs_simulation else "data"],
                 "stack_label" : "",
                 "include_uncertainty" : args.include_uncertainty,
-                "uncertainty_input" : GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=args.data_vs_simulation, extra_postfit_asimov_input_dir_name=args.extra_postfit_asimov_input_dir_name) if args.include_uncertainty else None,
+                "uncertainty_input" : GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=args.data_vs_simulation, extra_postfit_asimov_input_dir_name=args.extra_postfit_asimov_input_dir_name, use_prefit_asimov=args.use_prefit_asimov, extra_prefit_asimov_input_dir_name=args.extra_asimov_input_dir_name) if args.include_uncertainty else None,
                 "use_expected_data_uncertainty" : args.use_expected_data_uncertainty,
                 "plot_var_and_bins" : args.plot_var_and_bins,
                 "ratio_range" : [float(x) for x in args.ratio_range.split(",")],
-                "extra_hypothesis_files" : GetExtraHypothesisFiles(file_name, cfg, category, args.plot_extra_hypothesis, prep_data_dir, sim_type=args.sim_type if not args.data_vs_simulation else "full"),
+                "extra_hypothesis_files" : GetExtraHypothesisFiles(file_name, cfg, category, args.plot_extra_hypothesis, prep_data_dir if args.data_vs_simulation else eval_data_dir, sim_type=args.sim_type if not args.data_vs_simulation else "full", data_type="asimov" if not args.data_vs_simulation else "sim", asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}" if not args.use_prefit_asimov else f"MakeAsimov{args.extra_asimov_input_dir_name}"),
                 "verbose" : not args.quiet,
               },
               loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
@@ -2554,8 +2555,8 @@ def main(args, default_args, module_options={}):
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
         if SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=args.specific_combined_default_val): continue
-        column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
-        if len(column_loop) <= 1: continue
+        column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)
+        if len(GetParameterLoop(file_name, cfg, include_nuisances=True, include_rate=True, include_lnN=True)) <= 1: continue
         module.Run(
           module_name = "summary_all_but_one_collect",
           class_name = "SummaryAllButOneCollect",
@@ -2577,7 +2578,7 @@ def main(args, default_args, module_options={}):
     print(f"<< Plot the summary of results >>")
     summary_from = args.summary_from if args.summary_from not in ["Scan","Bootstrap"] else args.summary_from+"Collect"
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN)
+      column_loop = GetParameterLoop(file_name, cfg, include_nuisances=args.loop_over_nuisances, include_rate=args.loop_over_rates, include_lnN=args.loop_over_lnN, include_per_model_rate=args.include_per_model_rate, include_per_model_lnN=args.include_per_model_lnN, only_validation_varied_parameters=args.loop_over_only_val_parameters)
       if len(column_loop) == 0: continue
       validation_loop = GetValidationLoop(cfg, file_name)
       module.Run(
@@ -2588,7 +2589,7 @@ def main(args, default_args, module_options={}):
           "data_input" : f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}",
           "plots_output" : f"{plots_dir}/Summary{args.summary_from}Plot{args.extra_output_dir_name}/{file_name}",
           "file_name" : f"{args.summary_from}_results".lower(),
-          "other_input" : {other_input.split(':')[0] : [f"{eval_data_dir}/{other_input.split(':')[1]}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
+          "other_input" : {other_input.split(':')[0] : [f"{eval_data_dir}/{other_input.split(':')[1]}/{file_name}" if not (args.add_specific_category_to_dir_name and args.specific_category is not None) else f"{eval_data_dir}/{other_input.split(':')[1]}_{args.specific_category}/{file_name}", other_input.split(':')[2]] for other_input in args.other_input.split(",")} if args.other_input is not None else {},
           "extra_plot_name" : args.extra_plot_name,
           "show2sigma" : args.summary_show_2sigma,
           "chi_squared" : None if not args.summary_show_chi_squared else GetDictionaryEntryFromYaml(f"{eval_data_dir}/SummaryChiSquared{args.summary_from}{args.extra_input_dir_name}/{file_name}/summary_chi_squared.yaml", []),

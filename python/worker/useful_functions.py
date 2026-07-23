@@ -936,7 +936,7 @@ def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False, ca
   return {k:v for k, v in defaults.items() if k in params_in_model}
 
 
-def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, prep_data_dir, sim_type="val"):
+def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, prep_data_dir, sim_type="val", data_type="sim", asimov_dir_name="MakeAsimov", asimov_extra_dir=None):
 
   extra_hypothesis = [{value.split("=")[0] : float(value.split("=")[1]) for value in hypothesis.split(",")} for hypothesis in plot_extra_hypothesis.split(";")] if plot_extra_hypothesis is not None else []
 
@@ -954,9 +954,11 @@ def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, pre
       
   extra_hypothesis_files = []
   for ind, extra_hypothesis_in_model in enumerate(extra_hypothesis):
+
     extra_hypothesis_files.append({
       "hypothesis" : extra_hypothesis[ind],
-      "files" : [[f"{prep_data_dir}/PreProcess/{fn}/{category}/val_ind_{indices[fn][ind]}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fn in indices.keys()]
+      #"files" : [[f"{prep_data_dir}/PreProcess/{fn}/{category}/val_ind_{indices[fn][ind]}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fn in indices.keys()]
+      "files" : [list(GetDataInput(data_type, cfg, fn, indices[fn][ind], prep_data_dir, sim_type=sim_type, asimov_dir_name=asimov_dir_name, asimov_extra_dir=asimov_extra_dir)[category].values())[0] for fn in indices.keys()]
     })
 
   return extra_hypothesis_files
@@ -1553,7 +1555,7 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=[], run_options={}):
   for step in input_cfg:
 
     if "step" in step.keys():
-      
+
       if "run_options" in step.keys():
         step["run_options"] = {**run_options, **step["run_options"]}
       elif run_options != {}:
@@ -1571,7 +1573,7 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=[], run_options={}):
   return output_cfg
 
 
-def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=False, extra_postfit_asimov_input_dir_name=""):
+def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=False, extra_postfit_asimov_input_dir_name="", use_prefit_asimov=False, extra_prefit_asimov_input_dir_name=""):
 
   uncert_files = {}
 
@@ -1587,7 +1589,10 @@ def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, c
       for nuisance_value in ["up", "down"]:
         val_index = GetCombinedValdidationIndices(cfg, file_name, val_ind)[fn]
         if not data_vs_simulation:
-          path = [f"{eval_data_dir}/MakePostFitUncertaintyAsimov{extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_index}/{nuisance}/{nuisance_value}/asimov.parquet"]
+          if not use_prefit_asimov:
+            path = [f"{eval_data_dir}/MakePostFitUncertaintyAsimov{extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_index}/{nuisance}/{nuisance_value}/asimov.parquet"]
+          else:
+            path = [f"{eval_data_dir}/MakeAsimovNuisanceVariations{extra_prefit_asimov_input_dir_name}/{fn}/{category}/{nuisance}_{nuisance_value}/asimov.parquet"]
         else:
           path = [f"{prep_data_dir}/PreProcess/{fn}/{category}/{nuisance}_{nuisance_value}/{i}_full.parquet" for i in ["X","wt"]]
         uncert_files[fn][nuisance][nuisance_value] = path

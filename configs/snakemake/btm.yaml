@@ -1,0 +1,16 @@
+# Load data and BW fractions step
+- workflow: configs/snakemake/btm_pre.yaml
+
+# Steps that can be run per channel
+- workflow: configs/snakemake/btm_per_category.yaml
+  run_options:
+    specific_category: "run2"
+- workflow: configs/snakemake/btm_per_category.yaml
+  run_options:
+    specific_category: "2223"
+- workflow: configs/snakemake/btm_per_category.yaml
+  run_options:
+    specific_category: "24"
+
+# Final fitting
+- workflow: configs/snakemake/btm_post.yaml
