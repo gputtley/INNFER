@@ -12,5 +12,8 @@
   run_options:
     specific_category: "24"
 
-# Final fitting
+# Final asimov/sim fitting
 - workflow: configs/snakemake/btm_post.yaml
+
+# Data fit
+#- workflow: configs/snakemake/subworkflow/inference_data_condor_ic.yaml

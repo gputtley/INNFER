@@ -128,7 +128,6 @@ class MultiDimMetrics():
 
     import xgboost as xgb
 
-
     # Make training and testing datasets
     train_columns = self.columns
     if self.sim_train is None:
@@ -164,7 +163,6 @@ class MultiDimMetrics():
       y_test = total_test.loc[:,"y"].to_numpy()
       del total_train, total_test
       
-
     # Resample sim dataset
     if self.resample_sim:
       # Get indices

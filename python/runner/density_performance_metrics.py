@@ -416,7 +416,7 @@ class DensityPerformanceMetrics():
         mm.AddKMeansChiSquared()
 
       # Run metrics
-      multidim_metrics = mm.Run()
+      multidim_metrics = mm.Run(self.alternative_asimov_seed)
       self.metrics = {**self.metrics, **{f"{k}_{data_type}": v for k, v in multidim_metrics.items()}}
 
 

@@ -262,6 +262,10 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
       regression_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_regression=True, specific_category=category)
       classifier_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_classification=True, specific_category=category)
 
+  other_input_files = []
+  if args.load_fit_for_defaults is not None:
+    other_input_files += [GetLoadFitName(args.load_fit_for_defaults, file_name, val_ind, eval_data_dir)]
+
   common_config = {
     "density_models": density_models,
     "regression_models": regression_models,
@@ -296,6 +300,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "n_integral_events": args.number_of_integral_events,
     "binned_from_predicted_bins": binned_observed_from_predicted,
     "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
+    "other_input_files": other_input_files
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -788,6 +793,12 @@ def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
         rate_param=rate_param,
       ).GetYield
     return partial(GetBinValueParallelised, func_entry=yield_funcs, col=col)
+
+
+def GetLoadFitName(load_fit_for_defaults, file_name, val_ind, eval_data_dir):
+  if load_fit_for_defaults is None:
+    return None
+  return f"{eval_data_dir}/InitialFit{load_fit_for_defaults}/{file_name}/best_fit_{val_ind}.yaml"
 
 
 def GetModelFileLoop(cfg, with_combined=False, specific_file_name=None):
@@ -1378,12 +1389,20 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
   return skip
 
 
-def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False):
+def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False, load_fit_for_defaults=None):
 
-  val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
-  if val_info is not None:
-    for k, v in val_info.items():
-      val_info_with_defaults[k] = v
+  if load_fit_for_defaults is None or not os.path.isfile(load_fit_for_defaults):
+    val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+    if val_info is not None:
+      for k, v in val_info.items():
+        val_info_with_defaults[k] = v
+  else:
+    with open(load_fit_for_defaults, 'r') as yaml_file:
+      best_fit = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    val_info_with_defaults = {}
+    for ind in range(len(best_fit["best_fit"])):
+      val_info_with_defaults[best_fit["columns"][ind]] = best_fit["best_fit"][ind]
+
   ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
   freeze_loop = []
