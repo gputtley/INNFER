@@ -2,7 +2,7 @@ import yaml
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_unrolled_2d_histogram
-from useful_functions import GetParametersInModel, LoadConfig, Translate, RoundUnrolledBins
+from useful_functions import GetVariables, GetParametersInModel, LoadConfig, Translate, RoundUnrolledBins
 
 class InputPlotTraining():
 
@@ -18,6 +18,7 @@ class InputPlotTraining():
     self.parameters = None
 
     # Other
+    self.category = None
     self.file_name = None
     self.parameter = None
     self.split = None
@@ -91,7 +92,7 @@ class InputPlotTraining():
       cfg = LoadConfig(self.cfg)
       
     # Find columns
-    columns = list(cfg["variables"])
+    columns = list(GetVariables(cfg, category=self.category))
     if self.model_type == "density":
       if self.split is None:
         columns += GetParametersInModel(self.file_name, cfg, only_density=True)

@@ -206,42 +206,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
-  """
-  common_config = {
-    "density_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "regression_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "classifier_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "model_input" : models_dir,
-    "extra_density_model_name" : args.extra_density_model_name,
-    "parameters" : {category:{k:f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "data_input" : data_input,
-    "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
-    "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
-    "inference_options" : cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != 'nuisance_constraints'},
-    "likelihood_type": args.likelihood_type,
-    "scale_to_eff_events": args.scale_to_eff_events,
-    "verbose": not args.quiet,
-    "minimisation_method" : args.minimisation_method,
-    "sim_type" : args.sim_type,
-    "X_columns" : cfg["variables"],
-    "Y_columns" : sorted(list(defaults_in_model.keys())),
-    "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
-    "only_density" : args.only_density,
-    "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
-    "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
-    "binned_data_input" : binned_data_input,
-    "binned_data_input_parameters_key" : binned_data_input_parameters_key,
-    "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
-    "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
-    "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
-    "bootstrap_method" : args.bootstrap_method,
-    "integrate_density_with_ratios" : args.integrate_density_with_ratios,
-    "no_likelihood_print_out" : args.no_likelihood_print_out,
-    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
-    "n_integral_events" : args.number_of_integral_events,
-    "binned_from_predicted_bins" : binned_observed_from_predicted,
-  }
-  """
   specific_categories = (args.specific_category.split(",") if args.specific_category is not None else None)
   categories = GetCategoryLoop(cfg, specific_category=specific_categories)
   model_files = ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))
@@ -568,6 +532,19 @@ def GetDictionaryEntry(entry, keys):
     entry = entry[key]
   return entry
 
+
+def GetVariables(cfg, category=None):
+  if category is None:
+    return cfg["variables"]
+  if isinstance(cfg["variables"], dict):
+    if category in cfg["variables"].keys():
+      return cfg["variables"][category]
+    else:
+      raise ValueError(f"Category {category} not found in variables.")
+  elif isinstance(cfg["variables"], list):
+    return cfg["variables"]
+  else:
+    raise ValueError("cfg['variables'] must be either a list or a dictionary.")
 
 def GetDictionaryEntryFromYaml(file_name, keys):
   """

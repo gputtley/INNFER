@@ -5,7 +5,7 @@ import numpy as np
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio, plot_learned_nuisance_variations
-from useful_functions import LoadConfig, Translate
+from useful_functions import GetVariables, LoadConfig, Translate
 
 class InputPlotComparingTrainWithVariations():
 
@@ -104,7 +104,7 @@ class InputPlotComparingTrainWithVariations():
     )
 
     # Loop over columns
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       if self.verbose:
         print(f"- Plotting {col} for train and variations")
   
@@ -196,7 +196,7 @@ class InputPlotComparingTrainWithVariations():
       cfg = LoadConfig(self.cfg)
 
     # Add the output files to the list
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       outputs.append(f"{self.plots_output}/train_vs_variations_{col}_{self.nuisance}.pdf")
       outputs.append(f"{self.plots_output}/train_vs_variations_double_ratio_{col}_{self.nuisance}.pdf")
 

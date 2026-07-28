@@ -34,6 +34,7 @@ from useful_functions import (
     GetSplitDensityModel,
     GetValidationDefaultIndex,
     GetValidationLoop,
+    GetVariables,
     GetYieldsBaseFile,
     LoadConfig,
     MakeDictionaryEntry,
@@ -842,7 +843,7 @@ class PreProcess():
           for k, v in defaults.items():
             if k not in value["parameters"]:
               value_copy["shifts"][k] = {"type":"fixed","value":v}
-          density_split_model_val = {"X":cfg["variables"],"Y":sorted(value["parameters"]),"wt":["wt"]}
+          density_split_model_val = {"X":self.columns,"Y":sorted(value["parameters"]),"wt":["wt"]}
           for k, v in density_split_model.items(): density_split_model_val[k] = v
           if not split_density_model:
             self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", data_split, split_dict=density_split_model_val)
@@ -860,7 +861,7 @@ class PreProcess():
             for k, v in defaults.items():
               if k != value["parameter"]:
                 value_copy["shifts"][k] = {"type":"fixed","value":v}
-            regression_split_model = {"X":cfg["variables"]+[value["parameter"]], "y":["wt_shift"], "wt":["old_wt"]}
+            regression_split_model = {"X":self.columns+[value["parameter"]], "y":["wt_shift"], "wt":["old_wt"]}
             if extra_cols is not None:
               regression_split_model["Extra"] = extra_cols
             self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"regression/{value['parameter']}", data_split, split_dict=regression_split_model)
@@ -877,7 +878,7 @@ class PreProcess():
               if k != value["parameter"]:
                 value_copy["shifts"][k] = {"type":"fixed","value":v}
             value_copy["shifts"]["classifier_truth"] = {"type":"fixed","value":1.0}
-            classifier_split_model = {"X":cfg["variables"]+[value["parameter"]], "y":["classifier_truth"], "wt":["wt"]}
+            classifier_split_model = {"X":self.columns+[value["parameter"]], "y":["classifier_truth"], "wt":["wt"]}
             if extra_cols is not None:
               classifier_split_model["Extra"] = extra_cols
             if self.verbose:
@@ -999,7 +1000,7 @@ class PreProcess():
             "n_copies" : 1,
             "shifts" : shifts
           }
-          val_split_model = {"X":cfg["variables"], "Y":val_shift["parameters"], "wt":["wt"]}
+          val_split_model = {"X":self.columns, "Y":val_shift["parameters"], "wt":["wt"]}
           if extra_cols is not None:
             val_split_model["Extra"] = extra_cols 
           self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{ind}/{base_file_name}_{data_split}", cfg, f"val_ind_{ind}", data_split, split_dict=val_split_model)
@@ -1460,7 +1461,7 @@ class PreProcess():
           batch_size=self.batch_size,
         )
         min_max = dp.GetFull(method="min_max")
-        for col in cfg["variables"]:
+        for col in self.columns:
           minmax_parameters["density"][col] = {
             "min" : float(min_max[col][0]),
             "max" : float(min_max[col][1]),
@@ -1532,7 +1533,7 @@ class PreProcess():
           )
           density_means = dp.GetFull(method="mean")
           density_stds = dp.GetFull(method="std")
-          for col in cfg["variables"]:
+          for col in self.columns:
             standardisation_parameters["density"][col] = {
               "mean" : density_means[col],
               "std" : density_stds[col],
@@ -1675,7 +1676,7 @@ class PreProcess():
           )
 
           wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_standardised" : cfg["variables"], f"{extra_dir}/Y_{data_split}_standardised" : value["parameters"]},
+            name = {f"{extra_dir}/X_{data_split}_standardised" : self.columns, f"{extra_dir}/Y_{data_split}_standardised" : value["parameters"]},
             data_output = self.data_output,
           )
           dp.GetFull(
@@ -1710,7 +1711,7 @@ class PreProcess():
             )
 
             wp = WriteParquet(
-              name = {f"regression/{name}/X_{data_split}_standardised" : cfg["variables"]+[value["parameter"]], f"regression/{name}/y_{data_split}_standardised" : ["wt_shift"]},
+              name = {f"regression/{name}/X_{data_split}_standardised" : self.columns+[value["parameter"]], f"regression/{name}/y_{data_split}_standardised" : ["wt_shift"]},
               data_output = self.data_output,
             )
             dp.GetFull(
@@ -1743,7 +1744,7 @@ class PreProcess():
             )
 
             wp = WriteParquet(
-              name = {f"classifier/{name}/X_{data_split}_standardised" : cfg["variables"]+[value["parameter"]]},
+              name = {f"classifier/{name}/X_{data_split}_standardised" : self.columns+[value["parameter"]]},
               data_output = self.data_output,
             )
             dp.GetFull(
@@ -1811,10 +1812,10 @@ class PreProcess():
             )
             min_max_vals_test = test_dp.GetFull(method="min_max", ignore_quantile=0.0)
             min_max_vals = {}
-            for col in cfg["variables"]:
+            for col in self.columns:
               min_max_vals[col] = [min(min_max_vals_train[col][0], min_max_vals_test[col][0]), max(min_max_vals_train[col][1], min_max_vals_test[col][1])]
   
-            for col in cfg["variables"]:
+            for col in self.columns:
               #if self.verbose:
               #  print(f"  - Getting quantile bins for column: {col}")
               #bins = dp.GetFull(method="bins_with_equal_stats", bins=100, column=col, ignore_quantile=0.0)
@@ -1975,7 +1976,7 @@ class PreProcess():
             return df
 
           wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_splinetogaussian" : cfg["variables"]},
+            name = {f"{extra_dir}/X_{data_split}_splinetogaussian" : self.columns},
             data_output = self.data_output,
           )
           dp.GetFull(
@@ -2024,7 +2025,7 @@ class PreProcess():
           )
 
           #def print_corrcoef(df):
-          #  print(np.corrcoef(df[cfg["variables"]].values, rowvar=False))
+          #  print(np.corrcoef(df[self.columns].values, rowvar=False))
           #  return df
           #print("Before")
           #dp.GetFull(
@@ -2038,7 +2039,7 @@ class PreProcess():
           if data_split == "train":
 
             pca = WeightedIncrementalPCA(
-              n_components=len(cfg["variables"]),
+              n_components=len(self.columns),
               whiten=True,
               batch_size=self.batch_size
             )
@@ -2047,7 +2048,7 @@ class PreProcess():
               def __init__(self, pca):
                 self.pca = pca
               def __call__(self, df):
-                X = df[cfg["variables"]].values
+                X = df[self.columns].values
                 wt = df["wt"].values
                 mask = wt > 0
                 X = X[mask]
@@ -2064,21 +2065,21 @@ class PreProcess():
 
             # Save PCA object
             pca_whitening_locations["location"] = f"{self.data_output}/{extra_dir}/X_pca.joblib"
-            pca_whitening_locations["columns"] = cfg["variables"]
+            pca_whitening_locations["columns"] = self.columns
             fp.pca.save(pca_whitening_locations["location"])
 
           # Transform datasets
           def transform_from_pca(df, pca):
             if len(df) == 0: 
               return df
-            X = df[cfg["variables"]].values
+            X = df[self.columns].values
             X_transformed = pca.transform(X)
-            for i, col in enumerate(cfg["variables"]):
+            for i, col in enumerate(self.columns):
               df[col] = X_transformed[:, i]
             return df
 
           wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_pcawhitening" : cfg["variables"]},
+            name = {f"{extra_dir}/X_{data_split}_pcawhitening" : self.columns},
             data_output = self.data_output,
           )
           dp.GetFull(
@@ -2330,7 +2331,7 @@ class PreProcess():
     if pca_whitening_parameters:
       parameters_file["density"]["pca_whitening"] = pca_whitening_parameters
 
-    parameters_file["density"]["X_columns"] = cfg["variables"]
+    parameters_file["density"]["X_columns"] = self.columns
     parameters_in_density_model = []
     for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
       v = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
@@ -2353,7 +2354,7 @@ class PreProcess():
       if "regression" in standardisation.keys():
         if name in standardisation["regression"].keys():
           parameters_file["regression"][name]["standardisation"] = standardisation["regression"][name]
-      parameters_file["regression"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
+      parameters_file["regression"][name]["X_columns"] = self.columns + [v["parameter"]]
       parameters_file["regression"][name]["conditional_variable"] = v["parameter"]
       parameters_file["regression"][name]["y_columns"] = ["wt_shift"]
 
@@ -2365,7 +2366,7 @@ class PreProcess():
       if "classifier" in standardisation.keys():
         if name in standardisation["classifier"].keys():
           parameters_file["classifier"][name]["standardisation"] = standardisation["classifier"][name]
-      parameters_file["classifier"][name]["X_columns"] = cfg["variables"] + [v["parameter"]]
+      parameters_file["classifier"][name]["X_columns"] = self.columns + [v["parameter"]]
       parameters_file["classifier"][name]["y_columns"] = ["classifier_truth"]
       parameters_file["classifier"][name]["conditional_variable"] = v["parameter"]
 
@@ -2791,7 +2792,7 @@ class PreProcess():
                 os.system(f"rm {outfile}")      
 
             # Do variations            
-            val_split_model = {"X":cfg["variables"], "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
+            val_split_model = {"X":self.columns, "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
             if extra_cols is not None:
               val_split_model["Extra"] = extra_cols 
             self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{default_index}/{base_file_name}_{data_split}", cfg, f"{val_key}", data_split, split_dict=val_split_model)
@@ -2869,7 +2870,7 @@ class PreProcess():
                     os.system(f"rm {outfile}")      
 
                 # Do variations            
-                val_split_model = {"X":cfg["variables"], "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
+                val_split_model = {"X":self.columns, "Y":sorted(val_shift["parameters"]), "wt":["wt"]}
                 if extra_cols is not None:
                   val_split_model["Extra"] = extra_cols 
                 self._DoWriteModelVariation(val_shift, self.data_output, f"val_ind_{default_index}/{base_file_name}_{data_split}", cfg, f"{val_key}", data_split, split_dict=val_split_model)
@@ -2904,6 +2905,7 @@ class PreProcess():
     # Set seed
     np.random.seed(self.seed)
 
+    # Load sim to data normalisation if needed
     if self.sim_to_data_norm is not None:
       with open(self.sim_to_data_norm, 'r') as yaml_file:
         self.sim_to_data_norm_values = yaml.safe_load(yaml_file)
@@ -2925,6 +2927,8 @@ class PreProcess():
         print("- Loading in config")
       cfg = LoadConfig(self.cfg)
   
+    # Get columns
+    self.columns = GetVariables(cfg, category=self.category)
 
     # Do initial methods
     if self.partial is None or self.partial in ["initial","yields","collect_yields","binned_fit_inputs","train_test_val_split"]:

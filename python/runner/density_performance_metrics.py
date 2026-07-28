@@ -16,7 +16,8 @@ from useful_functions import (
   GetDefaultsInModel,
   GetModelLoop,
   GetValidationLoop,
-  InitiateDensityModel, 
+  GetVariables,
+  InitiateDensityModel,
   LoadConfig, 
   MakeDirectories,
   SkipEmptyDataset,
@@ -300,7 +301,7 @@ class DensityPerformanceMetrics():
         hm = HistogramMetrics(
           [sim_file], 
           [synth_file],
-          self.open_cfg["variables"]
+          GetVariables(self.open_cfg, category=self.category),
         )
 
         # Get chi squared values
@@ -331,7 +332,7 @@ class DensityPerformanceMetrics():
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
           if f"chi_squared_per_dof_{data_type}_val_ind_{val_ind}" not in self.metrics: continue
           chi_squared_per_dof_total += self.metrics[f"chi_squared_per_dof_{data_type}_val_ind_{val_ind}"]["sum"]
-          count_chi_squared_per_dof += len(self.open_cfg["variables"])
+          count_chi_squared_per_dof += len(GetVariables(self.open_cfg, category=self.category))
         self.metrics[f"chi_squared_per_dof_{data_type}_sum"] = chi_squared_per_dof_total
         if count_chi_squared_per_dof > 0:
           self.metrics[f"chi_squared_per_dof_{data_type}_mean"] = chi_squared_per_dof_total/count_chi_squared_per_dof
@@ -344,7 +345,7 @@ class DensityPerformanceMetrics():
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
           if f"kl_divergence_{data_type}_val_ind_{val_ind}" not in self.metrics: continue
           kl_divergence_total += self.metrics[f"kl_divergence_{data_type}_val_ind_{val_ind}"]["sum"]
-          count_kl_divergence += len(self.open_cfg["variables"])
+          count_kl_divergence += len(GetVariables(self.open_cfg, category=self.category))
         self.metrics[f"kl_divergence_{data_type}_sum"] = kl_divergence_total
         if count_kl_divergence > 0:
           self.metrics[f"kl_divergence_{data_type}_mean"] = kl_divergence_total/count_kl_divergence

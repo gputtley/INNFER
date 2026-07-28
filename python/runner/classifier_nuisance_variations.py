@@ -7,7 +7,7 @@ from functools import partial
 from data_processor import DataProcessor
 from histogram_metrics import HistogramMetrics
 from plotting import plot_classsifier_nuisance_variations
-from useful_functions import InitiateClassifierModel, LoadConfig, Translate
+from useful_functions import GetVariables, InitiateClassifierModel, LoadConfig, Translate
 from write_parquet import WriteParquet
 
 class ClassifierNuisanceVariations():
@@ -32,6 +32,7 @@ class ClassifierNuisanceVariations():
     self.extra_classifier_model_name = None
     self.extra_plot_name = ""
     self.divide_by_nominal = False
+    self.category = None
 
   def Configure(self, options):
     """
@@ -179,7 +180,7 @@ class ClassifierNuisanceVariations():
     down_sim_hist_uncerts = {}
     down_synth_hist_uncerts = {}
 
-    for variable in cfg["variables"]:
+    for variable in GetVariables(cfg, category=self.category):
 
       bins = nominal_dp.GetFull(
         method = "bins_with_equal_spacing",
@@ -261,7 +262,7 @@ class ClassifierNuisanceVariations():
     # Initiate histogram metrics
     if self.verbose:
       print("- Calculating chi squared values for variations")
-    hm = HistogramMetrics(None, None, cfg["variables"])
+    hm = HistogramMetrics(None, None, GetVariables(cfg, category=self.category))
     hm.sim_hists = up_sim_hists
     hm.sim_hist_uncerts = up_sim_hist_uncerts
     hm.synth_hists = up_synth_hists
@@ -296,7 +297,7 @@ class ClassifierNuisanceVariations():
     else:
       cfg = LoadConfig(self.cfg)
 
-    for variable in cfg["variables"]:
+    for variable in GetVariables(cfg, category=self.category):
       outputs += [f"{self.plots_output}/classifier_nuisance_variations_{variable}_{self.classifier_model['parameter']}{self.extra_plot_name}.pdf"]
 
     out_name = f"{self.data_output}/nuisance_variations_performance_metrics_{self.classifier_model['parameter']}{self.extra_plot_name}.yaml"

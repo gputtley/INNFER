@@ -2,7 +2,7 @@ import numpy as np
 import seaborn as sns
 
 from plotting import plot_histograms
-from useful_functions import Translate, GetDefaultsInModel, LoadConfig
+from useful_functions import GetVariables, Translate, GetDefaultsInModel, LoadConfig
 
 class GeneratorSummary():
 
@@ -10,6 +10,7 @@ class GeneratorSummary():
 
     self.cfg = None
     self.open_cfg = None
+    self.category = None
     self.val_loop = []
     self.data_input = []
     self.asimov_input = []
@@ -103,7 +104,7 @@ class GeneratorSummary():
       print("- Making histograms") 
 
     # Loop through columns
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
 
       bins = synth_dps[default_val_ind].GetFull(
         #method = "bins_with_equal_spacing", 
@@ -185,7 +186,7 @@ class GeneratorSummary():
       cfg = LoadConfig(self.cfg)
 
     # Add the output files
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       outputs += [f"{self.plots_output}/generation_summary_{col}{self.extra_plot_name}.pdf"]
     
     return outputs

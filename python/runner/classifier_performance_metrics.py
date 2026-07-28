@@ -8,6 +8,7 @@ from histogram_metrics import HistogramMetrics
 from multidim_metrics import MultiDimMetrics
 from write_parquet import WriteParquet
 from useful_functions import (
+    GetVariables,
     InitiateClassifierModel,
     LoadConfig,
     MakeDirectories,
@@ -27,6 +28,7 @@ class ClassifierPerformanceMetrics():
     self.file_loc = None
     self.extra_model_dir = ""
     self.data_output = "data/"
+    self.category = None
     self.verbose = True
 
     self.do_loss = True
@@ -202,7 +204,7 @@ class ClassifierPerformanceMetrics():
         print(f" - Doing histogram metrics for {data_type}")
 
       # Load histogram metrics class
-      variables = self.open_cfg["variables"]
+      variables = GetVariables(self.open_cfg, category=self.category)
       if self.model_type not in ["FCNN_TwoPointInterpolator","FCNN_ThreePointInterpolator"]:
         variables += [self.parameter]
 

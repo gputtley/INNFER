@@ -584,6 +584,9 @@ class Likelihood():
 
   def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None, specific_name=None, extra_cache_name="", skip_density=False, skip_integral=False, add_density_columns_to_cache=False):
 
+    # Find X columns
+    X_columns = self.X_columns[category] if isinstance(self.X_columns, dict) else self.X_columns
+
     # Set extra cache name
     if extra_cache_name != "":
       extra_cache_name = f"_{extra_cache_name}"
@@ -687,7 +690,7 @@ class Likelihood():
             # if all of load from cache is true, skip combining
             if not all(load_from_cache_regressions.values()):
               vals = Y[self.Y_columns].iloc[0].to_dict()
-              combined = X[self.X_columns].assign(**vals)
+              combined = X[X_columns].assign(**vals)
 
             total_regression_shifts = None
             for k, v in self.models["pdf_shifts_with_regression"][category][name].items():
@@ -771,13 +774,13 @@ class Likelihood():
             # if all of load from cache is true, skip combining
             if not all(list(load_from_cache_classifiers.values())):
               vals = Y[self.Y_columns].iloc[0].to_dict()
-              combined = X[self.X_columns].assign(**vals)
+              combined = X[X_columns].assign(**vals)
               combined_columns = combined.columns.tolist()
               combined = combined.to_numpy(copy=False)
             if self.classifier_divide_by_nominal:
               if not all(load_from_cache_nominal_classifiers.values()):
                 zerod_vals = {k: 0.0  for k in vals.keys()}
-                combined_nominal = X[self.X_columns].assign(**zerod_vals)
+                combined_nominal = X[X_columns].assign(**zerod_vals)
                 combined_nominal_columns = combined_nominal.columns.tolist()
                 combined_nominal = combined_nominal.to_numpy(copy=False)
 

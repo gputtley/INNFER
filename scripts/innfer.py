@@ -735,6 +735,7 @@ def main(args, default_args, module_options={}):
           "cfg" : args.cfg,
           "open_cfg" : cfg,
           "parameters" : model_info["parameters"],
+          "category" : model_info['category'],
           "data_input" : model_info['file_loc'],
           "plots_output" : f"{plots_dir}/InputPlotTraining{args.extra_output_dir_name}/{model_info['name']}",
           "model_type" : model_info['type'],
@@ -893,6 +894,7 @@ def main(args, default_args, module_options={}):
         config = {          
           "cfg" : args.cfg,
           "file_name" : model_info["file_name"],
+          "category" : model_info['category'],
           "parameters" : model_info["parameters"],
           "data_input" : model_info['file_loc'],
           "evaluate_input" : f"{eval_data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
@@ -979,6 +981,7 @@ def main(args, default_args, module_options={}):
         class_name = "PlotRegression",
         config = {
           "cfg" : args.cfg,
+          "category" : model_info['category'],
           "data_input" : model_info['file_loc'],
           "model_name" : f"{model_info['name']}{args.extra_regression_model_name}",
           "parameters" : model_info["parameters"],
@@ -1051,6 +1054,7 @@ def main(args, default_args, module_options={}):
         class_name = "PlotClassifier",
         config = {
           "cfg" : args.cfg,
+          "category" : model_info['category'],
           "data_input" : model_info['file_loc'],
           "model_name" : f"{model_info['name']}{args.extra_classifier_model_name}",
           "model_input" : f"{models_dir}",
@@ -1078,6 +1082,7 @@ def main(args, default_args, module_options={}):
               "file_name": model_info["file_name"],
               "file_loc": model_info["file_loc"],
               "file_type": model_info["type"],
+              "category": model_info["category"],
               "model_input": f"{models_dir}",
               "extra_model_dir": f"{model_info['name']}{args.extra_classifier_model_name}",
               "data_output": f"{eval_data_dir}/ClassifierPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_classifier_model_name}",
@@ -1544,6 +1549,7 @@ def main(args, default_args, module_options={}):
             config = {
               "cfg" : args.cfg,
               "open_cfg" : cfg,
+              "category" : category,
               "parameters" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/parameters.yaml",
               "data_input" : GetDataInput("sim" if args.data_type != "data" and not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
               "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}", sim_type="full" if args.data_vs_simulation else None)[category],
@@ -1577,6 +1583,7 @@ def main(args, default_args, module_options={}):
           config = {
             "cfg" : args.cfg,
             "open_cfg" : cfg,
+            "category" : category,
             "val_loop" : validation_loop,
             "data_input" : [{k:f"{prep_data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
             "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_asimov_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
@@ -1604,6 +1611,7 @@ def main(args, default_args, module_options={}):
             config = {
               "cfg" : args.cfg,
               "open_cfg" : cfg,
+              "category" : category,
               "nominal_sim_input" : GetDataInput("sim", cfg, file_name, default_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
               "up_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_up/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
               "down_sim_input" : [f"{prep_data_dir}/PreProcess/{file_name}/{category}/{nuisance}_down/{i}_{args.sim_type}.parquet" for i in ["X","wt"]],
@@ -1646,6 +1654,7 @@ def main(args, default_args, module_options={}):
               "nuisance" : nuisance,
               "extra_plot_name" : args.extra_plot_name,
               "divide_by_nominal" : args.classifier_divide_by_nominal,
+              "category" : category,
               "verbose" : not args.quiet,
             },
             loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance},
@@ -1663,6 +1672,7 @@ def main(args, default_args, module_options={}):
             class_name = "ValidationPerformanceMetrics",
             config = {
               "cfg" : args.cfg,
+              "category" : category,
               "sim_files" : val_dataset_info["files"],
               "synth_files" : val_dataset_info["asimov_files"],
               "sim_wt_name" : "wt",
@@ -2455,6 +2465,7 @@ def main(args, default_args, module_options={}):
               class_name = "Generator",
               config = {
                 "cfg" : args.cfg,
+                "category" : category,
                 "data_input" : GetDataInput(args.data_type if not args.data_vs_simulation else "data", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
                 "asimov_input": GetDataInput("asimov" if not args.data_vs_simulation else "sim", cfg, file_name, val_ind, eval_data_dir if not args.data_vs_simulation else prep_data_dir, sim_type="full" if args.data_vs_simulation else args.sim_type, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}" if not args.use_prefit_asimov else f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
                 "plots_output" : f"{plots_dir}/DistributionPlot{args.extra_output_dir_name}/{file_name}/{category}",
@@ -2515,6 +2526,7 @@ def main(args, default_args, module_options={}):
             class_name = "PostFitTruthComparison",
             config = {
               "cfg" : args.cfg,
+              "category" : category,
               "truth_input" : GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakeAsimov{args.extra_asimov_input_dir_name}")[category],
               "best_fit_input": GetDataInput("asimov", cfg, file_name, val_ind, eval_data_dir, asimov_dir_name=f"MakePostFitAsimov{args.extra_postfit_asimov_input_dir_name}/{file_name}")[category],
               "fit_data_input": GetDataInput(args.data_type, cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category],
