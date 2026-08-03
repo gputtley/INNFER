@@ -328,7 +328,11 @@ def CustomHistogram(
     if len(unique_vals) < bins and discrete_binning:
       db = True
       bins = np.sort(unique_vals.to_numpy().flatten())
-      bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+      if len(bins) > 1:
+        bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+      else:
+        bins = np.append(bins, [bins[-1] + 1])
+      
 
     elif ignore_quantile > 0.0:
       # Ignore quantiles
@@ -1055,6 +1059,29 @@ def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, onl
 
   return loop_with_unique_parameters
 
+def GetValidationDensityLoop(cfg, file_name, data_type="sim", do_loop=True):
+
+  val_loop = []
+
+  if not do_loop:
+    val_loop.append({
+      "index" : None,
+      "info" : {},
+      "extra_name" : "",
+    })
+    return val_loop
+
+  for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+    if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
+    if SkipEmptyDataset(cfg, file_name, data_type, val_info): continue
+    val_loop.append({
+      "index" : val_ind,
+      "info" : val_info,
+      "extra_name" : f"_val_ind_{val_ind}",
+    })
+
+  return val_loop
+
 
 def GetValidationDefaultIndex(cfg, file_name, category=None):
   defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True, category=category)
@@ -1070,7 +1097,7 @@ def GetValidationDefaultIndex(cfg, file_name, category=None):
   raise ValueError("Default value needs to be in the validation loop")
 
 
-def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val"):
+def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val", skip_weight_variation=False):
 
   parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
   nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
@@ -1097,6 +1124,9 @@ def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=Non
     elif dataset == "nuisance_variations":
 
       for nuisance in nuisances_in_model:
+
+        if SkipDoubleVariation(cfg, file_name, category, nuisance, skip_weight_variation=skip_weight_variation): continue
+
         for shape_name, shape_value in nuisance_shifts.items():
 
           file_ends = []
@@ -1121,6 +1151,8 @@ def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=Non
           for nuisance_2_ind, nuisance_2 in enumerate(nuisances_in_model):
             if nuisance_1_ind >= nuisance_2_ind: continue
             for shape_name_2, shape_value_2 in nuisance_shifts.items():
+              if SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=nuisance_2, skip_weight_variation=skip_weight_variation): continue
+
               sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [shape_name_1, shape_name_2])))
 
               file_ends = []
@@ -1169,14 +1201,14 @@ def GetSplitDensityModel(cfg, file_name, category=None):
   return density_model_count > 1
 
 
-def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None):
+def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None, skip_weight_variation=False):
 
   default_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
 
   nominal_metrics = f"{input_dir}/val_ind_{default_val_ind}/metrics.yaml"
 
   parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
-  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model and not SkipDoubleVariation(cfg, file_name, category, nui, skip_weight_variation=skip_weight_variation)]
 
   columns = ["Nominal"] + nuisances_in_model
 
@@ -1294,6 +1326,36 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
     raise NotImplementedError(f"Classifier model type {architecture['type']} not implemented")
 
   return network
+
+
+def SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=None, skip_weight_variation=False):
+
+  if not skip_weight_variation:
+    return False
+
+  # Loop over the models
+  weight_shift = False
+  for model_type, model_list in cfg["models"][file_name].items():
+    for model in model_list:
+
+      if model_type == "density_models":
+        parameters = model["parameters"]
+      elif model_type != "yields":
+        parameters = [model["parameter"]]
+
+      if "categories" in model.keys():
+        if category not in model["categories"]:
+          continue
+
+      if nuisance_1 in parameters:
+        if nuisance_1 in cfg["files"][model["file"]]["weight_shifts"].keys():
+          weight_shift = True
+      if nuisance_2 is not None:
+        if nuisance_2 in parameters:
+          if nuisance_2 in cfg["files"][model["file"]]["weight_shifts"].keys():
+            weight_shift = True
+
+  return weight_shift
 
 
 def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):

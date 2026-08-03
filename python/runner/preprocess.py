@@ -2045,17 +2045,18 @@ class PreProcess():
             )
 
             class fit_pca:
-              def __init__(self, pca):
+              def __init__(self, pca, columns):
                 self.pca = pca
+                self.pca_columns = columns
               def __call__(self, df):
-                X = df[self.columns].values
+                X = df[self.pca_columns].values
                 wt = df["wt"].values
                 mask = wt > 0
                 X = X[mask]
                 wt = wt[mask]
                 self.pca.partial_fit(X, sample_weight=wt)
                 return df
-            fp = fit_pca(pca)
+            fp = fit_pca(pca, self.columns)
             dp.GetFull(
               method=None,
               functions_to_apply = [
@@ -3208,9 +3209,8 @@ class PreProcess():
 
     # Do double nuisance variations
     if self.partial == "nuisance_double_variations":
-      
+      parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
       for nui_1_ind, nui_1 in enumerate(cfg["nuisances"]):
-        parameters_in_model = GetParametersInModel(self.file_name, cfg, category=self.category)
         if nui_1 not in parameters_in_model: continue
         for nui_1_shift in ["up","down"]:
           for nui_2_ind, nui_2 in enumerate(cfg["nuisances"]):

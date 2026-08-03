@@ -299,6 +299,7 @@ class DataProcessor():
       skip_load=False,
       sum_w_selections = [],
       columns = [],
+      seed = 42,
     ):
 
     none_total_columns = False
@@ -385,7 +386,7 @@ class DataProcessor():
         elif method in ["sampled_dataset"]: # get sampled dataset
           out = self._method_sampled_dataset(tmp, out, sampling_fraction=sampling_fraction)
         elif method in ["train_test_split"]: # get train and test dataset
-          out = self._method_train_test_split(tmp, out, column, test_fraction=test_fraction)
+          out = self._method_train_test_split(tmp, out, seed, test_fraction=test_fraction)
         elif method in ["histogram"]: # make a histogram from the dataset
           out = self._method_histogram(tmp, out, column, bins=bins, discrete_binning=discrete_binning)
         elif method in ["histograms"]: # make histograms from the dataset
@@ -446,6 +447,8 @@ class DataProcessor():
     elif method == "std": # calculate std
       return {k : float(np.sqrt(v/out[1])) for k, v in out[0].items()}
     elif method == "histogram" and density: # normalise histograms
+      if out is None:
+        return None, None
       sum_wt = np.sum(out[0])
       return out[0]/sum_wt, out[1]
     elif method == "histograms" and density: # normalise histograms
@@ -1068,9 +1071,9 @@ class DataProcessor():
     return out
 
 
-  def _method_train_test_split(self, tmp, out, column, test_fraction=0.2):
+  def _method_train_test_split(self, tmp, out, seed, test_fraction=0.2):
 
-    train, test = train_test_split(tmp, test_size=test_fraction, random_state=42)
+    train, test = train_test_split(tmp, test_size=test_fraction, random_state=seed)
     if out is None:
       out = [copy.deepcopy(train), copy.deepcopy(test)]
     else:

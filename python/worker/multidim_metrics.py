@@ -151,6 +151,7 @@ class MultiDimMetrics():
       self.synth_train["y"] = 1.0
       self.sim_test["y"] = 0.0
       self.synth_test["y"] = 1.0
+
       total_train = pd.concat([self.sim_train, self.synth_train], ignore_index=True)
       total_test = pd.concat([self.sim_test, self.synth_test], ignore_index=True)
       total_train = total_train.sample(frac=1).reset_index(drop=True)
@@ -165,6 +166,7 @@ class MultiDimMetrics():
       
     # Resample sim dataset
     if self.resample_sim:
+      
       # Get indices
       indices_train_0 = (y_train==0)
       indices_train_1 = (y_train==1)
@@ -291,9 +293,6 @@ class MultiDimMetrics():
     train_auc = roc_curve_auc(fpr, tpr)
 
     # Get train accuracy
-    #youden_index = np.argmax(tpr - fpr)
-    #optimal_threshold = thresholds[youden_index]
-    #y_pred_train = (y_prob_train >= optimal_threshold).astype(int)
     y_pred_train = (y_prob_train >= 0.5).astype(int)
     train_accuracy = accuracy_score(y_train, y_pred_train, sample_weight=wt_train)
 
@@ -305,10 +304,6 @@ class MultiDimMetrics():
     test_auc = roc_curve_auc(fpr, tpr)
 
     # Get test accuracy
-    #youden_index = np.argmax(tpr - fpr)
-    #optimal_threshold = thresholds[youden_index]
-    #print(optimal_threshold)
-    #y_pred_test = (y_prob_test >= optimal_threshold).astype(int)
     y_pred_test = (y_prob_test >= 0.5).astype(int)
     test_accuracy = accuracy_score(y_test, y_pred_test, sample_weight=wt_test)
 
@@ -415,7 +410,7 @@ class MultiDimMetrics():
     return wasserstein_unbinned
 
 
-  def MakeDatasets(self, only_synth=False, only_sim=False):
+  def MakeDatasets(self, only_synth=False, only_sim=False, seed=42):
 
     if not only_synth:
 
@@ -435,8 +430,8 @@ class MultiDimMetrics():
 
       if self.metrics != ["BDT Separation"]:
         self.sim_dataset = sim_dp.GetFull(method="sampled_dataset", sampling_fraction=self.sim_fraction)      
-      if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
-        self.sim_train, self.sim_test = sim_dp.GetFull(method="train_test_split", test_fraction=0.5)
+      if "BDT Separation" in self.metrics:
+        self.sim_train, self.sim_test = sim_dp.GetFull(method="train_test_split", test_fraction=0.5, seed=seed)
 
     if not only_sim:
 
@@ -455,10 +450,10 @@ class MultiDimMetrics():
       )
       if self.metrics != ["BDT Separation"]:
         self.synth_dataset = synth_dp.GetFull("sampled_dataset", sampling_fraction=self.synth_fraction) 
-      if "BDT Separation" in self.metrics: # This ensures that duplicated data from different validation points are split in the same way
-        self.synth_train, self.synth_test = synth_dp.GetFull(method="train_test_split", test_fraction=0.5)
-      
-      
+      if "BDT Separation" in self.metrics:
+        self.synth_train, self.synth_test = synth_dp.GetFull(method="train_test_split", test_fraction=0.5, seed=seed+1)
+
+
   def Run(self, seed=42, make_datasets=True):
 
     print("WARNING: MultiDim metrics involves loading a lot of data into memory. This option should preferably be run on a GPU. If you are struggling with memory usage, reduce the fraction of events.")
@@ -471,7 +466,7 @@ class MultiDimMetrics():
 
     metrics = {}
     if make_datasets:
-      self.MakeDatasets()
+      self.MakeDatasets(seed=seed)
 
     if "BDT Separation" in self.metrics:
       auc, accuracy = self.DoBDTSeparation()

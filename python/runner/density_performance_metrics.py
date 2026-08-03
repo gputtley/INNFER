@@ -22,6 +22,7 @@ from useful_functions import (
   MakeDirectories,
   SkipEmptyDataset,
   SkipNonDensity,
+  UniqueFromTwo
 )
 
 class DensityPerformanceMetrics():
@@ -71,6 +72,7 @@ class DensityPerformanceMetrics():
     self.alternative_asimov_seed_shift = 0
     self.alternative_asimov_seed = 1
     self.use_eff_events = False
+    self.specific_val_ind = None
 
 
   def Configure(self, options):
@@ -146,9 +148,9 @@ class DensityPerformanceMetrics():
 
         ma = MakeAsimov()
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+          if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
           if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
-
 
           if self.use_eff_events:
             n_events = int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind]))
@@ -159,6 +161,8 @@ class DensityPerformanceMetrics():
 
           if self.asimov_input is None:
 
+            print(f"  - Making asimov dataset for {data_type} and val_ind {val_ind} with {n_events} events with output folder {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}")
+
             ma = MakeAsimov()
             ma.Configure({
                 "cfg" : self.cfg,
@@ -168,7 +172,7 @@ class DensityPerformanceMetrics():
                 "parameters" : self.parameters,
                 "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}",
                 "n_asimov_events" : n_events,
-                "seed" : self.asimov_seed,
+                "seed" : UniqueFromTwo(self.asimov_seed, val_ind),
                 "val_info" : val_info,
                 "val_ind" : val_ind,
                 "only_density" : True,
@@ -185,6 +189,8 @@ class DensityPerformanceMetrics():
             else:
               self.alternative_asimov_seed = self.asimov_seed + self.alternative_asimov_seed_shift + 1
 
+              print(f"  - Making alternative asimov dataset for {data_type} and val_ind {val_ind} with {n_events} events with output folder {self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}")
+
               ma2 = MakeAsimov()
               ma2.Configure({
                   "cfg" : self.cfg,
@@ -194,7 +200,7 @@ class DensityPerformanceMetrics():
                   "parameters" : self.parameters,
                   "data_output" : f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}",
                   "n_asimov_events" : n_events,
-                  "seed" : self.alternative_asimov_seed,
+                  "seed" : UniqueFromTwo(self.alternative_asimov_seed, val_ind),
                   "val_info" : val_info,
                   "val_ind" : val_ind,
                   "only_density" : True,
@@ -249,6 +255,7 @@ class DensityPerformanceMetrics():
       print("- Tidying up asimov datasets")
     for data_type in sorted(list(set(self.histogram_datasets+self.multidimensional_datasets+self.inference_datasets))):
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
         if self.tidy_up_asimov:
@@ -290,6 +297,7 @@ class DensityPerformanceMetrics():
 
     # Loop through validation indices
     for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+      if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
       if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
 
       for data_type in self.histogram_datasets:
@@ -328,6 +336,7 @@ class DensityPerformanceMetrics():
         count_chi_squared_per_dof = 0
         chi_squared_per_dof_total = 0
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+          if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
           if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
           if f"chi_squared_per_dof_{data_type}_val_ind_{val_ind}" not in self.metrics: continue
@@ -341,6 +350,7 @@ class DensityPerformanceMetrics():
         count_kl_divergence = 0
         kl_divergence_total = 0
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+          if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
           if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
           if f"kl_divergence_{data_type}_val_ind_{val_ind}" not in self.metrics: continue
@@ -374,6 +384,7 @@ class DensityPerformanceMetrics():
       sim_files = []
       synth_files = []
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
@@ -384,12 +395,16 @@ class DensityPerformanceMetrics():
         sim_files.append(sim_file)
         synth_files.append(synth_file)
 
+      if self.verbose:
+        print("Sim files:", sim_files)
+        print("Synth files:", synth_files)
+
       # Initialise multi metrics
       mm = MultiDimMetrics(
         sim_files,
         synth_files,
         self.open_parameters['density']["X_columns"] + self.open_parameters['density']["Y_columns"],
-        functions_to_apply = [partial_scale_down]
+        functions_to_apply = [partial_scale_down],
       )
       mm.verbose = self.verbose
 
@@ -445,6 +460,7 @@ class DensityPerformanceMetrics():
 
       # Loop through validation indices
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+        if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
@@ -510,6 +526,7 @@ class DensityPerformanceMetrics():
       
     # Get means of all data type
     for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
+      if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
       for col_index, col in enumerate(params_in_model):
         best_fits = []
         distances = []
@@ -561,6 +578,7 @@ class DensityPerformanceMetrics():
 
       for data_type in dataset:
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
+          if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
           if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
           outputs += [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
@@ -607,6 +625,7 @@ class DensityPerformanceMetrics():
 
     for data_type in datasets:
       for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
+        if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
 
@@ -616,6 +635,7 @@ class DensityPerformanceMetrics():
       # Add premade asimov
       if self.asimov_input is not None:
         for val_ind, val_info in enumerate(GetValidationLoop(cfg, self.file_name)):
+          if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
           if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
           inputs += [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]

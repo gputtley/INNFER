@@ -35,10 +35,12 @@ from useful_functions import (
     GetUncertaintyFiles,
     GetValidationDatasetLoop,
     GetValidationDefaultIndex,
+    GetValidationDensityLoop,
     GetValidationLoop,
     ListSteps,
     LoadConfig,
     SetupSnakeMakeFile,
+    SkipDoubleVariation,
     SkipNonDefault,
     SkipNonDensity,
 )
@@ -138,6 +140,7 @@ def parse_args():
   parser.add_argument('--prefit-nuisance-values', help='Make postfit plots with prefit nuisance values', action='store_true')
   parser.add_argument('--preprocess-merge', help='Comma separated list of steps to merge in preprocess', type=str, default='initial,model,validation')
   parser.add_argument('--prune-classifier-models', help='Comma separated list of key>values keep shape effects for', type=str, default=None)
+  parser.add_argument('--pvalue-per-val-ind', help='Run the p values per validation index', action='store_true')
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--ratio-range', help='Range for ratio plot', type=str, default='0.5,1.5')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
@@ -158,11 +161,13 @@ def parse_args():
   parser.add_argument('--simplex', help='The simplex used for likelihood minimisation.', type=str, default=None)
   parser.add_argument('--skip-initial-fit', help='Skip the initial fit if running a scan', action='store_true')
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
+  parser.add_argument('--skip-weight-variation', help='For double variations skip the weight variation', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
   parser.add_argument('--snakemake-directory', help='Directory for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
   parser.add_argument('--snakemake-force-local', help='Force step to execute locally when running snakemake', action='store_true')
+  parser.add_argument('--snakemake-local', help='Force snakemake to run locally', action='store_true')
   parser.add_argument('--snakemake-use-file', help='Use already created snakemake file', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
   parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated list.', type=str, default=None)
@@ -589,11 +594,13 @@ def main(args, default_args, module_options={}):
     print("<< Running nuisance double variations of preprocess >>")
     for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
       for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
-        for nuisance_1_ind, nuisance_1 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+        nuisances = [nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]
+        for nuisance_1_ind, nuisance_1 in enumerate(nuisances):
           for nuisance_1_shift in ["up","down"]:
-            for nuisance_2_ind, nuisance_2 in enumerate([nui for nui in cfg["nuisances"] if nui in GetParametersInModel(file_name, cfg, category=category)]):
+            for nuisance_2_ind, nuisance_2 in enumerate(nuisances):
               for nuisance_2_shift in ["up","down"]:
                 if nuisance_1_ind >= nuisance_2_ind: continue
+                if SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=nuisance_2, skip_weight_variation=args.skip_weight_variation): continue
                 sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
                 module.Run(
                   module_name = "preprocess",
@@ -1180,6 +1187,7 @@ def main(args, default_args, module_options={}):
             for nuisance_2_ind, nuisance_2 in enumerate(nuisances):
               for nuisance_2_shift in ["up","down"]:
                 if nuisance_1_ind >= nuisance_2_ind: continue
+                if SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=nuisance_2, skip_weight_variation=args.skip_weight_variation): continue
                 sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [nuisance_1_shift, nuisance_2_shift])))
                 module.Run(
                   module_name = "make_asimov",
@@ -1320,40 +1328,7 @@ def main(args, default_args, module_options={}):
   if args.step == "PValueSimVsSynth":
     print("<< Getting the metrics for Sim Vs Synth comparison >>")
     for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
-      module.Run(
-        module_name = "density_performance_metrics",
-        class_name = "DensityPerformanceMetrics",
-        config = {
-          "cfg" : args.cfg,
-          "file_name" : model_info["file_name"],
-          "parameters" : model_info["parameters"],
-          "model_input" : f"{models_dir}",
-          "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
-          "file_loc" : model_info['file_loc'],
-          "val_file_loc" : model_info['val_file_loc'],
-          "data_output" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "do_inference": False,
-          "do_loss": False,
-          "do_histogram_metrics": False,
-          "do_multidimensional_dataset_metrics": True,
-          "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
-          "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
-          "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
-          "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
-          "n_asimov_events" : args.number_of_asimov_events,
-          "asimov_seed" : args.asimov_seed,
-          "use_eff_events" : True,
-          "verbose" : not args.quiet,     
-        },
-        loop = {"model_name" : model_info['name']}
-      )
-
-
-  # Perform a p-value dataset comparison test bootstrapping synth vs synth
-  if args.step == "PValueSynthVsSynth":
-    print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
-    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
-      for toy in range(args.number_of_toys):
+      for val_dict in GetValidationDensityLoop(cfg, model_info['file_name'], data_type=args.data_type, do_loop=args.pvalue_per_val_ind):
         module.Run(
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
@@ -1365,7 +1340,7 @@ def main(args, default_args, module_options={}):
             "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
             "file_loc" : model_info['file_loc'],
             "val_file_loc" : model_info['val_file_loc'],
-            "data_output" : f"{eval_data_dir}/PValueSynthVsSynth{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_output_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": False,
             "do_loss": False,
             "do_histogram_metrics": False,
@@ -1376,49 +1351,88 @@ def main(args, default_args, module_options={}):
             "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
             "n_asimov_events" : args.number_of_asimov_events,
             "asimov_seed" : args.asimov_seed,
-            "synth_vs_synth" : True,
-            "alternative_asimov_seed_shift" : toy,
-            "metrics_save_extra_name" : f"_toy_{toy}",
-            "asimov_input" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "use_eff_events" : True,
-            "verbose" : not args.quiet,
+            "specific_val_ind" : val_dict["index"],
+            "verbose" : not args.quiet,     
           },
-          loop = {"model_name" : model_info['name'], "toy" : toy}
+          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
         )
+
+
+  # Perform a p-value dataset comparison test bootstrapping synth vs synth
+  if args.step == "PValueSynthVsSynth":
+    print("<< Running the distributions of bootstrapped Synth Vs Synth >>")
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
+      for val_dict in GetValidationDensityLoop(cfg, model_info['file_name'], data_type=args.data_type, do_loop=args.pvalue_per_val_ind):
+        for toy in range(args.number_of_toys):
+          module.Run(
+            module_name = "density_performance_metrics",
+            class_name = "DensityPerformanceMetrics",
+            config = {
+              "cfg" : args.cfg,
+              "file_name" : model_info["file_name"],
+              "parameters" : model_info["parameters"],
+              "model_input" : f"{models_dir}",
+              "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
+              "file_loc" : model_info['file_loc'],
+              "val_file_loc" : model_info['val_file_loc'],
+              "data_output" : f"{eval_data_dir}/PValueSynthVsSynth{args.extra_output_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+              "do_inference": False,
+              "do_loss": False,
+              "do_histogram_metrics": False,
+              "do_multidimensional_dataset_metrics": True,
+              "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
+              "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+              "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
+              "do_kmeans_chi_squared" : "kmeans" in args.density_performance_metrics_multidim,
+              "n_asimov_events" : args.number_of_asimov_events,
+              "asimov_seed" : args.asimov_seed,
+              "synth_vs_synth" : True,
+              "alternative_asimov_seed_shift" : toy,
+              "metrics_save_extra_name" : f"_toy_{toy}",
+              "asimov_input" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_input_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+              "use_eff_events" : True,
+              "specific_val_ind" : val_dict["index"],
+              "verbose" : not args.quiet,
+            },
+            loop = {"model_name" : model_info['name'], "toy" : toy, "val_ind" : val_dict["index"]}
+          )
 
 
   # Collect the synth vs synth tests
   if args.step == "PValueSynthVsSynthCollect":
     print("<< Collecting the classifier 2 sample test >>")
     for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
-      module.Run(
-        module_name = "p_value_synth_vs_synth_collect",
-        class_name = "PValueSynthVsSynthCollect",
-        config = {
-          "data_input" : f"{eval_data_dir}/PValueSynthVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "data_output" : f"{eval_data_dir}/PValueSynthVsSynthCollect{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "number_of_toys" : args.number_of_toys,
-          "verbose" : not args.quiet,  
-        },
-        loop = {"model_name" : model_info['name']}
-      )
+      for val_dict in GetValidationDensityLoop(cfg, model_info['file_name'], data_type=args.data_type, do_loop=args.pvalue_per_val_ind):
+        module.Run(
+          module_name = "p_value_synth_vs_synth_collect",
+          class_name = "PValueSynthVsSynthCollect",
+          config = {
+            "data_input" : f"{eval_data_dir}/PValueSynthVsSynth{args.extra_input_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+            "data_output" : f"{eval_data_dir}/PValueSynthVsSynthCollect{args.extra_output_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+            "number_of_toys" : args.number_of_toys,
+            "verbose" : not args.quiet,  
+          },
+          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
+        )
 
 
   # Plot the p values dataset comparisons
   if args.step == "PValueDatasetComparisonPlot":
     print("<< Plotting p-value dataset comparisons >>")
     for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
-      module.Run(
-        module_name = "p_value_dataset_comparison_plot",
-        class_name = "PValueDatasetComparisonPlot",
-        config = {
-          "synth_vs_synth_input" : f"{eval_data_dir}/PValueSynthVsSynthCollect{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "sim_vs_synth_input" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_input_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "plots_output" : f"{plots_dir}/PValueDatasetComparisonPlot{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
-          "verbose" : not args.quiet,  
-        },
-        loop = {"model_name" : model_info['name']}
-      )
+      for val_dict in GetValidationDensityLoop(cfg, model_info['file_name'], data_type=args.data_type, do_loop=args.pvalue_per_val_ind):
+        module.Run(
+          module_name = "p_value_dataset_comparison_plot",
+          class_name = "PValueDatasetComparisonPlot",
+          config = {
+            "synth_vs_synth_input" : f"{eval_data_dir}/PValueSynthVsSynthCollect{args.extra_input_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+            "sim_vs_synth_input" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_input_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+            "plots_output" : f"{plots_dir}/PValueDatasetComparisonPlot{args.extra_output_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
+            "verbose" : not args.quiet,  
+          },
+          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
+        )
 
 
   # Perform a hyperparameter scan
@@ -1666,7 +1680,7 @@ def main(args, default_args, module_options={}):
     print("<< Getting the performance metrics comparing simulated vs synthetic for different validation scenarios >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
       for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
-        for val_dataset_ind, val_dataset_info in enumerate(GetValidationDatasetLoop(cfg, file_name, f"{prep_data_dir}/PreProcess", f"{eval_data_dir}/MakeAsimov", extra_asimov_name=args.extra_asimov_input_dir_name, category=category, dataset_type=args.validation_performance_metrics_datasets.split(","), sim_type=args.sim_type)):
+        for val_dataset_ind, val_dataset_info in enumerate(GetValidationDatasetLoop(cfg, file_name, f"{prep_data_dir}/PreProcess", f"{eval_data_dir}/MakeAsimov", extra_asimov_name=args.extra_asimov_input_dir_name, category=category, dataset_type=args.validation_performance_metrics_datasets.split(","), sim_type=args.sim_type, skip_weight_variation=args.skip_weight_variation)):
           module.Run(
             module_name = "validation_performance_metrics",
             class_name = "ValidationPerformanceMetrics",
@@ -1694,7 +1708,7 @@ def main(args, default_args, module_options={}):
         for nuisance_1_shift in ["up", "down"]:
           for nuisance_2_shift in ["up", "down"]:
             if nuisance_1_shift == "down" and nuisance_2_shift == "up": continue
-            metrics, columns = GetFactorisationMetricsPlotInput(cfg, file_name, f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_input_dir_name}/{file_name}/{category}", nuisance_1_shift, nuisance_2_shift, category=category)
+            metrics, columns = GetFactorisationMetricsPlotInput(cfg, file_name, f"{eval_data_dir}/ValidationPerformanceMetrics{args.extra_input_dir_name}/{file_name}/{category}", nuisance_1_shift, nuisance_2_shift, category=category, skip_weight_variation=args.skip_weight_variation)
             module.Run(
               module_name = "plot_factorisation",
               class_name = "PlotFactorisation",
@@ -2729,13 +2743,19 @@ if __name__ == "__main__":
           snakemake_directory_option = ""
         else:
           snakemake_directory_option = f"--directory {args.snakemake_directory}"
+        if args.snakemake_local:
+          profile_executor = "--executor local"
+        else:
+          profile_executor = "--profile htcondor"
+
+
         if not args.snakemake_use_file:
-          cmd = f"snakemake --cores all --profile htcondor -s '{snakemake_file}' --unlock {snakemake_directory_option} &> /dev/null"
+          cmd = f"snakemake --cores all {profile_executor} -s '{snakemake_file}' --unlock {snakemake_directory_option} &> /dev/null"
           print(f"<< Unlocking snakemake file with command:>>")
           print(cmd)
           os.system(cmd)
         snakemake_extra = " --forceall" if args.snakemake_force else ""
-        cmd = f"snakemake{snakemake_extra} --cores all --profile htcondor -s '{snakemake_file}' --shared-fs-usage='input-output' {snakemake_directory_option}"
+        cmd = f"snakemake{snakemake_extra} --cores all {profile_executor} -s '{snakemake_file}' --shared-fs-usage='input-output' {snakemake_directory_option}"
         print(f"<< Running snakemake with command:>>")
         print(cmd)
         os.system(cmd)

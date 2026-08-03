@@ -133,6 +133,11 @@ class InputPlotComparingTrainWithVariations():
         density=True,
         extra_sel = f"(classifier_truth == 1) & ({parameter} > -1-{self.half_window}) & ({parameter} < -1+{self.half_window})"
       )
+      if train_down_hist is None:
+        train_down_hist = np.zeros_like(train_nom_hist)
+      if train_up_hist is None:
+        train_up_hist = np.zeros_like(train_nom_hist)
+        
       val_nom_hist, val_nom_uncert, _ = nominal_dp.GetFull(
         method="histogram_and_uncert", 
         bins=train_nom_bins, 
