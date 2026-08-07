@@ -32,6 +32,7 @@ class TrainClassifier():
     self.no_plot = False
     self.save_model_per_epoch = False
     self.model_type = "FCNN"
+    self.change_type = None
 
 
   def Configure(self, options):
@@ -60,6 +61,9 @@ class TrainClassifier():
       print("- Loading in the architecture")
     with open(self.architecture, 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+
+    if self.change_type is not None:
+      architecture["type"] = self.change_type
 
     if self.initiate_wandb:
 

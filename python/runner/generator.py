@@ -1,10 +1,11 @@
 import copy
+import yaml
 
 import numpy as np
 
 from data_processor import DataProcessor
 from plotting import plot_stacked_histogram_with_ratio, plot_stacked_unrolled_2d_histogram_with_ratio, plot_many_comparisons, plot_histograms_with_ratio
-from useful_functions import Translate, LoadConfig, RoundUnrolledBins
+from useful_functions import GetVariables, Translate, LoadConfig, RoundUnrolledBins
 
 class Generator():
 
@@ -12,6 +13,8 @@ class Generator():
 
     self.cfg = None
     self.open_cfg = None
+    self.parameters = None
+    self.category = None
     self.data_input = None
     self.asimov_input = None
     self.plots_output = "plots/"
@@ -67,6 +70,11 @@ class Generator():
       val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
 
 
+    params = {}
+    if self.do_transformed:
+      with open(self.parameters, "r") as f:
+        params = yaml.safe_load(f)["density"]
+
     # Make sim data processors
     for k in self.data_input.keys():
       if self.verbose:
@@ -77,6 +85,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
@@ -90,6 +99,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
@@ -110,6 +120,7 @@ class Generator():
               wt_name = "wt",
               options = {
                 "check_wt" : True,
+                "parameters" : params,
               }
             )
 
@@ -125,6 +136,7 @@ class Generator():
         wt_name = "wt",
         options = {
           "check_wt" : True,
+          "parameters" : params,
         }
       )
 
@@ -143,7 +155,7 @@ class Generator():
       self._PlotGeneration(
         synth_dps, 
         sim_dps, 
-        cfg["variables"],
+        GetVariables(cfg, category=self.category),
         sim_plot_name,
         sample_plot_name,
         transform=False,
@@ -158,7 +170,7 @@ class Generator():
         self._PlotGeneration(
           synth_dps, 
           sim_dps, 
-          cfg["variables"],
+          GetVariables(cfg, category=self.category),
           sim_plot_name,
           sample_plot_name,
           transform=True,
@@ -177,7 +189,7 @@ class Generator():
       self._Plot2DUnrolledGeneration(
         synth_dps, 
         sim_dps, 
-        cfg["variables"],
+        GetVariables(cfg, category=self.category),
         sim_plot_name,
         sample_plot_name,
         transform=False,
@@ -190,7 +202,7 @@ class Generator():
         self._Plot2DUnrolledGeneration(
           synth_dps, 
           sim_dps, 
-          cfg["variables"],
+          GetVariables(cfg, category=self.category),
           sim_plot_name,
           sample_plot_name,
           transform=True,
@@ -214,7 +226,7 @@ class Generator():
       cfg = LoadConfig(self.cfg)
 
     # Loop through columns
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
 
       if self.plot_var_and_bins is not None:
         var_name = self.plot_var_and_bins.split("[")[0].split("(")[0]
@@ -225,7 +237,7 @@ class Generator():
       if self.do_transformed:
         outputs += [f"{self.plots_output}/GenerationTrue1DTransformed/generation_{col}{self.extra_plot_name}_plot_style_{i}.pdf" for i in self.plot_styles]
       if self.do_2d_unrolled:
-        for plot_col in cfg["variables"]:
+        for plot_col in GetVariables(cfg, category=self.category):
           if col == plot_col: continue
           outputs += [f"{self.plots_output}/GenerationTrue2DUnrolled/generation_unrolled_2d_{plot_col}_{col}{self.extra_plot_name}.pdf"]
           if self.do_transformed:

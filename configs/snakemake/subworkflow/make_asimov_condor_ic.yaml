@@ -12,7 +12,6 @@
 - step: "MakeAsimovNuisanceVariations"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options:
-    points_per_job: 5
     no_spline: true
     prune_classifier_models: "roc_auc_test:0.505"
     use_asimov_scaling: 100

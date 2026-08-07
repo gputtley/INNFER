@@ -6,7 +6,7 @@ import pandas as pd
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import LoadConfig, GetDefaultsInModel, Translate
+from useful_functions import GetVariables, LoadConfig, GetDefaultsInModel, Translate
 
 class InputPlotValidation():
 
@@ -73,7 +73,7 @@ class InputPlotValidation():
         break
 
     # Plots varying all validation parameters
-    self._PlotVariations(self.val_loop, range(len(self.val_loop)), cfg["variables"], "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index, columns=list(defaults.keys()))
+    self._PlotVariations(self.val_loop, range(len(self.val_loop)), GetVariables(cfg, category=self.category), "X_distributions", n_bins=40, data_splits=[self.sim_type], ratio_index=ratio_index, columns=list(defaults.keys()))
 
     # plots varying one at a time and freezing others to the nominal
     for vary_name in defaults.keys():
@@ -97,12 +97,12 @@ class InputPlotValidation():
           vary_inds.append(ind)      
 
       if len(vary_val_loop) > 1:
-        self._PlotVariations(vary_val_loop, vary_inds, cfg["variables"], f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index, columns=list(defaults.keys()))
+        self._PlotVariations(vary_val_loop, vary_inds, GetVariables(cfg, category=self.category), f"X_distributions_varying_{vary_name}", n_bins=40, data_splits=[self.sim_type], ratio_index=vary_ratio_index, columns=list(defaults.keys()))
 
 
     if self.compare_data_splits and not self.binned:
       for ind, val_dict in enumerate(self.val_loop):
-        self._PlotDataSplits(val_dict, ind, cfg["variables"], n_bins=20)
+        self._PlotDataSplits(val_dict, ind, GetVariables(cfg, category=self.category), n_bins=20)
 
     if self.plot_weight_distribution and not self.binned:
       for ind, val_dict in enumerate(self.val_loop):
@@ -124,7 +124,7 @@ class InputPlotValidation():
 
     # Add plots
     defaults = GetDefaultsInModel(self.file_name, cfg, category=self.category)
-    for col in cfg["variables"] if not self.binned else [cfg["inference"]["binned_fit"]["input"][self.category]["variable"]]:
+    for col in GetVariables(cfg, category=self.category) if not self.binned else [cfg["inference"]["binned_fit"]["input"][self.category]["variable"]]:
       if not self.binned:
         outputs += [f"{self.plots_output}/X_distributions_{col}.pdf"]
       else:
@@ -150,7 +150,7 @@ class InputPlotValidation():
 
     if self.compare_data_splits and not self.binned:
       for ind, _ in enumerate(self.val_loop):
-        for col in cfg["variables"]:
+        for col in GetVariables(cfg, category=self.category):
           outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}.pdf"]
           outputs += [f"{self.plots_output}/X_distributions_data_splits_{col}_val_ind_{ind}_ratio.pdf"]
 

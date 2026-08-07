@@ -2,7 +2,7 @@ import yaml
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_unrolled_2d_histogram
-from useful_functions import GetParametersInModel, LoadConfig, Translate, RoundUnrolledBins
+from useful_functions import GetVariables, GetParametersInModel, LoadConfig, Translate, RoundUnrolledBins
 
 class InputPlotTraining():
 
@@ -18,6 +18,7 @@ class InputPlotTraining():
     self.parameters = None
 
     # Other
+    self.category = None
     self.file_name = None
     self.parameter = None
     self.split = None
@@ -91,7 +92,7 @@ class InputPlotTraining():
       cfg = LoadConfig(self.cfg)
       
     # Find columns
-    columns = list(cfg["variables"])
+    columns = list(GetVariables(cfg, category=self.category))
     if self.model_type == "density":
       if self.split is None:
         columns += GetParametersInModel(self.file_name, cfg, only_density=True)
@@ -177,12 +178,18 @@ class InputPlotTraining():
         if not transform:
           functions_to_apply = ["untransform"]
 
-        for col in columns:
+        hists_and_bins = dp.GetFull(method="histograms", bins=n_bins, functions_to_apply=functions_to_apply, columns=columns, ignore_quantile=0.0, ignore_discrete=True)
 
-          bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
+        for col_ind, col in enumerate(columns):
+
+          hist = hists_and_bins[col_ind][0]
+          bins = hists_and_bins[col_ind][1]
+
+          #bins = dp.GetFull(method="bins_with_equal_spacing", bins=n_bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
           bins = [(2*bins[0])-bins[1]] + list(bins) + [(2*bins[-1])-bins[-2]] + [(3*bins[-1])-(2*bins[-2])]
+          #hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
 
-          hist, bins = dp.GetFull(method="histogram", bins=bins, functions_to_apply=functions_to_apply, column=col, ignore_quantile=0.0, ignore_discrete=True)
+          hist = [0] + list(hist) + [0] + [0]
 
           extra_name_for_plot = f"{data_split}"
           if transform:

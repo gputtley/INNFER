@@ -11,7 +11,7 @@ from functools import partial
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import InitiateRegressionModel, LoadConfig, MakeDirectories
+from useful_functions import GetVariables, InitiateRegressionModel, LoadConfig, MakeDirectories
 
 class PlotRegression():
 
@@ -24,6 +24,7 @@ class PlotRegression():
     self.cfg = None
 
     # other
+    self.category = None
     self.data_input = "data/"
     self.evaluate_input = "data/"
     self.plots_output = "plots/"
@@ -135,7 +136,7 @@ class PlotRegression():
 
     # Add plots
     for data_split in ["train", self.test_name]:
-      for col in cfg["variables"]:
+      for col in GetVariables(cfg, category=self.category):
         outputs += [f"{self.plots_output}/average_weight_{col}_{data_split}.pdf"]
         
     return outputs

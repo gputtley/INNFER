@@ -36,7 +36,8 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
 
   years_per_era = {
     "run2": ["2016_PreVFP", "2016_PostVFP", "2017", "2018"],
-    "2223": ["2022_preEE", "2022_postEE", "2023_preBPix", "2023_postBPix"]
+    "2223": ["2022_preEE", "2022_postEE", "2023_preBPix", "2023_postBPix"],
+    "24": ["2024"],
   }
   year_index = {
     "2016_PreVFP": 0,
@@ -46,7 +47,8 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
     "2022_preEE": 4,
     "2022_postEE": 5,
     "2023_preBPix": 6,
-    "2023_postBPix": 7
+    "2023_postBPix": 7,
+    "2024": 8,
   }
   ttbar_names = {
     172.5 : [
@@ -151,18 +153,22 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
     "lumi_13TeV_1516" : {"2016_PreVFP" : 1.0118, "2016_PostVFP" : 1.0118},
     "lumi_13TeV_151617" : {"2016_PreVFP" : 1.0004, "2016_PostVFP" : 1.0004, "2017" : 1.0055},
     "lumi_13TeV_15161718" : {"2016_PreVFP" : 1.0035, "2016_PostVFP" : 1.0035, "2017" : 1.0061, "2018" : 1.0084},
-    "lumi_13p6TeV_2223" : {"2022_preEE" : 1.0138, "2022_postEE" : 1.0138, "2023_preBPix" : 1.0017, "2023_postBPix" : 1.0017},
-    "lumi_13p6TeV_23" : {"2023_preBPix" : 1.0127, "2023_postBPix" : 1.0127},
+    "lumi_13p6TeV_222324" : {"2022_preEE" : 1.0138, "2022_postEE" : 1.0138, "2023_preBPix" : 1.0017, "2023_postBPix" : 1.0017, "2024" : 1.0020},
+    "lumi_13p6TeV_2324" : {"2023_preBPix" : 1.0127, "2023_postBPix" : 1.0127, "2024" : 1.0068},
+    "lumi_13p6TeV_24" : {"2024" : 1.0144},
   }
 
   # Loop through categories
   for cat, years in years_per_era.items():
+
+    if cat not in categories.keys(): continue
 
     # Get information for ttbar (and ttbar_yield)
     ttbar_files[cat] = {}
     ttbar_yield_files[cat] = {}
     for year in years:
       for mass, files in ttbar_names.items():
+        if year == "2024" and mass in [171.5, 173.5]: continue # temporary
         for name in files:
           file_path = f"{data_loc}/{name}_{year}.parquet"
           if os.path.exists(file_path):
@@ -451,13 +457,6 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         "args": {"nuisance_column_name": "electron_reco", "up_weight_column_name": "Extra_sf_ele_reco_custom_up", "down_weight_column_name": "Extra_sf_ele_reco_custom_down", "nominal_weight_column_name": "Extra_sf_ele_reco_custom", "wt_name": "wt"},
         "inputs": ["Extra_sf_ele_reco_custom_down", "Extra_sf_ele_reco_custom_up", "Extra_sf_ele_reco_custom", "electron_reco"],
       },
-      "electron_trigger" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": "electron_trigger", "up_weight_column_name": "Extra_sf_ele_trigger_custom_up", "down_weight_column_name": "Extra_sf_ele_trigger_custom_down", "nominal_weight_column_name": "Extra_sf_ele_trigger_custom", "wt_name": "wt"},
-        "inputs": ["Extra_sf_ele_trigger_custom_down", "Extra_sf_ele_trigger_custom_up", "Extra_sf_ele_trigger_custom", "electron_trigger"],
-      },
       "muon_id" : {
         "type": "function",
         "file": "asym_log_normal",
@@ -481,50 +480,74 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       },
     }
 
-    ttbar_weight_shifts = {
-      "hdamp" : {
+    
+    if cat == "24":
+
+      ttbar_weight_shifts = {
+        "isr_ttbar" : {
+          "type": "function", 
+          "file": "asym_log_normal", 
+          "name": "two_weight_variation", 
+          "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
+          "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
+        },
+      }
+
+    else:
+    
+      common_weight_shifts["electron_trigger"] = {
         "type": "function",
-        "file": "btm_modelling_systematics",
-        "name": "three_point_variation_weight",
-        "args": {"nuisance_column_name": "hdamp", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 3)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 4)"},
-        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "hdamp"],
-      },
-      "ue" : {
-        "type": "function",
-        "file": "btm_modelling_systematics",
-        "name": "three_point_variation_weight",
-        "args": {"nuisance_column_name": "ue", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 5)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 6)"},
-        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ue"],
-      },
-      "CR1" : {
-        "type": "function",
-        "file": "btm_modelling_systematics",
-        "name" : "two_point_variation_weight",
-        "args": {"nuisance_column_name": "CR1", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 1)"},
-        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR1"],
-      },
-      "CR2" : {
-        "type": "function",
-        "file": "btm_modelling_systematics",
-        "name" : "two_point_variation_weight",
-        "args": {"nuisance_column_name": "CR2", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 2)"},
-        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR2"],
-      },
-      "ERDOn" : {
-        "type": "function",
-        "file": "btm_modelling_systematics",
-        "name" : "two_point_variation_weight",
-        "args": {"nuisance_column_name": "ERDOn", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 7)"},
-        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ERDOn"],
-      },
-      "isr_ttbar" : {
-        "type": "function", 
-        "file": "asym_log_normal", 
-        "name": "two_weight_variation", 
-        "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
-        "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
-      },
-    }
+        "file": "asym_log_normal",
+        "name": "two_weight_variation",
+        "args": {"nuisance_column_name": "electron_trigger", "up_weight_column_name": "Extra_sf_ele_trigger_custom_up", "down_weight_column_name": "Extra_sf_ele_trigger_custom_down", "nominal_weight_column_name": "Extra_sf_ele_trigger_custom", "wt_name": "wt"},
+        "inputs": ["Extra_sf_ele_trigger_custom_down", "Extra_sf_ele_trigger_custom_up", "Extra_sf_ele_trigger_custom", "electron_trigger"],
+      }
+
+      ttbar_weight_shifts = {
+        "hdamp" : {
+          "type": "function",
+          "file": "btm_modelling_systematics",
+          "name": "three_point_variation_weight",
+          "args": {"nuisance_column_name": "hdamp", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 3)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 4)"},
+          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "hdamp"],
+        },
+        "ue" : {
+          "type": "function",
+          "file": "btm_modelling_systematics",
+          "name": "three_point_variation_weight",
+          "args": {"nuisance_column_name": "ue", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 5)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 6)"},
+          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ue"],
+        },
+        "CR1" : {
+          "type": "function",
+          "file": "btm_modelling_systematics",
+          "name" : "two_point_variation_weight",
+          "args": {"nuisance_column_name": "CR1", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 1)"},
+          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR1"],
+        },
+        "CR2" : {
+          "type": "function",
+          "file": "btm_modelling_systematics",
+          "name" : "two_point_variation_weight",
+          "args": {"nuisance_column_name": "CR2", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 2)"},
+          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR2"],
+        },
+        "ERDOn" : {
+          "type": "function",
+          "file": "btm_modelling_systematics",
+          "name" : "two_point_variation_weight",
+          "args": {"nuisance_column_name": "ERDOn", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 7)"},
+          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ERDOn"],
+        },
+        "isr_ttbar" : {
+          "type": "function", 
+          "file": "asym_log_normal", 
+          "name": "two_weight_variation", 
+          "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
+          "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
+        },
+      }
+
     ttbar_yield_weight_shifts = copy.deepcopy(ttbar_weight_shifts)
 
     for k, v in lumi_uncerts.items():
@@ -590,7 +613,6 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       "args": {"mass_to":"bw_mass", "mass_from":"sim_mass", "gen_mass": "GenTop2_mass"},
       "inputs": ["bw_mass", "sim_mass", "GenTop2_mass"],
     }
-
     ttbar_weight_shifts["bw_fractions"] = {
       "type": "function", 
       "file": "breit_wigner_reweighting", 
@@ -683,6 +705,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
 
     # Make classifier models
     #models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]} for k in ttbar_classifier_nuisances]
+
     for k in ttbar_classifier_nuisances:
       if k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "three_point_variation_weight":
         models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "discrete", "values": [-1.0,1.0]}}, "n_copies":3, "categories": categories_per_era[cat]}]
@@ -703,14 +726,15 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
   validation = {
     "loop": validation_loop,
     "files": {
-      "ttbar": [{"file": f"base_ttbar_{era}", "categories": categories_per_era[era]} for era in years_per_era.keys()],
-      "other": [{"file": f"base_other_{era}", "categories": categories_per_era[era]} for era in years_per_era.keys()]
+      "ttbar": [{"file": f"base_ttbar_{era}", "categories": categories_per_era[era]} for era in years_per_era.keys() if era in ttbar_files.keys()],
+      "other": [{"file": f"base_other_{era}", "categories": categories_per_era[era]} for era in years_per_era.keys() if era in other_files.keys()]
     }
   }
 
   base_data_files = []
   base_data_add_columns = {}
   for era in years_per_era.keys():
+    if era not in data_files.keys(): continue
     base_data_files += list(data_files[era].keys())
     for k in data_files[era][list(data_files[era].keys())[0]].keys():
       if k not in base_data_add_columns:

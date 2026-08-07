@@ -1,85 +1,79 @@
-# Get validation results from freezing everything except one validation-loop parameter at a time.
-
+# Get validation results from freezing all other parameters
 - step: "InitialFit"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
-    freeze: "all-but-bw_mass"
+    freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
-- step: "InitialFit"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    data_type: "sim"
-    extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
-    freeze: "all-but-fsr"
-    prune_classifier_models: "roc_auc_test:0.505"
-    integrate_density_with_ratios: True
-    classifier_divide_by_nominal: True
-
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
 - step: "HessianNumerical"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
-    freeze: "all-but-bw_mass"
+    freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
-- step: "HessianNumerical"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
+- step: "DMatrixNumerical"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
     points_per_job: 6
-    freeze: "all-but-fsr"
+    freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
-
-- step: "DMatrix"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    data_type: "sim"
-    extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
-    freeze: "all-but-bw_mass"
-    prune_classifier_models: "roc_auc_test:0.505"
-    integrate_density_with_ratios: True
-    classifier_divide_by_nominal: True
-- step: "DMatrix"
-  submit: "configs/submit/condor_gpu.yaml"
-  run_options:
-    data_type: "sim"
-    extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
-    freeze: "all-but-fsr"
-    prune_classifier_models: "roc_auc_test:0.505"
-    integrate_density_with_ratios: True
-    classifier_divide_by_nominal: True
-
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
 - step: "CovarianceWithDMatrix"
-  submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options:
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
-    freeze: "all-but-bw_mass"
+    freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
-- step: "CovarianceWithDMatrix"
-  submit: "configs/submit/condor_2_cpus_avx.yaml"
-  run_options:
-    data_type: "sim"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
+- step: "SummaryAllButOneCollect"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
-    freeze: "all-but-fsr"
-    prune_classifier_models: "roc_auc_test:0.505"
-    integrate_density_with_ratios: True
-    classifier_divide_by_nominal: True
+    summary_from: "CovarianceWithDMatrix"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
+
+# Get full summary
+- step: "Summary"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    extra_dir_name: "ClosureTestFrozen"
+    summary_from: "CovarianceWithDMatrix"
+    summary_nominal_name: "Closure Test (Others Frozen)"
+    summary_show_2sigma: True
+    summary_subtract: True
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True

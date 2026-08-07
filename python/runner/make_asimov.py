@@ -3,6 +3,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import pickle
 import yaml
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -10,12 +11,15 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from functools import partial
+from pandas.errors import PerformanceWarning
 from scipy.interpolate import CubicSpline
 
 from data_processor import DataProcessor
 from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
 from yields import Yields
 from write_parquet import WriteParquet
+
+warnings.simplefilter("ignore", PerformanceWarning)
 
 class MakeAsimov():
 
@@ -146,10 +150,13 @@ class MakeAsimov():
         "scale" : total_yield,
       }
     )
+    #def add_truth(df, Y):
+    #  for k,v in Y.items():
+    #    df.loc[:,k] = v
+    #  return df
+
     def add_truth(df, Y):
-      for k,v in Y.items():
-        df.loc[:,k] = v
-      return df
+      return df.assign(**Y)
 
     functions_to_apply = []
     if self.add_truth:
@@ -298,16 +305,29 @@ class MakeAsimov():
 
 
         def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None, divide_by_nominal=False, nominal_columns={}):
+
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
           probs = func(df.loc[:,X_columns])
-          df["wt"] = df["wt"] * probs[:,1]/probs[:,0]
+
+          if np.any(probs[:,0] == 0):
+            zero_indices = np.where(np.isclose(probs[:, 0], 0.0))[0]
+            probs[zero_indices,0] = 1
+            probs[zero_indices,1] = 0
+          df["wt"] = df["wt"] * probs[:,1] / probs[:,0]
 
           if divide_by_nominal:
             copy_df = df.copy()
             for k,v in nominal_columns.items(): copy_df.loc[:,k] = v
-            nominal_probs = func(copy_df.loc[:,X_columns])[:,1]/func(copy_df.loc[:,X_columns])[:,0]
-            df["wt"] = df["wt"] / (nominal_probs)
+            func_eval = func(copy_df.loc[:,X_columns])
+            if np.any(func_eval[:,0] == 0):
+              zero_indices = np.where(np.isclose(func_eval[:, 0], 0.0))[0]
+              func_eval[zero_indices,0] = 1
+              func_eval[zero_indices,1] = 0
+            nominal_probs = func_eval[:,1]/func_eval[:,0]
+
+            #df["wt"] = df["wt"] / (nominal_probs)
+            df["wt"] = np.divide(df["wt"], nominal_probs, out=np.zeros(len(df)), where=~np.isclose(nominal_probs, 0))
 
           if spl is not None:
             df["wt"] = df["wt"] * spl(df.loc[:,parameter]).flatten()
@@ -383,20 +403,21 @@ class MakeAsimov():
     inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}_architecture.yaml"]
     inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}.h5"]
 
-    # Add regression models
-    for regression_model in self.regression_models:
-      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
-      inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
-      if not self.skip_spline:
-        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
+    if not self.only_density:
+      # Add regression models
+      for regression_model in self.regression_models:
+        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_architecture.yaml"]
+        inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}.h5"]
+        if not self.skip_spline:
+          inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
 
-    # Add classifier models
-    for classifier_model in self.classifier_models:
-      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
-      inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
-      if not self.skip_spline:
-        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
-      if self.prune_classifier_models is not None:
-        inputs += [self.classifier_pruning_files[classifier_model['parameter']]]
+      # Add classifier models
+      for classifier_model in self.classifier_models:
+        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
+        inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
+        if not self.skip_spline:
+          inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_norm_spline.pkl"]
+        if self.prune_classifier_models is not None:
+          inputs += [self.classifier_pruning_files[classifier_model['parameter']]]
 
     return inputs

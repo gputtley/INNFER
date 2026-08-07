@@ -288,7 +288,7 @@ class Infer():
       with open(hess_out_name, 'w') as yaml_file: 
         yaml.dump(hessian_metadata, yaml_file, default_flow_style=False)
 
-    elif self.method == "DMatrix":
+    elif self.method in ["DMatrix", "DMatrixNumerical"]:
 
       if self.verbose:
         print(f"- Loading best fit into likelihood")
@@ -310,7 +310,9 @@ class Infer():
         row=self.true_Y, 
         filename=f"{self.data_output}/dmatrix{self.extra_file_name}.yaml", 
         freeze=self.freeze,
+        numerical = (self.method == "DMatrixNumerical"),
       )
+
 
     elif self.method == "Covariance":
 
@@ -528,7 +530,7 @@ class Infer():
       outputs += [f"{self.data_output}/hessian{self.extra_file_name}_{self.hessian_parallel_column_1}_{self.hessian_parallel_column_2}.yaml"]
 
     # Add dmatrix
-    if self.method == "DMatrix":
+    if self.method in ["DMatrix", "DMatrixNumerical"]:
       outputs += [f"{self.data_output}/dmatrix{self.extra_file_name}.yaml"]
 
     columns = [i for i in self.Y_columns if self.freeze is None or i not in self.freeze.keys()]
@@ -634,7 +636,7 @@ class Infer():
 
 
     # Add best fit if Scan or ScanPoints
-    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","ApproximateUncertainty","UncertaintyFromMinimisation"]:
+    if self.method in ["ScanPointsFromApproximate","ScanPointsFromHessian","Scan","Hessian","HessianParallel","HessianNumerical","HessianNumericalParallel","DMatrix","DMatrixNumerical","ApproximateUncertainty","UncertaintyFromMinimisation"]:
       if not (self.method == "Scan" and self.skip_initial_fit): 
         inputs += [f"{self.best_fit_input}/best_fit{self.extra_file_name}.yaml"]
 

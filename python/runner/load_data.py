@@ -12,7 +12,7 @@ from functools import partial
 
 from data_loader import DataLoader
 from data_processor import DataProcessor
-from useful_functions import GetCategoryLoop, GetParametersInModel, MakeDirectories, LoadConfig
+from useful_functions import GetCategoryLoop, GetParametersInModel, GetVariables, MakeDirectories, LoadConfig
 from write_parquet import WriteParquet
 
 pd.options.mode.chained_assignment = None
@@ -74,6 +74,7 @@ class LoadData():
       self.columns += list(cfg["files"][file_name]["add_columns"].keys())
 
     # Add parameters and save extra columns from models
+    total_categories = []
     for actual_file_name, model_types in cfg["models"].items():
       for model_type, models in model_types.items():
         for model in models:
@@ -85,6 +86,7 @@ class LoadData():
           categories = GetCategoryLoop(cfg)
           if "categories" in model.keys():
             categories = model["categories"]
+          total_categories = list(set(total_categories + categories))
 
           if model_type == "yields":
             parameters_in_model = []
@@ -103,8 +105,12 @@ class LoadData():
 
     calculated = sorted(list(set(calculated))) + ["wt"]
 
-    # Get from variables
-    self.columns += [i for i in cfg["variables"] if i not in calculated]
+    # Add variables    
+    variables = []
+    for cat in total_categories:
+      variables += GetVariables(cfg, category=cat)
+    variables = sorted(list(set(variables)))
+    self.columns += [i for i in variables if i not in calculated]
 
     # Get from weight
     weight = cfg["files"][file_name]["weight"]

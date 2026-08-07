@@ -206,42 +206,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     else:
       raise NotImplementedError(f"Likelihood type {args.likelihood_type} not implemented for data type {data_type}")
 
-  """
-  common_config = {
-    "density_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_density=True, specific_category=category)[0] for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "regression_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_regression=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "classifier_models" : {category:{k:GetModelLoop(cfg, specific_file_name=k, only_classification=True, specific_category=category) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "model_input" : models_dir,
-    "extra_density_model_name" : args.extra_density_model_name,
-    "parameters" : {category:{k:f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in GetCombinedValdidationIndices(cfg, file_name, val_ind).keys()} for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)},
-    "data_input" : data_input,
-    "true_Y" : pd.DataFrame({k: [v] if k not in val_info.keys() else [val_info[k]] for k, v in defaults_in_model.items()}),
-    "initial_best_fit_guess" : pd.DataFrame({k:[v] for k, v in defaults_in_model.items()}),
-    "inference_options" : cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != 'nuisance_constraints'},
-    "likelihood_type": args.likelihood_type,
-    "scale_to_eff_events": args.scale_to_eff_events,
-    "verbose": not args.quiet,
-    "minimisation_method" : args.minimisation_method,
-    "sim_type" : args.sim_type,
-    "X_columns" : cfg["variables"],
-    "Y_columns" : sorted(list(defaults_in_model.keys())),
-    "Y_columns_per_model" : {k: GetParametersInModel(k, cfg) for k in ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))},
-    "only_density" : args.only_density,
-    "non_nn_columns" : [k for k in GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True) if k not in GetParametersInModel(file_name, cfg)],
-    "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) == 1 else None,
-    "binned_data_input" : binned_data_input,
-    "binned_data_input_parameters_key" : binned_data_input_parameters_key,
-    "simplex" : {v.split(":")[0]: float(v.split(":")[1]) for v in args.simplex.split(",")} if args.simplex is not None else {},
-    "remove_lnN_if_rate_param" : args.include_per_model_rate if file_name != "combined" else True,
-    "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
-    "bootstrap_method" : args.bootstrap_method,
-    "integrate_density_with_ratios" : args.integrate_density_with_ratios,
-    "no_likelihood_print_out" : args.no_likelihood_print_out,
-    "merge_binned_nuisances" : {v.split(":")[0]: v.split(":")[1].split(",") for v in args.merge_binned_nuisances.split(";")} if args.merge_binned_nuisances is not None else {},
-    "n_integral_events" : args.number_of_integral_events,
-    "binned_from_predicted_bins" : binned_observed_from_predicted,
-  }
-  """
   specific_categories = (args.specific_category.split(",") if args.specific_category is not None else None)
   categories = GetCategoryLoop(cfg, specific_category=specific_categories)
   model_files = ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))
@@ -261,6 +225,10 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
       density_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_density=True, specific_category=category)[0]
       regression_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_regression=True, specific_category=category)
       classifier_models[category][model_file] = GetModelLoop(cfg, specific_file_name=model_file, only_classification=True, specific_category=category)
+
+  other_input_files = []
+  if args.load_fit_for_defaults is not None:
+    other_input_files += [GetLoadFitName(args.load_fit_for_defaults, file_name, val_ind, eval_data_dir)]
 
   common_config = {
     "density_models": density_models,
@@ -296,6 +264,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "n_integral_events": args.number_of_integral_events,
     "binned_from_predicted_bins": binned_observed_from_predicted,
     "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
+    "other_input_files": other_input_files
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -359,7 +328,11 @@ def CustomHistogram(
     if len(unique_vals) < bins and discrete_binning:
       db = True
       bins = np.sort(unique_vals.to_numpy().flatten())
-      bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+      if len(bins) > 1:
+        bins = np.append(bins, [(2*bins[-1]) - bins[-2]])
+      else:
+        bins = np.append(bins, [bins[-1] + 1])
+      
 
     elif ignore_quantile > 0.0:
       # Ignore quantiles
@@ -563,6 +536,19 @@ def GetDictionaryEntry(entry, keys):
     entry = entry[key]
   return entry
 
+
+def GetVariables(cfg, category=None):
+  if category is None:
+    return cfg["variables"]
+  if isinstance(cfg["variables"], dict):
+    if category in cfg["variables"].keys():
+      return cfg["variables"][category]
+    else:
+      raise ValueError(f"Category {category} not found in variables.")
+  elif isinstance(cfg["variables"], list):
+    return cfg["variables"]
+  else:
+    raise ValueError("cfg['variables'] must be either a list or a dictionary.")
 
 def GetDictionaryEntryFromYaml(file_name, keys):
   """
@@ -790,6 +776,12 @@ def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
     return partial(GetBinValueParallelised, func_entry=yield_funcs, col=col)
 
 
+def GetLoadFitName(load_fit_for_defaults, file_name, val_ind, eval_data_dir):
+  if load_fit_for_defaults is None:
+    return None
+  return f"{eval_data_dir}/InitialFit{load_fit_for_defaults}/{file_name}/best_fit_{val_ind}.yaml"
+
+
 def GetModelFileLoop(cfg, with_combined=False, specific_file_name=None):
   model_files = list(cfg["models"].keys())
   if with_combined and len(model_files) > 1: 
@@ -936,7 +928,7 @@ def GetDefaultsInModel(file_name, cfg, include_rate=False, include_lnN=False, ca
   return {k:v for k, v in defaults.items() if k in params_in_model}
 
 
-def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, prep_data_dir, sim_type="val"):
+def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, prep_data_dir, sim_type="val", data_type="sim", asimov_dir_name="MakeAsimov", asimov_extra_dir=None):
 
   extra_hypothesis = [{value.split("=")[0] : float(value.split("=")[1]) for value in hypothesis.split(",")} for hypothesis in plot_extra_hypothesis.split(";")] if plot_extra_hypothesis is not None else []
 
@@ -954,9 +946,11 @@ def GetExtraHypothesisFiles(file_name, cfg, category, plot_extra_hypothesis, pre
       
   extra_hypothesis_files = []
   for ind, extra_hypothesis_in_model in enumerate(extra_hypothesis):
+
     extra_hypothesis_files.append({
       "hypothesis" : extra_hypothesis[ind],
-      "files" : [[f"{prep_data_dir}/PreProcess/{fn}/{category}/val_ind_{indices[fn][ind]}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fn in indices.keys()]
+      #"files" : [[f"{prep_data_dir}/PreProcess/{fn}/{category}/val_ind_{indices[fn][ind]}/{i}_{sim_type}.parquet" for i in ["X","wt"]] for fn in indices.keys()]
+      "files" : [list(GetDataInput(data_type, cfg, fn, indices[fn][ind], prep_data_dir, sim_type=sim_type, asimov_dir_name=asimov_dir_name, asimov_extra_dir=asimov_extra_dir)[category].values())[0] for fn in indices.keys()]
     })
 
   return extra_hypothesis_files
@@ -1004,7 +998,7 @@ def GetImpactsLoop(cfg, file_name, uncertainty_directory, val_ind, summary_from=
 
 
 
-def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None, only_validation_varied_parameters=False):
+def GetParametersInModel(file_name, cfg, only_density=False, only_regression=False, only_classification=False, only_validation_varied_parameters=False, include_rate=False, include_lnN=False, only_nuisances=False, category=None):
   parameters_in_model = []
 
   if file_name == "combined":
@@ -1065,6 +1059,29 @@ def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, onl
 
   return loop_with_unique_parameters
 
+def GetValidationDensityLoop(cfg, file_name, data_type="sim", do_loop=True):
+
+  val_loop = []
+
+  if not do_loop:
+    val_loop.append({
+      "index" : None,
+      "info" : {},
+      "extra_name" : "",
+    })
+    return val_loop
+
+  for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+    if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
+    if SkipEmptyDataset(cfg, file_name, data_type, val_info): continue
+    val_loop.append({
+      "index" : val_ind,
+      "info" : val_info,
+      "extra_name" : f"_val_ind_{val_ind}",
+    })
+
+  return val_loop
+
 
 def GetValidationDefaultIndex(cfg, file_name, category=None):
   defaults = GetDefaultsInModel(file_name, cfg, include_rate=True, include_lnN=True, category=category)
@@ -1080,7 +1097,7 @@ def GetValidationDefaultIndex(cfg, file_name, category=None):
   raise ValueError("Default value needs to be in the validation loop")
 
 
-def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val"):
+def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=None, dataset_type=["validation"], extra_asimov_name="", sim_type="val", skip_weight_variation=False):
 
   parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
   nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
@@ -1107,6 +1124,9 @@ def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=Non
     elif dataset == "nuisance_variations":
 
       for nuisance in nuisances_in_model:
+
+        if SkipDoubleVariation(cfg, file_name, category, nuisance, skip_weight_variation=skip_weight_variation): continue
+
         for shape_name, shape_value in nuisance_shifts.items():
 
           file_ends = []
@@ -1131,6 +1151,8 @@ def GetValidationDatasetLoop(cfg, file_name, input_dir, asimov_dir, category=Non
           for nuisance_2_ind, nuisance_2 in enumerate(nuisances_in_model):
             if nuisance_1_ind >= nuisance_2_ind: continue
             for shape_name_2, shape_value_2 in nuisance_shifts.items():
+              if SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=nuisance_2, skip_weight_variation=skip_weight_variation): continue
+
               sorted_nuis, sorted_shifts = zip(*sorted(zip([nuisance_1, nuisance_2], [shape_name_1, shape_name_2])))
 
               file_ends = []
@@ -1179,14 +1201,14 @@ def GetSplitDensityModel(cfg, file_name, category=None):
   return density_model_count > 1
 
 
-def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None):
+def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift, nuisance_2_shift, category=None, skip_weight_variation=False):
 
   default_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
 
   nominal_metrics = f"{input_dir}/val_ind_{default_val_ind}/metrics.yaml"
 
   parameters_in_model = GetParametersInModel(file_name, cfg, category=category)
-  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model]
+  nuisances_in_model = [nui for nui in cfg["nuisances"] if nui in parameters_in_model and not SkipDoubleVariation(cfg, file_name, category, nui, skip_weight_variation=skip_weight_variation)]
 
   columns = ["Nominal"] + nuisances_in_model
 
@@ -1276,7 +1298,7 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
   else:
     wt_file = copy.deepcopy(wt_name)
 
-  if architecture["type"] == "FCNN":
+  if architecture["type"] in ["FCNN", "FCNN_TwoPointInterpolator", "FCNN_ThreePointInterpolator"]:
 
     from fcnn_network import FCNNNetwork
     network = FCNNNetwork(
@@ -1292,13 +1314,48 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
         **{k:v for k,v in architecture.items() if k!="type"},
         **options
       }
-    )
+    ) 
+
+    if architecture["type"] == "FCNN_TwoPointInterpolator":
+      network.two_point_interpolator = True
+    elif architecture["type"] == "FCNN_ThreePointInterpolator":
+      network.three_point_interpolator = True
   
   else:
 
     raise NotImplementedError(f"Classifier model type {architecture['type']} not implemented")
 
   return network
+
+
+def SkipDoubleVariation(cfg, file_name, category, nuisance_1, nuisance_2=None, skip_weight_variation=False):
+
+  if not skip_weight_variation:
+    return False
+
+  # Loop over the models
+  weight_shift = False
+  for model_type, model_list in cfg["models"][file_name].items():
+    for model in model_list:
+
+      if model_type == "density_models":
+        parameters = model["parameters"]
+      elif model_type != "yields":
+        parameters = [model["parameter"]]
+
+      if "categories" in model.keys():
+        if category not in model["categories"]:
+          continue
+
+      if nuisance_1 in parameters:
+        if nuisance_1 in cfg["files"][model["file"]]["weight_shifts"].keys():
+          weight_shift = True
+      if nuisance_2 is not None:
+        if nuisance_2 in parameters:
+          if nuisance_2 in cfg["files"][model["file"]]["weight_shifts"].keys():
+            weight_shift = True
+
+  return weight_shift
 
 
 def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
@@ -1310,7 +1367,6 @@ def SkipNonData(cfg, file_name, data_type, val_ind, allow_split=False):
     return False
 
   return True
-
 
 
 def SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=False, allow_non_combined=False):
@@ -1372,17 +1428,25 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
   return skip
 
 
-def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False):
+def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False, load_fit_for_defaults=None):
 
-  val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
-  if val_info is not None:
-    for k, v in val_info.items():
-      val_info_with_defaults[k] = v
+  if load_fit_for_defaults is None or not os.path.isfile(load_fit_for_defaults):
+    val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+    if val_info is not None:
+      for k, v in val_info.items():
+        val_info_with_defaults[k] = v
+  else:
+    with open(load_fit_for_defaults, 'r') as yaml_file:
+      best_fit = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    val_info_with_defaults = {}
+    for ind in range(len(best_fit["best_fit"])):
+      val_info_with_defaults[best_fit["columns"][ind]] = best_fit["best_fit"][ind]
+
   ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
   freeze_loop = []
 
-  if not (freeze in ["all-but-one","all-nuisances"] or (freeze is not None and freeze.startswith("all-but-"))):
+  if not (freeze in ["all-but-one","all-nuisances","all-non-density"] or (freeze is not None and freeze.startswith("all-but-"))):
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
@@ -1399,14 +1463,13 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
         "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in parameters_in_model},
         "extra_name" : "",
       }]
+
   elif freeze is not None and freeze.startswith("all-but-") and freeze != "all-but-one":
     params_to_float = freeze.split("all-but-")[1].split("-")
-    # Skip this file if none of the parameters to float apply to its model
-    if any(p in ordered_keys for p in params_to_float):
-      freeze_loop += [{
-        "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in params_to_float},
-        "extra_name" : f"_floating_only_{'_'.join(params_to_float)}",
-      }]
+    freeze_loop += [{
+      "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in params_to_float},
+      "extra_name" : f"_floating_only_{'_'.join(params_to_float)}",
+    }]
   elif len(val_info_with_defaults.keys()) < 2:
     freeze_loop += [{
       "freeze" : {},
@@ -1437,15 +1500,19 @@ def GetParameterLoop(file_name, cfg, include_nuisances=False, include_rate=False
     if include_lnN and not include_per_model_lnN:
       include_lnN = False
 
-  defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)  
   par_loop = [i for i in cfg["pois"] if i in defaults_in_model.keys()]
   par_loop += [f"mu_{i}" for i in cfg["inference"]["rate_parameters"] if f"mu_{i}" in defaults_in_model.keys()]
   if include_nuisances:
     par_loop += [i for i in cfg["nuisances"] if i in defaults_in_model.keys()]
-  elif only_validation_varied_parameters:
-    par_loop += GetParametersInModel(file_name, cfg, only_nuisances=True, only_validation_varied_parameters=True)
 
-  return list(sorted(set(par_loop)))
+  if only_validation_varied_parameters:
+    validation_varied_parameters = set()
+    for val_info in cfg["validation"]["loop"]:
+      validation_varied_parameters.update(val_info.keys())
+    par_loop = [i for i in par_loop if i in validation_varied_parameters]
+
+  return list(sorted(par_loop))
 
 
 def GetParameterValuesAndUncertainties(file_name, cfg, values=None, data_dir=None, val_ind=None, summary_from=None, extra_input_dir_name="", prefit_nuisance_constraints=False, prefit_nuisance_values=False):
@@ -1541,22 +1608,30 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
   return outputs
 
 
-def GetSnakeMakeStepLoop(input_cfg, output_cfg=[]):
+def GetSnakeMakeStepLoop(input_cfg, output_cfg=[], run_options={}):
 
   for step in input_cfg:
 
     if "step" in step.keys():
+
+      if "run_options" in step.keys():
+        step["run_options"] = {**run_options, **step["run_options"]}
+      elif run_options != {}:
+        step["run_options"] = run_options
       output_cfg.append(step)
 
     elif "workflow" in step.keys():
+
+      if "run_options" in step.keys():
+        run_options = {**run_options, **step["run_options"]}
       with open(step["workflow"], 'r') as yaml_file:
         workflow = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg)
+      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=run_options)
 
   return output_cfg
 
 
-def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=False, extra_postfit_asimov_input_dir_name=""):
+def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, category, data_vs_simulation=False, extra_postfit_asimov_input_dir_name="", use_prefit_asimov=False, extra_prefit_asimov_input_dir_name=""):
 
   uncert_files = {}
 
@@ -1572,7 +1647,10 @@ def GetUncertaintyFiles(cfg, file_name, val_ind, eval_data_dir, prep_data_dir, c
       for nuisance_value in ["up", "down"]:
         val_index = GetCombinedValdidationIndices(cfg, file_name, val_ind)[fn]
         if not data_vs_simulation:
-          path = [f"{eval_data_dir}/MakePostFitUncertaintyAsimov{extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_index}/{nuisance}/{nuisance_value}/asimov.parquet"]
+          if not use_prefit_asimov:
+            path = [f"{eval_data_dir}/MakePostFitUncertaintyAsimov{extra_postfit_asimov_input_dir_name}/{file_name}/{fn}/{category}/val_ind_{val_index}/{nuisance}/{nuisance_value}/asimov.parquet"]
+          else:
+            path = [f"{eval_data_dir}/MakeAsimovNuisanceVariations{extra_prefit_asimov_input_dir_name}/{fn}/{category}/{nuisance}_{nuisance_value}/asimov.parquet"]
         else:
           path = [f"{prep_data_dir}/PreProcess/{fn}/{category}/{nuisance}_{nuisance_value}/{i}_full.parquet" for i in ["X","wt"]]
         uncert_files[fn][nuisance][nuisance_value] = path
@@ -2206,3 +2284,6 @@ def Translate(key, translation_file="configs/other/translate.yaml"):
     return val
   else:
     return key
+
+def UniqueFromTwo(a, b):
+  return ((a + b) * (a + b + 1)) // 2 + b

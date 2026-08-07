@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, regularizers, losses
 from tqdm.autonotebook import tqdm
 
+from asym_log_normal import AsymLogNormal
 from data_loader import DataLoader
 from data_processor import DataProcessor
 from optimizer import Optimizer
@@ -76,6 +77,10 @@ class FCNNNetwork():
     self.save_model_per_epoch = False
     self.only_X_columns = None
     self.transform_batch_size = 10**7
+    self.two_point_interpolator = False
+    self.three_point_interpolator = False
+    self.predict_cache = {}
+    self.conditional_column = None
 
     # Running parameters
     self.plot_loss = True
@@ -488,7 +493,114 @@ class FCNNNetwork():
       return self._GraphPredictSoftMax(X)
 
 
-  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
+  def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None, cache_unique_identifier=None):
+
+    if self.two_point_interpolator:
+
+      return self.PredictInterpolator(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy, interpolator_type="two_point", cache_unique_identifier=cache_unique_identifier)
+
+    elif self.three_point_interpolator:
+
+      return self.PredictInterpolator(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy, interpolator_type="three_point", cache_unique_identifier=cache_unique_identifier)
+    
+    else:
+
+      return self.PredictNominal(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+
+
+  def PredictInterpolator(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None, interpolator_type="two_point", cache_unique_identifier=None):
+
+    if order != 0 and order != [0]:
+      raise ValueError("Two point interpolator only supports order=0")
+    
+    conditional_variable = self.data_parameters.get("conditional_variable", None)
+
+    if cache_unique_identifier is None:
+
+      input_1 = input.copy()
+      if columns_for_numpy is None:
+        input_1[conditional_variable] = 1.0
+      else:
+        index = columns_for_numpy.index(conditional_variable)
+        input_1[:, index] = 1.0
+
+      prediction = self.PredictNominal(input_1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+
+      denominator = 1.0 - prediction[:, 0]
+      invalid_mask = np.isclose(denominator, 0.0) | np.isclose(prediction[:,0], 0.0)
+
+      ratio = np.zeros_like(prediction[:, 0], dtype=float)
+      np.divide(
+          prediction[:, 0],
+          denominator,
+          out=ratio,
+          where=~invalid_mask,
+      )
+
+      self.predict_cache[cache_unique_identifier] = {
+          1: ratio,
+          "invalid_mask": invalid_mask,
+      }
+
+      if interpolator_type == "three_point":
+
+        input_m1 = input.copy()
+        if columns_for_numpy is None:
+          input_m1[conditional_variable] = -1.0
+        else:
+          index = columns_for_numpy.index(conditional_variable)
+          input_m1[:, index] = -1.0
+
+        prediction_m1 = self.PredictNominal(input_m1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+
+        denominator_m1 = 1.0 - prediction_m1[:, 0]
+        invalid_mask_m1 = np.isclose(denominator_m1, 0.0) | np.isclose(prediction_m1[:,0], 0.0)
+
+        ratio = np.zeros_like(prediction_m1[:, 0], dtype=float)
+        np.divide(
+            prediction_m1[:, 0],
+            denominator_m1,
+            out=ratio,
+            where=~invalid_mask_m1,
+        )
+
+        self.predict_cache[cache_unique_identifier][-1] = ratio
+        self.predict_cache[cache_unique_identifier]["invalid_mask"] |= (invalid_mask_m1)
+
+    invalid_mask = self.predict_cache[cache_unique_identifier]["invalid_mask"]
+    kp = self.predict_cache[cache_unique_identifier][1][~invalid_mask]
+    if interpolator_type == "two_point":
+      km = 1 / kp
+    elif interpolator_type == "three_point":
+      km = self.predict_cache[cache_unique_identifier][-1][~invalid_mask]
+
+    if columns_for_numpy is None:
+      asym_input = input[conditional_variable].to_numpy()
+    else:
+      index = columns_for_numpy.index(conditional_variable)
+      asym_input = input[:, index]
+
+    out_ratio = AsymLogNormal(asym_input[~invalid_mask], kp=kp, km=km)
+    out_0 = out_ratio / (1 + out_ratio)
+    out_1 = 1 - out_0
+
+    if prob_ind is None:
+      out = np.zeros((len(input),2))
+      out[~invalid_mask] = np.column_stack((out_0, out_1))
+    elif prob_ind == 0:
+      out = np.zeros((len(input),1))
+      out[~invalid_mask] = out_0[:,None]
+    elif prob_ind == 1:
+      out = np.zeros((len(input),1))
+      out[~invalid_mask] = out_1[:, None]
+    
+    if order == 0:
+      return out
+    elif order == [0]:
+      return [out]
+
+
+  def PredictNominal(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None):
 
     postprocess = True
     columns = self.only_X_columns if self.only_X_columns is not None else self.data_parameters["X_columns"]
@@ -544,6 +656,12 @@ class FCNNNetwork():
       if prob_ind is not None:
         pred = pred[:, prob_ind]
       pred_numpy = pred.numpy()
+
+      if self.task == "classification":
+        # replace any 0s or 1s with 0.5
+        pred_numpy = np.where(np.isclose(pred_numpy, 0.0), 0.5, pred_numpy)
+        pred_numpy = np.where(np.isclose(pred_numpy, 1.0), 0.5, pred_numpy)
+
 
       if self.task == "regression":
         preds += [pd.DataFrame({param_name : pred_numpy})]

@@ -3,7 +3,7 @@ import yaml
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import LoadConfig, Translate, RoundToSF
+from useful_functions import GetVariables, LoadConfig, Translate, RoundToSF
 
 class PlotClassifier():
 
@@ -129,7 +129,7 @@ class PlotClassifier():
 
     # Add plots
     for data_split in ["train", self.test_name]:
-      for col in cfg["variables"]:
+      for col in GetVariables(cfg, category=self.category):
         outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_inclusive.pdf"]
         for i in range(self.n_plots):
           outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_bin_{i}.pdf"]

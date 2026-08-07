@@ -22,6 +22,7 @@ if gpus:
   print("INFO: Using GPUs for BayesFlowNetwork")
   for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
+tf.get_logger().setLevel("ERROR")
 
 class BayesFlowNetwork():
   """
@@ -695,10 +696,15 @@ class BayesFlowNetwork():
     """
 
     # Set up Y correctly
+    copies = False
     if len(Y) == 1:
+      copies = True
       Y = pd.DataFrame(np.tile(Y.to_numpy().flatten(), (n_events, 1)), columns=Y.columns, dtype=np.float64)
     elif len(Y) == 0:
+      copies = True
       Y = pd.DataFrame(np.tile(np.array([]), (n_events, 1)), columns=Y.columns, dtype=np.float64)
+    else:
+      n_events = len(Y)
 
     # Set up and transform Y input
     Y_dp = DataProcessor(
@@ -754,9 +760,15 @@ class BayesFlowNetwork():
         "parameters" : self.data_parameters,
       }
     )
+    
+    if copies:
+      functions_to_apply = ["remove_outside_minmax_from_transformed","untransform","remove_outside_minmax_from_untransformed"]
+    else:
+      functions_to_apply = ["untransform"]
+
     synth  = synth_dp.GetFull(
       method="dataset",
-      functions_to_apply = ["untransform"]
+      functions_to_apply = functions_to_apply
     )
 
     return synth
