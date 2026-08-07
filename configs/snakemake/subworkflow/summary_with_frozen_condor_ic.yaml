@@ -13,30 +13,3 @@
     loop_over_lnN: True
     loop_over_only_val_parameters: True
     other_input : "Closure Test (Others Frozen):CovarianceWithDMatrixClosureTestFrozen:covariancewithdmatrix_results"
-
-# Get summary per val
-- step: "SummaryPerVal"
-  submit: "configs/submit/condor_avx.yaml"
-  run_options: 
-    summary_from: "CovarianceWithDMatrix"
-    extra_dir_name: "ClosureTestFrozen"
-    summary_nominal_name: "Closure Test (Others Frozen)"
-    summary_show_2sigma: True
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-    loop_over_only_val_parameters: True
-- step: "SummaryPerVal"
-  submit: "configs/submit/condor_avx.yaml"
-  run_options: 
-    summary_from: "CovarianceWithDMatrix"
-    extra_dir_name: "ClosureTest"
-    extra_plot_name: "with_frozen"
-    summary_from: "CovarianceWithDMatrix"
-    summary_nominal_name: "Closure Test"
-    summary_show_2sigma: True
-    other_input : "Closure Test (Others Frozen):CovarianceWithDMatrixClosureTestFrozen:covariancewithdmatrix_results"
-    loop_over_nuisances: True
-    loop_over_rates: True
-    loop_over_lnN: True
-    loop_over_only_val_parameters: True

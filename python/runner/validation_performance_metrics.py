@@ -6,7 +6,7 @@ from histogram_metrics import HistogramMetrics
 from make_asimov import MakeAsimov
 from multidim_metrics import MultiDimMetrics
 
-from useful_functions import LoadConfig, MakeDirectories
+from useful_functions import GetVariables, LoadConfig, MakeDirectories
 
 class ValidationPerformanceMetrics():
 
@@ -21,6 +21,7 @@ class ValidationPerformanceMetrics():
     self.sim_wt_name = "wt"
     self.synth_wt_name = "wt"
     self.data_output = None
+    self.category = None
     self.verbose = False
 
     self.do_histogrmam_metrics = True
@@ -65,7 +66,7 @@ class ValidationPerformanceMetrics():
       hm = HistogramMetrics(
         self.sim_files, 
         self.synth_files,
-        cfg["variables"],
+        GetVariables(cfg, category=self.category),
         sim_wt_name = self.sim_wt_name,
         synth_wt_name = self.synth_wt_name,
       )
@@ -93,7 +94,7 @@ class ValidationPerformanceMetrics():
       mm = MultiDimMetrics(
         self.sim_files, 
         self.synth_files,
-        cfg["variables"],
+        GetVariables(cfg, category=self.category),
         sim_wt_name = self.sim_wt_name,
         synth_wt_name = self.synth_wt_name,
       )

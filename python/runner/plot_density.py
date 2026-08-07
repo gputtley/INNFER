@@ -5,7 +5,7 @@ from functools import partial
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import Translate, RoundToSF, LoadConfig, GetParametersInModel
+from useful_functions import GetVariables, Translate, RoundToSF, LoadConfig, GetParametersInModel
 
 class PlotDensity():
 
@@ -112,7 +112,7 @@ class PlotDensity():
     cfg = LoadConfig(self.cfg)
   
     # Add plots
-    X_columns = cfg["variables"]
+    X_columns = GetVariables(cfg, category=self.category)
     Y_columns = GetParametersInModel(self.file_name, cfg, only_density=True)
     names = ["inclusive"]
     for col in Y_columns:

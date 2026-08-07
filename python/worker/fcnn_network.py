@@ -657,6 +657,12 @@ class FCNNNetwork():
         pred = pred[:, prob_ind]
       pred_numpy = pred.numpy()
 
+      if self.task == "classification":
+        # replace any 0s or 1s with 0.5
+        pred_numpy = np.where(np.isclose(pred_numpy, 0.0), 0.5, pred_numpy)
+        pred_numpy = np.where(np.isclose(pred_numpy, 1.0), 0.5, pred_numpy)
+
+
       if self.task == "regression":
         preds += [pd.DataFrame({param_name : pred_numpy})]
       elif self.task == "classification":

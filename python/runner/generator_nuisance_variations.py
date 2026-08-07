@@ -2,7 +2,7 @@
 import os
 
 from data_processor import DataProcessor
-from useful_functions import Translate, LoadConfig
+from useful_functions import GetVariables, Translate, LoadConfig
 from plotting import plot_learned_nuisance_variations
 
 class GeneratorNuisanceVariations():
@@ -11,6 +11,7 @@ class GeneratorNuisanceVariations():
 
     self.cfg = None
     self.open_cfg = None
+    self.category = None
     self.nominal_sim_input = None
     self.up_sim_input = None
     self.down_sim_input = None
@@ -89,7 +90,7 @@ class GeneratorNuisanceVariations():
     )
 
     # Make histograms 
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       
       nominal_sim_hist, nominal_sim_uncert, bins = nominal_sim_dp.GetFull(method="histogram_and_uncert", column=col, bins=self.n_bins)
       up_sim_hist, up_sim_uncert, _ = up_sim_dp.GetFull(method="histogram_and_uncert", column=col, bins=bins)
@@ -146,7 +147,7 @@ class GeneratorNuisanceVariations():
       cfg = LoadConfig(self.cfg)
 
     # Loop through columns
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       extra_name = ""
       if self.extra_plot_name != "":
         extra_name = f"_{self.extra_plot_name}"

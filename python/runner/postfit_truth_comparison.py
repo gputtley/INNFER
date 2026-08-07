@@ -11,7 +11,7 @@ from sklearn.metrics import roc_auc_score, make_scorer
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import CustomHistogram,LoadConfig,Translate
+from useful_functions import GetVariables,CustomHistogram,LoadConfig,Translate
 
 class PostFitTruthComparison():
 
@@ -24,6 +24,7 @@ class PostFitTruthComparison():
     self.truth_input = None
     self.best_fit_input = None
     self.fit_data_input = None
+    self.category = None
 
     self.extra_plot_name = ""
     self.plots_output = "plots/"
@@ -280,7 +281,7 @@ class PostFitTruthComparison():
       #truth_df_efficiency_cut = truth_df.loc[truth_df["bdt_score"] >= threshold]
       #best_fit_df_efficiency_cut = best_fit_df.loc[best_fit_df["bdt_score"] >= threshold]
 
-      for col in cfg["variables"]:
+      for col in GetVariables(cfg, category=self.category):
 
         truth_hist, truth_uncert, bins = CustomHistogram(
           truth_df_efficiency_cut[col],
@@ -341,7 +342,7 @@ class PostFitTruthComparison():
 
     # Load config to get variables
     cfg = LoadConfig(self.cfg)
-    for col in cfg["variables"]:
+    for col in GetVariables(cfg, category=self.category):
       for best_fit_efficiency in [0.25, 0.5, 0.75, 1.0]:
         outputs += [f"{self.plots_output}/postfit_truth_comparison_{col}_eff{str(best_fit_efficiency).replace('.','p')}{self.extra_plot_name}.pdf"]
 

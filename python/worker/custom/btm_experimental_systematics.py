@@ -107,6 +107,8 @@ def btm_jec(
       if syst_names[ind] not in nuisances:
         continue
 
+      if syst_names[ind] not in df.columns:
+        continue
       if df[syst_names[ind]].eq(0).all():
         continue
 

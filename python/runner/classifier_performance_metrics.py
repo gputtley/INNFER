@@ -8,6 +8,7 @@ from histogram_metrics import HistogramMetrics
 from multidim_metrics import MultiDimMetrics
 from write_parquet import WriteParquet
 from useful_functions import (
+    GetVariables,
     InitiateClassifierModel,
     LoadConfig,
     MakeDirectories,
@@ -27,6 +28,7 @@ class ClassifierPerformanceMetrics():
     self.file_loc = None
     self.extra_model_dir = ""
     self.data_output = "data/"
+    self.category = None
     self.verbose = True
 
     self.do_loss = True
@@ -48,6 +50,7 @@ class ClassifierPerformanceMetrics():
     self.metrics_save_extra_name = ""
 
     self.open_parameters = None
+    self.model_type = None
 
   def Configure(self, options):
     for key, value in options.items():
@@ -74,6 +77,7 @@ class ClassifierPerformanceMetrics():
       print("- Loading in the architecture")
     with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+    self.model_type = architecture["type"]
 
     # Build model
     if self.verbose:
@@ -200,11 +204,15 @@ class ClassifierPerformanceMetrics():
         print(f" - Doing histogram metrics for {data_type}")
 
       # Load histogram metrics class
+      variables = GetVariables(self.open_cfg, category=self.category)
+      if self.model_type not in ["FCNN_TwoPointInterpolator","FCNN_ThreePointInterpolator"]:
+        variables += [self.parameter]
+
       x, y, wt = self._GetFiles(data_type)
       hm = HistogramMetrics(
           [x, y, wt],
           [x, y, f"{self.data_output}/pred_{data_type}.parquet"],
-          self.open_cfg["variables"] + [self.parameter],
+          variables,
           sim_selection="classifier_truth==1",
           synth_selection="classifier_truth==0"
       )

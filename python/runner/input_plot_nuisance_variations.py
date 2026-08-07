@@ -6,7 +6,7 @@ import pandas as pd
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
-from useful_functions import LoadConfig, Translate, GetValidationDefaultIndex, GetDefaultsInModel
+from useful_functions import GetVariables, LoadConfig, Translate, GetValidationDefaultIndex, GetDefaultsInModel
 
 class InputPlotNuisanceVariations():
 
@@ -165,7 +165,7 @@ class InputPlotNuisanceVariations():
       cfg = LoadConfig(self.cfg)
 
     if not self.binned:
-      for col in cfg["variables"]:
+      for col in GetVariables(cfg, category=self.category):
         outputs += [f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}_{self.sim_type}.pdf"]
     else:
       col = cfg["inference"]["binned_fit"]["input"][self.category]["variable"]

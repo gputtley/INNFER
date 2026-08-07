@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults
+from useful_functions import GetVariables, MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults
 from breit_wigner_reweighting import bw_reweight
 
 import warnings
@@ -303,7 +303,7 @@ class top_bw_fractions():
     return normalised_fractions, splines
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[]):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[], category=None):
     """
     Plot the reweighting of the samples.
     Args:
@@ -336,7 +336,11 @@ class top_bw_fractions():
 
     unique = dp.GetFull(method="unique")
 
-    for col in self.plot_columns:
+    plot_columns = [self.gen_mass] + GetVariables(LoadConfig(self.cfg), category=category)
+    if self.gen_mass_other is not None:
+      plot_columns.append(self.gen_mass_other)
+
+    for col in plot_columns:
       
       hists = []
       hist_names = []
@@ -361,7 +365,7 @@ class top_bw_fractions():
       for i, mass in enumerate(unique[self.mass_name]):
 
         # Get number of effective events before and after
-        if col == self.plot_columns[0]:
+        if col == plot_columns[0]:
           n_eff_before = dp.GetFull(
             method="n_eff", 
             extra_sel=f"{self.mass_name}=={mass}",
@@ -476,9 +480,6 @@ class top_bw_fractions():
     self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
 
     cfg = LoadConfig(self.cfg)
-    self.plot_columns = [self.gen_mass] + cfg["variables"]
-    if self.gen_mass_other is not None:
-      self.plot_columns.append(self.gen_mass_other)
     self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractions/{self.file_name}"
 
 
@@ -533,7 +534,7 @@ class top_bw_fractions():
 
       # Plot reweighting
       if self.plot_dist:
-        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions)
+        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions, category=category)
 
     # Write splines to file
     file_names = {}
@@ -566,7 +567,10 @@ class top_bw_fractions():
     # Add plots
     if self.plot_dist:
       for cat in GetCategoryLoop(cfg):
-        for col in self.plot_columns:
+        plot_columns = [self.gen_mass] + GetVariables(cfg, category=cat)
+        if self.gen_mass_other is not None:
+          plot_columns.append(self.gen_mass_other)
+        for col in plot_columns:
           outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
 
     # Add yaml file

@@ -1,6 +1,6 @@
 # Get validation results from freezing all other parameters
 - step: "InitialFit"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
@@ -14,7 +14,7 @@
     loop_over_lnN: True
     loop_over_only_val_parameters: True
 - step: "HessianNumerical"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
@@ -28,7 +28,7 @@
     loop_over_lnN: True
     loop_over_only_val_parameters: True
 - step: "DMatrixNumerical"
-  submit: "configs/submit/condor_gpu.yaml"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
@@ -59,6 +59,20 @@
   run_options: 
     extra_dir_name: "ClosureTestFrozen"
     summary_from: "CovarianceWithDMatrix"
+    loop_over_nuisances: True
+    loop_over_rates: True
+    loop_over_lnN: True
+    loop_over_only_val_parameters: True
+
+# Get full summary
+- step: "Summary"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    extra_dir_name: "ClosureTestFrozen"
+    summary_from: "CovarianceWithDMatrix"
+    summary_nominal_name: "Closure Test (Others Frozen)"
+    summary_show_2sigma: True
+    summary_subtract: True
     loop_over_nuisances: True
     loop_over_rates: True
     loop_over_lnN: True
