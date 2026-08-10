@@ -1335,6 +1335,7 @@ def main(args, default_args, module_options={}):
           config = {
             "cfg" : args.cfg,
             "file_name" : model_info["file_name"],
+            "category" : model_info["category"],
             "parameters" : model_info["parameters"],
             "model_input" : f"{models_dir}",
             "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
@@ -1371,6 +1372,7 @@ def main(args, default_args, module_options={}):
             config = {
               "cfg" : args.cfg,
               "file_name" : model_info["file_name"],
+              "category" : model_info["category"],
               "parameters" : model_info["parameters"],
               "model_input" : f"{models_dir}",
               "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
@@ -1546,6 +1548,8 @@ def main(args, default_args, module_options={}):
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
+
+  # Making calibration 
 
 
   # Making plots using the network as a generator for individual Y values
