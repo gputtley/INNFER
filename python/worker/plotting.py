@@ -2533,3 +2533,84 @@ def plot_classsifier_nuisance_variations(
   print("Created "+output_name+".png")
   plt.savefig(output_name+".png", bbox_inches='tight')
   plt.close()
+
+
+def plot_calibration_curve(
+    predicted_ratio,
+    mc_estimated_ratio,
+    mc_estimated_ratio_uncert,
+    name = "calibration",
+    xlabel = r"Predicted $p(x|\hat{H}_{1})/p(x|\hat{H}_{0})$",
+    ylabel = r"Estimate of $p(x|H_{1})/p(x|H_{0})$",
+    axis_text = "",
+  ):
+
+  predicted_ratio = np.array(predicted_ratio, dtype=np.float64)
+  mc_estimated_ratio = np.array(mc_estimated_ratio, dtype=np.float64)
+  mc_estimated_ratio_uncert = np.array(mc_estimated_ratio_uncert, dtype=np.float64)
+
+  fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True, gridspec_kw={'height_ratios': [3, 1], 'hspace': 0.05})
+
+
+  # Add CMS label
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  hep.cms.text(cms_label, ax=ax1, fontsize=22)
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+  ax1.text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax1.transAxes, fontsize=22)
+
+  # Top panel - predicted vs MC estimated likelihood ratio
+  ax1.plot(predicted_ratio, predicted_ratio, color="red", label="Predicted")
+  ax1.errorbar(
+    predicted_ratio,
+    mc_estimated_ratio,
+    yerr = mc_estimated_ratio_uncert,
+    linestyle = "None",
+    marker = "o",
+    markersize = 5,
+    capsize = 5,
+    elinewidth = 1,
+    color = "blue",
+    label = "MC",
+  )
+
+  if axis_text != "":
+    ax1.text(0.05, 0.95, axis_text, transform=ax1.transAxes, fontsize=20, verticalalignment='top')
+
+  ax1.set_ylabel(ylabel)
+  ax1.grid(True, linestyle='--', alpha=0.7)
+  ax1.legend()
+
+  # Bottom panel - ratio of the MC estimate to the diagonal
+  ratio_to_line = np.divide(mc_estimated_ratio, predicted_ratio, out=np.full_like(predicted_ratio, np.nan), where=predicted_ratio!=0)
+  ratio_to_line_uncert = np.divide(mc_estimated_ratio_uncert, predicted_ratio, out=np.full_like(predicted_ratio, np.nan), where=predicted_ratio!=0)
+
+  ax2.axhline(y=1.0, color="red", linestyle="--")
+  ax2.errorbar(
+    predicted_ratio,
+    ratio_to_line,
+    yerr = ratio_to_line_uncert,
+    linestyle = "None",
+    marker = "o",
+    markersize = 5,
+    capsize = 5,
+    elinewidth = 1,
+    color = "blue",
+  )
+  # Tight y-range scoped to the actual ratio data (ignoring NaNs from empty bins)
+  ratio_lo = np.nanmin(ratio_to_line - ratio_to_line_uncert)
+  ratio_hi = np.nanmax(ratio_to_line + ratio_to_line_uncert)
+  ratio_pad = 0.05 * (ratio_hi - ratio_lo)
+  ax2.set_ylim(ratio_lo - ratio_pad, ratio_hi + ratio_pad)
+
+  ax2.set_xlabel(xlabel)
+  ax2.set_ylabel("MC/Predicted", fontsize=22)
+  ax2.grid(True, linestyle='--', alpha=0.7)
+
+  MakeDirectories(name+".pdf")
+  print("Created "+name+".pdf")
+  plt.savefig(name+".pdf", bbox_inches='tight')
+  print("Created "+name+".png")
+  plt.savefig(name+".png", bbox_inches='tight')
+  plt.close()

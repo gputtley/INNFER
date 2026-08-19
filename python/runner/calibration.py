@@ -173,8 +173,8 @@ class Calibration():
     # Make calibration plot
     if self.verbose:
       print("- Making calibration plot")
-    test_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
-    reference_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in reference_parameters.items() if k in self.val_info])
+    test_text = ", ".join([f"{Translate(k)}={round(v,2)} GeV" for k, v in self.val_info.items()])
+    reference_text = ", ".join([f"{Translate(k)}={round(v,2)} GeV" for k, v in reference_parameters.items() if k in self.val_info])
     axis_text = f"$H_{{1}}$: {test_text}\n$H_{{0}}$: {reference_text}"
 
     plot_calibration_curve(
