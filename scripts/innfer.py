@@ -57,6 +57,7 @@ def parse_args():
   parser.add_argument('--binned-observed-from-predicted', help='Take the binned observed data from the predicted values and not the validation samples', action='store_true')
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
+  parser.add_argument('--calibration-n-bins', help='Number of likelihood ratio bins to use in the Calibration step.', type=int, default=10)
   parser.add_argument('--change-classifier-type-from-parameter', help='comma separated key=val for the parameter and the new type', type=str, default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
@@ -213,8 +214,11 @@ def main(args, default_args, module_options={}):
     args.extra_input_dir_name += f"{args.extra_extra_dir_name}"
     args.extra_output_dir_name += f"{args.extra_extra_dir_name}"
   if args.specific_category is not None and args.add_specific_category_to_dir_name:
-    args.extra_input_dir_name += f"_{args.specific_category}"
-    args.extra_output_dir_name += f"_{args.specific_category}"
+    category_suffix = f"_{args.specific_category}"
+    if not args.extra_input_dir_name.endswith(category_suffix):
+      args.extra_input_dir_name += category_suffix
+    if not args.extra_output_dir_name.endswith(category_suffix):
+      args.extra_output_dir_name += category_suffix
   if args.extra_job_name != "" and args.extra_job_name[0] != "_":
     args.extra_job_name = f"_{args.extra_job_name}"
 
@@ -1335,6 +1339,7 @@ def main(args, default_args, module_options={}):
           config = {
             "cfg" : args.cfg,
             "file_name" : model_info["file_name"],
+            "category" : model_info["category"],
             "parameters" : model_info["parameters"],
             "model_input" : f"{models_dir}",
             "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
@@ -1371,6 +1376,7 @@ def main(args, default_args, module_options={}):
             config = {
               "cfg" : args.cfg,
               "file_name" : model_info["file_name"],
+              "category" : model_info["category"],
               "parameters" : model_info["parameters"],
               "model_input" : f"{models_dir}",
               "extra_model_dir" : f"{model_info['name']}{args.extra_density_model_name}",
@@ -1540,6 +1546,35 @@ def main(args, default_args, module_options={}):
               "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
               "data_input" : f"{prep_data_dir}/PreProcess/{file_name}/{category}/val_ind_{val_ind}",
               "plots_output" : f"{plots_dir}/Flow{args.extra_output_dir_name}/{file_name}/{category}",
+              "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
+              "sim_type" : args.sim_type,
+              "verbose" : not args.quiet,
+            },
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
+          )
+
+  # Checking whether the likelihood ratio is calibrated against MC truth
+  if args.step == "CalibrationPlot":
+    print("<< Making likelihood ratio calibration plots >>")
+    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
+        for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
+          reference_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
+          if val_ind == reference_val_ind: continue
+          module.Run(
+            module_name = "calibration",
+            class_name = "Calibration",
+            config = {
+              "cfg" : args.cfg,
+              "model_input" : f"{models_dir}",
+              "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
+              "data_input" : GetDataInput("sim", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
+              "reference_data_input" : GetDataInput("sim", cfg, file_name, reference_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
+              "val_info" : val_info,
+              "n_bins" : args.calibration_n_bins,
+              "data_output" : f"{eval_data_dir}/Calibration{args.extra_output_dir_name}/{file_name}/{category}",
+              "plots_output" : f"{plots_dir}/Calibration{args.extra_output_dir_name}/{file_name}/{category}",
               "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
               "sim_type" : args.sim_type,
               "verbose" : not args.quiet,
