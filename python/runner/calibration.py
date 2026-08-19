@@ -204,12 +204,10 @@ class Calibration():
     inputs += [self.cfg]
     inputs += [self.density_model["parameters"]]
 
-    with open(self.density_model["parameters"], 'r') as yaml_file:
-      parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}_architecture.yaml"]
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}.h5"]
+    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.density_model['file_name']}_architecture.yaml"]
+    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.density_model['file_name']}.h5"]
     inputs += list(self.data_input)
     inputs += list(self.reference_data_input)
 
     return inputs
+
