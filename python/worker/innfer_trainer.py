@@ -9,7 +9,10 @@ import numpy as np
 import bayesflow as bf
 import tensorflow as tf
 
-from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
+from functools import partial
+
+#from bayesflow.helper_functions import backprop_step, extract_current_lr, format_loss_string, loss_to_string
+from bayesflow.helper_functions import extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
 from useful_functions import Resample, MakeDirectories
@@ -51,6 +54,7 @@ class InnferTrainer(bf.trainers.Trainer):
       resample = False,
       model_name = "model.h5",
       save_model_per_epoch = False,
+      trainable_cl_per_epoch = None,
       **kwargs,
    ):
       """
@@ -93,11 +97,21 @@ class InnferTrainer(bf.trainers.Trainer):
       self._setup_optimizer(optimizer, epochs, X_train.num_batches)
       self.loss_history.start_new_run()
       self.loss_history._total_train_loss = []
+
+      loss_without_model = self._get_epoch_loss(X_train, Y_train, wt_train, 0, without_model=True, **kwargs)
+      val_loss_without_model = self._get_epoch_loss(X_test, Y_test, wt_test, 0, without_model=True, **kwargs)
+
+      print(f"INFO:root:Train, Loss without model: {round(float(loss_without_model),3)}")
+      print(f"INFO:root:Validation, Loss without model: {round(float(val_loss_without_model),3)}")
+
       loss = self._get_epoch_loss(X_train, Y_train, wt_train, 0, **kwargs)
       self.loss_history._total_train_loss.append(float(loss))
       val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, 0, **kwargs)
       self.loss_history.add_val_entry(0, val_loss)
       self.lr_history = [extract_current_lr(self.optimizer)]
+
+      print(f"INFO:root:Train, Epoch: {0}, Loss: {round(float(loss),3)}")
+      print(f"INFO:root:Validation, Epoch: {0}, Loss: {round(float(val_loss),3)}")
 
       if use_wandb:
          metrics = {
@@ -118,6 +132,13 @@ class InnferTrainer(bf.trainers.Trainer):
 
       # Loop through epochs
       for ep in range(1, epochs + 1):
+
+         # change backprob step 
+         if trainable_cl_per_epoch is None:
+            _backprop_step_freeze = _backprop_step
+         else:
+            _backprop_step_freeze = partial(_backprop_step, trainable_coupling_indices=trainable_cl_per_epoch[ep])
+
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
 
             #Loop through dataset
@@ -125,7 +146,12 @@ class InnferTrainer(bf.trainers.Trainer):
 
                # Perform one training step and obtain current loss value
                input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
-               loss = self._train_step(batch_size, _backprop_step, input_dict, **kwargs)
+               loss = self._train_step(
+                  batch_size, 
+                  _backprop_step_freeze, 
+                  input_dict, 
+                  **kwargs
+               )
 
                if adaptive_lr_scheduler is not None:
                   self.optimizer.learning_rate.assign(adaptive_lr_scheduler.update(self.optimizer.learning_rate.numpy(), float(loss)))
@@ -179,7 +205,7 @@ class InnferTrainer(bf.trainers.Trainer):
       
       return self.loss_history.get_plottable()
    
-   def _get_epoch_loss(self, X, Y, wt, ep, **kwargs):        
+   def _get_epoch_loss(self, X, Y, wt, ep, without_model=False, **kwargs):        
       """
       Helper method to compute the average epoch loss(es).
 
@@ -204,7 +230,11 @@ class InnferTrainer(bf.trainers.Trainer):
       sum_wts = 0
       for _ in range(X.num_batches):
          conf = self._load_batch(X, Y, wt, ep)
-         sum_loss += (float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))*np.sum(conf["loss_weights"]))
+         if not without_model:
+            sum_loss += (float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))*np.sum(conf["loss_weights"]))
+         else:
+            z = tf.convert_to_tensor(conf["parameters"], dtype=tf.float32)
+            sum_loss -= (float(tf.reduce_sum(self.amortizer.latent_dist.log_prob(z) * tf.convert_to_tensor(conf["loss_weights"], dtype=tf.float32))) )
          sum_wts += np.sum(conf["loss_weights"])
       loss = tf.constant(sum_loss/sum_wts)
       X.ChangeBatchSize(X_old_batch_size)
@@ -296,3 +326,55 @@ class InnferTrainer(bf.trainers.Trainer):
             Y[indices,-1] = np.ones(sample_size)
             wt[indices] = sum_wt_indices/len_data
       return X, Y, wt
+
+
+
+def backprop_step(
+    input_dict,
+    amortizer,
+    optimizer,
+    trainable_coupling_indices=None,
+    **kwargs,
+):
+    with tf.GradientTape() as tape:
+        loss = amortizer.compute_loss(input_dict, training=True, **kwargs)
+
+        if isinstance(loss, dict):
+            total_loss = tf.add_n(list(loss.values()))
+        else:
+            total_loss = loss
+
+        if amortizer.losses:
+            reg = tf.add_n(amortizer.losses)
+            total_loss += reg
+
+            if isinstance(loss, dict):
+                loss["W.Decay"] = reg
+            else:
+                loss = {"Loss": loss, "W.Decay": reg}
+
+    if trainable_coupling_indices is None:
+        variables = amortizer.trainable_variables
+    else:
+        coupling_layers = amortizer.inference_net.coupling_layers
+
+        selected_layers = [
+            coupling_layers[i]
+            for i in trainable_coupling_indices
+        ]
+
+        variables = []
+        for layer in selected_layers:
+            variables.extend(layer.trainable_variables)
+
+    gradients = tape.gradient(total_loss, variables)
+
+    gradients_and_variables = [
+        (grad, var)
+        for grad, var in zip(gradients, variables)
+        if grad is not None
+    ]
+
+    optimizer.apply_gradients(gradients_and_variables)
+
+    return loss

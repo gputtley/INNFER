@@ -1377,7 +1377,7 @@ def plot_summary(
   legend_width = 0.15
   n_pads = len(list(crossings.keys()))
   fig, ax = plt.subplots(1, n_pads+1, gridspec_kw={'width_ratios': [(1-legend_width)/n_pads]*n_pads + [legend_width]}, figsize=(12, 12))
-  plt.subplots_adjust(left=0.2, right=0.9)
+  plt.subplots_adjust(left=0.3, right=0.9)
   hep.cms.text(cms_label,ax=ax[0], fontsize=22)
 
   other_colors = sns.color_palette("bright", len(list(other_summaries.keys()))+1)

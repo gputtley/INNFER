@@ -89,6 +89,8 @@ def two_weight_variation(
     nominal_weight_column_name = None,
     wt_name = "wt",
     mask = None,
+    mask_and_set_other_to_zero = None,
+    scale_mask_and_set_other_to_zero = None,
     weight_clip = (0.5, 2.0),
     log_normal_clip = (0.0, 2.0),
   ):
@@ -97,11 +99,28 @@ def two_weight_variation(
   if nuisance_column_name is None or up_weight_column_name is None or down_weight_column_name is None:
     raise ValueError("nuisance_column_name, up_weight_column_name and down_weight_column_name must be provided")
 
-  # Apply mask if provided
-  if mask is None:
-    mask = np.ones(len(df), dtype=bool)
+  remove_events = mask_and_set_other_to_zero is not None
+  
+  if mask_and_set_other_to_zero is None:
+    keep_index = df.index
+    remove_index = df.index[:0]
   else:
-    mask = df.query(mask).index
+    matches = df.eval(mask_and_set_other_to_zero)
+    keep_index = df.index[matches]
+    remove_index = df.index[~matches]
+
+  # Evaluate the main mask
+  if mask is None:
+    applied_index = df.index
+  else:
+    applied_index = df.query(mask).index
+
+  # Split the applied events into kept and removed events
+  mask = applied_index.intersection(keep_index)
+  unmask = applied_index.intersection(remove_index)
+
+  if remove_events:
+    df.loc[unmask, wt_name] = 0.0
 
   # Apply the clip for the weights
   up_weight_var = df.loc[mask, up_weight_column_name]
@@ -120,5 +139,9 @@ def two_weight_variation(
 
   # Apply the weights to the original weight column
   df.loc[mask, wt_name] *= asymln
+
+  # Apply scale
+  if scale_mask_and_set_other_to_zero is not None:
+    df.loc[mask, wt_name] *= df.loc[mask, :].eval(scale_mask_and_set_other_to_zero)
 
   return df

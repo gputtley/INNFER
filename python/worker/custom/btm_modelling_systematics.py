@@ -56,21 +56,21 @@ def three_point_variation_weight(
   if total_mask is not None:
     total_mask = df.query(total_mask).index
   else:
-    total_mask = np.ones(len(df), dtype=bool)
+    total_mask = df.index
 
   # Get masks for the three samples
   if mask_sample_m1 is not None:
     mask_sample_m1 = df.query(mask_sample_m1).index
   else:
-    mask_sample_m1 = np.ones(len(df), dtype=bool)
+    mask_sample_m1 = df.index
   if mask_sample_nominal is not None:
     mask_sample_nominal = df.query(mask_sample_nominal).index
   else:
-    mask_sample_nominal = np.ones(len(df), dtype=bool)
+    mask_sample_nominal = df.index
   if mask_sample_p1 is not None:
     mask_sample_p1 = df.query(mask_sample_p1).index
   else:
-    mask_sample_p1 = np.ones(len(df), dtype=bool)
+    mask_sample_p1 = df.index
 
   # Combine with total mask
   mask_sample_m1 = mask_sample_m1.intersection(total_mask)
@@ -86,7 +86,7 @@ def three_point_variation_weight(
   df.loc[mask_sample_nominal, wt_name] *= nominal_weights
   df.loc[mask_sample_m1, wt_name] *= m1_weights
   df.loc[mask_sample_p1, wt_name] *= p1_weights
-
+  
   return df
   
   
@@ -103,17 +103,17 @@ def two_point_variation_weight(
   if total_mask is not None:
     total_mask = df.query(total_mask).index
   else:
-    total_mask = np.ones(len(df), dtype=bool)
+    total_mask = df.index
 
   # Get masks for the three samples
   if mask_sample_nominal is not None:
     mask_sample_nominal = df.query(mask_sample_nominal).index
   else:
-    mask_sample_nominal = np.ones(len(df), dtype=bool)
+    mask_sample_nominal = df.index
   if mask_sample_p1 is not None:
     mask_sample_p1 = df.query(mask_sample_p1).index
   else:
-    mask_sample_p1 = np.ones(len(df), dtype=bool)
+    mask_sample_p1 = df.index
 
   # Combine with total mask
   mask_sample_nominal = mask_sample_nominal.intersection(total_mask)

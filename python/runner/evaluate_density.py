@@ -1,13 +1,7 @@
-import os
 import yaml
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-
-from functools import partial
-
 from data_processor import DataProcessor
-from useful_functions import InitiateDensityModel, MakeDirectories
+from useful_functions import InitiateDensityModel
 from write_parquet import WriteParquet
 
 class EvaluateDensity():
@@ -99,6 +93,7 @@ class EvaluateDensity():
         ]
       )
       wp.collect()
+
 
   def Outputs(self):
     """

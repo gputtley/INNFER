@@ -4,7 +4,6 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
     freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
@@ -18,7 +17,6 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
     freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True
@@ -32,7 +30,6 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozen"
-    points_per_job: 6
     freeze: "all-but-one"
     prune_classifier_models: "roc_auc_test:0.505"
     integrate_density_with_ratios: True

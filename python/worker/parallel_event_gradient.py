@@ -161,6 +161,16 @@ class ParallelEventGradient:
             ) / (factor - 1.0)
 
         derivative = table[-1]
+
+        nan_mask = np.isnan(derivative)
+        if np.any(nan_mask):
+            derivative[nan_mask] = np.where(
+                np.isnan(previous_best[nan_mask]),
+                0.0,
+                previous_best[nan_mask],
+            )
+            previous_best[nan_mask] = derivative[nan_mask]
+
         error = np.abs(derivative - previous_best)
 
         return derivative, error
