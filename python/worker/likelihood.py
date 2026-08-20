@@ -101,7 +101,7 @@ class Likelihood():
     self.cached_list_total_regression = []
     self.cached_log_probs_batch_ind = 0
     self.cached_log_probs_ind = 0
-    self.n_caches = 500
+    self.n_caches = 1000
     self.cache_dir = "tmp"
     self.save_cache_to_memory = True
     self.cache_memory = {}
@@ -111,12 +111,13 @@ class Likelihood():
     self.data_yield = {}
     self.integrate_density_with_ratios = True
     self.n_integral_events = 10**4
+    self.n_integral_events_split = None
     self.integral_events_per_batch = 10**5
     self.integral_cache_list = []
     self.integral_cache_values = []
     self.integral_sample_cache_list = []
     self.integral_sample_cache_values = []
-    self.n_integral_sample_caches = 100
+    self.n_integral_sample_caches = 1000
     self.print_columns = None
     self.time_print = False
 
@@ -657,6 +658,7 @@ class Likelihood():
 
           log_probs[name] = [np.zeros((X.shape[0],1))]
 
+
         if self.time_print:
           if not skip_integral:
             print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
@@ -743,7 +745,6 @@ class Likelihood():
         if len(self.models["pdf_shifts_with_classifier"][category][name]) > 0:
           do_shift = True
 
-
         if do_shift:
 
           if self.time_print:
@@ -770,29 +771,27 @@ class Likelihood():
                 cache_dict_nominal_classifiers[k] = self._CreateCacheDict(name, v, Y_nom, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
                 load_from_cache_nominal_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifiers[k], model_type="classifier")
 
-
             # if all of load from cache is true, skip combining
-            if not all(list(load_from_cache_classifiers.values())):
-              vals = Y[self.Y_columns].iloc[0].to_dict()
-              combined = X[X_columns].assign(**vals)
-              combined_columns = combined.columns.tolist()
-              combined = combined.to_numpy(copy=False)
-            if self.classifier_divide_by_nominal:
-              if not all(load_from_cache_nominal_classifiers.values()):
-                zerod_vals = {k: 0.0  for k in vals.keys()}
-                combined_nominal = X[X_columns].assign(**zerod_vals)
-                combined_nominal_columns = combined_nominal.columns.tolist()
-                combined_nominal = combined_nominal.to_numpy(copy=False)
+            combined = None
+            combined_nominal = None
 
             # Loop through classifier models
             total_classifier_shifts = None
             for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
+
+              if self.classifier_divide_by_nominal and Y[k].iloc[0] == 0.0: continue
 
               cache_dict_classifier = cache_dict_classifiers[k]
               load_from_cache_classifier = self._CheckIfInCacheLogProbs(cache_dict_classifier, model_type="classifier")
 
               # Get the shift
               if not load_from_cache_classifier:
+
+                if combined is None:
+                  vals = Y[self.Y_columns].iloc[0].to_dict()
+                  combined = X[X_columns].assign(**vals)
+                  combined_columns = combined.columns.tolist()
+                  combined = combined.to_numpy(copy=False)
 
                 #st1 = time.time()
                 classifier_shift = self._ShiftDensityByClassifier(
@@ -822,6 +821,13 @@ class Likelihood():
                 load_from_cache_nominal_classifier = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifier, model_type="classifier")
 
                 if not load_from_cache_nominal_classifier:
+
+                  if combined_nominal is None:
+                    zerod_vals = {k: 0.0 for k in vals.keys()}
+                    combined_nominal = X[X_columns].assign(**zerod_vals)
+                    combined_nominal_columns = combined_nominal.columns.tolist()
+                    combined_nominal = combined_nominal.to_numpy(copy=False)
+
                   nominal_classifier = self._ShiftDensityByClassifier(
                     [np.zeros_like(i) for i in log_probs[name]],
                     combined_nominal,
@@ -851,9 +857,9 @@ class Likelihood():
 
             total_classifier_shifts = self._LoadFromCache(cache_dict_total_classifier, gradient, model_type="total_classifier")
 
-          log_probs[name] = [log_probs[name][i] + total_classifier_shifts[i] for i in range(len(gradient))]
-
-          self._WriteCache(total_classifier_shifts, gradient, cache_dict_total_classifier, load_from_cache_total_classifier, pdf, model_type="total_classifier")
+          if total_classifier_shifts is not None:
+            log_probs[name] = [log_probs[name][i] + total_classifier_shifts[i] for i in range(len(gradient))]
+            self._WriteCache(total_classifier_shifts, gradient, cache_dict_total_classifier, load_from_cache_total_classifier, pdf, model_type="total_classifier")
 
         if self.time_print:
           if not skip_integral:
@@ -873,9 +879,16 @@ class Likelihood():
           }
 
           if not (integral_cache_dict in self.integral_cache_list):
-            integral_events_left = self.n_integral_events*1.0
+
+            if self.n_integral_events_split is not None:
+              n_integral_events = self.n_integral_events_split[category][name]
+            else:
+              n_integral_events = self.n_integral_events
+
+            integral_events_left = n_integral_events*1.0
             sum_weights = 0.0
-            for batch_ind in range(int(np.ceil(self.n_integral_events/self.integral_events_per_batch))):
+            sum_lengths = 0
+            for batch_ind in range(int(np.ceil(n_integral_events/self.integral_events_per_batch))):
               n_events_this_batch = int(min(self.integral_events_per_batch, integral_events_left))
               integral_events_left -= n_events_this_batch
 
@@ -889,7 +902,8 @@ class Likelihood():
                 "batch_ind": batch_ind
               }
               if not (integral_sample_cache_dict in self.integral_sample_cache_list):
-                sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, seed=batch_ind+1)
+                #sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, seed=batch_ind+1)
+                sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, batch_number=batch_ind, batch_size=self.integral_events_per_batch, seed=0)
                 self.integral_sample_cache_list.append(integral_sample_cache_dict)
                 self.integral_sample_cache_values.append(sampled_events)
                 if len(self.integral_sample_cache_list) > self.n_integral_sample_caches:
@@ -904,13 +918,17 @@ class Likelihood():
               log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
 
               sum_weights += np.sum(np.exp(log_weights))
+              sum_lengths += len(log_weights)
 
-            integral = sum_weights / float(len(sampled_events))
+            integral = sum_weights / float(sum_lengths)
+
             self.integral_cache_list.append(integral_cache_dict)
             self.integral_cache_values.append(integral)
           else:
             index = self.integral_cache_list.index(integral_cache_dict)
             integral = self.integral_cache_values[index]
+
+          #print(name, integral, np.log(integral), len(log_probs[name][0]), np.log(integral)*len(log_probs[name][0]))
 
           log_probs[name][0] -= np.log(integral)
 
@@ -1613,7 +1631,7 @@ class Likelihood():
     if convert_back:
       lkld_val = lkld_val[0]
 
-    #if self.minimisation_step == 1:
+    #if self.minimisation_step == 2:
     #  exit()
 
     return lkld_val
@@ -2524,7 +2542,7 @@ class NLLAndGradient():
     if scan_over is None:
       scan_over = self.Y_columns
     scan_over = [col for col in scan_over if col not in freeze.keys()]
-
+    self.print_columns = [col for col in self.Y_columns if col not in freeze.keys()]
 
     # Get hessian entries
     if numerical:
@@ -2591,7 +2609,7 @@ class NLLAndGradient():
           for ind, col in enumerate(columns_to_run):
             Y[self.Y_columns.index(col)] = x[ind]
           return self.Run(X_dps, Y, multiply_by=-1, gradient=0)
-        H = nd.Hessian(grad_func, method='forward', order=1, richardson_terms=1)
+        H = nd.Hessian(grad_func, method='central', order=2)
         hessian_partial = H([self.best_fit[self.Y_columns.index(col)] for col in columns_to_run])
 
       else:
@@ -2657,7 +2675,7 @@ class NLLAndGradient():
       yaml.dump(dump, yaml_file, default_flow_style=False)
 
 
-  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate", scan_values=None, scan_over=None):
+  def GetAndWriteScanRangesToYaml(self, X_dps, col, row=None, filename="scan_ranges.yaml", estimated_sigmas_shown=3.2, estimated_sigma_step=0.4, method="approximate", scan_values=None, scan_over=None, freeze={}):
     """
     Computes the scan ranges for a given column and writes them to a YAML file.
 
@@ -2668,6 +2686,10 @@ class NLLAndGradient():
         wt (array): The weights for the data points (optional).
         filename (str): The name of the YAML file (default is "scan_ranges.yaml").
     """
+
+    if scan_over is None:
+      scan_over = self.Y_columns
+    scan_over = [col for col in scan_over if col not in freeze.keys()]
 
     if scan_values is None:
       scan_values = self.GetScanXValues(X_dps, col, estimated_sigmas_shown=estimated_sigmas_shown, estimated_sigma_step=estimated_sigma_step, method=method, scan_over=scan_over)

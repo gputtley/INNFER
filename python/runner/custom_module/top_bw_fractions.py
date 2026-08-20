@@ -99,11 +99,12 @@ class top_bw_fractions():
         "selection" : selection,
         "functions" : [apply_wt_partial] + functions + ["selection"],
         "sort_columns" : False,
-      }
+      },
+      use_pbar = True
     )
 
     # get unique Y and loop through
-    unique = list(sorted(dp.GetFull(method="unique")[self.mass_name]))
+    unique = list(sorted(dp.GetFull(method="unique", columns=[self.mass_name])[self.mass_name]))
 
     # Class to get all the information needed
     class fraction_info:
@@ -303,6 +304,82 @@ class top_bw_fractions():
     return normalised_fractions, splines
 
 
+  def _custom_info_apply_wt(self, tmp, out, options={}):
+
+    # Get sum of weights
+    sum_wts = []
+    sum_wts_squared = []
+    hists = []
+    hists_squared = []
+
+    for i, mass in enumerate(options["unique"]):
+
+      mass_mask = tmp[options["transformed_from_name"]] == mass
+      mass_tmp = tmp[mass_mask]
+
+      # Get sum of weights
+      sum_wts.append(np.sum(mass_tmp["wt"]))
+      sum_wts_squared.append(np.sum(mass_tmp["wt"]**2))
+
+      # Get histograms
+      hists.append({})
+      hists_squared.append({})
+      for col, bins in options["bins"].items():
+        hist, _ = np.histogram(mass_tmp[col], bins=bins, weights=mass_tmp["wt"])
+        hist_squared, _ = np.histogram(mass_tmp[col], bins=bins, weights=mass_tmp["wt"]**2)
+        hists[i][col] = hist
+        hists_squared[i][col] = hist_squared
+
+    # Define out
+    out_list = [sum_wts, sum_wts_squared, hists, hists_squared]
+    if out is None:
+      return out_list
+    else:
+      out[0] = [out[0][i] + sum_wts[i] for i in range(len(sum_wts))]
+      out[1] = [out[1][i] + sum_wts_squared[i] for i in range(len(sum_wts_squared))]
+      for i in range(len(hists)):
+        for col in hists[i]:
+          out[2][i][col] = [out[2][i][col][j] + hists[i][col][j] for j in range(len(hists[i][col]))]
+      for i in range(len(hists_squared)):
+        for col in hists_squared[i]:
+          out[3][i][col] = [out[3][i][col][j] + hists_squared[i][col][j] for j in range(len(hists_squared[i][col]))]
+
+    return out
+
+  def _custom_info_reweighted(self, tmp, out, options={}):
+
+    # Get sum of weights
+    sum_wts = 0.0
+    sum_wts_squared = 0.0
+    hists = {}
+    hists_squared = {}
+
+    # Get sum of weights
+    sum_wts += np.sum(tmp["wt"])
+    sum_wts_squared += np.sum(tmp["wt"]**2)
+
+    # Get histograms
+    for col, bins in options["bins"].items():
+      hist, _ = np.histogram(tmp[col], bins=bins, weights=tmp["wt"])
+      hist_squared, _ = np.histogram(tmp[col], bins=bins, weights=tmp["wt"]**2)
+      hists[col] = hist
+      hists_squared[col] = hist_squared
+
+    # Define out
+    out_list = [sum_wts, sum_wts_squared, hists, hists_squared]
+    if out is None:
+      return out_list
+    else:
+      out[0] += sum_wts
+      out[1] += sum_wts_squared
+      for col in hists:
+        out[2][col] = [out[2][col][j] + hists[col][j] for j in range(len(hists[col]))]
+      for col in hists_squared:
+        out[3][col] = [out[3][col][j] + hists_squared[col][j] for j in range(len(hists_squared[col]))]
+
+    return out
+
+
   def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[], category=None):
     """
     Plot the reweighting of the samples.
@@ -323,7 +400,8 @@ class top_bw_fractions():
         "wt_name" : "wt",
         "selection" : selection,
         "functions" : functions
-      }
+      },
+      use_pbar = True
     )
 
     # calculate weight
@@ -334,12 +412,140 @@ class top_bw_fractions():
       return df
     apply_wt_partial = partial(apply_wt, wt_func=wt_func)
 
-    unique = dp.GetFull(method="unique")
+    print(f"- Getting unique values of {self.mass_name} for plotting")
+    unique = dp.GetFull(method="unique", columns=[self.mass_name])[self.mass_name]
 
     plot_columns = [self.gen_mass] + GetVariables(LoadConfig(self.cfg), category=category)
     if self.gen_mass_other is not None:
       plot_columns.append(self.gen_mass_other)
 
+    print(f"- Getting bins for plotting")
+    bins = dp.GetFull(
+      method="bins_with_equal_spacing", 
+      bins=40,
+      columns=plot_columns,
+      ignore_quantile=0.02,
+      functions_to_apply = [apply_wt_partial]
+    )
+
+    print(f"- Getting per mass information for plotting")
+    per_mass_info = dp.GetFull(
+      method="custom",
+      custom=self._custom_info_apply_wt,
+      custom_options={
+        "unique" : unique,
+        "bins" : {col: bins[ind] for ind, col in enumerate(plot_columns)},
+        "transformed_from_name" : self.mass_name,
+      },
+      functions_to_apply = [apply_wt_partial]
+    )
+
+    reweighted_info = []
+    for i, mass in enumerate(unique):
+      print(f"- Getting reweighted information for mass: {mass}")
+      reweighted_info.append(dp.GetFull(
+        method="custom",
+        custom=self._custom_info_reweighted,
+        custom_options={
+          "bins" : {col: bins[ind] for ind, col in enumerate(plot_columns)}
+        },
+        functions_to_apply=[
+          apply_wt_partial,
+          partial(self._ApplyBWReweight,m=mass),partial(self._ApplyFractions, fractions=normalised_fractions[mass])
+        ]
+      ))
+
+
+    # print out the effective events before and after reweighting
+    for i, mass in enumerate(unique):
+      # sum of weights all squared divided by sum of weights squared
+      n_eff_before = (per_mass_info[0][i]**2) / per_mass_info[1][i] if per_mass_info[1][i] > 0 else 0.0
+      n_eff_after = (reweighted_info[i][0]**2) / reweighted_info[i][1] if reweighted_info[i][1] > 0 else 0.0
+
+      print(f"Mass: {mass}, n_eff before: {n_eff_before}, n_eff after: {n_eff_after}")
+
+    # Make histograms for each column and plot them
+    for ind, col in enumerate(plot_columns):
+
+      colour_list = sns.color_palette("Set2", len(unique))
+
+      hists = []
+      hist_names = []
+      hist_uncerts = []
+      drawstyles = []
+      colours = []
+      error_bar_hists = []
+      error_bar_hist_uncerts = []
+      error_bar_hist_names = []
+
+      for i, mass in enumerate(unique):
+
+        var_hist = np.array(per_mass_info[2][i][col])
+        var_hist_uncert = np.sqrt(np.array(per_mass_info[3][i][col]))
+
+        integral = np.sum(var_hist*(bins[ind][1]-bins[ind][0]))
+        var_hist /= integral
+        var_hist_uncert /= integral
+        hists.append(var_hist)
+        hist_uncerts.append(var_hist_uncert)
+        if i == 0:
+          hist_names.append(r"Nominal ($m_{t}$ = " + f"{mass} GeV)")
+        else:
+          hist_names.append(r"$m_{t}$ = " + f"{mass} GeV")
+        drawstyles.append("steps-mid")
+        colours.append(colour_list[i])
+
+        bw_reweighted_hist = np.array(reweighted_info[i][2][col])
+        bw_reweighted_hist_uncert = np.sqrt(np.array(reweighted_info[i][3][col]))
+
+        integral = np.sum(bw_reweighted_hist*(bins[ind][1]-bins[ind][0]))
+        bw_reweighted_hist /= integral
+        bw_reweighted_hist_uncert /= integral
+        error_bar_hists.append(bw_reweighted_hist)
+        error_bar_hist_uncerts.append(bw_reweighted_hist_uncert)
+        if i == 0:
+          error_bar_hist_names.append(r"BW ($m_{t}$ = " + f"{mass} GeV)")
+        else:
+          error_bar_hist_names.append(None)
+
+      MakeDirectories(self.plot_dir)
+
+      if extra_name is not None:
+        plot_name = f"{self.plot_dir}/bw_reweighted_{col}_{extra_name}"
+      else:
+        plot_name = f"{self.plot_dir}/bw_reweighted_{col}"
+
+
+      plot_histograms(
+        np.array(bins[ind][:-1]), 
+        hists, 
+        hist_names, 
+        hist_errs = hist_uncerts,
+        error_bar_hists = error_bar_hists,
+        error_bar_hist_errs = error_bar_hist_uncerts,
+        error_bar_names = error_bar_hist_names,
+        drawstyle=drawstyles, 
+        colors=colours, 
+        name=plot_name, 
+        x_label=col, 
+        y_label="Density"
+      )
+
+      plot_histograms_with_ratio(
+        [[error_bar_hists[ind], hists[ind]] for ind in range(len(hists))[::-1]],
+        [[error_bar_hist_uncerts[ind], hist_uncerts[ind]] for ind in range(len(hists))[::-1]],
+        [[error_bar_hist_names[ind], hist_names[ind]] for ind in range(len(hists))[::-1]],
+        np.array(bins[ind]),
+        xlabel = col,
+        ylabel = "Density",
+        name = plot_name + "_ratio",
+        ratio_range = [0.9,1.1],
+        draw_error_bars = True,
+      )
+
+
+
+    """
     for col in plot_columns:
       
       hists = []
@@ -359,10 +565,10 @@ class top_bw_fractions():
         functions_to_apply = [apply_wt_partial]
       )
 
-      colour_list = sns.color_palette("Set2", len(unique[self.mass_name]))
+      colour_list = sns.color_palette("Set2", len(unique))
 
 
-      for i, mass in enumerate(unique[self.mass_name]):
+      for i, mass in enumerate(unique):
 
         # Get number of effective events before and after
         if col == plot_columns[0]:
@@ -454,7 +660,8 @@ class top_bw_fractions():
         ratio_range = [0.9,1.1],
         draw_error_bars = True,
       )
-
+    """
+      
 
   def Configure(self, options):
     """

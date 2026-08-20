@@ -12,7 +12,7 @@ from functools import partial
 
 from data_loader import DataLoader
 from data_processor import DataProcessor
-from useful_functions import GetCategoryLoop, GetParametersInModel, GetVariables, MakeDirectories, LoadConfig
+from useful_functions import GetCategoryLoop, GetParametersInModel, GetVariables, MakeDirectories, LoadConfig, ProcessFunction
 from write_parquet import WriteParquet
 
 pd.options.mode.chained_assignment = None
@@ -33,6 +33,7 @@ class LoadData():
     self.data_output = "data/"
     self.batch_size = None
     self.columns = []
+    self.classes = {}
 
 
   def _GetTokens(self, input):
@@ -147,7 +148,7 @@ class LoadData():
 
     self.columns = sorted(list(set(self.columns)))  # Remove duplicates
 
-    
+
   def _MakeFiles(self, file_name, file_info):
 
     if self.verbose:
@@ -204,6 +205,12 @@ class LoadData():
             else:
               raise ValueError(f"Unknown type for extra column {extra_col_name}: {type(extra_col_value)}")
 
+        # Add missing columns with nans
+        if "add_missing_columns_with_nans" in file_info.keys():
+          for extra_col_name in file_info["add_missing_columns_with_nans"]:
+            if extra_col_name not in df.columns:
+              df = df.assign(**{extra_col_name: np.nan})
+
         # Post add column selection
         if "post_add_column_selection" in file_info.keys():
           if file_info["post_add_column_selection"] is not None:
@@ -217,28 +224,9 @@ class LoadData():
         # Keep only required columns
         df = df.loc[:, self.columns]
     
-        # Removing nans
-        nan_rows = df[df.isna().any(axis=1)]
-        if len(nan_rows) > 0:
-          if self.verbose:
-            print(f"Removing {len(nan_rows)}/{len(df)} rows with NaNs")
-          df = df.dropna()
-
-        # Set type
-        df = df.astype(np.float64)
-
         # Apply pre_calculate functions
         for k, v in file_info.get("pre_calculate", {}).items():
-          if isinstance(v, str):
-            df.loc[:,k] = df.eval(v)
-          elif isinstance(v, dict):
-            if v["type"] == "function":
-              module = importlib.import_module(v["file"])
-              func_full = getattr(module, v["name"])
-              func = partial(func_full, **v["args"])
-              df = func(df)
-            else:
-              raise ValueError(f"Unknown pre_calculate type: {v['type']}")
+          df, self.classes = ProcessFunction(df, k, v, self.classes)
 
         ## Remove negative weights
         #if "remove_negative_weights" in file_info.keys():
@@ -248,6 +236,16 @@ class LoadData():
         #      if self.verbose: 
         #        print(f"Total negative weights: {len(df[neg_weight_rows])}/{len(df)} = {round(len(df[neg_weight_rows])/len(df),4)}")
         #      df = df[~neg_weight_rows]
+
+        # Removing nans
+        nan_rows = df[df.isna().any(axis=1)]
+        if len(nan_rows) > 0:
+          if self.verbose:
+            print(f"Removing {len(nan_rows)}/{len(df)} rows with NaNs")
+          df = df.dropna()
+
+        # Set type
+        df = df.astype(np.float64)
 
         # Write dataset
         wp(df)

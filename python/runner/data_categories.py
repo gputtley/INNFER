@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 
 from data_processor import DataProcessor
 from functools import partial
-from useful_functions import MakeDirectories
+from useful_functions import MakeDirectories, ProcessFunction
 from write_parquet import WriteParquet
 
 class DataCategories():
@@ -25,6 +25,8 @@ class DataCategories():
     self.add_columns = {}
     self.calculate = {}
     self.binned_fit_input = None
+
+    self.classes = {}
 
   def Configure(self, options):
     """
@@ -51,15 +53,16 @@ class DataCategories():
 
   def _Calculate(self, df):
     for name, value in self.calculate.items():
-      if isinstance(value, str):
-        df[name] = df.eval(value)
-      elif isinstance(value, dict):
-        if value["type"] == "function":
-          module = importlib.import_module(value["file"])
-          func = getattr(module, value["name"])
-          df = func(df, **value["args"])
-      else:
-        raise ValueError(f"Calculate type {type(value)} not recognised")
+      df, self.classes = ProcessFunction(df, name, value, self.classes)
+      #if isinstance(value, str):
+      #  df[name] = df.eval(value)
+      #elif isinstance(value, dict):
+      #  if value["type"] == "function":
+      #    module = importlib.import_module(value["file"])
+      #    func = getattr(module, value["name"])
+      #    df = func(df, **value["args"])
+      #else:
+      #  raise ValueError(f"Calculate type {type(value)} not recognised")
     return df
 
 

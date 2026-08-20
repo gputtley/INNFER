@@ -58,7 +58,7 @@ class Summary():
       for col in self.column_loop:
 
         if not self.use_scenario_labels:
-          name = ", ".join([f"{Translate(k)}={v}" for k, v in info.items()])
+          name = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in info.items()])
         else:
           name = f"Scenario {ind+1}"  
 

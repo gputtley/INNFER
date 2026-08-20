@@ -39,6 +39,7 @@ from useful_functions import (
     LoadConfig,
     MakeDictionaryEntry,
     MakeDirectories,
+    ProcessFunction,
     SampleFlatTop
 )
 
@@ -90,6 +91,7 @@ class PreProcess():
 
     # Stores
     self.parameters = {}
+    self.classes = {}
 
   def _ApplyShifts(self, tmp, shifts):
 
@@ -175,15 +177,25 @@ class PreProcess():
 
     # do precalculate
     for pre_calc_col_name, pre_calc_col_value in calculate.items():
-      if isinstance(pre_calc_col_value, str):
-        df[pre_calc_col_name] = df.eval(pre_calc_col_value)
-      elif isinstance(pre_calc_col_value, dict):
-        if pre_calc_col_value["type"] == "function":
-          module = importlib.import_module(pre_calc_col_value["file"])
-          func = getattr(module, pre_calc_col_value["name"])
-          df = func(df, **pre_calc_col_value["args"])
-      else:
-        raise ValueError(f"Pre calculate type {type(pre_calc_col_value)} not recognised")
+      df, self.classes = ProcessFunction(df, pre_calc_col_name, pre_calc_col_value, self.classes)
+      #if isinstance(pre_calc_col_value, str):
+      #  df[pre_calc_col_name] = df.eval(pre_calc_col_value)
+      #elif isinstance(pre_calc_col_value, dict):
+      #  if pre_calc_col_value["type"] == "function":
+      #    module = importlib.import_module(pre_calc_col_value["file"])
+      #    func = getattr(module, pre_calc_col_value["name"])
+      #    df = func(df, **pre_calc_col_value["args"])
+      #  elif pre_calc_col_value["type"] == "class":
+      #    class_name = f"{pre_calc_col_value['file']}_{pre_calc_col_value['name']}"
+      #    if class_name not in self.classes.keys():
+      #      module = importlib.import_module(pre_calc_col_value["file"])
+      #      self.classes[class_name] = getattr(module, pre_calc_col_value["name"])
+      #    processor = self.classes[class_name](**pre_calc_col_value.get("args", {}))
+      #    df = processor(df)
+      #  else:
+      #    raise ValueError(f"Pre calculate type {pre_calc_col_value['type']} not recognised")
+      #else:
+      #  raise ValueError(f"Pre calculate type {type(pre_calc_col_value)} not recognised")
 
     # Apply post selection
     if post_calculate_selection is not None:

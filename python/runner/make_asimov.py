@@ -150,15 +150,12 @@ class MakeAsimov():
         "scale" : total_yield,
       }
     )
-    #def add_truth(df, Y):
-    #  for k,v in Y.items():
-    #    df.loc[:,k] = v
-    #  return df
 
     def add_truth(df, Y):
       return df.assign(**Y)
 
     functions_to_apply = []
+
     if self.add_truth:
       functions_to_apply += [partial(add_truth, Y=model_parameters)]
 
@@ -173,6 +170,7 @@ class MakeAsimov():
       functions_to_apply = functions_to_apply
     )
     wp.collect()
+
 
     if not self.only_density:
 

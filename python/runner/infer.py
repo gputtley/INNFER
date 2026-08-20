@@ -94,6 +94,7 @@ class Infer():
     self.binned_from_predicted_bins = False
     self.binned_data_file = None
     self.classifier_divide_by_nominal = False
+    self.use_integral_scaling = None
 
 
   def Configure(self, options):
@@ -419,6 +420,7 @@ class Infer():
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
         method="approximate",
         scan_over=hessian["matrix_columns"],
+        freeze=self.freeze,
       )
 
     elif self.method == "ScanPointsFromHessian":
@@ -441,6 +443,7 @@ class Infer():
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
         method="hessian",
         scan_over=hessian["matrix_columns"],
+        freeze=self.freeze,
       )
 
     elif self.method == "ScanPointsFromInput":
@@ -458,14 +461,15 @@ class Infer():
 
       points = [float(i) for i in np.linspace(float(numbers[0]), float(numbers[1]), int(self.number_of_scan_points))]
 
-
       # Make scan ranges
       self.lkld.GetAndWriteScanRangesToYaml(
         self.lkld_input, 
         self.column,
         row=self.true_Y,
         filename=f"{self.data_output}/scan_ranges_{self.column}{self.extra_file_name}.yaml",
-        scan_values=points
+        scan_values=points,
+        scan_over=self.Y_columns,
+        freeze=self.freeze,
       )
 
 
@@ -623,8 +627,9 @@ class Infer():
               if not self.integrate_density_with_ratios:
                 inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
               if self.prune_classifier_models is not None:
-                if k in self.prune_classifier_models.keys():
-                  inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
+                if cat in self.classifier_pruning_files.keys():
+                  if k in self.classifier_pruning_files[cat].keys():
+                    inputs += [self.classifier_pruning_files[cat][k][vi['parameter']]]
           
     elif self.likelihood_type in ["binned", "binned_extended"]:
 
@@ -1211,6 +1216,16 @@ class Infer():
     lkld.integrate_density_with_ratios = self.integrate_density_with_ratios
     lkld.no_print_minimisation_step = self.no_likelihood_print_out
     lkld.n_integral_events = self.n_integral_events
+    if self.use_integral_scaling is not None and self.likelihood_type in ["unbinned_extended","unbinned"] and self.integrate_density_with_ratios:
+      n_integral_events_split = {}
+      for cat, par in self.parameters.items():
+        n_integral_events_split[cat] = {}
+        for k, v in par.items():
+          with open(v, 'r') as yaml_file:
+            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          n_integral_events_split[cat][k] = int(parameters["yields"]["nominal"] * self.use_integral_scaling)
+      lkld.n_integral_events_split = n_integral_events_split
+
     lkld.integral_events_per_batch = int(os.getenv("EVENTS_PER_BATCH"))
     lkld.classifier_divide_by_nominal = self.classifier_divide_by_nominal
 

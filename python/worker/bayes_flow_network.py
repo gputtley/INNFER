@@ -87,6 +87,7 @@ class BayesFlowNetwork():
     self.patience = 3
     self.tolerance = 0.02
     self.wait_till = 5
+    self.trainable_cl_per_epoch = None
 
     # Other
     self.disable_tqdm = False
@@ -112,6 +113,7 @@ class BayesFlowNetwork():
     # Data parquet files
     if X_train is not None:
       self.X_train = DataLoader(X_train, batch_size=self.batch_size)
+      #self.X_train = DataLoader(X_train.replace("X_","forward_"), batch_size=self.batch_size)
     else:
       self.X_train = None
     if Y_train is not None:
@@ -124,6 +126,7 @@ class BayesFlowNetwork():
       self.wt_train = None
     if X_test is not None:
       self.X_test = DataLoader(X_test, batch_size=self.batch_size)
+      #self.X_test = DataLoader(X_test.replace("X_","forward_"), batch_size=self.batch_size)
     else:
       self.X_test = None
     if Y_test is not None:
@@ -145,8 +148,11 @@ class BayesFlowNetwork():
     if not self.graph_mode:
       tf.config.optimizer.set_jit(True)
     self.length_batch = None
-
     self._compute_log_prob = None
+    self.use_gaussian_cache = True
+    self.gaussian_cache_list = []
+    self.gaussian_cache = []
+
 
 
   def _SetOptions(self, options):
@@ -297,6 +303,8 @@ class BayesFlowNetwork():
 
   @tf.function(reduce_retracing=True)
   def inverse_fast(self, gaussian, direct_conditions):
+    gaussian = tf.cast(gaussian, tf.float32)
+    direct_conditions = tf.cast(direct_conditions, tf.float32)
     return self.amortizer.inference_net.inverse(gaussian, direct_conditions)
 
   def compute_log_prob(self, parameters, direct_conditions):
@@ -676,7 +684,7 @@ class BayesFlowNetwork():
     return Y[self.data_parameters["Y_columns"]]
 
 
-  def Sample(self, Y, n_events, seed=None):
+  def Sample(self, Y, n_events, seed=None, batch_number=None, batch_size=None):
     """
     Generate synthetic data samples based on given conditions.
 
@@ -722,6 +730,7 @@ class BayesFlowNetwork():
 
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
 
+
     # Set up bayesflow dictionary
     batch_data = {
       "direct_conditions" : Y.to_numpy().astype(np.float32)
@@ -729,9 +738,38 @@ class BayesFlowNetwork():
 
     # Get samples
     #st = time.time()
-    if seed is not None:
-      seed = tf.constant([seed, 456], dtype=tf.int32)
-    gaussian = self.amortizer.latent_dist.sample(n_events, seed=seed)
+
+    if batch_number is None:
+      
+      if seed is not None:
+        seed = tf.constant([seed, 456], dtype=tf.int32)
+      gaussian = self.amortizer.latent_dist.sample(n_events, seed=seed)
+
+    else:
+
+      ## Batched independent sampling from the latent distribution using stateless random operations
+      if seed is None:
+        seed = 0
+      if batch_size is None:
+        batch_size = n_events
+      start_index = batch_number * batch_size
+
+      cache_dict = {
+        "seed" : seed,
+        "start_index" : start_index,
+        "n_events": n_events,
+      }
+
+      if not cache_dict in self.gaussian_cache_list:
+        gaussian = self.sample_latents(self.amortizer.latent_dist, seed, start_index, n_events)
+        if self.use_gaussian_cache:
+          self.gaussian_cache_list.append(cache_dict)
+          self.gaussian_cache.append(gaussian)
+      else:
+        index = self.gaussian_cache_list.index(cache_dict)
+        gaussian = self.gaussian_cache[index]
+
+
     #print(f"Sampling from latent distribution took {time.time()-st} seconds.")
     #st = time.time()
     #synth = self.amortizer.inference_net.inverse(gaussian, batch_data["direct_conditions"])
@@ -740,13 +778,15 @@ class BayesFlowNetwork():
 
     #synth = self.amortizer.sample(batch_data, 1, seed=seed)[:,0,:]
 
-    if not self.fix_1d:
-      synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
-    else:
-      synth_df = pd.DataFrame(synth[:,0], columns=self.data_parameters["X_columns"])
-    total_nans = synth_df.isna().sum().sum()
-    if total_nans > 0:
-      synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
+    # Not sure what this code was trying to do?
+    #if not self.fix_1d:
+    #  synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
+    #else:
+    #  synth_df = pd.DataFrame(synth[:,0], columns=self.data_parameters["X_columns"])
+    #total_nans = synth_df.isna().sum().sum()
+    #print(synth_df)
+    #if total_nans > 0:
+    #  synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
 
     # Fix 1d couplings
     if self.fix_1d:
@@ -812,6 +852,7 @@ class BayesFlowNetwork():
       patience=self.patience,
       tolerance=self.tolerance,
       wait_till=self.wait_till,
+      trainable_cl_per_epoch=self.trainable_cl_per_epoch
     )
 
     if self.plot_loss:
@@ -844,4 +885,37 @@ class BayesFlowNetwork():
         name = f"{self.plot_dir}/learning_rate",
         x_label = "Epochs",
         y_label = "Learning Rate"
+      )
+
+  @tf.function(jit_compile=True)
+  def sample_latents(
+      self,
+      latent_dist,
+      seed,
+      start_index,
+      n_events,
+  ):
+      master_seed = tf.stack([
+          tf.cast(seed, tf.int32),
+          tf.constant(456, tf.int32),
+      ])
+
+      event_indices = tf.range(
+          start_index,
+          start_index + n_events,
+          dtype=tf.int32,
+      )
+
+      def sample_event(event_index):
+          event_seed = tf.random.experimental.stateless_fold_in(
+              master_seed,
+              event_index,
+          )
+
+          return latent_dist.sample(seed=event_seed)
+
+      return tf.vectorized_map(
+          sample_event,
+          event_indices,
+          #fallback_to_while_loop=False,
       )

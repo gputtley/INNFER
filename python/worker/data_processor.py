@@ -324,18 +324,50 @@ class DataProcessor():
       eff_events.drop(["sum_w"], axis=1, inplace=True)
       eff_events["eff_events"] = np.where(sum_wts_squared["sum_w2"] == 0, 0, eff_events["eff_events"] / sum_wts_squared["sum_w2"])
       return eff_events
+    
     elif method == "bins_with_equal_spacing": # Get equally spaced bins
-      if not ignore_discrete:
-        unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
-      else:
-        unique = None
-      if unique is not None: # Discrete bins
-        unique = sorted(unique)
-        return np.array(unique + [2*unique[-1] - unique[-2]])
-      else:
-        return np.linspace(self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=ignore_quantile), self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=1-ignore_quantile), num=bins+1)
+
+      if column is not None:
+
+        if not ignore_discrete:
+          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column])[column]
+        else:
+          unique = None
+        if unique is not None: # Discrete bins
+          unique = sorted(unique)
+          bins_out = np.array(unique + [2*unique[-1] - unique[-2]])
+        else:
+          quantiles = self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=[ignore_quantile, 1-ignore_quantile])
+          bins_out = np.linspace(quantiles[0], quantiles[-1], num=bins+1)
+
+      elif columns != []:
+
+        if not ignore_discrete:
+          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=columns)
+        else:
+          unique = {k: None for k in columns}
+
+        discrete_columns = [col for col in columns if unique[col] is not None]
+        continuous_columns = [col for col in columns if unique[col] is None]
+
+        bins_out_dict = {}
+        if len(discrete_columns) > 0:
+          for col in discrete_columns:
+            unique_col = sorted(unique[col])
+            bins_out_dict[col] = np.array(unique_col + [2*unique_col[-1] - unique_col[-2]])
+
+        if len(continuous_columns) > 0:
+          quantiles_for_columns = self.GetFull(method="quantiles_for_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, columns=continuous_columns, quantiles=[ignore_quantile, 1-ignore_quantile])
+          for col in continuous_columns:
+            bins_out_dict[col] = np.linspace(quantiles_for_columns[0][col], quantiles_for_columns[1][col], num=bins+1)
+
+        bins_out = [bins_out_dict[col] for col in columns]
+
+      return bins_out
+
+
     elif method == "bins_with_equal_stats": # Get equal stat bins
-      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins)[column]
+      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column])[column]
       if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
         return np.array(unique + [2*unique[-1] - unique[-2]])
@@ -420,11 +452,13 @@ class DataProcessor():
         elif method in ["std"]: # find partial information for std of columns
           out = self._method_part_std(tmp, out, means)
         elif method in ["unique"]: # find unique values of a column
-          out = self._method_unique(tmp, out, unique_threshold)
+          out = self._method_unique(tmp, out, unique_threshold, columns)
         elif method in ["quantile"]: # find a quantile of the dataset
           out = self._method_part_quantile(tmp, out, column, quantile)
         elif method in ["quantiles"]: # find quantiles of the dataset
           out = self._method_part_quantiles(tmp, out, column, quantiles)
+        elif method in ["quantiles_for_columns"]: # find quantiles of the dataset with columns
+          out = self._method_part_quantiles_for_columns(tmp, out, columns, quantiles)
         elif method in ["min_max"]: # find min and max of columns
           out = self._method_min_max(tmp, out)
         elif method in ["custom"]: # custom function
@@ -462,9 +496,11 @@ class DataProcessor():
       return out[0]/sum_wt, out[1]/sum_wt, out[2]
     elif method == "quantile": # return only average quantile
       return out[0]
-    elif method == "quantiles": # return only average quantiles
+    elif method in ["quantiles"]: # return only average quantiles
       return [out[i][0] for i in range(len(out))]
-
+    elif method in ["quantiles_for_columns"]: # return only average quantiles
+      return [{col: out[i][col][0] for col in columns} for i in range(len(out))]
+  
     return out
 
 
@@ -1082,9 +1118,10 @@ class DataProcessor():
     return out
 
 
-  def _method_unique(self, tmp, out, unique_threshold=20):
+  def _method_unique(self, tmp, out, unique_threshold=20, columns=[]):
     tmp_unique = {}
     for col in tmp.columns:
+      if columns != [] and col not in columns: continue
       if col == self.wt_name: continue
       unique = [float(i) for i in np.unique(tmp[col])]
       if unique is None:
@@ -1174,6 +1211,31 @@ class DataProcessor():
         out_unit = out[quant_ind]
 
       out_unit = self._method_part_quantile(tmp, out_unit, column, quantile)
+
+      if len(out) <= quant_ind:
+        out.append(out_unit)
+      else:
+        out[quant_ind] = out_unit
+
+    return out
+
+  def _method_part_quantiles_for_columns(self, tmp, out, columns, quantiles):
+
+    if out is None:
+      out = []
+
+    for quant_ind, quantile in enumerate(quantiles):
+
+      if len(out) <= quant_ind:
+        out_unit = None
+      else:
+        out_unit = out[quant_ind]
+
+      if out_unit is None:
+        out_unit = {}
+
+      for col in columns:
+        out_unit[col] = self._method_part_quantile(tmp, out_unit[col] if col in out_unit else None, col, quantile)
 
       if len(out) <= quant_ind:
         out.append(out_unit)

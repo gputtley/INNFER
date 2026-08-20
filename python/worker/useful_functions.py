@@ -264,7 +264,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "n_integral_events": args.number_of_integral_events,
     "binned_from_predicted_bins": binned_observed_from_predicted,
     "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
-    "other_input_files": other_input_files
+    "other_input_files": other_input_files,
+    "use_integral_scaling": args.use_integral_scaling
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -1794,6 +1795,30 @@ def LoadConfig(config_name):
     raise ValueError("Default value needs to be in the validation loop")
   
   return cfg
+
+
+def ProcessFunction(df, k, v, classes={}):
+
+  if isinstance(v, str):
+    df.loc[:,k] = df.eval(v)
+  elif isinstance(v, dict):
+    if v["type"] == "function":
+      module = importlib.import_module(v["file"])
+      func = getattr(module, v["name"])
+      df = func(df, **v["args"])
+    elif v["type"] == "class":
+      class_name = f"{v['file']}_{v['name']}"
+      if class_name not in classes.keys():
+        module = importlib.import_module(v["file"])
+        cls = getattr(module, v["name"])
+        classes[class_name] = cls()
+      df = classes[class_name](df, **v.get("args", {}))
+    else:
+      raise ValueError(f"Unknown value type name: {v['type']}")
+  else:
+    raise ValueError(f"Unknown value type: {type(v)}")
+
+  return df, classes
 
 
 def MakeDictionaryEntry(dictionary, keys, val):
