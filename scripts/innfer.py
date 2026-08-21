@@ -1625,7 +1625,7 @@ def main(args, default_args, module_options={}):
   if args.step == "GeneratorSummary":
     print("<< Making plots using the network as a generator summarising all Y values >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      validation_loop = [val_info for val_info in GetValidationLoop(cfg, file_name) if not SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density) and not SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data"))]
+      validation_loop = [val_info for val_info in GetValidationLoop(cfg, file_name) if not SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density) or not SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data"))]
       for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "generator_summary",

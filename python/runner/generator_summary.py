@@ -59,7 +59,6 @@ class GeneratorSummary():
       else:
         val_loop.append(val_info)
 
-
     if self.verbose:
       print("- Making dataprocessors")    
     sim_dps = {}
