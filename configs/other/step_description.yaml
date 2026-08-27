@@ -28,6 +28,7 @@ HyperparameterScan: This will perform a hyperparameter scan based on a scan arch
 HyperparameterScanCollect: Collects the best-performing model from a hyperparameter scan.
 BayesianHyperparameterTuning: Performs Bayesian hyperparameter tuning using a specified architecture. Supports logging with wandb in the same way `HyperparameterScan` does.
 Flow: Visualizes the flow of the network through coupling layers.
+CalibrationPlot: Checks whether the density model's likelihood ratio between a test mass hypothesis and the reference mass point is calibrated, by binning MC truth events by likelihood ratio and comparing the observed fraction per bin to the likelihood ratio value.
 Generator: Uses the network as a generator to create plots comparing network outputs to input simulations. Supports 1D and 2D unrolled plots.
 GeneratorSummary: Creates summary plots comparing simulations and network-generated outputs across all unique Y values.
 LikelihoodDebug: Debugs likelihood calculations for specific parameter values. It allows you to evaluate the likelihood with the parameter values given by the `--other-input` option.
