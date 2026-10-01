@@ -33,6 +33,7 @@ class TrainDensity():
     self.model_type = "BayesFlow"
     self.load_weights_for_training = None
 
+
   def Configure(self, options):
     """
     Configure the class settings.
@@ -43,10 +44,12 @@ class TrainDensity():
     for key, value in options.items():
       setattr(self, key, value)
 
+
   def Run(self):
     """
     Run the code utilising the worker classes
     """
+
     # Open parameters
     if self.verbose:
       print("- Loading in the parameters")
@@ -135,6 +138,9 @@ class TrainDensity():
       f"{self.data_input}/Y_{self.test_name}.parquet", 
       f"{self.data_input}/wt_{self.test_name}.parquet",
     ]
+
+    if self.load_weights_for_training is not None:
+      inputs.append(self.load_weights_for_training)
 
     return inputs
 

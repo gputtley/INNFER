@@ -85,7 +85,7 @@ class PlotClassifier():
         sels = {"Inclusive": "1==1"}
         names = {"Inclusive": "inclusive"}
         for i in range(len(cond_bins)-1):
-          name = rf"{RoundToSF(cond_bins[i],2)} $\leq$ {Translate(self.parameter)} < {RoundToSF(cond_bins[i+1],2)}"
+          name = rf"{RoundToSF(cond_bins[i],2)} $\leq$ {Translate(self.parameter, only_val=True)} < {RoundToSF(cond_bins[i+1],2)}{Translate(self.parameter, only_unit=True)}"
           sels[name] = f"(({self.parameter} >= {cond_bins[i]}) & ({self.parameter} < {cond_bins[i+1]}))"
           names[name] = f"bin_{i}"
 

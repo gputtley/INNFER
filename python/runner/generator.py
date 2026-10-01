@@ -67,7 +67,7 @@ class Generator():
     if self.no_text:
       val_ind_text = ""
     else:
-      val_ind_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+      val_ind_text = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
 
 
     params = {}
@@ -129,7 +129,7 @@ class Generator():
     for extra_hypothesis_file in self.extra_hypothesis_files:
       if self.verbose:
         print(f"- Making data processor for extra hypothesis {extra_hypothesis_file['hypothesis']}")
-      name = ", ".join([f"{Translate(k)}={v}" for k,v in extra_hypothesis_file["hypothesis"].items()])
+      name = ", ".join([f"{Translate(k, only_val=True)}={v}{Translate(k, only_unit=True)}" for k,v in extra_hypothesis_file["hypothesis"].items()])
       extra_hypothesis_dps[name] = DataProcessor(
         extra_hypothesis_file['files'],
         "parquet",

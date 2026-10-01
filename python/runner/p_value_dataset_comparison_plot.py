@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 
 from plotting import plot_histograms
-from useful_functions import FindKeysAndValuesInDictionaries
+from useful_functions import FindKeysAndValuesInDictionaries, Translate
 
 class PValueDatasetComparisonPlot():
 
@@ -14,6 +14,7 @@ class PValueDatasetComparisonPlot():
     self.synth_vs_synth_input = "data/"
     self.sim_vs_synth_input = "data/"
     self.plots_output = "plots/"
+    self.val_info = {}
     self.verbose = True
 
   def Configure(self, options):
@@ -76,16 +77,22 @@ class PValueDatasetComparisonPlot():
       all_results = np.array(list(synth_vs_synth_results[metric].values()))
       p_value = len(all_results[all_results>val]) / len(all_results)
 
+      # Get hypothesis name
+      hypothesis_name = ""
+      for k, v in self.val_info.items():
+        hypothesis_name += f"{Translate(k, only_val=True)}={v}{Translate(k, only_unit=True)},"
+      hypothesis_name = hypothesis_name.rstrip(',')
+
       # plot the histogram
       if self.verbose:
         print(f"- Plotting the histogram for {metric}")
       plot_histograms(
         bins,
         [hist],
-        [f"{len(all_results)} Synth Vs Synth Bootstraps"],
+        [f"{len(all_results)} Synth Vs Synth Toys"],
         drawstyle = "steps-pre",
         name = f"{self.plots_output}/p_value_dataset_comparison_{metric.replace('.','_')}",
-        x_label = metric,
+        x_label = Translate(metric),
         y_label = "Count",
         anchor_y_at_0 = True,
         vertical_lines = [val],
@@ -96,7 +103,9 @@ class PValueDatasetComparisonPlot():
         fill_between_step = "pre",
         fill_between_color = "blue",
         fill_between_alpha = 0.3,
-        title_right = f"p-value = {round(p_value,2)}"
+        title_right = f"p-value = {round(p_value,2)}",
+        legend_loc = "upper right",
+        axis_text = hypothesis_name,
       )
 
     # Make dummy output empty txt file

@@ -55,6 +55,7 @@ class InnferTrainer(bf.trainers.Trainer):
       model_name = "model.h5",
       save_model_per_epoch = False,
       trainable_cl_per_epoch = None,
+      conditions_on_at_epoch = None,
       **kwargs,
    ):
       """
@@ -139,13 +140,19 @@ class InnferTrainer(bf.trainers.Trainer):
          else:
             _backprop_step_freeze = partial(_backprop_step, trainable_coupling_indices=trainable_cl_per_epoch[ep])
 
+         # randomise conditions based on the current epoch
+         if conditions_on_at_epoch is not None and ep < conditions_on_at_epoch:
+            randomise_conditions = True
+         else:
+            randomise_conditions = False
+
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
 
             #Loop through dataset
             for bi in range(1,X_train.num_batches+1):
 
                # Perform one training step and obtain current loss value
-               input_dict = self._load_batch(X_train, Y_train, wt_train, ep)
+               input_dict = self._load_batch(X_train, Y_train, wt_train, ep, randomise_conditions=randomise_conditions)
                loss = self._train_step(
                   batch_size, 
                   _backprop_step_freeze, 
@@ -153,8 +160,13 @@ class InnferTrainer(bf.trainers.Trainer):
                   **kwargs
                )
 
-               if adaptive_lr_scheduler is not None:
-                  self.optimizer.learning_rate.assign(adaptive_lr_scheduler.update(self.optimizer.learning_rate.numpy(), float(loss)))
+               if adaptive_lr_scheduler is not None and getattr(adaptive_lr_scheduler, "update_on", "batch") == "batch":
+                  current_lr = float(self.optimizer.learning_rate.numpy())
+                  new_lr = adaptive_lr_scheduler.update(
+                     current_lr,
+                     loss,
+                  )
+                  self.optimizer.learning_rate.assign(new_lr)
 
                self.loss_history.add_entry(ep, loss)
                avg_dict = self.loss_history.get_running_losses(ep)
@@ -173,6 +185,16 @@ class InnferTrainer(bf.trainers.Trainer):
          print(f"INFO:root:Train, Epoch: {ep}, Loss: {round(float(loss),3)}")
          self.loss_history._total_train_loss.append(float(loss))
          val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
+
+         if adaptive_lr_scheduler is not None and getattr(adaptive_lr_scheduler, "update_on", "batch") == "epoch":
+            current_lr = float(self.optimizer.learning_rate.numpy())
+            new_lr = adaptive_lr_scheduler.update(
+               current_lr,
+               float(val_loss),
+            )
+            self.optimizer.learning_rate.assign(new_lr)
+
+         lr = self._convert_lr(extract_current_lr(self.optimizer))
          self.lr_history.append(lr)
          
          # Save model per epoch
@@ -276,7 +298,7 @@ class InnferTrainer(bf.trainers.Trainer):
          return early_stopper
       return None
    
-   def _load_batch(self, X, Y, wt, ep):
+   def _load_batch(self, X, Y, wt, ep, randomise_conditions=False):
       """
       Helper method to resample batches based off weights.
 
@@ -299,6 +321,9 @@ class InnferTrainer(bf.trainers.Trainer):
          (X_data, Y_data), wt_data = Resample([X_data, Y_data], wt_data, method="oversample", keep_weights=False, sample_size="length", total_scale="sum_weights")
       if Y_data.shape[1] == 0:
          Y_data = np.empty((X_data.shape[0],0))
+      if randomise_conditions:
+         Y_data = Y_data[np.random.permutation(Y_data.shape[0]), :]
+
       return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):

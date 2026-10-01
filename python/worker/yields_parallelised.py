@@ -59,10 +59,11 @@ class Yields:
   def GetYield(self, Y):
 
     if len(Y) == 0:
-      return pd.DataFrame(
-          [self.nominal_yields],
-          columns=[f"yield_{i}" for i in range(self.n_models)]
-        )
+      #return pd.DataFrame(
+      #    [self.nominal_yields],
+      #    columns=[f"yield_{i}" for i in range(self.n_models)]
+      #  )
+      return self.nominal_yields
 
     Y = Y.reset_index(drop=True)
 

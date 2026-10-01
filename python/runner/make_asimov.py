@@ -39,7 +39,6 @@ class MakeAsimov():
     self.seed = 42
     self.val_info = {}
     self.only_density = False
-    self.Y = None
     self.add_truth = False
     self.scale_to_one = False
     self.extra_density_model_name = ""
@@ -51,6 +50,8 @@ class MakeAsimov():
     self.verbose = True
     self.skip_spline = False
     self.classifier_divide_by_nominal = False
+    self.scale_up = 1.2
+    self.drop_wt = False
 
 
   def Configure(self, options):
@@ -128,17 +129,16 @@ class MakeAsimov():
     network.Load(name=f"{density_model_name}.h5")
 
     if self.use_asimov_scaling is None:
-      n_events = self.n_asimov_events
+      n_events_before = self.n_asimov_events
     else:
-      n_events = int(np.ceil(total_yield*self.use_asimov_scaling))
+      n_events_before = int(np.ceil(total_yield*self.use_asimov_scaling))
+
+    n_events = int(np.ceil(n_events_before*self.scale_up))
 
     # Sample from density model
     if self.verbose:
       print(f"- Sampling from density network")
-    if self.Y is not None:
-      Y = self.Y
-    else:
-      Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
+    Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
 
     asimov_writer = DataProcessor(
       [[partial(network.Sample, Y)]],
@@ -248,6 +248,13 @@ class MakeAsimov():
       # Do classifier models
       for classifier_model in self.classifier_models:
 
+        # check model parameter is 0
+        if self.classifier_divide_by_nominal:
+          if classifier_model['parameter'] not in model_parameters:
+            continue
+          if model_parameters[classifier_model['parameter']] == 0:
+            continue
+
         # Check if we need to prune this model
         prune = False
         if self.prune_classifier_models is not None:
@@ -301,7 +308,6 @@ class MakeAsimov():
         else:
           spl = None
 
-
         def apply_classifier(df, func, X_columns, add_columns={}, spl=None, parameter=None, divide_by_nominal=False, nominal_columns={}):
 
           cols_in = list(df.columns)
@@ -354,6 +360,43 @@ class MakeAsimov():
         wp.collect()
         if os.path.isfile(total_wt_shifter_name): os.system(f"mv {total_wt_shifter_name} {asimov_file_name}")
 
+
+    # Select the first n_events_before events from the asimov dataset
+    trim_dps = DataProcessor(
+      [[asimov_file_name]],
+      "parquet"
+    )
+    count_after = trim_dps.GetFull(method="count")
+    if count_after < n_events_before:
+      raise ValueError(f"Not enough events in the asimov dataset: {count_after} available, {n_events_before} required")
+    elif count_after > n_events_before:
+      if self.verbose:
+        print(f"- Trimming the asimov dataset to the first {n_events_before} events")
+      class counter:
+        def __init__(self, n_events_before):
+          self.n_events_before = n_events_before
+          self.count = 0
+        def __call__(self, df):
+          if self.count == self.n_events_before:
+            return df.iloc[:0, :]
+          len_batch = len(df)
+          if self.count + len_batch > self.n_events_before:
+            df = df.iloc[:self.n_events_before - self.count, :]
+          self.count += len(df)
+          return df
+      trim_counter = counter(n_events_before)
+      trim_name = "asimov_first_n_events"
+      wp = WriteParquet(name=trim_name, data_output=self.data_output)
+      trim_dps.GetFull(
+        method = None,
+        functions_to_apply = [
+          trim_counter,
+          wp
+        ]
+      )
+      wp.collect()
+      if os.path.isfile(f"{self.data_output}/{trim_name}.parquet"): os.system(f"mv {self.data_output}/{trim_name}.parquet {asimov_file_name}")
+
     # Rescale back to total yield
     if self.verbose:
       print(f"- Rescaling asimov dataset to total yield")
@@ -370,6 +413,8 @@ class MakeAsimov():
     sum_wt = wt_rescaler.GetFull(method="sum")
     def rescale_wt(df, scale):
       df["wt"] = df["wt"] * scale
+      if self.drop_wt:
+        df = df.drop(columns=["wt"])
       return df
     wt_rescaler.GetFull(
       method = None,
@@ -377,6 +422,15 @@ class MakeAsimov():
     )
     wp.collect()
     if os.path.isfile(total_wt_rescaler_name): os.system(f"mv {total_wt_rescaler_name} {asimov_file_name}")
+
+    # print the total event count
+    if self.verbose:
+      final_dps = DataProcessor(
+        [[asimov_file_name]],
+        "parquet"
+      )
+      final_count = final_dps.GetFull(method="count")
+      print(f"- Total event count in the asimov dataset: {final_count}")
 
 
   def Outputs(self):

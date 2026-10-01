@@ -18,6 +18,7 @@ from scipy.interpolate import CubicSpline, PchipInterpolator
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import minimize
 from scipy.stats import norm
+from scipy.interpolate import UnivariateSpline
 from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
@@ -112,6 +113,7 @@ class PreProcess():
       else:
         raise ValueError(f"Shift type {v['type']} not recognised")
     return tmp
+
 
   def _GetTokens(self, input):
     tokens = re.findall(r"[A-Za-z_]\w*", input)
@@ -232,6 +234,9 @@ class PreProcess():
     # Remove events with 0 weight
     if nominal_weight is not None:
       df = df.loc[(df["wt"] != 0), :]
+
+    # Reject events back to shifts
+    df = self._RejectEventsBackToShifts(df, shifts)
 
     return df
 
@@ -643,6 +648,11 @@ class PreProcess():
       for wp in wps.values():
         wp.collect(memory_safe=True)
 
+      # Shuffle tha train and test dataset
+      for key in ["train", "test"]:
+        print(f"    - Shuffling dataset: {base_file_name}_{key}")
+        self._DoShuffleDataset([f"{base_file_name}_{key}.parquet"])
+
 
   def _DoWriteModelVariation(self, value, directory, file_name, cfg, extra_dir, extra_name, split_dict, write_parquet=None, keep_write_parquet=False):
 
@@ -697,6 +707,147 @@ class PreProcess():
       wp.collect()
     else:
       return wp
+
+
+  def _RejectEventsBackToShifts(self, df, shifts):
+
+    for k, v in shifts.items():
+
+      n = len(df)
+
+      search_for = "reject_back_to_shift"
+      if not search_for in v.keys():
+        continue
+      if not v[search_for]:
+        continue
+
+      if v["type"] == "continuous":
+        samples = np.random.uniform(v["range"][0], v["range"][1], size=n)   
+      elif v["type"] == "discrete":
+        continue
+      elif v["type"] == "fixed":
+        continue
+      elif v["type"] == "flat_top":
+        sigma_out = 0.1*(v["range"][1]-v["range"][0])
+        if "other" in v.keys():
+          if "sigma_out" in v["other"].keys():
+            sigma_out = v["other"]["sigma_out"]
+        samples = SampleFlatTop(n, (v["range"][0], v["range"][1]), sigma_out)
+      else:
+        raise ValueError(f"Shift type {v['type']} not recognised")
+
+      ignore_quantile = 0.05
+
+      min_bin = np.quantile(samples, ignore_quantile)
+      max_bin = np.quantile(samples, 1.0 - ignore_quantile)
+
+      # Central bins plus one overflow bin on either side.
+      central_edges = np.linspace(min_bin, max_bin, 40)
+      all_edges = np.concatenate((
+        [-np.inf],
+        central_edges,
+        [np.inf],
+      ))
+
+      # Use counts, not densities, because the tail bins have infinite width.
+      sample_hist, _ = np.histogram(
+        samples,
+        bins=all_edges,
+      )
+
+      dataset_hist, _ = np.histogram(
+        df[k],
+        bins=all_edges,
+        #weights=df["wt"],
+      )
+
+      sample_hist = sample_hist.astype(float)
+      dataset_hist = dataset_hist.astype(float)
+
+      sample_hist /= sample_hist.sum()
+      dataset_hist /= dataset_hist.sum()
+
+      # Rejection cannot populate a target bin containing no dataset events.
+      missing_support = (sample_hist > 0) & (dataset_hist <= 0)
+
+      if np.any(missing_support):
+        raise ValueError(
+          f"Cannot reject {k} to the target distribution: "
+          "at least one required bin contains no dataset events."
+        )
+
+      # Bins with zero target probability should have zero acceptance.
+      ratio_hist = np.full(len(sample_hist), np.inf)
+
+      target_nonzero = sample_hist > 0
+      ratio_hist[target_nonzero] = (
+        dataset_hist[target_nonzero]
+        / sample_hist[target_nonzero]
+      )
+
+      lower_tail_ratio = ratio_hist[0]
+      central_ratio = ratio_hist[1:-1]
+      upper_tail_ratio = ratio_hist[-1]
+
+      # Fit only the central 90%.
+      central_centers = 0.5 * (
+        central_edges[:-1] + central_edges[1:]
+      )
+
+      ratio_spline = UnivariateSpline(
+        central_centers,
+        central_ratio,
+        s=0,
+        k=1,
+      )
+
+      # Find the global minimum, including both tails.
+      fine_bins = np.linspace(min_bin, max_bin, 1000)
+      fine_ratio = ratio_spline(fine_bins)
+
+      ratio_candidates = np.concatenate((
+        fine_ratio,
+        [lower_tail_ratio, upper_tail_ratio],
+      ))
+
+      ratio_candidates = ratio_candidates[
+        np.isfinite(ratio_candidates)
+        & (ratio_candidates > 0)
+      ]
+
+      if len(ratio_candidates) == 0:
+        raise ValueError(f"No valid rejection ratios found for {k}")
+
+      c = np.min(ratio_candidates)
+
+      # Assign an event-level ratio.
+      values = df[k].to_numpy()
+      ratio = np.empty(n, dtype=float)
+
+      lower_tail = values < min_bin
+      upper_tail = values >= max_bin
+      central = ~(lower_tail | upper_tail)
+
+      ratio[lower_tail] = lower_tail_ratio
+      ratio[upper_tail] = upper_tail_ratio
+      ratio[central] = ratio_spline(values[central])
+
+      # Perform independent event rejection.
+      acceptance = np.zeros(n, dtype=float)
+
+      valid = np.isfinite(ratio) & (ratio > 0)
+      acceptance[valid] = np.clip(
+        c / ratio[valid],
+        0.0,
+        1.0,
+      )
+
+      random_numbers = np.random.uniform(0.0, 1.0, n)
+      keep = random_numbers < acceptance
+
+      df = df.loc[keep]
+
+    return df
 
 
   def _DoReweightToShift(self, col_files, wt_file, shifts, selection=None, n_bins=40, samples=10**7):
@@ -1778,6 +1929,11 @@ class PreProcess():
     if not cfg["preprocess"]["density_pretransform_to_gaussian"]:
       return {}
 
+    if "density_pretransform_to_gaussian_columns" not in cfg["preprocess"]:
+      columns = self.columns
+    else:
+      columns = [col for col in cfg["preprocess"]["density_pretransform_to_gaussian_columns"] if col in self.columns]
+
     spline_locations = {"forward" : {}, "inverse" : {}}
     for data_split in ["train","test"]:
 
@@ -1824,48 +1980,28 @@ class PreProcess():
             )
             min_max_vals_test = test_dp.GetFull(method="min_max", ignore_quantile=0.0)
             min_max_vals = {}
-            for col in self.columns:
+            for col in columns:
               min_max_vals[col] = [min(min_max_vals_train[col][0], min_max_vals_test[col][0]), max(min_max_vals_train[col][1], min_max_vals_test[col][1])]
   
-            for col in self.columns:
-              #if self.verbose:
-              #  print(f"  - Getting quantile bins for column: {col}")
-              #bins = dp.GetFull(method="bins_with_equal_stats", bins=100, column=col, ignore_quantile=0.0)
-              #central_bins = list(dp.GetFull(method="bins_with_equal_spacing", bins=100, column=col, ignore_quantile=0.01))
-              #bins = np.array([min_max_vals[col][0]] + central_bins + [min_max_vals[col][1]])
-              #bins = np.array([-1e6] + central_bins + [1e6])
-              bins = np.linspace(min_max_vals[col][0], min_max_vals[col][1], 100)
+            for col in columns:
+
+              #bins = np.linspace(min_max_vals[col][0], min_max_vals[col][1], 100)
+              bins = dp.GetFull(method="bins_with_equal_stats", column=col, bins=100, ignore_quantile=0.0)
+              bins[0] = min_max_vals[col][0]
+              bins[-1] = min_max_vals[col][1]
+
               if self.verbose:
                 print(f"  - Getting histogram for column: {col}")
               hist, _= dp.GetFull(method="histogram", bins=bins, column=col)
 
               # divide hist by bin width
-              bin_widths = np.diff(bins)
-              hist = hist / bin_widths
-
-              #from scipy.interpolate import make_smoothing_spline
-              #bin_centers = (bins[:-1] + bins[1:]) / 2
-              #spline = make_smoothing_spline(bin_centers, hist)
-              #hist = spline(bin_centers)
-              #hist[hist < 0] = 0.0
-            
-              ## Drop bins with zero entries at the start and end of the histogram
-              #if hist[0] <= 0.0:
-              #  hist = hist[1:]
-              #  bins = bins[1:]
-              #if hist[-1] <= 0.0:
-              #  hist = hist[:-1]
-              #  bins = bins[:-1]
+              #bin_widths = np.diff(bins)
+              #hist = hist / bin_widths
 
               # Smooth the histogram
-              #print(list(hist))
               hist = gaussian_filter1d(hist, sigma=1.0)
-              #print(list(hist))
-              #print("-----------")
 
               cdf = np.cumsum(hist)
-              #cdf = cdf / cdf[-1]
-              #cdf = np.insert(cdf, 0, 0.0)
 
               # Squueze the CDF to be between the tail areas, so that we do not get infs when transforming to gaussian
               cdf = np.insert(cdf, 0, 0.0)
@@ -1890,40 +2026,6 @@ class PreProcess():
                     monontonic_cdf.append(cdf[i])
               bins = monontonic_bins
               cdf = monontonic_cdf
-
-              """
-              # Need to shift top and bottom bins by a bit so we do not get infs as CDF = 0 and 1. Assume the final bin is the 3 sigma interval? 0.99865, 0.00135 or build from size of dataset? problem with this is copies
-              # Build a minimisation, to vary the first bin, fit a spline and then get the CDF at the first bin, and minimise the difference between this 
-              orig_bins = copy.deepcopy(bins)
-              def min_func_first_bin(x):
-                if x[0] >= bins[0]:
-                  return np.inf
-                new_bins = copy.deepcopy(bins)
-                new_bins[0] = x[0]
-                spline = PchipInterpolator(new_bins, cdf, extrapolate=True)
-                if spline(bins[0]) > tail_area_down:
-                  return np.inf
-                return (spline(bins[0]) - tail_area_down)**2
-              first_res = minimize(min_func_first_bin, [bins[0]], method="Nelder-Mead")
-              print(first_res)
-
-              def min_func_last_bin(x):
-                if x[0] <= bins[-1]:
-                  return np.inf
-                new_bins = copy.deepcopy(bins)
-                new_bins[-1] = x[0]
-                spline = PchipInterpolator(new_bins, cdf, extrapolate=True)
-                if spline(bins[-1]) < tail_area_up:
-                  return np.inf
-                return (spline(bins[-1]) - tail_area_up)**2
-              last_res = minimize(min_func_last_bin, [bins[-1]], method="Nelder-Mead")
-              print(last_res)
-
-              bins[0] = first_res.x[0]
-              bins[-1] = last_res.x[0]
-
-              """
-
 
               spline = PchipInterpolator(bins, cdf, extrapolate=True)
               #fine_bins = np.linspace(bins[0], bins[-1], 10000)
@@ -2175,6 +2277,7 @@ class PreProcess():
       full_name = f"{self.data_output}/{name}"
 
       if not os.path.isfile(full_name): continue
+
       shuffle_name_iteration = name.replace(".parquet", "_shuffled_iteration.parquet")
       full_shuffle_name_iteration = f"{self.data_output}/{shuffle_name_iteration}"
       shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
@@ -2995,7 +3098,7 @@ class PreProcess():
       if self.verbose:
         print("- Doing train/test/val splitting")
       self._DoTrainTestValSplit(self.file_name, cfg)
-
+      
 
     # Make dataset for model training and testing
     if self.partial is None or self.partial == "model":
@@ -3033,7 +3136,7 @@ class PreProcess():
       # Do PCA whitening
       if self.verbose:
         print("- Doing PCA whitening for density model")
-      pca_whitening_parameters = self._DoPCAWhitening(self.file_name, cfg)
+      #pca_whitening_parameters = self._DoPCAWhitening(self.file_name, cfg)
 
       # Standardise
       if self.verbose:

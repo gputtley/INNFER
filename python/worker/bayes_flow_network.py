@@ -77,7 +77,7 @@ class BayesFlowNetwork():
     self.batch_size = 2**6
     self.learning_rate = 1e-3
     self.permutation = "learnable"
-    self.optimizer_name = "Adam" 
+    self.optimizer_name = "AdamW" 
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {} 
     self.active_learning = False
@@ -87,7 +87,9 @@ class BayesFlowNetwork():
     self.patience = 3
     self.tolerance = 0.02
     self.wait_till = 5
+    self.l2_lambda = 0.0001
     self.trainable_cl_per_epoch = None
+    self.turn_conditions_on_at_epoch = None
 
     # Other
     self.disable_tqdm = False
@@ -183,9 +185,11 @@ class BayesFlowNetwork():
     if (self.coupling_design == "interleaved" and (self.affine_mc_dropout or self.spline_mc_dropout)) or (self.coupling_design == "affine" and self.affine_mc_dropout) or (self.coupling_design == "spline" and self.spline_mc_dropout):
       print("WARNING: Using MC dropout will give variations in the Probability output.")
 
+    weight_regularizer = tf.keras.regularizers.l2(self.l2_lambda)
+
     affine_settings = {
       "dense_args": dict(
-        kernel_regularizer=None,
+        kernel_regularizer=weight_regularizer,
         units=self.affine_units_per_dense_layer, 
         activation=self.affine_activation), 
       "dropout": self.affine_dropout,
@@ -196,7 +200,7 @@ class BayesFlowNetwork():
 
     spline_settings = {
       "dense_args": dict(
-        kernel_regularizer=None, 
+        kernel_regularizer=weight_regularizer, 
         units=self.spline_units_per_dense_layer, 
         activation=self.spline_activation), 
       "dropout": self.spline_dropout,
@@ -852,7 +856,8 @@ class BayesFlowNetwork():
       patience=self.patience,
       tolerance=self.tolerance,
       wait_till=self.wait_till,
-      trainable_cl_per_epoch=self.trainable_cl_per_epoch
+      trainable_cl_per_epoch=self.trainable_cl_per_epoch,
+      conditions_on_at_epoch=self.turn_conditions_on_at_epoch,
     )
 
     if self.plot_loss:

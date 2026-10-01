@@ -66,12 +66,14 @@ class DensityPerformanceMetrics():
 
     self.save_extra_name = ""
     self.metrics_save_extra_name = ""
+    self.extra_density_model_name = ""
     self.tidy_up_asimov = False
     self.asimov_input = None
     self.synth_vs_synth = False
     self.alternative_asimov_seed_shift = 0
     self.alternative_asimov_seed = 1
     self.use_eff_events = False
+    self.use_total_events_with_weights = False
     self.specific_val_ind = None
 
 
@@ -103,7 +105,7 @@ class DensityPerformanceMetrics():
 
     if self.do_inference or self.do_loss:
 
-      density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+      density_model_name = f"{self.model_input}/{self.extra_model_dir}{self.extra_density_model_name}/{self.file_name}{self.save_extra_name}"
 
       # Load the architecture in
       if self.verbose:
@@ -154,6 +156,13 @@ class DensityPerformanceMetrics():
 
           if self.use_eff_events:
             n_events = int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind]))
+          elif self.use_total_events_with_weights:
+            sim_file, _ = self._GetFiles(val_ind, data_type, force_sim=True)
+            sim_dps = DataProcessor(
+              [sim_file],
+              "parquet"
+            )
+            n_events = sim_dps.GetFull(method="count")
           else:
             n_events = self.n_asimov_events
  
@@ -177,12 +186,16 @@ class DensityPerformanceMetrics():
                 "val_ind" : val_ind,
                 "only_density" : True,
                 "add_truth" : True,
+                "extra_density_model_name" : self.extra_density_model_name,
                 "verbose" : False,
+                "drop_wt" : self.use_total_events_with_weights,
               }
             )
             ma.Run()
 
           if self.synth_vs_synth:
+
+            
 
             if self.alternative_asimov_seed_shift < 0: 
               self.alternative_asimov_seed = 1
@@ -205,7 +218,9 @@ class DensityPerformanceMetrics():
                   "val_ind" : val_ind,
                   "only_density" : True,
                   "add_truth" : True,
+                  "extra_density_model_name" : self.extra_density_model_name,
                   "verbose" : False,
+                  "drop_wt" : self.use_total_events_with_weights,
                 }
               )
               ma2.Run()        
@@ -270,10 +285,15 @@ class DensityPerformanceMetrics():
       sim_file = [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
     else:
       sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
+      if self.use_total_events_with_weights:
+        sim_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
     if self.asimov_input is None:
       synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
     else:
       synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
+
+    if self.use_total_events_with_weights:
+      synth_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
 
     return sim_file, synth_file
 
@@ -602,7 +622,7 @@ class DensityPerformanceMetrics():
     cfg = LoadConfig(self.cfg)
 
     # Add density model
-    density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+    density_model_name = f"{self.model_input}/{self.extra_model_dir}{self.extra_density_model_name}/{self.file_name}{self.save_extra_name}"
     density_model_name = density_model_name.replace("//", "/")
     inputs += [f"{density_model_name}.h5"]
     inputs += [f"{density_model_name}_architecture.yaml"]

@@ -54,6 +54,7 @@ def AdjustArgs(args):
     if args.step != "SetupDensityFromBenchmark":
       print("WARNING: Make sure you run SetupDensityFromBenchmark before running the other steps when using density_architecture=Benchmark.")
 
+
   # Overwrite architecture
   if args.overwrite_classifier_architecture != "":
     args.classifier_architecture = OverwriteArchitecture(args.classifier_architecture, args.overwrite_classifier_architecture)
@@ -174,7 +175,17 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
   else:
     data_type = args.data_type
 
-  defaults_in_model = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN)
+  if args.specific_category is not None:
+    category_loop = args.specific_category.split(",")
+  else:
+    category_loop = [None]
+
+  defaults_in_model = {}
+  for cat in category_loop:
+    defaults_in_model = {
+      **defaults_in_model,
+      **GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, category=cat)
+    }
 
   prep_data_dir = f'{str(os.getenv("PREP_DATA_DIR"))}/{cfg["name"]}'
   eval_data_dir = f'{str(os.getenv("EVAL_DATA_DIR"))}/{cfg["name"]}'
@@ -184,7 +195,30 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     #asimov_name = f"{asimov_name}{args.extra_input_dir_name}"
     asimov_name = f"{asimov_name}{args.extra_asimov_input_dir_name}"
 
-  data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
+  model_files = [file_name] if file_name != "combined" else GetModelFileLoop(cfg)
+
+
+  if not args.validation_loop_over_nuisance_variations:
+    data_input = GetDataInput(data_type, cfg, file_name, val_ind, prep_data_dir if data_type != "asimov" else eval_data_dir, sim_type=args.sim_type, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)
+  else:
+    data_input = {}
+    for category in GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None):
+      data_input[category] = {}
+      for mf in model_files:
+        default_val_index = GetValidationDefaultIndex(cfg, mf, category=category)
+        parameters_in_model = GetParametersInModel(mf, cfg, category=category)
+        parameter = GetNuisanceVariationName(val_info, only_nuisance=True)
+        parameter_shift = GetNuisanceVariationName(val_info, only_shift=True)
+        if args.data_type == "sim":
+          if parameter in parameters_in_model and not parameter_shift == "nominal":
+            data_input[category][mf] = [f"{prep_data_dir}/PreProcess/{mf}/{category}/{parameter}_{parameter_shift}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]]
+          else:
+            data_input[category][mf] = [f"{prep_data_dir}/PreProcess/{mf}/{category}/val_ind_{default_val_index}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]]
+        elif args.data_type == "asimov":
+          if parameter in parameters_in_model and not parameter_shift == "nominal":
+            data_input[category][mf] = [f"{eval_data_dir}/MakeAsimovNuisanceVariations/{mf}/{category}/{parameter}_{parameter_shift}/asimov.parquet"]
+          else:
+            data_input[category][mf] = GetDataInput("asimov", cfg, mf, default_val_index, eval_data_dir, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)[category][mf]
 
   category_loop = GetCategoryLoop(cfg, specific_category=args.specific_category.split(",") if args.specific_category is not None else None)
 
@@ -209,7 +243,6 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
   specific_categories = (args.specific_category.split(",") if args.specific_category is not None else None)
   categories = GetCategoryLoop(cfg, specific_category=specific_categories)
   model_files = ([file_name] if file_name != "combined" else GetModelFileLoop(cfg))
-  validation_indices = GetCombinedValdidationIndices(cfg, file_name, val_ind)
   params_in_file = GetParametersInModel(file_name, cfg)
   params_in_file_full = GetParametersInModel(file_name, cfg, include_lnN=True, include_rate=True)
   model_params = {k: GetParametersInModel(k, cfg) for k in model_files}
@@ -236,7 +269,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "classifier_models": classifier_models,
     "model_input": models_dir,
     "extra_density_model_name": args.extra_density_model_name,
-    "parameters": {category: {k: f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in validation_indices.keys()} for category in categories},
+    "parameters": {category: {k: f"{prep_data_dir}/PreProcess/{k}/{category}/parameters.yaml" for k in model_files} for category in categories},
     "data_input": data_input,
     "true_Y": pd.DataFrame({k: [val_info[k] if k in val_info else v] for k, v in defaults_in_model.items()}),
     "initial_best_fit_guess": pd.DataFrame({k: [v] for k, v in defaults_in_model.items()}),
@@ -257,6 +290,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "simplex": ({key: float(value) for key, value in (v.split(":") for v in args.simplex.split(","))} if args.simplex is not None else {}),
     "remove_lnN_if_rate_param": (args.include_per_model_rate if file_name != "combined" else True),
     "prune_classifier_models": ({key: float(value) for key, value in (v.split(":") for v in args.prune_classifier_models.split(","))} if args.prune_classifier_models is not None else None),
+    "prune_lnN": args.prune_lnN,
     "bootstrap_method": args.bootstrap_method,
     "integrate_density_with_ratios": args.integrate_density_with_ratios,
     "no_likelihood_print_out": args.no_likelihood_print_out,
@@ -265,7 +299,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "binned_from_predicted_bins": binned_observed_from_predicted,
     "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
     "other_input_files": other_input_files,
-    "use_integral_scaling": args.use_integral_scaling
+    "use_integral_scaling": args.use_integral_scaling,
+    "remove_lnN_if_rate_param": (not args.keep_lnN_if_rate_param),
   }
 
   common_config["classifier_pruning_files"] = {}
@@ -274,7 +309,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     for k2, v2 in v1.items():
       common_config["classifier_pruning_files"][k1][k2] = {}
       for v3 in v2:
-        common_config["classifier_pruning_files"][k1][k2][v3["parameter"]] = f"{eval_data_dir}/EvaluateClassifier/{v3['name']}/performance_metrics.yaml"
+        common_config["classifier_pruning_files"][k1][k2][v3["parameter"]] = GetPruningFile(eval_data_dir, v3, from_step=args.prune_from)
 
   return common_config
 
@@ -774,6 +809,7 @@ def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
         lnN = [v1["lnN"] for v1 in v],
         rate_param=rate_param,
       ).GetYield
+
     return partial(GetBinValueParallelised, func_entry=yield_funcs, col=col)
 
 
@@ -1041,15 +1077,56 @@ def GetParametersInModel(file_name, cfg, only_density=False, only_regression=Fal
   return sorted(list(set(parameters_in_model)))
 
 
-def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False, inference=False):
+def GetNuisanceVariationName(val_info, only_nuisance=False, only_shift=False):
+  nuisance_name = list(val_info.keys())[0]
+  if val_info[nuisance_name] > 0:
+    shift = "up"
+  elif val_info[nuisance_name] < 0:
+    shift = "down"
+  else:
+    shift = "nominal"
+  if only_nuisance:
+    return nuisance_name
+  if only_shift:
+    return shift
+  return f"{nuisance_name}_{shift}"
+
+
+
+def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, only_density=False, only_regression=False, only_classification=False, inference=False, validation_loop_over_nuisance_variations=False, specific_category=None):
+
+  # Get parameters in model
+  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression, only_classification=only_classification)
+
+  # If requested, create a validation loop over nuisance variations
+  if validation_loop_over_nuisance_variations:
+    if specific_category is None:
+      parameters_in_model_and_categories = parameters_in_model
+    else:
+      parameters_in_model_and_categories = []
+      for cat in specific_category.split(","):
+        parameters_in_model_and_categories += GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression, only_classification=only_classification, category=cat)
+      parameters_in_model_and_categories = sorted(list(set(parameters_in_model_and_categories)))
+    nuisances_in_model = [i for i in parameters_in_model_and_categories if i in cfg["nuisances"]]
+    loop_with_nuisances = []
+    for nui_in_model in nuisances_in_model:
+      loop_with_nuisances.append({nui_in_model : 1.0})
+      loop_with_nuisances.append({nui_in_model : 0.0})
+      loop_with_nuisances.append({nui_in_model : -1.0})
+    return loop_with_nuisances
+
+  # If combined return normal loop
   if file_name == "combined":
     return cfg["validation"]["loop"]
-  parameters_in_model = GetParametersInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN, only_density=only_density, only_regression=only_regression, only_classification=only_classification)
+
+  # If no parameters in model return empty loop
   if len(parameters_in_model) == 0:
     if inference:
       return []
     else:
       return [{}]
+
+  # If else find parameters varied for file in the validation loop
   loop_with_parameters = []
   for value in cfg["validation"]["loop"]:
     loop_with_parameters.append({k:v for k, v in value.items() if k in parameters_in_model})
@@ -1059,6 +1136,7 @@ def GetValidationLoop(cfg, file_name, include_rate=False, include_lnN=False, onl
       loop_with_unique_parameters.append(v)
 
   return loop_with_unique_parameters
+
 
 def GetValidationDensityLoop(cfg, file_name, data_type="sim", do_loop=True):
 
@@ -1231,6 +1309,14 @@ def GetFactorisationMetricsPlotInput(cfg, file_name, input_dir, nuisance_1_shift
   return list(metrics), columns
 
 
+def GetPruningFile(data_dir, v, from_step="EvaluateClassifier"):
+  if from_step.startswith("EvaluateClassifier"):
+    return f"{data_dir}/{from_step}/{v['name']}/performance_metrics.yaml"
+  elif from_step.startswith("ClassifierNuisanceVariations"):
+    return f"{data_dir}/{from_step}/{v['file_name']}/{v['category']}/metrics_{v['parameter']}.yaml"
+  else:
+    raise ValueError(f"Unknown from_step value: {from_step}")
+
 
 def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
 
@@ -1299,7 +1385,7 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
   else:
     wt_file = copy.deepcopy(wt_name)
 
-  if architecture["type"] in ["FCNN", "FCNN_TwoPointInterpolator", "FCNN_ThreePointInterpolator"]:
+  if architecture["type"] in ["FCNN", "FCNN_TwoPointInterpolator", "FCNN_ThreePointInterpolator", "FCNN_ThreePointInterpolatorDivideByNominal"]:
 
     from fcnn_network import FCNNNetwork
     network = FCNNNetwork(
@@ -1321,6 +1407,9 @@ def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, 
       network.two_point_interpolator = True
     elif architecture["type"] == "FCNN_ThreePointInterpolator":
       network.three_point_interpolator = True
+    elif architecture["type"] == "FCNN_ThreePointInterpolatorDivideByNominal":
+      network.three_point_interpolator = True
+      network.interpolator_divide_by_nominal = True
   
   else:
 
@@ -1447,7 +1536,7 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
 
   freeze_loop = []
 
-  if not (freeze in ["all-but-one","all-nuisances","all-non-density"] or (freeze is not None and freeze.startswith("all-but-"))):
+  if not (freeze in ["all-but-one","all-nuisances","all-non-density","all-but-varied"] or (freeze is not None and freeze.startswith("all-but-"))):
     freeze_loop += [{
       "freeze" : {k.split("=")[0] : float(k.split("=")[1]) for k in freeze.split(",")} if freeze is not None else {},
       "extra_name" : "",
@@ -1464,7 +1553,12 @@ def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=Fa
         "freeze" : {k: val_info_with_defaults[k] for k in ordered_keys if k not in parameters_in_model},
         "extra_name" : "",
       }]
-
+  elif freeze == "all-but-varied":
+    non_varied = [k for k in ordered_keys if k not in val_info.keys()]
+    freeze_loop += [{
+      "freeze" : {k: val_info_with_defaults[k] for k in non_varied},
+      "extra_name" : "",
+    }]
   elif freeze is not None and freeze.startswith("all-but-") and freeze != "all-but-one":
     params_to_float = freeze.split("all-but-")[1].split("-")
     freeze_loop += [{
@@ -1886,14 +1980,35 @@ def OverwriteArchitecture(architecture_file, overwrite_architecture):
 
   with open(architecture_file, 'r') as yaml_file:
     architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
-  for key, value in {i.split("=")[0] : i.split("=")[1] for i in overwrite_architecture.split(",")}.items():
-    if "." in value:
-      architecture[key] = float(value)
-    elif value.isdigit():
-      architecture[key] = int(value)
+  for key, value in {i.split("=")[0] : i.split("=")[1] for i in overwrite_architecture.split(";")}.items():
+
+    architecture[key] = []
+
+    if "," in value:
+      architecture[key] = []
+      loop = value.split(",")
+      is_list = True
     else:
-      architecture[key] = value
-  tmp_architecture_name = f"configs/architecture/tmp_architecture.yaml"
+      architecture[key] = []
+      loop = [value]
+      is_list = False
+
+    for val in loop:
+      if "." in val:
+        architecture[key].append(float(val))
+      elif val.isdigit():
+        architecture[key].append(int(val))
+      elif val.lower() == "true":
+        architecture[key].append(True)
+      elif val.lower() == "false":
+        architecture[key].append(False)
+      else:
+        architecture[key].append(val)
+
+    if not is_list:
+      architecture[key] = architecture[key][0]
+
+  tmp_architecture_name = architecture_file.replace(".yaml", "_tmp.yaml")
   with open(tmp_architecture_name, 'w') as yaml_file:
     yaml.dump(architecture, yaml_file)
     
@@ -2303,10 +2418,21 @@ def StringToFile(string):
   return string
 
 
-def Translate(key, translation_file="configs/other/translate.yaml"):
-  val = GetDictionaryEntryFromYaml(translation_file, [key])
-  if val is not None:
+def Translate(key, translation_file="configs/other/translate.yaml", only_val=False, only_unit=False, only_unit_with_space=True):
+  val = GetDictionaryEntryFromYaml(translation_file, ["name", key])
+  unit = GetDictionaryEntryFromYaml(translation_file, ["unit", key])
+
+  if only_val:
+    return val if val is not None else key
+  if only_unit:
+    return f" {unit}" if unit is not None and only_unit_with_space else unit if unit is not None else ""
+
+  if val is not None and unit is not None:
+    return f"{val} ({unit})"
+  elif val is not None:
     return val
+  elif unit is not None:
+    return f"{key} ({unit})"
   else:
     return key
 

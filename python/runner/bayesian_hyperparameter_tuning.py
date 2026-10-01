@@ -54,6 +54,7 @@ class BayesianHyperparameterTuning():
     self.n_trials = 10
     self.load_trials = None
     self.no_copy = False
+    self.load_weights_for_training = None
 
     self.objective_ind = 0
     self.tune_architecture_name = None
@@ -212,6 +213,8 @@ class BayesianHyperparameterTuning():
       MakeDirectories(model_output_name)
       os.system(f"cp {best_model_name} {model_output_name}")
       os.system(f"cp {best_architecture_name} {model_architecture_name}")
+      
+
 
     # Write file of indices ran if using timeout
     if self.use_timeout:
@@ -229,6 +232,37 @@ class BayesianHyperparameterTuning():
         yaml.dump(indices_ran, yaml_file, default_flow_style=False)
       if self.verbose:
         print(f"- Wrote file of indices ran to {timeout_file_name}")
+
+    else:
+      # Write summary
+
+      metrics_name = f"{self.data_output}/metrics_{best_trial}.yaml"
+      results_name = f"{self.data_output}/{self.file_name}_results.yaml"
+
+      with open(best_architecture_name, "r") as yaml_file:
+        best_architecture = yaml.safe_load(yaml_file)
+
+      with open(metrics_name, "r") as yaml_file:
+        best_metrics = yaml.safe_load(yaml_file)
+
+      best_results = {
+        "best_trial": int(best_trial),
+        "architecture": best_architecture,
+        "performance_metrics": best_metrics,
+      }
+
+      MakeDirectories(results_name)
+      with open(results_name, "w") as yaml_file:
+        yaml.safe_dump(
+          best_results,
+          yaml_file,
+          sort_keys=False,
+          default_flow_style=False,
+        )
+
+      if self.verbose:
+        print(f"- Best tuning results written to {results_name}")
+
 
 
   def _Objective(self, trial):
@@ -298,7 +332,8 @@ class BayesianHyperparameterTuning():
       for ind in range(self.n_trials):
         outputs += [
           f"{self.data_output}/metrics_{start_ind+ind}.yaml",
-          f"{self.data_output}/tune_architecture_{start_ind+ind}.yaml"
+          f"{self.data_output}/tune_architecture_{start_ind+ind}.yaml",
+          f"{self.data_output}/{self.file_name}_results.yaml"
         ]
     else:
       timeout_file_name = f"{self.data_output}/tuning_with_timeout_indices_ran_{self.timeout_index}.yaml"
@@ -381,6 +416,7 @@ class BayesianHyperparameterTuning():
         "save_extra_name" : f"_{self.objective_ind}",
         "verbose" : self.verbose,        
         "change_type" : self.change_type,
+        "load_weights_for_training" : self.load_weights_for_training
       }
     )
 

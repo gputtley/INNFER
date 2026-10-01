@@ -81,7 +81,7 @@ class ScanPlot():
         other_crossings[rf"{key}"] = rezerod_other[1]
 
     if row is not None:
-      plot_extra_name = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+      plot_extra_name = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
     else:
       plot_extra_name = ""
     

@@ -128,7 +128,7 @@ class BinnedDistributions():
       extra_hypothesis_name = []
       for k, v in extra_hypothesis.items():
         extra_hypothesis_Y[k] = [float(v)]
-        extra_hypothesis_name += [f"{Translate(k)}={v}"]
+        extra_hypothesis_name += [f"{Translate(k, only_val=True)}={v}{Translate(k, only_unit=True)}"]
       extra_hypothesis_name = ", ".join(extra_hypothesis_name)
       extra_hypothesis_hist = np.zeros_like(sum_stack_hists)
       for k, v in yields.items():
@@ -145,12 +145,31 @@ class BinnedDistributions():
     if len(varied_columns) > 0:
       axis_text += "\n"
       for k in varied_columns:
-        axis_text += f"{Translate(k)}={Y[k][0]}, "
+        axis_text += f"{Translate(k, only_val=True)}={Y[k][0]}{Translate(k, only_unit=True)}, "
       axis_text = axis_text[:-2]
 
     # Running plotting functions
     if self.verbose:
       print(f"- Making binned distribution plots")
+
+    # check to see if bins have the same spacing
+    bin_spacings = np.diff(self.binned_fit_input["binning"])
+    normalise_to_bin_width = False
+    if not np.allclose(bin_spacings, bin_spacings[0]):
+      normalise_to_bin_width = True
+
+    data_hist_uncertainty = np.sqrt(data_hist)
+
+    if normalise_to_bin_width:
+      data_hist = data_hist / np.diff(self.binned_fit_input["binning"])
+      data_hist_uncertainty = data_hist_uncertainty / np.diff(self.binned_fit_input["binning"])
+      stack_hists = {k: v / np.diff(self.binned_fit_input["binning"]) for k, v in stack_hists.items()}
+      stack_uncertainty_up = stack_uncertainty_up / np.diff(self.binned_fit_input["binning"])
+      stack_uncertainty_down = stack_uncertainty_down / np.diff(self.binned_fit_input["binning"])
+      extra_hypotheses = {k: v / np.diff(self.binned_fit_input["binning"]) for k, v in extra_hypotheses.items()}
+      ylabel = "Events / bin width"
+    else:
+      ylabel = "Events"
 
     plot_stacked_histogram_with_ratio(
       data_hist, 
@@ -158,9 +177,9 @@ class BinnedDistributions():
       self.binned_fit_input["binning"], 
       data_name="Data", 
       xlabel=Translate(self.binned_fit_input["variable"]),
-      ylabel="Events",
+      ylabel=ylabel,
       name=f"{self.plots_output}/binned_distribution_category_{self.category}{self.extra_plot_name}", 
-      data_errors=np.sqrt(data_hist), 
+      data_errors=data_hist_uncertainty, 
       stack_hist_errors_asym = {"down": stack_uncertainty_down, "up": stack_uncertainty_up},
       axis_text=axis_text,
       use_stat_err=False,

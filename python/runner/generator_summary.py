@@ -137,7 +137,7 @@ class GeneratorSummary():
         )
 
         if not self.use_scenario_labels:
-          names.append(", ".join([f"{Translate(k)}={v}" for k, v in val_info.items()]))
+          names.append(", ".join([f"{Translate(k, only_val=True)}={v}{Translate(k, only_unit=True)}" for k, v in val_info.items()]))
         else:
           names.append(f"Scenario {val_ind+1}")
 
