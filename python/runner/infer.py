@@ -44,8 +44,11 @@ class Infer():
     self.verbose = True
     self.minimisation_method = "nominal"
     self.freeze = {}
+    self.load_fit_for_defaults = None
     self.extra_file_name = ""
     self.scale_to_eff_events = False
+    self.hold_dataset_in_memory = False
+    self.cache_observable_transforms = False
     self.column = None
     self.scan_value = None
     self.scan_ind = None
@@ -113,7 +116,33 @@ class Infer():
       self.extra_file_name = f"_{self.extra_file_name}"
 
 
+  def _LoadFreezeDefaults(self):
+
+    if self.load_fit_for_defaults is None:
+      return
+    with open(self.load_fit_for_defaults, 'r') as yaml_file:
+      best_fit = yaml.safe_load(yaml_file)
+    if not isinstance(best_fit, dict) or "columns" not in best_fit or "best_fit" not in best_fit:
+      raise ValueError(f"Invalid best-fit file: {self.load_fit_for_defaults}")
+    columns = best_fit["columns"]
+    values = best_fit["best_fit"]
+    if len(columns) != len(values) or len(set(columns)) != len(columns):
+      raise ValueError(f"Invalid best-fit columns/values: {self.load_fit_for_defaults}")
+    fitted_values = dict(zip(columns, values))
+    for column in self.freeze:
+      if column not in fitted_values:
+        raise ValueError(f"Frozen parameter {column} is missing from {self.load_fit_for_defaults}")
+      value = float(fitted_values[column])
+      if not np.isfinite(value):
+        raise ValueError(f"Non-finite best-fit value for {column}: {self.load_fit_for_defaults}")
+      self.freeze[column] = value
+
+
   def Run(self):
+
+    if self.load_fit_for_defaults is not None:
+      self.freeze = {k: v for k, v in self.freeze.items() if k in self.Y_columns}
+      self._LoadFreezeDefaults()
 
     # Make yields or use existing
     if self.yields is None and not self.method.startswith("Covariance"):
@@ -667,6 +696,8 @@ class Infer():
 
     # Add other inputs
     inputs += self.other_input_files
+    if self.load_fit_for_defaults is not None and self.load_fit_for_defaults not in inputs:
+      inputs += [self.load_fit_for_defaults]
 
     return inputs
 
@@ -909,6 +940,7 @@ class Infer():
               "parameters" : parameters,
               "scale" : scale,
               "functions" : functions_to_apply,
+              "hold_dataset_in_memory" : self.hold_dataset_in_memory,
             }
           )
 
@@ -918,7 +950,7 @@ class Infer():
           self.data_input[cat]["data"],
           "parquet",
           batch_size = batch_size,
-          options = {}
+          options = {"hold_dataset_in_memory": self.hold_dataset_in_memory}
         )      
 
     return dps
@@ -1012,6 +1044,7 @@ class Infer():
           v['file_loc'],
           options = {
             "data_parameters" : parameters[cat][k]["density"],
+            "cache_observable_transforms" : self.cache_observable_transforms,
             "file_name" : k,
           }
         )

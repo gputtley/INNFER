@@ -8,6 +8,7 @@ import re
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from sklearn.model_selection import train_test_split
 from scipy.stats import norm
@@ -63,6 +64,8 @@ class DataProcessor():
     self.check_wt = False
     self.use_pbar = use_pbar
     self.sort_columns = True
+    self.hold_dataset_in_memory = False
+    self.raw_dataset_cache = {}
 
     # Transform options
     self.parameters = {}
@@ -181,7 +184,17 @@ class DataProcessor():
       elif self.dataset_type == "generator":
         tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind])
       elif self.dataset_type == "parquet":
-        tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
+        if self.data_loaders[self.file_ind][column_ind].num_rows == 0:
+          tmp = pd.DataFrame(index=range(self.batch_size))
+        elif self.hold_dataset_in_memory:
+          file_name = self.datasets[self.file_ind][column_ind]
+          if file_name not in self.raw_dataset_cache:
+            self.raw_dataset_cache[file_name] = pq.read_table(file_name).to_pandas().reset_index(drop=True)
+          start = self.batch_ind * self.batch_size
+          # Functions and weight scaling must never mutate the stored raw data.
+          tmp = self.raw_dataset_cache[file_name].iloc[start:start+self.batch_size].copy(deep=True).reset_index(drop=True)
+        else:
+          tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
 
       # Skip if no columns
       if len(tmp.columns) == 0: continue

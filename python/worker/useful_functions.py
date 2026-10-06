@@ -216,7 +216,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
             data_input[category][mf] = [f"{prep_data_dir}/PreProcess/{mf}/{category}/val_ind_{default_val_index}/{i}_{args.sim_type}.parquet" for i in ["X","wt"]]
         elif args.data_type == "asimov":
           if parameter in parameters_in_model and not parameter_shift == "nominal":
-            data_input[category][mf] = [f"{eval_data_dir}/MakeAsimovNuisanceVariations/{mf}/{category}/{parameter}_{parameter_shift}/asimov.parquet"]
+            data_input[category][mf] = [f"{eval_data_dir}/MakeAsimovNuisanceVariations{args.extra_asimov_input_dir_name}/{mf}/{category}/{parameter}_{parameter_shift}/asimov.parquet"]
           else:
             data_input[category][mf] = GetDataInput("asimov", cfg, mf, default_val_index, eval_data_dir, asimov_dir_name=asimov_name, asimov_extra_dir=asimov_extra_dir)[category][mf]
 
@@ -276,6 +276,8 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "inference_options": (cfg["inference"] if not args.no_constraint else {k: v for k, v in cfg["inference"].items() if k != "nuisance_constraints"}),
     "likelihood_type": args.likelihood_type,
     "scale_to_eff_events": args.scale_to_eff_events,
+    "hold_dataset_in_memory": args.hold_dataset_in_memory,
+    "cache_observable_transforms": args.cache_observable_transforms,
     "verbose": not args.quiet,
     "minimisation_method": args.minimisation_method,
     "sim_type": args.sim_type,
@@ -299,6 +301,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "binned_from_predicted_bins": binned_observed_from_predicted,
     "classifier_divide_by_nominal": args.classifier_divide_by_nominal,
     "other_input_files": other_input_files,
+    "load_fit_for_defaults": GetLoadFitName(args.load_fit_for_defaults, file_name, val_ind, eval_data_dir) if args.freeze is not None and args.freeze.startswith("all-") else None,
     "use_integral_scaling": args.use_integral_scaling,
     "remove_lnN_if_rate_param": (not args.keep_lnN_if_rate_param),
   }
@@ -816,6 +819,8 @@ def GetBinValuesParallelised(binned_fit_input, col, rate_param=None):
 def GetLoadFitName(load_fit_for_defaults, file_name, val_ind, eval_data_dir):
   if load_fit_for_defaults is None:
     return None
+  if load_fit_for_defaults.endswith((".yaml", ".yml")):
+    return load_fit_for_defaults
   return f"{eval_data_dir}/InitialFit{load_fit_for_defaults}/{file_name}/best_fit_{val_ind}.yaml"
 
 
@@ -1318,15 +1323,15 @@ def GetPruningFile(data_dir, v, from_step="EvaluateClassifier"):
     raise ValueError(f"Unknown from_step value: {from_step}")
 
 
-def InitiateDensityModel(architecture, file_loc, options={}, test_name=None):
+def InitiateDensityModel(architecture, file_loc, options={}, train_name="train", test_name=None):
 
   if architecture["type"] == "BayesFlow":
 
     from bayes_flow_network import BayesFlowNetwork
     network = BayesFlowNetwork(
-      f"{file_loc}/X_train.parquet",
-      f"{file_loc}/Y_train.parquet", 
-      f"{file_loc}/wt_train.parquet",
+      f"{file_loc}/X_{train_name}.parquet",
+      f"{file_loc}/Y_{train_name}.parquet", 
+      f"{file_loc}/wt_{train_name}.parquet",
       f"{file_loc}/X_{test_name}.parquet" if test_name is not None else None,
       f"{file_loc}/Y_{test_name}.parquet" if test_name is not None else None,
       f"{file_loc}/wt_{test_name}.parquet" if test_name is not None else None,
@@ -1520,17 +1525,16 @@ def SkipEmptyDataset(cfg, file_name, val_type, val_info):
 
 def GetFreezeLoop(freeze, val_info, file_name, cfg, column=None, include_rate=False, include_lnN=False, loop_over_nuisances=False, loop_over_rates=False, loop_over_lnN=False, only_validation_varied_parameters=False, load_fit_for_defaults=None):
 
-  if load_fit_for_defaults is None or not os.path.isfile(load_fit_for_defaults):
-    val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
-    if val_info is not None:
-      for k, v in val_info.items():
-        val_info_with_defaults[k] = v
-  else:
+  val_info_with_defaults = GetDefaultsInModel(file_name, cfg, include_rate=include_rate, include_lnN=include_lnN)
+  if val_info is not None:
+    val_info_with_defaults.update(val_info)
+  # During workflow generation the upstream fit may not exist yet. Keep the
+  # parameter selection stable; Infer resolves the fitted values at runtime.
+  if load_fit_for_defaults is not None and os.path.isfile(load_fit_for_defaults):
     with open(load_fit_for_defaults, 'r') as yaml_file:
-      best_fit = yaml.load(yaml_file, Loader=yaml.FullLoader)
-    val_info_with_defaults = {}
-    for ind in range(len(best_fit["best_fit"])):
-      val_info_with_defaults[best_fit["columns"][ind]] = best_fit["best_fit"][ind]
+      best_fit = yaml.safe_load(yaml_file)
+    fitted_values = dict(zip(best_fit["columns"], best_fit["best_fit"]))
+    val_info_with_defaults.update({k: v for k, v in fitted_values.items() if k in val_info_with_defaults})
 
   ordered_keys = sorted(list(val_info_with_defaults.keys()))
 
@@ -1703,25 +1707,28 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
   return outputs
 
 
-def GetSnakeMakeStepLoop(input_cfg, output_cfg=[], run_options={}):
+def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None):
+
+  if output_cfg is None:
+    output_cfg = []
+  if run_options is None:
+    run_options = {}
 
   for step in input_cfg:
 
     if "step" in step.keys():
 
-      if "run_options" in step.keys():
-        step["run_options"] = {**run_options, **step["run_options"]}
-      elif run_options != {}:
-        step["run_options"] = run_options
-      output_cfg.append(step)
+      output_step = step.copy()
+      if "run_options" in step.keys() or run_options != {}:
+        output_step["run_options"] = {**run_options, **step.get("run_options", {})}
+      output_cfg.append(output_step)
 
     elif "workflow" in step.keys():
 
-      if "run_options" in step.keys():
-        run_options = {**run_options, **step["run_options"]}
+      workflow_run_options = {**run_options, **step.get("run_options", {})}
       with open(step["workflow"], 'r') as yaml_file:
         workflow = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=run_options)
+      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=workflow_run_options)
 
   return output_cfg
 
