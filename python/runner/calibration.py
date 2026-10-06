@@ -32,6 +32,7 @@ class Calibration():
     self.sim_type = "val"
     self.extra_plot_name = ""
     self.verbose = True
+    self.extra_density_model_name = ""
 
 
   def Configure(self, options):
@@ -64,7 +65,7 @@ class Calibration():
     # Build the density model
     if self.verbose:
       print("- Building density network")
-    density_model_name = f"{self.model_input}/{self.density_model['name']}/{parameters['file_name']}"
+    density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{parameters['file_name']}"
     with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
@@ -173,8 +174,8 @@ class Calibration():
     # Make calibration plot
     if self.verbose:
       print("- Making calibration plot")
-    test_text = ", ".join([f"{Translate(k)}={round(v,2)} GeV" for k, v in self.val_info.items()])
-    reference_text = ", ".join([f"{Translate(k)}={round(v,2)} GeV" for k, v in reference_parameters.items() if k in self.val_info])
+    test_text = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
+    reference_text = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in reference_parameters.items() if k in self.val_info])
     axis_text = f"$H_{{1}}$: {test_text}\n$H_{{0}}$: {reference_text}"
 
     plot_calibration_curve(

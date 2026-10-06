@@ -62,17 +62,22 @@ class DensityPerformanceMetrics():
     self.multidimensional_datasets = ["test_inf","val"]
 
     self.do_inference = True
+    self.hold_dataset_in_memory = False
+    self.cache_observable_transforms = False
     self.inference_datasets = ["test_inf","val"]
 
     self.save_extra_name = ""
     self.metrics_save_extra_name = ""
+    self.extra_density_model_name = ""
     self.tidy_up_asimov = False
     self.asimov_input = None
     self.synth_vs_synth = False
     self.alternative_asimov_seed_shift = 0
     self.alternative_asimov_seed = 1
     self.use_eff_events = False
+    self.use_total_events_with_weights = False
     self.specific_val_ind = None
+    self.specific_val_ind_hypothesis = None
 
 
   def Configure(self, options):
@@ -103,7 +108,7 @@ class DensityPerformanceMetrics():
 
     if self.do_inference or self.do_loss:
 
-      density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+      density_model_name = f"{self.model_input}/{self.extra_model_dir}{self.extra_density_model_name}/{self.file_name}{self.save_extra_name}"
 
       # Load the architecture in
       if self.verbose:
@@ -120,6 +125,7 @@ class DensityPerformanceMetrics():
         test_name = "test",
         options = {
           "data_parameters" : self.open_parameters["density"],
+          "cache_observable_transforms" : self.cache_observable_transforms,
           "file_name" : self.file_name,
         }
       )
@@ -149,11 +155,20 @@ class DensityPerformanceMetrics():
         ma = MakeAsimov()
         for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
           if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
+          if self.specific_val_ind is not None and self.specific_val_ind_hypothesis is not None:
+            val_info = {k.split("=")[0]: float(k.split("=")[1]) for k in self.specific_val_ind_hypothesis.split(",")}
           if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
           if self.use_eff_events:
             n_events = int(np.ceil(self.open_parameters["eff_events"][data_type][val_ind]))
+          elif self.use_total_events_with_weights:
+            sim_file, _ = self._GetFiles(val_ind, data_type, force_sim=True)
+            sim_dps = DataProcessor(
+              [sim_file],
+              "parquet"
+            )
+            n_events = sim_dps.GetFull(method="count")
           else:
             n_events = self.n_asimov_events
  
@@ -177,7 +192,9 @@ class DensityPerformanceMetrics():
                 "val_ind" : val_ind,
                 "only_density" : True,
                 "add_truth" : True,
+                "extra_density_model_name" : self.extra_density_model_name,
                 "verbose" : False,
+                "drop_wt" : self.use_total_events_with_weights,
               }
             )
             ma.Run()
@@ -205,7 +222,9 @@ class DensityPerformanceMetrics():
                   "val_ind" : val_ind,
                   "only_density" : True,
                   "add_truth" : True,
+                  "extra_density_model_name" : self.extra_density_model_name,
                   "verbose" : False,
+                  "drop_wt" : self.use_total_events_with_weights,
                 }
               )
               ma2.Run()        
@@ -270,10 +289,15 @@ class DensityPerformanceMetrics():
       sim_file = [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
     else:
       sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
+      if self.use_total_events_with_weights:
+        sim_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
     if self.asimov_input is None:
       synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
     else:
       synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
+
+    if self.use_total_events_with_weights:
+      synth_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
 
     return sim_file, synth_file
 
@@ -368,12 +392,22 @@ class DensityPerformanceMetrics():
       self.open_parameters["yields"]["nominal"],
       lnN = self.open_parameters["yields"]["lnN"],
       physics_model = None,
-      rate_param = f"mu_{self.file_name}" if f"mu_{self.file_name}" in self.open_cfg["inference"]["rate_parameters"] else None,
+      rate_param = f"mu_{self.file_name}" if self.file_name in self.open_cfg["inference"]["rate_parameters"] else None,
     )
 
-    def scale_down(df, func, scale):
+    def scale_down(df, func, scales):
+      # Each validation hypothesis has its own effective event count.
+      # The previous implementation applied the last hypothesis's count to all.
+      target_scale = np.full(len(df), np.nan)
+      for conditions, scale in scales:
+        mask = np.ones(len(df), dtype=bool)
+        for name, value in conditions.items():
+          mask &= np.isclose(df[name].to_numpy(), value, rtol=0., atol=1e-8)
+        target_scale[mask] = scale
+      if np.any(~np.isfinite(target_scale)):
+        raise ValueError("No effective-event scale for a validation hypothesis")
       df["wt"] = df["wt"].astype("float64")
-      df["wt"] = df["wt"] / (scale / func(df)["yield"])
+      df["wt"] *= target_scale / np.asarray(func(df)["yield"])
       return df
 
     for data_type in self.multidimensional_datasets:
@@ -383,17 +417,24 @@ class DensityPerformanceMetrics():
       # Get all files
       sim_files = []
       synth_files = []
+      scales = []
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
         if SkipEmptyDataset(self.open_cfg, self.file_name, data_type, val_info): continue
 
-        partial_scale_down = partial(scale_down, func=yield_class.GetYield, scale=self.open_parameters["eff_events"][data_type][val_ind])
 
         sim_file, synth_file = self._GetFiles(val_ind, data_type)
         if not all([os.path.isfile(f) for f in sim_file]) or not all([os.path.isfile(f) for f in synth_file]): continue
         sim_files.append(sim_file)
         synth_files.append(synth_file)
+        conditions = {k: val_info[k] for k in self.open_parameters["density"]["Y_columns"]}
+        scale = self.open_parameters["eff_events"][data_type][val_ind]
+        scales.append((conditions, scale))
+        if self.specific_val_ind is not None and self.specific_val_ind_hypothesis is not None:
+          alternative = dict(conditions)
+          alternative.update({k.split("=")[0]: float(k.split("=")[1]) for k in self.specific_val_ind_hypothesis.split(",")})
+          scales.append((alternative, scale))
 
       if self.verbose:
         print("Sim files:", sim_files)
@@ -403,8 +444,8 @@ class DensityPerformanceMetrics():
       mm = MultiDimMetrics(
         sim_files,
         synth_files,
-        self.open_parameters['density']["X_columns"] + self.open_parameters['density']["Y_columns"],
-        functions_to_apply = [partial_scale_down],
+        self.open_parameters['density']["X_columns"] + (self.open_parameters['density']["Y_columns"] if self.specific_val_ind is None else []),
+        functions_to_apply = [partial(scale_down, func=yield_class.GetYield, scales=scales)],
       )
       mm.verbose = self.verbose
 
@@ -437,6 +478,8 @@ class DensityPerformanceMetrics():
 
 
   def DoInference(self):
+
+    self.network.cache_observable_transforms = self.cache_observable_transforms
 
     for data_type in self.inference_datasets:
 
@@ -476,7 +519,8 @@ class DensityPerformanceMetrics():
           "parquet",
           wt_name = "wt",
           options = {
-            "scale" : scale
+            "scale" : scale,
+            "hold_dataset_in_memory" : self.hold_dataset_in_memory,
           }
         )
 
@@ -602,7 +646,7 @@ class DensityPerformanceMetrics():
     cfg = LoadConfig(self.cfg)
 
     # Add density model
-    density_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"
+    density_model_name = f"{self.model_input}/{self.extra_model_dir}{self.extra_density_model_name}/{self.file_name}{self.save_extra_name}"
     density_model_name = density_model_name.replace("//", "/")
     inputs += [f"{density_model_name}.h5"]
     inputs += [f"{density_model_name}_architecture.yaml"]

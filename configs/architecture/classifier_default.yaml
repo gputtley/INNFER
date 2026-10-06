@@ -3,7 +3,7 @@ type: "FCNN"
 # training
 epochs: 20
 batch_size: 2048
-early_stopping: False
+early_stopping: True
 learning_rate: 0.001
 optimizer_name: "AdamW"
 lr_scheduler_name: "CosineDecayWithWarmUp"
@@ -18,5 +18,5 @@ dense_layers:
   layer_1: 64
   layer_2: 64
 activation: relu
-l2_lambda: 0.00001
-normalise_batch_categories: true
+l2_lambda: 0.0001
+normalise_batch_categories: True

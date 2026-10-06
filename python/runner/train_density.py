@@ -32,6 +32,8 @@ class TrainDensity():
     self.save_model_per_epoch = False
     self.model_type = "BayesFlow"
     self.load_weights_for_training = None
+    self.train_from_nominal = False
+
 
   def Configure(self, options):
     """
@@ -43,10 +45,12 @@ class TrainDensity():
     for key, value in options.items():
       setattr(self, key, value)
 
+
   def Run(self):
     """
     Run the code utilising the worker classes
     """
+
     # Open parameters
     if self.verbose:
       print("- Loading in the parameters")
@@ -73,6 +77,7 @@ class TrainDensity():
     network = InitiateDensityModel(
       architecture,
       self.data_input,
+      train_name = "train" if not self.train_from_nominal else "train_nominal",
       test_name = self.test_name,
       options = {
         "plot_dir" : self.plots_output,
@@ -135,6 +140,9 @@ class TrainDensity():
       f"{self.data_input}/Y_{self.test_name}.parquet", 
       f"{self.data_input}/wt_{self.test_name}.parquet",
     ]
+
+    if self.load_weights_for_training is not None:
+      inputs.append(self.load_weights_for_training)
 
     return inputs
 

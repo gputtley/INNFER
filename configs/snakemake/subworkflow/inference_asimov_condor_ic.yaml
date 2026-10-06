@@ -5,8 +5,8 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -16,8 +16,8 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -34,8 +34,8 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     integrate_density_with_ratios: True
@@ -47,8 +47,8 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     integrate_density_with_ratios: True
@@ -89,9 +89,10 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "AsimovStatOnly"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     freeze: "all-nuisances"
+    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -101,9 +102,10 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "AsimovStatOnly"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     freeze: "all-nuisances"
+    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -114,6 +116,7 @@
     data_type: "asimov"
     extra_dir_name: "AsimovStatOnly"
     freeze: "all-nuisances"
+    load_fit_for_defaults: "Asimov"
 
 - step: "ScanPointsFromHessian"
   submit: "configs/submit/condor_gpu.yaml"
@@ -121,11 +124,12 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "AsimovStatOnly"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
+    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -135,11 +139,12 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "AsimovStatOnly"
-    prune_classifier_models: "roc_auc_test:0.505"
-    number_of_integral_events: 100000
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
+    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 
@@ -164,6 +169,8 @@
     specific_combined_default_val: True
     data_type: "asimov"
     extra_dir_name: "Asimov"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     scan_plot_breakdown: True
     other_input: "Stat. Only:ScanCollectAsimovStatOnly:scan_collect"
     scan_nominal_name: "Stat. + Syst."

@@ -4,8 +4,11 @@ import pickle
 import yaml
 import numpy as np
 
-def bw_reweight(df, mass_to="bw_mass", mass_from="sim_mass", gen_mass="GenTop1_mass", clip_min=0.1, clip_max=10.0):
-  df.loc[:,"wt"] *= np.clip(bw(df.loc[:,mass_to], df.loc[:,gen_mass]) / bw(df.loc[:,mass_from], df.loc[:,gen_mass]), clip_min, clip_max)
+def bw_reweight(df, mass_to="bw_mass", mass_from="sim_mass", gen_mass="GenTop1_mass", clip_min=0.1, clip_max=10.0, return_wt=False):
+  wt = np.clip(bw(df.loc[:,mass_to], df.loc[:,gen_mass]) / bw(df.loc[:,mass_from], df.loc[:,gen_mass]), clip_min, clip_max)
+  if return_wt:
+    return wt
+  df.loc[:,"wt"] *= wt
   return df
 
 
@@ -22,7 +25,7 @@ def bw(m, gen_m):
   return (1/(((gen_m**2)-(m**2))**2 + ((m*width(m))**2)))
 
 
-def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass", mass_from="sim_mass", category="run2", ignore_quantile=0.05):
+def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass", mass_from="sim_mass", category="run2", ignore_quantile=0.0, extra_mask=None):
   
   # Load splines (yaml file)
   with open(spline_locations, "r") as f:
@@ -36,6 +39,9 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
   else:
     splines = all_splines[category]
     
+  # Get extra mask as a boolean series if provided
+  if extra_mask is not None:
+    extra_mask = df.eval(extra_mask).astype(bool)
 
   # Loop through mass_from values
   spl = {}
@@ -52,12 +58,18 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
     # Cap spline function to a minimum of 0
     def SplineWithMinZero(x, spline_func=spl[k]):
       result = spline_func(x)
-      result[result < ignore_quantile] = 0.0
+      # Retain small positive contributions to avoid a jump at 5%.
+      # An explicit threshold uses a continuous ramp instead of a hard cutoff.
+      result = np.maximum(result, 0.0)
+      if ignore_quantile > 0:
+        result *= np.clip(result / ignore_quantile, 0.0, 1.0)
       return result
     spl[k] = partial(SplineWithMinZero, spline_func=spl[k])
 
     # Get mask for mass_from
     mask = (df.loc[:,mass_from] == float(k))
+    if extra_mask is not None:
+      mask &= extra_mask
 
     # Apply reweighting
     df.loc[mask,"wt"] *= spl[k](df.loc[mask,mass_to])

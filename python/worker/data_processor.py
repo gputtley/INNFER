@@ -8,6 +8,7 @@ import re
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from sklearn.model_selection import train_test_split
 from scipy.stats import norm
@@ -63,6 +64,8 @@ class DataProcessor():
     self.check_wt = False
     self.use_pbar = use_pbar
     self.sort_columns = True
+    self.hold_dataset_in_memory = False
+    self.raw_dataset_cache = {}
 
     # Transform options
     self.parameters = {}
@@ -181,7 +184,17 @@ class DataProcessor():
       elif self.dataset_type == "generator":
         tmp = self.datasets[self.file_ind][column_ind](self.n_events_per_batch[self.file_ind][self.batch_ind])
       elif self.dataset_type == "parquet":
-        tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
+        if self.data_loaders[self.file_ind][column_ind].num_rows == 0:
+          tmp = pd.DataFrame(index=range(self.batch_size))
+        elif self.hold_dataset_in_memory:
+          file_name = self.datasets[self.file_ind][column_ind]
+          if file_name not in self.raw_dataset_cache:
+            self.raw_dataset_cache[file_name] = pq.read_table(file_name).to_pandas().reset_index(drop=True)
+          start = self.batch_ind * self.batch_size
+          # Functions and weight scaling must never mutate the stored raw data.
+          tmp = self.raw_dataset_cache[file_name].iloc[start:start+self.batch_size].copy(deep=True).reset_index(drop=True)
+        else:
+          tmp = self.data_loaders[self.file_ind][column_ind].LoadNextBatch()
 
       # Skip if no columns
       if len(tmp.columns) == 0: continue
@@ -300,6 +313,7 @@ class DataProcessor():
       sum_w_selections = [],
       columns = [],
       seed = 42,
+      single_batch = False,
     ):
 
     none_total_columns = False
@@ -308,17 +322,17 @@ class DataProcessor():
 
     if method == "std": # Get the mean for standard deviation calculation
       if means is None:
-        sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+        sum_cols, sum_wts = self.GetFull(method="sum_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, single_batch=single_batch)
         means = {k : v/sum_wts for k, v in sum_cols.items()}
     elif method == "n_eff": # Get the number of effective events
-      sum_wts, sum_wts_squared = self.GetFull(method="sum_w_and_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply)
+      sum_wts, sum_wts_squared = self.GetFull(method="sum_w_and_w2", extra_sel=extra_sel, functions_to_apply=functions_to_apply, single_batch=single_batch)
       if sum_wts_squared != 0:
         return (sum_wts**2)/sum_wts_squared
       else:
         return 0
     elif method == "n_eff_unique_columns": # Get the number of effective events in unique columns
-      sum_wts_squared = self.GetFull(method="sum_w2_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations)
-      sum_wts = self.GetFull(method="sum_w_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations)
+      sum_wts_squared = self.GetFull(method="sum_w2_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations, single_batch=single_batch)
+      sum_wts = self.GetFull(method="sum_w_unique_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_combinations=unique_combinations, single_batch=single_batch)
       eff_events = copy.deepcopy(sum_wts)
       eff_events["eff_events"] = eff_events["sum_w"]**2
       eff_events.drop(["sum_w"], axis=1, inplace=True)
@@ -330,20 +344,20 @@ class DataProcessor():
       if column is not None:
 
         if not ignore_discrete:
-          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column])[column]
+          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column], single_batch=single_batch)[column]
         else:
           unique = None
         if unique is not None: # Discrete bins
           unique = sorted(unique)
           bins_out = np.array(unique + [2*unique[-1] - unique[-2]])
         else:
-          quantiles = self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=[ignore_quantile, 1-ignore_quantile])
+          quantiles = self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=[ignore_quantile, 1-ignore_quantile], single_batch=single_batch)
           bins_out = np.linspace(quantiles[0], quantiles[-1], num=bins+1)
 
       elif columns != []:
 
         if not ignore_discrete:
-          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=columns)
+          unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=columns, single_batch=single_batch)
         else:
           unique = {k: None for k in columns}
 
@@ -357,7 +371,7 @@ class DataProcessor():
             bins_out_dict[col] = np.array(unique_col + [2*unique_col[-1] - unique_col[-2]])
 
         if len(continuous_columns) > 0:
-          quantiles_for_columns = self.GetFull(method="quantiles_for_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, columns=continuous_columns, quantiles=[ignore_quantile, 1-ignore_quantile])
+          quantiles_for_columns = self.GetFull(method="quantiles_for_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, columns=continuous_columns, quantiles=[ignore_quantile, 1-ignore_quantile], single_batch=single_batch)
           for col in continuous_columns:
             bins_out_dict[col] = np.linspace(quantiles_for_columns[0][col], quantiles_for_columns[1][col], num=bins+1)
 
@@ -367,17 +381,17 @@ class DataProcessor():
 
 
     elif method == "bins_with_equal_stats": # Get equal stat bins
-      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column])[column]
+      unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column], single_batch=single_batch)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
         return np.array(unique + [2*unique[-1] - unique[-2]])
       else:
         #out_bins = np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
-        out_bins = np.array(self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)))
+        out_bins = np.array(self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1), single_batch=single_batch))
         return out_bins
     elif method in ["histogram","histogram_and_uncert"]: # Get histogram bins
       if type(bins) == int:
-        bins = self.GetFull(method="bins_with_equal_spacing", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, bins=bins, ignore_discrete=ignore_discrete)
+        bins = self.GetFull(method="bins_with_equal_spacing", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, bins=bins, ignore_discrete=ignore_discrete, single_batch=single_batch)
 
     self.batch_ind = 0
     self.file_ind = 0
@@ -466,10 +480,14 @@ class DataProcessor():
         else: 
           out = None
 
+        if single_batch:
+          break
+
       load_ind += 1
 
       # Remove tmp from memory
       #del tmp
+
 
     self.finished = False
 
@@ -873,7 +891,13 @@ class DataProcessor():
 
       if len(out) < column_index + 1:
         out.append(None)
-        try_bins = bins
+        if isinstance(bins, dict):
+          if column in bins:
+            try_bins = bins[column]
+          else:
+            try_bins = bins
+        else:
+          try_bins = bins
       else:
         try_bins = out[column_index][1]
 

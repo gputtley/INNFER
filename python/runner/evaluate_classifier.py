@@ -43,7 +43,6 @@ class EvaluateClassifier():
     self.model_type = "FCNN"
     self.spline_from_asimov = True
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH"))
-    self.extra_classifier_model_name = ""
   
 
   def Configure(self, options):
@@ -55,10 +54,7 @@ class EvaluateClassifier():
     """
     for key, value in options.items():
       setattr(self, key, value)
-
-    if self.extra_classifier_model_name != "":
-      self.extra_classifier_model_name = f"_{self.extra_classifier_model_name}"
-
+      
 
   def Run(self):
     """
@@ -80,7 +76,7 @@ class EvaluateClassifier():
     # Load the model in
     if self.verbose:
       print("- Building the model")
-    classifier_model_name = f"{self.model_input}/{self.model_name}/{parameters['file_name']}{self.extra_classifier_model_name}"
+    classifier_model_name = f"{self.model_input}/{self.model_name}/{parameters['file_name']}"
     with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
     network = InitiateClassifierModel(

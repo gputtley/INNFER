@@ -62,7 +62,7 @@ class InputPlotNuisanceVariations():
       infer_class.Configure(
         {
           "parameters" : {self.category : {self.file_name: self.parameters}},
-          "binned_fit_morph_col" : cfg["pois"][0],
+          "binned_fit_morph_col" : cfg["pois"][0] if len(cfg["pois"]) > 0 else None,
           "likelihood_type" : "binned_extended",
           "inference_options" : {
             "rate_parameters" : []
@@ -238,6 +238,20 @@ class InputPlotNuisanceVariations():
         up_hist, up_hist_uncert, _ = up_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
       if draw_down:
         down_hist, down_hist_uncert, _ = down_dp.GetFull(method="histogram_and_uncert", bins=bins, column=col)
+
+      # check to see if bins have the same spacing
+      bin_spacings = np.diff(bins)
+      normalise_to_bin_width = False
+      if not np.allclose(bin_spacings, bin_spacings[0]):
+        normalise_to_bin_width = True
+
+      if normalise_to_bin_width:
+        nominal_hist = nominal_hist / np.diff(bins)
+        up_hist = up_hist / np.diff(bins)
+        down_hist = down_hist / np.diff(bins)
+        nominal_hist_uncert = nominal_hist_uncert / np.diff(bins)
+        up_hist_uncert = up_hist_uncert / np.diff(bins)
+        down_hist_uncert = down_hist_uncert / np.diff(bins)
 
       plot_name = f"{self.plots_output}/nuisance_variation_{self.nuisance}_{col}{extra_name_for_plot}"
 

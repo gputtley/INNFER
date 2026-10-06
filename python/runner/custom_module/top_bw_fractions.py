@@ -39,21 +39,33 @@ class top_bw_fractions():
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
 
 
-  def _ApplyBWReweight(self, df, m=172.5, l=1.32):
+  def _ApplyBWReweight(self, df, m=172.5, l=1.32, return_wt=False):
     """
     Apply the BW reweighting to the dataframe.
     Args:
         df (pd.DataFrame): The input dataframe.
         m (float): The mass of the top quark.
         l (float): The width of the top quark. 
+        return_wt (bool): Whether to return the reweighting factors instead of the modified dataframe.
     """
     # Apply the BW reweighting
+    if return_wt:
+      wt = pd.Series(1.0, index=df.index, dtype=float)
+
     df.loc[:,self.bw_mass_name] = m*np.ones(len(df))
     mask = df.loc[:,self.gen_mass] > 0
-    df.loc[mask,"wt"] = bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass).loc[:,"wt"]
+    if not return_wt:
+      df.loc[mask,"wt"] = bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass).loc[:,"wt"]
+    else:
+      wt.loc[mask] *= bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass, return_wt=True)
     if self.gen_mass_other is not None:
       mask = df.loc[:,self.gen_mass_other] > 0
-      df.loc[mask,"wt"] = bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass_other).loc[:,"wt"]
+      if not return_wt:
+        df.loc[mask,"wt"] = bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass_other).loc[:,"wt"]
+      else:
+        wt.loc[mask] *= bw_reweight(df.loc[mask,:], mass_to=self.bw_mass_name, mass_from=self.mass_name, gen_mass=self.gen_mass_other, return_wt=True)
+    if return_wt:
+      return wt
     return df
 
 
@@ -135,14 +147,20 @@ class top_bw_fractions():
 
       def __call__(self, df):
 
+        wt_before = df.loc[:,"wt"]
         for transformed_to_mass in self.transformed_to_masses:
-          copy_df = df.copy()
-          copy_df.loc[:,self.transformed_to_name] = transformed_to_mass
-          copy_df = self.bw_reweight_func(copy_df, m=transformed_to_mass)
+          #copy_df.loc[:,self.transformed_to_name] = transformed_to_mass
+          #copy_df = self.bw_reweight_func(copy_df, m=transformed_to_mass)
+          #for transformed_from_mass in self.transformed_from_masses:
+          #  mask = copy_df.loc[:,self.transformed_from_name] == transformed_from_mass
+          #  self.sum_wt[transformed_from_mass][transformed_to_mass] += copy_df.loc[mask,"wt"].sum()
+          #  self.sum_wt_squared[transformed_from_mass][transformed_to_mass] += (copy_df.loc[mask,"wt"]**2).sum()
+          wt_bw = self.bw_reweight_func(df, m=transformed_to_mass, return_wt=True)
+          total_wt = wt_before*wt_bw
           for transformed_from_mass in self.transformed_from_masses:
-            mask = copy_df.loc[:,self.transformed_from_name] == transformed_from_mass
-            self.sum_wt[transformed_from_mass][transformed_to_mass] += copy_df.loc[mask,"wt"].sum()
-            self.sum_wt_squared[transformed_from_mass][transformed_to_mass] += (copy_df.loc[mask,"wt"]**2).sum()
+            mask = df.loc[:,self.transformed_from_name] == transformed_from_mass
+            self.sum_wt[transformed_from_mass][transformed_to_mass] += total_wt.loc[mask].sum()
+            self.sum_wt_squared[transformed_from_mass][transformed_to_mass] += (total_wt.loc[mask]**2).sum()
 
         return df
 
@@ -227,9 +245,9 @@ class top_bw_fractions():
     # Normalise fractions
     normalised_fractions = {}
     for transformed_from_mass in fi.transformed_from_masses:
-      normalised_fractions[transformed_from_mass] = {}
+      normalised_fractions[float(transformed_from_mass)] = {}
       for transformed_to_mass in fi.transformed_to_masses:
-        normalised_fractions[transformed_from_mass][transformed_to_mass] = fractions[transformed_from_mass][transformed_to_mass] * capped_spline(transformed_to_mass) / total_sums[transformed_to_mass]
+        normalised_fractions[float(transformed_from_mass)][float(transformed_to_mass)] = float(fractions[transformed_from_mass][transformed_to_mass] * capped_spline(transformed_to_mass) / total_sums[transformed_to_mass])
 
     # fit splines for continuous fractioning
     splines = {}
@@ -380,6 +398,81 @@ class top_bw_fractions():
     return out
 
 
+  def _custom_info_reweighted_all_masses(self, tmp, out, options={}):
+
+    masses = options["masses"]
+    bins = options["bins"]
+    fractions_by_mass = options["fractions_by_mass"]
+    source_mass_name = options["source_mass_name"]
+
+    # Initialise the accumulated output, one entry per target mass.
+    if out is None:
+      out = [
+        [
+          0.0,  # sum of weights
+          0.0,  # sum of squared weights
+          {
+            col: np.zeros(len(col_bins) - 1, dtype=float)
+            for col, col_bins in bins.items()
+          },
+          {
+            col: np.zeros(len(col_bins) - 1, dtype=float)
+            for col, col_bins in bins.items()
+          },
+        ]
+        for _ in masses
+      ]
+
+    base_weight = tmp["wt"].to_numpy(copy=False)
+    source_mass = tmp[source_mass_name]
+
+    for mass_index, target_mass in enumerate(masses):
+
+      # Returns only the BW factor; tmp["wt"] is not changed.
+      bw_factor = self._ApplyBWReweight(
+        tmp,
+        m=target_mass,
+        return_wt=True,
+      ).to_numpy()
+
+      # normalised_fractions is stored as [source][target].
+      fraction_factor = source_mass.map(
+        fractions_by_mass[target_mass]
+      ).fillna(0.0).to_numpy()
+
+      reweighted_weight = (
+        base_weight
+        * bw_factor
+        * fraction_factor
+      )
+
+      reweighted_weight_squared = np.square(reweighted_weight)
+
+      out[mass_index][0] += np.sum(reweighted_weight)
+      out[mass_index][1] += np.sum(reweighted_weight_squared)
+
+      for col, col_bins in bins.items():
+
+        values = tmp[col].to_numpy(copy=False)
+
+        hist, _ = np.histogram(
+          values,
+          bins=col_bins,
+          weights=reweighted_weight,
+        )
+
+        hist_squared, _ = np.histogram(
+          values,
+          bins=col_bins,
+          weights=reweighted_weight_squared,
+        )
+
+        out[mass_index][2][col] += hist
+        out[mass_index][3][col] += hist_squared
+
+    return out
+
+
   def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[], category=None):
     """
     Plot the reweighting of the samples.
@@ -425,7 +518,8 @@ class top_bw_fractions():
       bins=40,
       columns=plot_columns,
       ignore_quantile=0.02,
-      functions_to_apply = [apply_wt_partial]
+      functions_to_apply = [apply_wt_partial],
+      single_batch = True
     )
 
     print(f"- Getting per mass information for plotting")
@@ -440,20 +534,51 @@ class top_bw_fractions():
       functions_to_apply = [apply_wt_partial]
     )
 
-    reweighted_info = []
-    for i, mass in enumerate(unique):
-      print(f"- Getting reweighted information for mass: {mass}")
-      reweighted_info.append(dp.GetFull(
-        method="custom",
-        custom=self._custom_info_reweighted,
-        custom_options={
-          "bins" : {col: bins[ind] for ind, col in enumerate(plot_columns)}
+    fractions_by_mass = {
+      target_mass: {
+        source_mass: normalised_fractions[source_mass][target_mass]
+        for source_mass in unique
+      }
+      for target_mass in unique
+    }
+
+    print("- Getting reweighted information for all masses")
+
+    reweighted_info = dp.GetFull(
+      method="custom",
+      custom=self._custom_info_reweighted_all_masses,
+      custom_options={
+        "masses": list(unique),
+        "bins": {
+          col: bins[ind]
+          for ind, col in enumerate(plot_columns)
         },
-        functions_to_apply=[
-          apply_wt_partial,
-          partial(self._ApplyBWReweight,m=mass),partial(self._ApplyFractions, fractions=normalised_fractions[mass])
-        ]
-      ))
+        "fractions_by_mass": fractions_by_mass,
+        "source_mass_name": self.mass_name,
+      },
+      functions_to_apply=[
+        apply_wt_partial,
+      ],
+    )
+
+    #reweighted_info = []
+    #for i, mass in enumerate(unique):
+    #  print(f"- Getting reweighted information for mass: {mass}")
+    #  fractions_at_mass = {
+    #      source_mass: normalised_fractions[source_mass][mass]
+    #      for source_mass in unique
+    #  }
+    #  reweighted_info.append(dp.GetFull(
+    #    method="custom",
+    #    custom=self._custom_info_reweighted,
+    #    custom_options={
+    #      "bins" : {col: bins[ind] for ind, col in enumerate(plot_columns)}
+    #    },
+    #    functions_to_apply=[
+    #      apply_wt_partial,
+    #      partial(self._ApplyBWReweight,m=mass),partial(self._ApplyFractions, fractions=fractions_at_mass)
+    #    ]
+    #  ))
 
 
     # print out the effective events before and after reweighting
@@ -673,9 +798,10 @@ class top_bw_fractions():
     for key, value in options.items():
       setattr(self, key, value)
 
-    self.fit_method = "gaussian" if "fit_method" not in self.options else self.options["fit_method"].strip()
+    self.fit_method = "spline" if "fit_method" not in self.options else self.options["fit_method"].strip()
     self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
     self.plot_dist = False if "plot_dist" not in self.options else self.options["plot_dist"].strip() == "True"
+    self.only_plot = False if "only_plot" not in self.options else self.options["only_plot"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
     self.transformed_to_masses = [164.5,165.5,166.5,167.5,168.5,169.5,170.5,171.0,171.25,171.5,171.75,172.0,172.25,172.5,172.75,173.0,173.25,173.5,173.75,174.0,174.5,175.5,176.5,177.5,178.5,179.5,180.5]
     #self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
@@ -685,6 +811,7 @@ class top_bw_fractions():
     self.mass_name = "sim_mass" if "mass_name" not in self.options else self.options["mass_name"].strip()
     self.bw_mass_name = "bw_mass" if "bw_mass_name" not in self.options else self.options["bw_mass_name"].strip()
     self.ignore_quantile = 0.1 if "ignore_quantile" not in self.options else float(self.options["ignore_quantile"])
+    self.selection = None if "selection" not in self.options else self.options["selection"].strip()
 
     cfg = LoadConfig(self.cfg)
     self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractions/{self.file_name}"
@@ -697,7 +824,12 @@ class top_bw_fractions():
     # Load the config
     cfg = LoadConfig(self.cfg)
 
+
     splines = {}
+    normalised_fractions = {}
+    base_files = {}
+    base_file_names = {}
+    functions_per_cat = {}
 
     for category in GetCategoryLoop(cfg):
 
@@ -705,10 +837,17 @@ class top_bw_fractions():
       if "_signal" or "_control" in base_file_name:
         base_file_name = base_file_name.replace("_signal","").replace("_control","")
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
+      base_files[category] = base_file
+      base_file_names[category] = base_file_name
 
       # Define functions
       functions = []
       defaults = GetDefaults(cfg)
+      def apply_selection(df):
+        if self.selection is not None:
+          df = df.query(self.selection)
+        return df
+      functions.append(apply_selection)
       def add_defaults(df):
         if len(df) == 0:
           return df
@@ -735,30 +874,55 @@ class top_bw_fractions():
         df = df.query(cfg["files"][base_file_name]["post_calculate_selection"])
         return df
       functions.append(apply_postselection)
+      functions_per_cat[category] = functions
 
       # Calculate optimal fractions
-      normalised_fractions, splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot, category=category)
+      if not self.only_plot:
+        normalised_fractions[category], splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot, category=category)
 
-      # Plot reweighting
-      if self.plot_dist:
-        self._PlotReweighting(normalised_fractions, base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions, category=category)
+    if not self.only_plot:
 
-    # Write splines to file
-    file_names = {}
-    for k1, v1 in splines.items():
-      file_names[k1] = {}
-      for k2 in v1.keys():
-        file_name = f"{data_dir}/{cfg['name']}/top_bw_fractions/spline_{k1}_{str(k2).replace('.','p')}.pkl"
-        MakeDirectories(os.path.dirname(file_name))
-        with open(file_name, "wb") as f:
-          pickle.dump(v1[k2], f)
-        file_names[k1][k2] = file_name
+      # Write splines to file
+      file_names = {}
+      for k1, v1 in splines.items():
+        file_names[k1] = {}
+        for k2 in v1.keys():
+          file_name = f"{data_dir}/{cfg['name']}/top_bw_fractions/spline_{k1}_{str(k2).replace('.','p')}.pkl"
+          MakeDirectories(os.path.dirname(file_name))
+          with open(file_name, "wb") as f:
+            pickle.dump(v1[k2], f)
+          file_names[k1][k2] = file_name
 
-    # Save to yaml
-    output_yaml = f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"
-    MakeDirectories(os.path.dirname(output_yaml))
-    with open(output_yaml, "w") as f:
-      yaml.dump(file_names, f)
+      # Write normalised fractions to yaml file
+      with open(f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml", "w") as f:
+        yaml.safe_dump(normalised_fractions, f)
+
+      # Save to yaml
+      output_yaml = f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"
+      MakeDirectories(os.path.dirname(output_yaml))
+      with open(output_yaml, "w") as f:
+        yaml.dump(file_names, f)
+
+    else:
+
+      # Load in fractions and splines from previously saved files
+      with open(f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml", "r") as f:
+        normalised_fractions = yaml.safe_load(f)
+
+      with open(f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml", "r") as f:
+        file_names = yaml.safe_load(f)
+
+      splines = {}
+      for k1, v1 in file_names.items():
+        splines[k1] = {}
+        for k2, file_name in v1.items():
+          with open(file_name, "rb") as f:
+            splines[k1][k2] = pickle.load(f)
+
+    # Plot reweighting
+    if self.plot_dist:
+      for category in GetCategoryLoop(cfg):
+        self._PlotReweighting(normalised_fractions[category], base_files[category], cfg["files"][base_file_names[category]]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions_per_cat[category], category=category)
 
 
   def Outputs(self):
@@ -782,6 +946,7 @@ class top_bw_fractions():
 
     # Add yaml file
     outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"]
+    outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml"]
 
     return outputs
 
@@ -806,6 +971,10 @@ class top_bw_fractions():
 
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
       inputs += [base_file]
+
+    if self.plot_dist and self.only_plot:
+      inputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml"]
+      inputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"]
 
     return inputs
   

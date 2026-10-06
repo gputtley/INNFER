@@ -44,8 +44,11 @@ class Infer():
     self.verbose = True
     self.minimisation_method = "nominal"
     self.freeze = {}
+    self.load_fit_for_defaults = None
     self.extra_file_name = ""
     self.scale_to_eff_events = False
+    self.hold_dataset_in_memory = False
+    self.cache_observable_transforms = False
     self.column = None
     self.scan_value = None
     self.scan_ind = None
@@ -83,6 +86,7 @@ class Infer():
     self.scan_points_input = {}
     self.remove_lnN_if_rate_param = True
     self.prune_classifier_models = None
+    self.prune_lnN = None
     self.classifier_pruning_files = {}
     self.collect_skip_diagonal = False
     self.bootstrap_method = "oversample_to_eff_events" # oversample_to_eff_events, oversample_to_length, undersample_to_eff_events
@@ -95,6 +99,7 @@ class Infer():
     self.binned_data_file = None
     self.classifier_divide_by_nominal = False
     self.use_integral_scaling = None
+    self.skip_spline = True
 
 
   def Configure(self, options):
@@ -111,14 +116,40 @@ class Infer():
       self.extra_file_name = f"_{self.extra_file_name}"
 
 
+  def _LoadFreezeDefaults(self):
+
+    if self.load_fit_for_defaults is None:
+      return
+    with open(self.load_fit_for_defaults, 'r') as yaml_file:
+      best_fit = yaml.safe_load(yaml_file)
+    if not isinstance(best_fit, dict) or "columns" not in best_fit or "best_fit" not in best_fit:
+      raise ValueError(f"Invalid best-fit file: {self.load_fit_for_defaults}")
+    columns = best_fit["columns"]
+    values = best_fit["best_fit"]
+    if len(columns) != len(values) or len(set(columns)) != len(columns):
+      raise ValueError(f"Invalid best-fit columns/values: {self.load_fit_for_defaults}")
+    fitted_values = dict(zip(columns, values))
+    for column in self.freeze:
+      if column not in fitted_values:
+        raise ValueError(f"Frozen parameter {column} is missing from {self.load_fit_for_defaults}")
+      value = float(fitted_values[column])
+      if not np.isfinite(value):
+        raise ValueError(f"Non-finite best-fit value for {column}: {self.load_fit_for_defaults}")
+      self.freeze[column] = value
+
+
   def Run(self):
 
+    if self.load_fit_for_defaults is not None:
+      self.freeze = {k: v for k, v in self.freeze.items() if k in self.Y_columns}
+      self._LoadFreezeDefaults()
+
     # Make yields or use existing
-    if self.yields is None:
+    if self.yields is None and not self.method.startswith("Covariance"):
       self.yields = self._BuildYieldFunctions()
 
     # Make data processors or use existing
-    if self.dps is None:
+    if self.dps is None and not self.method.startswith("Covariance"):
       self.dps = self._BuildDataProcessors()
 
     # Make likelihood or use exisiting
@@ -129,7 +160,7 @@ class Infer():
     self._BuildBinnedFitInput()
 
     # Make likelihood inputs
-    if self.lkld_input is None:
+    if self.lkld_input is None and not self.method.startswith("Covariance"):
       if self.likelihood_type in ["unbinned", "unbinned_extended","poisson"]:
         self.lkld_input = {k: v.values() for k, v in self.dps.items()}
       elif self.likelihood_type in ["binned", "binned_extended"]:
@@ -137,6 +168,7 @@ class Infer():
 
     if self.verbose:
       if self.freeze != {}:
+        self.freeze = {k: v for k, v in self.freeze.items() if k in self.Y_columns}
         print(f"- Freezing parameters: {self.freeze}")
 
     if self.method == "InitialFit":
@@ -613,7 +645,7 @@ class Infer():
                 f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
                 f"{self.model_input}/{vi['name']}/{k}.h5",
               ]
-              if not self.integrate_density_with_ratios:
+              if not self.skip_spline:
                 inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
 
         # Add classifier model inputs
@@ -624,7 +656,7 @@ class Infer():
                 f"{self.model_input}/{vi['name']}/{k}_architecture.yaml",
                 f"{self.model_input}/{vi['name']}/{k}.h5",
               ]
-              if not self.integrate_density_with_ratios:
+              if not self.skip_spline:
                 inputs += [f"{self.model_input}/{vi['name']}/{k}_norm_spline.pkl"]
               if self.prune_classifier_models is not None:
                 if cat in self.classifier_pruning_files.keys():
@@ -664,6 +696,8 @@ class Infer():
 
     # Add other inputs
     inputs += self.other_input_files
+    if self.load_fit_for_defaults is not None and self.load_fit_for_defaults not in inputs:
+      inputs += [self.load_fit_for_defaults]
 
     return inputs
 
@@ -906,6 +940,7 @@ class Infer():
               "parameters" : parameters,
               "scale" : scale,
               "functions" : functions_to_apply,
+              "hold_dataset_in_memory" : self.hold_dataset_in_memory,
             }
           )
 
@@ -915,7 +950,7 @@ class Infer():
           self.data_input[cat]["data"],
           "parquet",
           batch_size = batch_size,
-          options = {}
+          options = {"hold_dataset_in_memory": self.hold_dataset_in_memory}
         )      
 
     return dps
@@ -957,6 +992,17 @@ class Infer():
       for k, v in parameters[cat].items():
 
         lnN_yields = v["yields"]["lnN"]
+
+        if self.prune_lnN is not None:
+          new_lnN_yields = {}
+          for kl, vl in lnN_yields.items():
+            down_shift = vl[0] if vl[0] >= 1.0 else 1/vl[0]
+            up_shift = vl[1] if vl[1] >= 1.0 else 1/vl[1]
+            max_shift = max(down_shift-1, up_shift-1)
+            if max_shift > self.prune_lnN:
+              new_lnN_yields[kl] = vl
+          lnN_yields = new_lnN_yields
+
         if self.remove_lnN_if_rate_param and k in self.inference_options["rate_parameters"]:
           lnN_yields = {}
 
@@ -998,6 +1044,7 @@ class Infer():
           v['file_loc'],
           options = {
             "data_parameters" : parameters[cat][k]["density"],
+            "cache_observable_transforms" : self.cache_observable_transforms,
             "file_name" : k,
           }
         )
@@ -1069,6 +1116,13 @@ class Infer():
     networks = {}
     splines = {}
     parameters = {}
+    
+    yield_columns = []
+
+    if "nuisance_constraints" in self.inference_options.keys():
+      constraint_columns = [i for i in self.inference_options["nuisance_constraints"] if i in self.Y_columns]
+    else:
+      constraint_columns = []
 
     for cat, models in self.classifier_models.items():
 
@@ -1128,6 +1182,26 @@ class Infer():
           self.nn_columns += [vi["parameter"]]
           self.nn_columns = list(set(self.nn_columns))
 
+          for kl, vl in parameters[cat][k]["yields"]["lnN"].items():
+            if vl[0] == 1.0 and vl[1] == 1.0:
+              continue
+            down_shift = vl[0] if vl[0] >= 1.0 else 1/vl[0]
+            up_shift = vl[1] if vl[1] >= 1.0 else 1/vl[1]
+            max_shift = max(down_shift-1, up_shift-1)
+            if self.prune_lnN is not None and max_shift <= self.prune_lnN:
+              continue
+            yield_columns += [kl]
+
+    lkld_varying_columns = sorted(list(yield_columns+self.nn_columns+constraint_columns))
+    flat_directions = [col for col in self.Y_columns if col not in lkld_varying_columns and not col.startswith("mu_") and col not in self.freeze.keys()]
+    if len(flat_directions) > 0:
+      # Freeze to initial guess value
+      for col in flat_directions:
+        self.freeze[col] = float(self.initial_best_fit_guess.loc[0,col])
+      print("WARNING: Flat directions in the likelihood identified. Freezing to initial guess values.")
+      print(flat_directions)
+
+
     if self.verbose:
       print(f"- Columns using neural networks: {self.nn_columns}")
 
@@ -1159,6 +1233,18 @@ class Infer():
   def _BuildLikelihood(self):
 
     from likelihood import Likelihood
+
+    if self.method.startswith("Covariance"):
+      lkld = Likelihood(
+        {"pdfs":{}},
+        likelihood_type = self.likelihood_type, 
+        X_columns = self.X_columns,
+        Y_columns = self.Y_columns,
+        Y_columns_per_model = self.Y_columns_per_model,
+        categories = list(self.parameters.keys()),
+      )
+      return lkld
+
 
     if self.verbose:
       print(f"- Building likelihood")
@@ -1193,10 +1279,9 @@ class Infer():
 
     if self.true_Y is not None and "nuisance_constraints" in self.inference_options.keys():
       constraint_center = self.true_Y.loc[:,constraints]
-      if constraint_center.shape[0] > 1:
-        if self.verbose:
-          print(f"- Using truth for constraint center:")
-          print(constraint_center)
+      if self.verbose:
+        print(f"- Using truth for constraint center:")
+        print(constraint_center)
     else:
       constraint_center = None
 
@@ -1214,6 +1299,7 @@ class Infer():
     )
 
     lkld.integrate_density_with_ratios = self.integrate_density_with_ratios
+    lkld.skip_spline = self.skip_spline
     lkld.no_print_minimisation_step = self.no_likelihood_print_out
     lkld.n_integral_events = self.n_integral_events
     if self.use_integral_scaling is not None and self.likelihood_type in ["unbinned_extended","unbinned"] and self.integrate_density_with_ratios:

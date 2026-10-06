@@ -3,69 +3,142 @@ layout: page
 title: "Step: PreProcess"
 ---
 
-PreProcess is the largest of data preparation steps in **INNFER** repository. There are a number of techniques involved but overall the purpose of this step is to create datasets ready for training and testing density, regression and classifier models to use in building the likelihood and to produce validation datasets to validate the performance of the learned likelihood. It also creates a parameters yaml file which contains various information about the datasets including the names of the columns, the standardisation parameters, the information regarding the yields so we can produce a prediction for the total yield in the likelihood, and many other important features.
+Build model training/testing tables and physical validation datasets, together with the metadata needed to evaluate models.
 
-The methods used during the PreProcess step are:
+## Run
 
-- **Getting the yields**: 
+```bash
+innfer --cfg="configs/run/your_analysis.py" --step="PreProcess"
+```
 
-It gets the nominal yield by calculating the sum of the weights at the default values of whichever base file is parsed as the "yield" for the particular "models" input in the configuration file. It also builds that dataset to get the 1 sigma variations of the nuisance parameters and save the sum of weights to find the relative yield effects of each nuisance, so this can be factored out and included as a log normal (lnN) nuisance parameter in the likelihood.
+Replace the example configuration with your analysis configuration. [Common step options](stepoptions.md) describe process/category selection, job splitting and directory suffixes.
 
-- **Get the binned fit inputs**: 
+The dispatch exposes these loop filters where applicable: `file_name`, `category`. Use `--specific="key=value;other=value"` to select a particular iteration.
 
-This method is only run if the "binned_fit_input" is defined in the configuration file. As **INNFER** is built for unbinned likelihood fits, this is only setup for a cross check of the unbinned results against the binned results. If you want to use a rigorous statistical framework for binned analysis, we recommend using [Combine](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/). If you still wish to use binned fits in **INNFER**, this will calculate the yields and lnN effects in each bin and write this to the parameters file, for later use when building the binned likelihood.
+## Inputs and outputs
 
-- **Train, test and validation splitting**: 
+**Requires:** LoadData base parquet files and the configured model definitions.
 
-This will split the base datasets, derived in the **LoadData** step into three datasets: a training and testing dataset for each model you wish to train and a validation dataset for every point you with to validate the likelihood estimation. The fraction of the events in the base datasets is parsed in the `preprocess:train_test_val_split` key of the configuration file and a colon separated string of 3 numbers that sum to 1, representing the fraction in `train`, `test` and `val` datasets, respectively.
+**Produces:** PreProcess/{process}/{category}/parameters.yaml, density/regression/classifier training tables, and validation tables.
 
-There is also the option to drop specific values of a column from the `train` and `test` dataset but leave it in the `val` dataset. This is done with the `preprocess:drop_from_training` key in the configuration file, parsed as a dictionary with the column as key, linking to the values to drop in a list. In this case, all statistics are still used, as the unused events in the `train` and `test` dataset are moved to the `val` dataset. This can be useful for example, if you wanted to test the interpolation abilities of the learned likelihood from some discrete conditions.
+| Location | Path pattern |
+| --- | --- |
+| Results | `$PREP_DATA_DIR/$CFG_NAME/PreProcess/{process}/{category}` |
 
-The `train`, `test` and `val` datasets are also combined in a `full` dataset, in case you want to test the likelihoods ability against the `full` simulation. All dataset splits are done before any weight- or feature-based variations are performed.
+Path placeholders identify the process, category, model or optional suffix for each loop iteration; see [path conventions](stepoptions.md#directories).
 
-- **Model variation**: 
+## Step options
 
-This method performs the various weight and feature variations required for the required model `train` and `test` dataset and the `val` datasets. It also creates equivalent validation dataset (at the requested validation points) for the `train` and `test` splits called `train_inf` and `test_inf` (inf = inference), as well as for the `full` dataset. 
-How the varied datasets are defined in the configuration is discussed [here](config.md).
+Defaults below are CLI defaults; architecture and run-configuration values are separate.
 
-The datasets are built slightly differently for the different purposes. The validation datasets are created by simply varying the weight and features to match that of the set of parameters defined. The training and testing datasets however, may require shifting to more than one value of a particular parameter. How these varied datasets are defined in the configuration is discussed [here](config.md). For density models, this is trivial as the relevant shifts define the whole dataset. For regression models, the effect on the weight are stored as a new column called `wt_shift`, which becomes the target for the regression. The classifiers, the shift dictates the variation of one class, the other class (reference) is created as the dataset and the default value.
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--number-of-shuffles` | `20` | The number of times to loop through the dataset when shuffling in preprocess |
 
-- **Validation normalisation**:
+## Dataset construction
 
-The yields prediction for a particular key of the `models` is defined using the equations defined INSERT LINK TO EQUATIONS. As this can differ slightly from the sum of the weights of the datasets (if you are away from the interpolated points), we rescale the validation datasets to the prediction from the yield equations. This is the final manipulation of the validation datasets created. The final datasets are split up into three components: the observable (X), the parameter truth values (Y) and the weights (wt). The following parquet files are created in the data folder under `PreProcess/$MODEL_NAME/$CATEGORY/val_ind_$VAL_IND/`, where `$MODEL_NAME` is the key of the `models` input to the configuration, `$CATEGORY` is the category, and `$VAL_IND` is the index of the validation set of parameters. 
+The monolithic step runs per process/category. Base events are split before creating parameter variations or repeated copies. Training/testing datasets are constructed for each model; physical inference datasets are built separately at configured validation hypotheses.
 
-- **Get validation effective events**:
+| Dataset | Purpose |
+| --- | --- |
+| `density/X_train.parquet`, `Y_train.parquet`, `wt_train.parquet` | Transformed density training features, condition labels and weights. Equivalent `test` tables are used for evaluation/checkpoint selection. |
+| `classifier/{parameter}/X_train.parquet`, `y_train.parquet`, `wt_train.parquet` | Classifier features including its parameter, binary varied/reference targets and balanced training weights. |
+| `regression/{parameter}/X_train.parquet`, `y_train.parquet`, `wt_train.parquet` | Regression inputs, weight-variation targets and weights. |
+| `val_ind_{index}/X_{split}.parquet`, `Y_{split}.parquet`, `wt_{split}.parquet` | Physical validation observables, truth labels and yield-normalised weights, for splits such as `val`, `test_inf`, `train_inf` and `full`. |
+| `{nuisance}_{up_or_down}/...` | Physical nominal-hypothesis nuisance variations. |
+| `parameters.yaml` | Yields, column ordering, training transforms, ranges, effective event counts and configured binned-fit information. |
 
-Here the number of effective events in each validation is determined as,
+Configured extra columns are written to `Extra` tables. Density model splitting can introduce `density/split_{index}` directories. The model-specific file locations in metadata are authoritative.
+
+### Splitting
+
+`preprocess.train_test_val_split` is a colon-separated train/test/validation fraction string such as `0.8:0.1:0.1`. The fractions must describe the intended partition before repeated training copies. `drop_from_training` can reserve selected values for validation. `full` combines the underlying partitions; it is not an independent validation sample.
+
+`preprocess.stratify_to` accepts either a column name or a mapping for joint stratification:
+
+```python
+config["preprocess"]["stratify_to"] = {
+    "year_ind": None,
+    "source": {"expression": "sim_mass", "bins": None, "optional": True},
+    "mass": {"expression": "CombinedSubJets_mass", "bins": 8},
+    "weight_magnitude": {"expression": "abs(weight)", "bins": 4},
+    "weight_sign": {"expression": "weight > 0", "bins": None},
+}
+```
+
+Columns/expressions must be available in the loaded base tables. `bins: None` preserves discrete classes; continuous values are quantile-binned. Sparse joint strata are merged to make the two-stage split feasible. Stratification acts within streamed preprocessing batches and improves balance of the chosen summaries; it cannot guarantee that all weighted distributions or fitted results agree between splits.
+
+### Variations and training weights
+
+Model definitions specify feature/weight shifts, condition sampling and `n_copies`. Copies reuse base events at different conditions; they do not add independent simulation information. Density training includes yield flattening, configured shift reweighting and selected-region normalisation before fitting transformations. Classifiers build both varied and reference classes and balance their weights.
+
+The pipeline's shift-reweighting step uses the configured shift distribution as the target. A discontinuity or empty support in the underlying simulation cannot be repaired merely by increasing the number of copies or normalising the total yield.
+
+### Dequantisation
+
+```python
+config["preprocess"]["dequantisation"] = {
+    "SubJet2_btagDeepB": {
+        "dtype": "float16", "bounds": [0.0, 1.0], "seed": 42,
+    },
+}
+```
+
+This adds uniform noise within each floating-point rounding cell, clipped to the optional physical bounds. It is not Gaussian smearing. Input values must be finite and exactly representable on the selected `float16` or `float32` grid; otherwise the transform raises an error.
+
+Dequantisation is applied after selections/variations and before model transformations to model datasets, validation datasets and nuisance variations. [DataCategories](datacategories.md) uses the same configuration for observed data. Missing columns are skipped. The older `density_dequantisation` key remains a fallback; `dequantisation` takes precedence.
+
+Random streams use the configured seed plus a dataset context. Results are reproducible for the same context/input order, but separately constructed datasets need not receive identical noise for a shared raw event. Do not reapply the transform to already dequantised inputs.
+
+### Transforms and metadata
+
+Model train/test tables are transformed during preprocessing. Validation and observed tables retain physical observables; density evaluation applies the saved training transformations. The spline-to-Gaussian transform is selected by `density_pretransform_to_gaussian` and optionally `density_pretransform_to_gaussian_columns`. Its parameters and standardisation must match the checkpoint used downstream.
+
+Transformation parameters are fitted from training data, not independently from validation. The initial physical and transformed ranges are also stored. Generated min/max filtering restricts sampled support; it does not recover probability that a learned flow assigns outside the accepted range.
+
+A provided `preprocess.standardisation` mapping can preserve training means/stds when deliberately reusing a model. Changing those numbers after training changes the model's physical interpretation. Changing dequantisation, feature definitions or fitted transforms generally requires rebuilding the model data and retraining unless the previous training representation is demonstrably unchanged.
+
+PCA-whitening helper code exists, but the current Run path has its whitening call commented out. Do not assume setting a whitening key enables a transform that is not executed.
+
+### Validation weights and statistics
+
+Validation samples are normalised to the predicted yield from the saved yield metadata. Their effective counts are stored as
 
 $$
-N_{eff} = \frac{\left(\sum_i w_i\right)^2}{\sum_i w_i^2},
+N_{\mathrm{eff}} = \frac{(\sum_i w_i)^2}{\sum_i w_i^2}.
 $$
 
-where $w_i$ is the weight per event $i$. This is calculated for each validation dataset and stored in the parameters file. It can later by used to calculate the statistical precision of a measurement using the statistics of the validation sample, rather than that of the Asimov.
+Binned validation yields are also saved when the binned-fit configuration requests them. The `test` split used to choose a training checkpoint differs from the physical `test_inf` sample used for inference closure.
 
-- **Get validation binned histograms**:
+### Shuffling
 
-This is another extension to perform binned likelihood fits. This defines the binned Asimov, at the various validation points, that can later be used for inference.
+Preprocessing shuffles the final train/test tables. `--number-of-shuffles` defaults to **20** in the current CLI. This is separate from the optional fresh buffered shuffling during each training epoch; see [Density architecture](densityarchitecture.md#buffered-epoch-shuffling).
 
-- **Flatten by yields**:
+## Parallel preprocessing
 
-This method alters the weights of the `train` and `test` datasets. It does this to flatten the yields across conditional values in the training, so that no priority is given to a particular region in training. To do this, it divides the shifted weights by the yield equation, explained in INSERT LINK TO EQUATIONS.
+The fine-grained workflow follows these dependencies:
 
-- **Data Standardisation**:
+```text
+LoadData → yields nominal/parameters → yields collect → base split
+                                                  → model writers
+                                                  → validation writers
+                                                  → nuisance-variation writers
+model + validation + initial metadata → merge → training/validation consumers
+```
 
-In order to train neural networks (in particular normalising flows), it is crucial to standardise every column used in training to have a mean of 0 and a standard deviation of 1. Here the standardisation parameters are derived over a full pass of the `train` datasets for each model. Note, different models can have separate standardisation parameters. The `train` and `test` are then standardised, so that no data transformation is needed when training the models.
+Model and validation writers require the base splits as well as initial yields. If simulation-to-data normalisation is used, DataCategories and nominal yields feed SimToDataFactors before yield collection. Binned-fit fragments have their own nominal and parameter writers.
 
-It is possible to parse a set of standardisation parameters to use in the configuration file. This can be useful if you want to re-preprocess your datasets, including an addition, but you do not want to retrain a particular model. Therefore, you can copy across the model trained with a particular set of standardisation parameters. This is done by adding a dictionary under `preprocess:standardisation`, with keys of the model name, the category, the model type, the column and the mean and the standardisations with the values you require. For information on this is discussed [here](config.md).
+[PreProcessParallelInitial](preprocessparallelinitial.md) combines initial phases; it is an alternative to scheduling overlapping fine-grained phases. The BTM example uses the separate yield and split phases in `configs/snakemake/subworkflow/btm_preprocess_with_bw_condor_ic.yaml`.
 
-- **Classifier class balancing**:
+[PreProcessParallelMerge](preprocessparallelmerge.md) combines selected YAML fragments using `--preprocess-merge` (default `initial,model,validation`). Each writer completes its own parquet collection. Merge does not turn unfinished numbered shards into complete training tables.
 
-If training classifier models to shift the nominal densities with the likelihood ratio trick, you will need to balance the classes of shifted variation vs reference value. This method normalises the weights of both classes to one another.
+When rerunning only validation, merge its updated fragments with the existing model fragments. The model fragment retains the authoritative density transformations. A stale fragment alone is not proof that a failed rerun produced its data: check the final parquet files and producer logs.
 
-- **Shuffle training and testing datasets**:
 
-The final manipulation of the `train` and `test` datasets is a shuffling. This can be a little slow as shuffling datasets that can only be loaded in batches, requires a few pass throughs of the data. Shuffling a dataset whilst only loading batch at a time can be very tricky, if you are noticing that your datasets are not sufficiently shuffled, you can increase the `--number-of-shuffles` parameter which by default is set to 10.
+## Implementation
 
-- **Make parameters file**:
+[CLI dispatch](../scripts/innfer.py), [Runner](../python/runner/preprocess.py). Runner `Inputs()` and `Outputs()` declare the files used to construct the Snakemake dependency graph.
 
-This is the final method in this step. It saves a yaml file under `PreProcess/$MODEL_NAME/parameters.yaml` which contains important metadata about the datasets created. This includes a number of important information such as the 
+[Back to all steps](steps.md).
+
+{% include mathjax.html %}

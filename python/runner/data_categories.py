@@ -7,6 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from data_processor import DataProcessor
+from dequantisation import Dequantisation
 from functools import partial
 from useful_functions import MakeDirectories, ProcessFunction
 from write_parquet import WriteParquet
@@ -24,6 +25,8 @@ class DataCategories():
     self.verbose = True
     self.add_columns = {}
     self.calculate = {}
+    self.dequantisation = {}
+    self.dequantisation_context = "data"
     self.binned_fit_input = None
 
     self.classes = {}
@@ -54,15 +57,6 @@ class DataCategories():
   def _Calculate(self, df):
     for name, value in self.calculate.items():
       df, self.classes = ProcessFunction(df, name, value, self.classes)
-      #if isinstance(value, str):
-      #  df[name] = df.eval(value)
-      #elif isinstance(value, dict):
-      #  if value["type"] == "function":
-      #    module = importlib.import_module(value["file"])
-      #    func = getattr(module, value["name"])
-      #    df = func(df, **value["args"])
-      #else:
-      #  raise ValueError(f"Calculate type {type(value)} not recognised")
     return df
 
 
@@ -108,6 +102,7 @@ class DataCategories():
           partial(self._AddColumns, ind=ind),
           self._Calculate,
           "selection",
+          Dequantisation(self.dequantisation, context=f"{self.dequantisation_context}/{ind}"),
           wp,
         ]
       )

@@ -205,7 +205,7 @@ class ClassifierPerformanceMetrics():
 
       # Load histogram metrics class
       variables = GetVariables(self.open_cfg, category=self.category)
-      if self.model_type not in ["FCNN_TwoPointInterpolator","FCNN_ThreePointInterpolator"]:
+      if self.model_type not in ["FCNN_TwoPointInterpolator","FCNN_ThreePointInterpolator","FCNN_ThreePointInterpolatorDivideByNominal"]:
         variables += [self.parameter]
 
       x, y, wt = self._GetFiles(data_type)

@@ -1,8 +1,10 @@
 import yaml
 
 import numpy as np
+import pandas as pd
 
 from functools import partial
+from sklearn.metrics import roc_auc_score
 
 from data_processor import DataProcessor
 from histogram_metrics import HistogramMetrics
@@ -33,6 +35,7 @@ class ClassifierNuisanceVariations():
     self.extra_plot_name = ""
     self.divide_by_nominal = False
     self.category = None
+    self.get_separation = True
 
   def Configure(self, options):
     """
@@ -71,6 +74,7 @@ class ClassifierNuisanceVariations():
         "data_parameters" : parameters['classifier'][self.classifier_model['parameter']]
       }
     )
+
     if self.verbose:
       print(f"- Loading the classifier model {classifier_model_name}")
     network.Load(name=f"{classifier_model_name}.h5")
@@ -86,19 +90,25 @@ class ClassifierNuisanceVariations():
     )
 
     # Make classifier application files
-    def apply_classifier(df, func, X_columns, add_columns={}, divide_by_nominal=False, nominal_columns={}):
+    def apply_classifier(df, func, X_columns, add_columns={}, divide_by_nominal=False, nominal_columns={}, out_wt_name="wt_shifted", multiply_by_wt=True, keep_full=False):
       for k,v in add_columns.items(): df.loc[:,k] = v
       probs = func(df.loc[:,X_columns])[:,1]
 
-      df["wt_shifted"] = df["wt"] * probs/(1-probs)
+      if multiply_by_wt:
+        df[out_wt_name] = df["wt"] * probs/(1-probs)
+      else:
+        df[out_wt_name] = probs/(1-probs)
 
       if divide_by_nominal:
         copy_df = df.copy()
         for k,v in nominal_columns.items(): copy_df.loc[:,k] = v
         nominal_probs = func(copy_df.loc[:,X_columns])[:,1]
-        df["wt_shifted"] = df["wt_shifted"] / (nominal_probs/(1-nominal_probs))
+        df[out_wt_name] = df[out_wt_name] / (nominal_probs/(1-nominal_probs))
 
-      return df.loc[:,["wt_shifted"]]
+      if keep_full:
+        return df
+      else:
+        return df.loc[:,[out_wt_name]]
     
     if self.verbose:
       print("- Applying classifier to nominal data for up variation")
@@ -215,7 +225,6 @@ class ClassifierNuisanceVariations():
         bins = bins,
       )
 
-
       # Turn all into densities
       sum_nom_hist = np.sum(nom_hist)
       sum_up_sim_hist = np.sum(up_sim_hist)
@@ -286,6 +295,100 @@ class ClassifierNuisanceVariations():
         "down": down_chi_squared_per_dof_dict
       }, f)
 
+
+    # Make a yaml file of the separation learned
+    if self.get_separation:
+
+      if self.verbose:
+        print("- Writing separation learned to parquet files")
+
+      def get_new_score(df):
+        df["new_ratio"] = df["up_ratio"]/ df["down_ratio"]
+        df["new_ratio_one_sided"] = df["new_ratio"]
+        df.loc[df["new_ratio"] < 1, "new_ratio_one_sided"] = 1 / df.loc[df["new_ratio"] < 1, "new_ratio"]
+        return df
+
+      functions = [
+          partial(
+            apply_classifier,
+            func = network.Predict,
+            X_columns = parameters['classifier'][self.classifier_model['parameter']]["X_columns"],
+            add_columns = {self.classifier_model['parameter']: 1.0},
+            out_wt_name = "up_ratio",
+            multiply_by_wt = False,
+            keep_full = True,
+          ),
+          partial(
+            apply_classifier,
+            func = network.Predict,
+            X_columns = parameters['classifier'][self.classifier_model['parameter']]["X_columns"],
+            add_columns = {self.classifier_model['parameter']: -1.0},
+            out_wt_name = "down_ratio",
+            multiply_by_wt = False,
+            keep_full = True,
+          ),
+          get_new_score
+        ]
+
+      nominal_df = nominal_dp.GetFull(
+        method = "dataset",
+        functions_to_apply = functions
+      )
+
+      # get weight quantile of new_ratio WITH WTS
+      quantile = [0,0.25,0.5,0.75,0.8,0.9,1.0]
+
+      result = pd.Series(
+          self._weighted_quantile(nominal_df["new_ratio_one_sided"], nominal_df["wt"], quantile),
+          index=quantile,
+          name="weighted_quantile",
+      )
+      results_dict = result.to_dict()
+      # change keys
+      results_dict = {f"q{int(k*100)}": v for k, v in results_dict.items()}
+
+      # convert this to a dictionary and right to a yaml file
+      out_name = f"{self.data_output}/metrics_{self.classifier_model['parameter']}.yaml"
+      with open(out_name, 'w') as f:
+        yaml.dump(results_dict, f)
+      print(f"Created {out_name}")
+
+      # Also print
+      if self.verbose:
+        print(results_dict)
+
+
+  def _weighted_quantile(self, values, weights, quantiles):
+    values = np.asarray(values, dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    quantiles = np.atleast_1d(quantiles)
+
+    valid = (
+        np.isfinite(values)
+        & np.isfinite(weights)
+        & (weights >= 0)
+    )
+    values = values[valid]
+    weights = weights[valid]
+
+    if len(values) == 0 or weights.sum() == 0:
+        return np.full(len(quantiles), np.nan)
+
+    order = np.argsort(values)
+    values = values[order]
+    weights = weights[order]
+
+    cumulative_weights = np.cumsum(weights)
+    indices = np.searchsorted(
+        cumulative_weights,
+        quantiles * cumulative_weights[-1],
+        side="left",
+    )
+
+    indices = np.clip(indices, 0, len(values) - 1)
+    return values[indices]
+
+      
   def Outputs(self):
     """
     Return a list of outputs given by class

@@ -3,17 +3,40 @@ layout: page
 title: "Step: MakeBenchmark"
 ---
 
-This step is purely for testing of the repository from a dataset with a known probability distribution function (PDF). If you are running using a configuration file, this step can be ignored.
+Generate a benchmark dataset and its run configuration from an importable benchmark implementation.
 
-The step itself builds the input dataset from the known PDF, and the yaml configuration file setup to correctly run **INNFER**. To run this step, the known density is provided from the `python/worker/benchmarks.py` class. This is done with the `--benchmark=Dim5` option, for example.
+## Run
 
-The benchmark scenarios are simple examples set up with a number of observables conditional on a set of parameters. Later when performing inference, the results using true PDF of the benchmark, stored in the class, can be used to compare to the learned PDF.
+```bash
+innfer --benchmark="Dim5" --step="MakeBenchmark"
+```
 
-The benchmark scenarios that are set up are:
-- **Dim1Gaussian**: A single Gaussian observable conditional on a single parameter which is the mean and which scales the width of the Gaussian.
-- **Dim1GaussianWithExpBkg**: The PDF from **Dim1Gaussian** representing a 'signal', stacked on top of a fixed exponentially falling 'background'.
-- **Dim1GaussianWithExpBkgVaryingYield**: Equivalent to **Dim1GaussianWithExpBkg**, except separate density models are formed for the 'signal' and 'background'. They are combined at the time of inference with a freely floating rate parameter on the 'signal' yield.
-- **Dim2**: Two observables, a Gaussian and a chi squared distribution, conditional on one parameter.
-- **Dim5**: Five observables, a Gaussian, chi squared, exponential, beta and Weibull distribution, conditional on one parameter.
+The example selects the Dim5 benchmark. [Common step options](stepoptions.md) describe process/category selection, job splitting and directory suffixes.
 
-When running the remaining steps from a benchmark you can either continue to parse `--benchmark=Dim5` instead of the configuration file, or the created configuration file with `--cfg=Benchmark_Dim5.yaml`.
+## Inputs and outputs
+
+**Requires:** A benchmark module selected with --benchmark; no preprocessed dataset is required.
+
+**Produces:** A configs/run/Benchmark_{benchmark}.yaml configuration and datasets created by the benchmark implementation.
+
+## Step options
+
+Defaults below are CLI defaults; architecture and run-configuration values are separate.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--extra-job-name` | `''` | Add extra name to the submitted job |
+
+## Available benchmarks
+
+Implementations in `python/worker/benchmarks` include Dim1Gaussian, Dim1GaussianWithExpBkg, Dim1GaussianWithExpBkgVaryingYield, Dim2 and Dim5. Their known densities support comparisons with learned likelihoods. For subsequent steps, use the generated configuration, for example:
+
+```bash
+innfer --cfg="configs/run/Benchmark_Dim5.yaml" --step="LoadData,PreProcess"
+```
+
+## Implementation
+
+[CLI dispatch](../scripts/innfer.py), [Runner](../python/runner/make_benchmark.py). Runner `Inputs()` and `Outputs()` declare the files used to construct the Snakemake dependency graph.
+
+[Back to all steps](steps.md).

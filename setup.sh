@@ -36,6 +36,9 @@ if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   pip3 install --no-deps snakemake-interface-common==1.21.0 snakemake-interface-executor-plugins==9.3.9 snakemake-interface-report-plugins==1.2.0 yte==1.9.0 snakemake-interface-storage-plugins==4.2.3 snakemake-interface-logger-plugins==1.2.4
   chmod +x scripts/innfer.py
   alias innfer="$PWD/scripts/innfer.py"
+  cd python/BayesFlow
+  pip install -e .
+  cd ../../
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then

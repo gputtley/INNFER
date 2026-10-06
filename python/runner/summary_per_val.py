@@ -57,7 +57,7 @@ class SummaryPerVal():
 
     if self.val_info is not None:
       if not self.use_scenario_labels:
-        plot_text = ", ".join([f"{Translate(k)}={round(v,2)}" for k, v in self.val_info.items()])
+        plot_text = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
       else:
         plot_text = f"Scenario {self.val_ind+1}"
 

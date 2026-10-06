@@ -48,14 +48,15 @@ class Likelihood():
     self.categories = categories
 
     # Set empty models if not provided
-    keys_to_add = ["pdf_shifts_with_classifier", "pdf_shifts_with_regression"]
-    for key in keys_to_add:
-      if key not in self.models.keys():
-        self.models[key] = {}
-        for cat in self.models["pdfs"].keys():
-          self.models[key][cat] = {}
-          for proc in self.models["pdfs"][cat].keys():
-            self.models[key][cat][proc] = {}
+    if likelihood_type in ["unbinned", "unbinned_extended"]:
+      keys_to_add = ["pdf_shifts_with_classifier", "pdf_shifts_with_regression"]
+      for key in keys_to_add:
+        if key not in self.models.keys():
+          self.models[key] = {}
+          for cat in self.models["pdfs"].keys():
+            self.models[key][cat] = {}
+            for proc in self.models["pdfs"][cat].keys():
+              self.models[key][cat][proc] = {}
 
     self.seed = 42
     self.set_seed = False
@@ -120,6 +121,9 @@ class Likelihood():
     self.n_integral_sample_caches = 1000
     self.print_columns = None
     self.time_print = False
+    self.time_summary = False
+    self.no_dmatrix_for_constant_derivatives = False
+    self.skip_spline = True
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -237,7 +241,7 @@ class Likelihood():
           Y_copy[columns] = input
           tmp_probs_0 = self._GetEventLoopUnbinnedExtended(
             tmp, 
-            Y_copy, 
+            Y_copy.loc[[0],:], 
             wt_name = options["wt_name"] if "wt_name" in options.keys() else None, 
             gradient = [0], 
             column_1 = columns,
@@ -249,9 +253,9 @@ class Likelihood():
         gradient_function = ParallelEventGradient()
         tmp_probs = gradient_function(grad_func, Y_tiled)
 
-      # Add in the extended part
-      for name in self.models["yields"].keys():
-        tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=columns, category=options["category"])/options["sum_wts"]
+        # Add in the extended part
+        for name in self.models["yields"][options["category"]].keys():
+          tmp_probs -= self._GetYieldGradient(name, options["Y"], gradient=1, column_1=columns, category=options["category"])/options["sum_wts"]
 
     # Add constraints
     tmp_probs += self._GetConstraint(options["Y"], derivative=1, column_1=columns)/options["sum_wts"]
@@ -269,7 +273,10 @@ class Likelihood():
     consts = []
     for ind in range(len(options["scan_over"])):
       if len(np.unique(tmp_probs[:,columns.index(options["scan_over"][ind])].astype(np.float32))) == 1:
-        consts.append(True)
+        if self.no_dmatrix_for_constant_derivatives:
+          consts.append(True)
+        else:
+          consts.append(False)
       else:
         consts.append(False)
 
@@ -626,7 +633,7 @@ class Likelihood():
 
       if not load_from_cache_total:
 
-        if self.time_print:
+        if self.time_print or self.time_summary:
           st = time.time()
 
         ### Density ###
@@ -659,11 +666,17 @@ class Likelihood():
           log_probs[name] = [np.zeros((X.shape[0],1))]
 
 
-        if self.time_print:
-          if not skip_integral:
-            print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
-          else:
-            print(f"Time for integral density estimation for {name}: {time.time()-st:.4f} seconds")
+        if self.time_print or self.time_summary:
+          if self.time_summary:
+            if not skip_integral:
+              self.time_summary_dict["density_estimation"] += time.time()-st
+            else:
+              self.time_summary_dict["integral_density_estimation"] += time.time()-st
+          if self.time_print:
+            if not skip_integral:
+              print(f"Time for density estimation for {name}: {time.time()-st:.4f} seconds")
+            else:
+              print(f"Time for integral density estimation for {name}: {time.time()-st:.4f} seconds")
           st = time.time()
 
         ### Regression ###
@@ -711,7 +724,7 @@ class Likelihood():
                   column_1=column_1, 
                   column_2=column_2,
                   category=category,
-                  skip_spline = integrate_density  
+                  skip_spline = self.skip_spline
                 )
               else:
                 regression_shift = self._LoadFromCache(cache_dict_regression, gradient, model_type="regression")
@@ -731,11 +744,18 @@ class Likelihood():
 
           self._WriteCache(total_regression_shifts, gradient, cache_dict_total_regression, load_from_cache_total_regression, pdf, model_type="total_regression")
 
-        if self.time_print:
-          if not skip_integral:
-            print(f"Time for regression shifts for {name}: {time.time()-st:.4f} seconds")
-          else:
-            print(f"Time for integral regression shifts for {name}: {time.time()-st:.4f} seconds")
+        if self.time_print or self.time_summary:
+          if self.time_summary:
+            if not skip_integral:
+              self.time_summary_dict["regression_shifts"] += time.time()-st
+            else:
+              self.time_summary_dict["integral_regression_shifts"] += time.time()-st
+
+          if self.time_print:
+            if not skip_integral:
+              print(f"Time for regression shifts for {name}: {time.time()-st:.4f} seconds")
+            else:
+              print(f"Time for integral regression shifts for {name}: {time.time()-st:.4f} seconds")
           st = time.time()
 
         ### Classification ###
@@ -747,7 +767,7 @@ class Likelihood():
 
         if do_shift:
 
-          if self.time_print:
+          if self.time_print or self.time_summary:
             st = time.time()
 
           # See if can load cached results from all classifier shifts
@@ -765,9 +785,10 @@ class Likelihood():
             cache_dict_nominal_classifiers = {}
             load_from_cache_nominal_classifiers = {}
             if self.classifier_divide_by_nominal:
+              Y_nom = Y.copy()
               for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
-                Y_nom = Y.copy()
                 Y_nom.loc[0, k] = 0.0
+              for k, v in self.models["pdf_shifts_with_classifier"][category][name].items():
                 cache_dict_nominal_classifiers[k] = self._CreateCacheDict(name, v, Y_nom, gradient, category, column_1=column_1, column_2=column_2, model_type="classifier", extra_options={"parameter": k}, extra_save_name=f"{extra_cache_name}_{k}", Y_columns_per_model=add_density_columns + [k])
                 load_from_cache_nominal_classifiers[k] = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifiers[k], model_type="classifier")
 
@@ -788,12 +809,21 @@ class Likelihood():
               if not load_from_cache_classifier:
 
                 if combined is None:
-                  vals = Y[self.Y_columns].iloc[0].to_dict()
-                  combined = X[X_columns].assign(**vals)
-                  combined_columns = combined.columns.tolist()
-                  combined = combined.to_numpy(copy=False)
+                  #vals = Y[self.Y_columns].iloc[0].to_dict()
+                  #combined = X[X_columns].assign(**vals)
+                  #combined_columns = combined.columns.tolist()
+                  #combined = combined.to_numpy(copy=False)
 
-                #st1 = time.time()
+                  y_values = Y.loc[:, self.Y_columns].to_numpy(copy=False)[0]
+                  vals = dict(zip(self.Y_columns, y_values))
+                  x_column_set = set(X_columns)
+                  combined_columns = list(X_columns) + [col for col in vals if col not in x_column_set]
+                  y_indices = pd.Index(combined_columns).get_indexer(vals)
+                  x_values = X.loc[:, X_columns].to_numpy(copy=False)
+                  combined = np.empty((len(X), len(combined_columns)), dtype=np.result_type(x_values.dtype, y_values.dtype))
+                  combined[:, :len(X_columns)] = x_values
+                  combined[:, y_indices] = list(vals.values())
+
                 classifier_shift = self._ShiftDensityByClassifier(
                   [np.zeros_like(i) for i in log_probs[name]],
                   combined,
@@ -804,10 +834,10 @@ class Likelihood():
                   column_1=column_1, 
                   column_2=column_2,
                   category=category,
-                  skip_spline = integrate_density,
-                  combined_columns=combined_columns,        
+                  skip_spline = self.skip_spline,
+                  combined_columns=combined_columns,
+                  cache_name=f"classifier_{extra_cache_name}_{self.cached_log_probs_batch_ind}_{self.cached_log_probs_ind}"
                 )
-                #print(f"Time for classifier shift for {name} and parameter {k}: {time.time()-st1:.4f} seconds")
               else:
                 classifier_shift = self._LoadFromCache(cache_dict_classifier, gradient, model_type="classifier")
 
@@ -816,17 +846,23 @@ class Likelihood():
 
               # Do division by nominal if required
               if self.classifier_divide_by_nominal:
-                
+
                 cache_dict_nominal_classifier = cache_dict_nominal_classifiers[k]
                 load_from_cache_nominal_classifier = self._CheckIfInCacheLogProbs(cache_dict_nominal_classifier, model_type="classifier")
 
                 if not load_from_cache_nominal_classifier:
 
                   if combined_nominal is None:
-                    zerod_vals = {k: 0.0 for k in vals.keys()}
-                    combined_nominal = X[X_columns].assign(**zerod_vals)
-                    combined_nominal_columns = combined_nominal.columns.tolist()
-                    combined_nominal = combined_nominal.to_numpy(copy=False)
+                    #zerod_vals = {k: 0.0 for k in vals.keys()}
+                    #combined_nominal = X[X_columns].assign(**zerod_vals)
+                    #combined_nominal_columns = combined_nominal.columns.tolist()
+                    #combined_nominal = combined_nominal.to_numpy(copy=False)
+                    combined_nominal_columns = list(X_columns) + [col for col in vals if col not in X_columns]
+                    zero_indices = pd.Index(combined_nominal_columns).get_indexer(vals)
+                    source = X.loc[:, X_columns].to_numpy(copy=False)
+                    combined_nominal = np.empty((len(X), len(combined_nominal_columns)), dtype=np.result_type(source.dtype, np.float64))
+                    combined_nominal[:, :len(X_columns)] = source
+                    combined_nominal[:, zero_indices] = 0.0
 
                   nominal_classifier = self._ShiftDensityByClassifier(
                     [np.zeros_like(i) for i in log_probs[name]],
@@ -838,20 +874,22 @@ class Likelihood():
                     column_1=column_1, 
                     column_2=column_2,
                     category=category,
-                    skip_spline = integrate_density,
-                    combined_columns=combined_nominal_columns,        
+                    skip_spline = self.skip_spline,
+                    combined_columns=combined_nominal_columns,
+                    cache_name=f"classifier_{extra_cache_name}_{self.cached_log_probs_batch_ind}_{self.cached_log_probs_ind}"
                   )
                 else:
                   nominal_classifier = self._LoadFromCache(cache_dict_nominal_classifier, gradient, model_type="classifier")
 
                 self._WriteCache(nominal_classifier, gradient, cache_dict_nominal_classifier, load_from_cache_nominal_classifier, pdf, model_type="classifier")
 
-                classifier_shift = [classifier_shift[i] - nominal_classifier[i] for i in range(len(gradient))]
+                classifier_shift = [classifier_shift[i] - nominal_classifier[i] for i in range(len(gradient)) if gradient[i] == 0]
 
               if total_classifier_shifts is None:
                 total_classifier_shifts = classifier_shift
               else:
                 total_classifier_shifts = [total_classifier_shifts[i] + classifier_shift[i] for i in range(len(gradient))]
+
 
           else:
 
@@ -861,16 +899,24 @@ class Likelihood():
             log_probs[name] = [log_probs[name][i] + total_classifier_shifts[i] for i in range(len(gradient))]
             self._WriteCache(total_classifier_shifts, gradient, cache_dict_total_classifier, load_from_cache_total_classifier, pdf, model_type="total_classifier")
 
-        if self.time_print:
-          if not skip_integral:
-            print(f"Time for classifier shifts for {name}: {time.time()-st:.4f} seconds")
-          else:
-            print(f"Time for integral classifier shifts for {name}: {time.time()-st:.4f} seconds")
+        if self.time_print or self.time_summary:
+          if self.time_summary:
+            if not skip_integral:
+              self.time_summary_dict["classifier_shifts"] += time.time()-st
+            else:
+              self.time_summary_dict["integral_classifier_shifts"] += time.time()-st
+
+          if self.time_print:
+            if not skip_integral:
+              print(f"Time for classifier shifts for {name}: {time.time()-st:.4f} seconds")
+            else:
+              print(f"Time for integral classifier shifts for {name}: {time.time()-st:.4f} seconds")
           st = time.time()
 
 
         ### Density normalisation ###
         if integrate_density and not skip_integral:
+
 
           integral_cache_dict = {
             "name": name,
@@ -892,7 +938,7 @@ class Likelihood():
               n_events_this_batch = int(min(self.integral_events_per_batch, integral_events_left))
               integral_events_left -= n_events_this_batch
 
-              if self.time_print:
+              if self.time_print or self.time_summary:
                 st1 = time.time()
 
               integral_sample_cache_dict = {
@@ -912,8 +958,11 @@ class Likelihood():
               else:
                 sampled_events = self.integral_sample_cache_values[self.integral_sample_cache_list.index(integral_sample_cache_dict)]
 
-              if self.time_print:
-                print(f"Time for sampling for integral for {name}: {time.time()-st1:.4f} seconds")
+              if self.time_print or self.time_summary:
+                if self.time_summary:
+                  self.time_summary_dict["integral_sampling"] += time.time()-st1
+                if self.time_print:
+                  print(f"Time for sampling for integral for {name}: {time.time()-st1:.4f} seconds")
 
               log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
 
@@ -1189,7 +1238,6 @@ class Likelihood():
             yd = self.models["yields"][category][file_name](Y)
     else:
       yd = self.precalculated_yields[file_name]
-
       
     return yd
 
@@ -1199,21 +1247,23 @@ class Likelihood():
     if gradient == 0: 
       return self._GetYield(file_name, Y, category=category)
     elif gradient == 1:
+      yield_func = partial(self._GetYield, file_name, category=category)
+
       if not from_spline:
-        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=1)
+        return self._HelperNumericalGradientFromLinear(yield_func, Y, column_1, file_name, gradient=1)
       else:
-        return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=1)
+        return self._HelperNumericalGradientFromSpline(yield_func, Y, column_1, file_name, gradient=1)
     elif gradient == 2:
       if not from_spline:
-        return self._HelperNumericalGradientFromLinear(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=2)[0]
+        return self._HelperNumericalGradientFromLinear(yield_func, Y, column_1, file_name, gradient=2)[0]
       else:
         if column_1 is None and column_2 is None:
           raise ValueError("You need to specify column_1 and column_2 to get the second derivative.")
         if column_1 == column_2:
-          return self._HelperNumericalGradientFromSpline(partial(self._GetYield, file_name, category=category), Y, column_1, file_name, gradient=2)[0]
+          return self._HelperNumericalGradientFromSpline(yield_func, Y, column_1, file_name, gradient=2)[0]
         else:
           inner_func = lambda func, column, file_name, val, : self._HelperNumericalGradientFromSpline(func, val, column, file_name, gradient=1)
-          inner_func = partial(inner_func, partial(self._GetYield, file_name, category=category), column_1, file_name)
+          inner_func = partial(inner_func, yield_func, column_1, file_name)
           return self._HelperNumericalGradientFromSpline(inner_func, Y, column_2, file_name, gradient=1)[0]
 
 
@@ -1453,7 +1503,7 @@ class Likelihood():
     return log_probs
 
  
-  def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None, skip_spline=False, combined_columns=None):
+  def _ShiftDensityByClassifier(self, log_probs, combined, file_name, k, v, gradient=0, column_1=None, column_2=None, category=None, skip_spline=False, combined_columns=None, cache_name=None):
 
     #st = time.time()
 
@@ -1473,11 +1523,12 @@ class Likelihood():
       get_gradient = [0,1,2]
 
     #probs = v.Predict(combined.copy(deep=True), order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1)
-    probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=combined_columns)
+    probs = v.Predict(combined, order=get_gradient, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=combined_columns, cache_unique_identifier=cache_name)
 
     for ind, grad in enumerate(gradient_loop):
       if grad == 0:
-        log_probs[ind] += np.log(probs[0]/(1-probs[0]))
+        #log_probs[ind] += np.log(probs[0]/(1-probs[0]))
+        log_probs[ind] += np.log(probs[0]) - np.log1p(-probs[0])
       elif grad == 1: # derivative of ln(f(x)/(1-f(x))) where f'(x) is probs[1] and f'(x) if probs[0][:,[1]]
         denom = (probs[0] - (probs[0]**2))
         log_probs[ind] += probs[1] / denom
@@ -1536,6 +1587,18 @@ class Likelihood():
         float: The likelihood value.
 
     """
+
+    if self.time_summary:
+      self.time_summary_dict = {
+        "density_estimation" : 0.0,
+        "regression_shifts" : 0.0,
+        "classifier_shifts" : 0.0,
+        "integral_sampling" : 0.0,
+        "integral_density_estimation" : 0.0,
+        "integral_regression_shifts" : 0.0,
+        "integral_classifier_shifts" : 0.0
+      }
+
     start_time = time.time()
     # Check type of Y
     if not isinstance(Y, pd.DataFrame):
@@ -1630,6 +1693,12 @@ class Likelihood():
     # Convert back
     if convert_back:
       lkld_val = lkld_val[0]
+
+
+    if self.time_summary:
+      print("Time summary:")
+      for key, value in self.time_summary_dict.items():
+        print(f"  {key}: {round(value, 2)} seconds")
 
     #if self.minimisation_step == 2:
     #  exit()

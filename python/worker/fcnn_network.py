@@ -79,6 +79,8 @@ class FCNNNetwork():
     self.transform_batch_size = 10**7
     self.two_point_interpolator = False
     self.three_point_interpolator = False
+    self.interpolator_divide_by_nominal = False
+    self.use_cache = True
     self.predict_cache = {}
     self.conditional_column = None
 
@@ -496,7 +498,6 @@ class FCNNNetwork():
   def Predict(self, input, transform_X=True, order=0, column_1=None, column_2=None, prob_ind=None, columns_for_numpy=None, cache_unique_identifier=None):
 
     if self.two_point_interpolator:
-
       return self.PredictInterpolator(input, transform_X=transform_X, order=order, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy, interpolator_type="two_point", cache_unique_identifier=cache_unique_identifier)
 
     elif self.three_point_interpolator:
@@ -515,8 +516,21 @@ class FCNNNetwork():
     
     conditional_variable = self.data_parameters.get("conditional_variable", None)
 
-    if cache_unique_identifier is None:
+    if (cache_unique_identifier is None or cache_unique_identifier not in self.predict_cache) or not self.use_cache:
 
+      if self.interpolator_divide_by_nominal:
+        # Get nominal
+        input_0 = input.copy()
+        if columns_for_numpy is None:
+          input_0[conditional_variable] = 0.0
+        else:
+          index = columns_for_numpy.index(conditional_variable)
+          input_0[:, index] = 0.0
+
+        prediction_0 = self.PredictNominal(input_0, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=columns_for_numpy)
+        prediction_0 = prediction_0/(1-prediction_0)
+
+      # Get +1
       input_1 = input.copy()
       if columns_for_numpy is None:
         input_1[conditional_variable] = 1.0
@@ -524,15 +538,18 @@ class FCNNNetwork():
         index = columns_for_numpy.index(conditional_variable)
         input_1[:, index] = 1.0
 
-      prediction = self.PredictNominal(input_1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+      prediction_1 = self.PredictNominal(input_1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=columns_for_numpy)
+      prediction_1 = prediction_1/(1-prediction_1)
+      if self.interpolator_divide_by_nominal:
+        prediction_1 = prediction_1/prediction_0
 
-      denominator = 1.0 - prediction[:, 0]
-      invalid_mask = np.isclose(denominator, 0.0) | np.isclose(prediction[:,0], 0.0)
-
-      ratio = np.zeros_like(prediction[:, 0], dtype=float)
+      #invalid_mask = np.isclose(prediction_1[:,0], 0.0)
+      # remove invalud mask
+      invalid_mask = np.zeros_like(prediction_1[:, 0], dtype=bool)
+      ratio = np.zeros_like(prediction_1[:, 0], dtype=float)
       np.divide(
-          prediction[:, 0],
-          denominator,
+          prediction_1[:, 0],
+          1.0,
           out=ratio,
           where=~invalid_mask,
       )
@@ -544,6 +561,7 @@ class FCNNNetwork():
 
       if interpolator_type == "three_point":
 
+        # Get -1
         input_m1 = input.copy()
         if columns_for_numpy is None:
           input_m1[conditional_variable] = -1.0
@@ -551,15 +569,17 @@ class FCNNNetwork():
           index = columns_for_numpy.index(conditional_variable)
           input_m1[:, index] = -1.0
 
-        prediction_m1 = self.PredictNominal(input_m1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=prob_ind, columns_for_numpy=columns_for_numpy)
+        prediction_m1 = self.PredictNominal(input_m1, transform_X=transform_X, order=0, column_1=column_1, column_2=column_2, prob_ind=1, columns_for_numpy=columns_for_numpy)
+        prediction_m1 = prediction_m1/(1-prediction_m1)
+        if self.interpolator_divide_by_nominal:
+          prediction_m1 = prediction_m1/prediction_0
 
-        denominator_m1 = 1.0 - prediction_m1[:, 0]
-        invalid_mask_m1 = np.isclose(denominator_m1, 0.0) | np.isclose(prediction_m1[:,0], 0.0)
-
+        #invalid_mask_m1 = np.isclose(prediction_m1[:,0], 0.0)
+        invalid_mask_m1 = np.zeros_like(prediction_m1[:, 0], dtype=bool)
         ratio = np.zeros_like(prediction_m1[:, 0], dtype=float)
         np.divide(
             prediction_m1[:, 0],
-            denominator_m1,
+            1.0,
             out=ratio,
             where=~invalid_mask_m1,
         )
@@ -581,8 +601,16 @@ class FCNNNetwork():
       asym_input = input[:, index]
 
     out_ratio = AsymLogNormal(asym_input[~invalid_mask], kp=kp, km=km)
-    out_0 = out_ratio / (1 + out_ratio)
-    out_1 = 1 - out_0
+
+    #out_0 = out_ratio / (1 + out_ratio)
+    #out_1 = 1 - out_0
+    out_1 = out_ratio / (1.0 + out_ratio)
+    out_0 = 1.0 - out_1
+
+    # if the input conditional variables is 0.0. set both out_0 and out_1 to 0.5
+    #zero_mask = asym_input == 0.0
+    #out_0[zero_mask] = 0.5
+    #out_1[zero_mask] = 0.5
 
     if prob_ind is None:
       out = np.zeros((len(input),2))
@@ -593,7 +621,7 @@ class FCNNNetwork():
     elif prob_ind == 1:
       out = np.zeros((len(input),1))
       out[~invalid_mask] = out_1[:, None]
-    
+  
     if order == 0:
       return out
     elif order == [0]:
@@ -656,11 +684,13 @@ class FCNNNetwork():
       if prob_ind is not None:
         pred = pred[:, prob_ind]
       pred_numpy = pred.numpy()
+      #print(X)
+      #print(pred)
 
-      if self.task == "classification":
-        # replace any 0s or 1s with 0.5
-        pred_numpy = np.where(np.isclose(pred_numpy, 0.0), 0.5, pred_numpy)
-        pred_numpy = np.where(np.isclose(pred_numpy, 1.0), 0.5, pred_numpy)
+      #if self.task == "classification":
+      #  # replace any 0s or 1s with 0.5
+      #  pred_numpy = np.where(np.isclose(pred_numpy, 0.0), 0.5, pred_numpy)
+      #  pred_numpy = np.where(np.isclose(pred_numpy, 1.0), 0.5, pred_numpy)
 
 
       if self.task == "regression":

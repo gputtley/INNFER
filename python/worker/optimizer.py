@@ -352,6 +352,7 @@ class Optimizer():
         stddev=options["stddev_epochs"] if "stddev_epochs" in options.keys() else epochs*int(np.ceil(num_rows/batch_size))/4, # Travels 4 standard deviations
       )
 
+
     else:
       print("ERROR: lr_schedule not valid.")
 

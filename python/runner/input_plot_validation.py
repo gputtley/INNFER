@@ -123,6 +123,7 @@ class InputPlotValidation():
       cfg = LoadConfig(self.cfg)
 
     # Add plots
+
     defaults = GetDefaultsInModel(self.file_name, cfg, category=self.category)
     for col in GetVariables(cfg, category=self.category) if not self.binned else [cfg["inference"]["binned_fit"]["input"][self.category]["variable"]]:
       if not self.binned:
@@ -231,7 +232,7 @@ class InputPlotValidation():
             infer_class.Configure(
               {
                 "parameters" : {self.category : {self.file_name: self.parameters}},
-                "binned_fit_morph_col" : self.open_cfg["pois"][0],
+                "binned_fit_morph_col" : self.open_cfg["pois"][0] if len(self.open_cfg["pois"]) > 0 else None,
                 "likelihood_type" : "binned_extended",
                 "inference_options" : {
                   "rate_parameters" : []
@@ -253,7 +254,7 @@ class InputPlotValidation():
           hists[col].append(hist)
           hist_errs[col].append(hist_uncert)
           if not self.use_scenario_labels:
-            hist_names[col].append(", ".join([f"{Translate(k)}={round(v,2)}" for k, v in variation.items()]))
+            hist_names[col].append(", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in variation.items()]))
           else:
             hist_names[col].append(f"Scenario {inds[ind]+1}")
 
@@ -262,6 +263,16 @@ class InputPlotValidation():
 
         plot_name = self.plots_output+f"/{vary_name}_{col}{extra_name_for_plot}"
 
+        # check to see if bins have the same spacing
+        bin_spacings = np.diff(bins[col])
+        normalise_to_bin_width = False
+        if not np.allclose(bin_spacings, bin_spacings[0]):
+          normalise_to_bin_width = True
+
+        if normalise_to_bin_width:
+          hists[col] = [hist/np.diff(bins[col]) for hist in hists[col]]
+          hist_errs[col] = [hist_err/np.diff(bins[col]) for hist_err in hist_errs[col]]
+  
         # Make distribution plot
         plot_histograms(
           bins[col][:-1],
@@ -273,11 +284,10 @@ class InputPlotValidation():
           y_label = "Density",
           anchor_y_at_0 = True,
           drawstyle = "steps-mid",
-          hist_errs = [hist_err/np.sum(hist) for hist_err in hist_errs[col]],
+          hist_errs = [hist_err/np.sum(hists[col][ind]) for ind, hist_err in enumerate(hist_errs[col])],
         )
 
         # Make ratio plots
-
         ratio_hist = hists[col][ratio_index] if ratio_index is not None else hists[col][0]
         ratio_hist_err = hist_errs[col][ratio_index] if ratio_index is not None else hist_errs[col][0]
         sum_ratio_hist = np.sum(ratio_hist)

@@ -8,7 +8,7 @@ title: "Setup"
 The INNFER repository can be directly cloned from github with the following command
 
 ```bash
-git clone https://github.com/gputtley/INNFER.git
+git clone --recurse-submodules https://github.com/gputtley/INNFER.git
 ```
 
 ## Installing conda and the environment

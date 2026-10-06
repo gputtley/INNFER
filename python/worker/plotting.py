@@ -1,6 +1,7 @@
 import copy
 import os
 import textwrap
+from tkinter.font import names
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -49,6 +50,8 @@ def plot_histograms(
     legend_right=False,  # New option to move legend to the right
     y_lim = None,
     spline_hists = False,
+    axis_text = None,
+    legend_loc = "best"
 ):
   """
   Plot histograms with optional error bars and an optional right-side legend.
@@ -70,6 +73,12 @@ def plot_histograms(
       fig, ax = plt.subplots()
 
   hep.cms.text(cms_label,ax=ax)
+
+  # Write axis text on top left of pad
+  if axis_text is not None:
+      ax.text(0.03, 0.97, axis_text,
+          verticalalignment='top', horizontalalignment='left',
+          transform=ax.transAxes)
 
   if isinstance(drawstyle, str):
       drawstyle = [drawstyle] * 100
@@ -149,7 +158,7 @@ def plot_histograms(
           handles, labels = ax.get_legend_handles_labels()
           ax_leg.legend(handles, labels, loc="center", fontsize=10)
       else:
-          ax.legend()
+          ax.legend(loc=legend_loc)
 
   plt.tight_layout()
   MakeDirectories(name+".pdf")
@@ -1803,6 +1812,130 @@ def plot_summary_per_val(
   labels = unique_labels[::-1]
 
   legend = ax[0].legend(handles, labels, loc='upper right', frameon=True, framealpha=1, facecolor='white', edgecolor="white", fontsize=16)
+
+  print("Created "+plot_name+".pdf")
+  MakeDirectories(plot_name+".pdf")
+  plt.savefig(plot_name+".pdf")
+  print("Created "+plot_name+".png")
+  plt.savefig(plot_name+".png")
+  plt.close()
+
+
+
+def plot_summary_nuisance_variations(
+  parameter_names, # list of strings
+  values, # dictionary with key of legend name and list of crossing dicts
+  show2sigma = False,
+  plot_name = f"summary_nuisance_variations",
+  ):
+
+  cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
+  lumi_label = str(os.getenv("PLOTTING_LUMINOSITY")) if os.getenv("PLOTTING_LUMINOSITY") is not None else ""
+
+  # Create the figure and axes
+  fig, ax = plt.subplots(1, 1, figsize=(8.27, 11.69), constrained_layout=True)
+  hep.cms.text(cms_label,ax=ax, fontsize=22)
+
+  # Draw lumi label
+  ax.text(1.0, 1.0, lumi_label,
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes, fontsize=22)
+
+  # turn of top (legend) pad axis labels and ticks
+  ax.tick_params(
+    axis='both', 
+    which='both', 
+    bottom=False, 
+    top=False, 
+    left=False, 
+    right=False,
+    labelbottom=False, 
+    labeltop=False, 
+    labelleft=False, 
+    labelright=False
+    )
+
+  # turn off y axis labels and ticks on all axis
+  ax.tick_params(
+    axis='both', 
+    which='both', 
+    bottom=True, 
+    top=True, 
+    left=False, 
+    right=False,
+    labelbottom=True, 
+    labeltop=False, 
+    labelleft=False, 
+    labelright=False
+    )
+
+  # Draw horizontal lines
+  for i in range(1, len(parameter_names)):
+    ax.axhline(y=i, color='black', linestyle='-')
+
+  # Set range of non constraint pad to be -2 and 2
+  ax.set_xlim(-2, 2)
+
+  # Set range of constraint pad to be 0 to len(results_with_constraints.keys())
+  ax.set_ylim(0, len(parameter_names))
+
+  # Write y labels (names) 
+  for i, name in enumerate(parameter_names[::-1]):
+    y_coord = ((1/(2*len(parameter_names)))) + (i/(len(parameter_names)))
+    ax.text(-0.02, y_coord, name, verticalalignment='center', horizontalalignment='right', fontsize=12, transform=ax.transAxes)
+
+  # Draw vertical lines on non constraint pads for the truth values
+  ax.axvline(x=-1.0, color='black', linestyle='--')
+  ax.axvline(x=0.0, color='black', linestyle='--')
+  ax.axvline(x=1.0, color='black', linestyle='--')
+
+  # Set x axis title
+  ax.set_xlabel(r"$\hat{\theta}$", fontsize=20)
+
+  # Define colours, black first
+  colors = sns.color_palette("bright", len(values.keys()))[::-1]
+
+  # Draw results without constraints 
+  for ind, (key,vals) in enumerate(values.items()):
+    x = []
+    y = []
+    x_err_lower = []
+    x_err_higher = []
+    if show2sigma:
+      x_2err_lower = []
+      x_2err_higher = []
+    for val_ind, val in enumerate(vals[::-1]):
+      x.append(val[0])
+      x_err_lower.append(val[0]-val[-1] if -1 in val.keys() else 0.0)
+      x_err_higher.append(val[1]-val[0] if 1 in val.keys() else 0.0)
+      if show2sigma:
+        x_2err_lower.append(val[0]-val[-2] if -2 in val.keys() else 0.0)
+        x_2err_higher.append(val[2]-val[0] if 2 in val.keys() else 0.0)
+      #y.append((val_ind + 1)*(1/(len(vals)+1)))
+      y_value = val_ind + 0.5
+      y.append(y_value)
+
+      if show2sigma:
+        ax.errorbar([x[-1]], [y[-1]], xerr=[[x_2err_lower[-1]], [x_2err_higher[-1]]], fmt='o', capsize=10, linewidth=1, color=mcolors.to_rgba(colors[ind], alpha=0.5))
+        ax.errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=5, color=mcolors.to_rgba(colors[ind], alpha=0.5), label=key)
+      else:
+        ax.errorbar([x[-1]], [y[-1]], xerr=[[x_err_lower[-1]], [x_err_higher[-1]]], fmt='o', capsize=10, linewidth=2, color=mcolors.to_rgba(colors[ind], alpha=1.0), label=key)
+
+  # Draw legend on the top right of the top axis
+  handles, labels = ax.get_legend_handles_labels()
+
+  # Only keep unique labels
+  unique_labels = []
+  unique_handles = []
+  for handle, label in zip(handles, labels):
+    if label not in unique_labels:
+      unique_labels.append(label)
+      unique_handles.append(handle)
+
+  handles = unique_handles[::-1]
+  labels = unique_labels[::-1]
+
+  legend = ax.legend(handles, labels, loc='upper right', frameon=True, framealpha=1, facecolor='white', edgecolor="white", fontsize=16)
 
   print("Created "+plot_name+".pdf")
   MakeDirectories(plot_name+".pdf")
