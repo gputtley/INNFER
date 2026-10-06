@@ -4,7 +4,8 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTest"
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 - step: "HessianNumerical"
@@ -12,7 +13,8 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTest"
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 - step: "DMatrixNumerical"
@@ -20,7 +22,8 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTest"
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 - step: "CovarianceWithDMatrix"
@@ -28,7 +31,8 @@
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTest"
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
 

@@ -15,12 +15,15 @@
 - workflow: configs/snakemake/subworkflow/btm_prefit_data_vs_synth_condor_ic.yaml
 
 # Do inference closure test
-- workflow: configs/snakemake/subworkflow/inference_closure_test_condor_ic.yaml
-  run_options:
-    add_specific_category_to_dir_name: True
 - workflow: configs/snakemake/subworkflow/inference_closure_test_frozen_condor_ic.yaml
   run_options:
     add_specific_category_to_dir_name: True
-- workflow: configs/snakemake/subworkflow/summary_with_frozen_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/inference_closure_test_nuisance_variations_frozen_condor_ic.yaml
   run_options:
     add_specific_category_to_dir_name: True
+
+# Add the p value workflow
+- workflow: configs/snakemake/subworkflow/p_value_condor_ic.yaml
+
+# Add the calibration plots
+- workflow: configs/snakemake/subworkflow/calibration_condor_ic.yaml

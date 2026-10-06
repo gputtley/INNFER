@@ -3,7 +3,8 @@
   submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options:
     no_spline: true
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     use_asimov_scaling: 100
     classifier_divide_by_nominal: True
 
@@ -13,6 +14,7 @@
   submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options:
     no_spline: true
-    prune_classifier_models: "roc_auc_test:0.505"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
     use_asimov_scaling: 100
     classifier_divide_by_nominal: True

@@ -1,0 +1,53 @@
+- step: "InitialFit"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozenNuisanceVariations"
+    freeze: "all-but-varied"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+    validation_loop_over_nuisance_variations: True
+    keep_lnN_if_rate_param: True
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozenNuisanceVariations"
+    freeze: "all-but-varied"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+    validation_loop_over_nuisance_variations: True
+    keep_lnN_if_rate_param: True
+- step: "DMatrixNumerical"
+  submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozenNuisanceVariations"
+    freeze: "all-but-varied"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+    validation_loop_over_nuisance_variations: True
+    keep_lnN_if_rate_param: True
+- step: "CovarianceWithDMatrix"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    data_type: "sim"
+    extra_dir_name: "ClosureTestFrozenNuisanceVariations"
+    freeze: "all-but-varied"
+    prune_classifier_models: "q75:1.01"
+    prune_from: "ClassifierNuisanceVariationsTestInf"
+    integrate_density_with_ratios: True
+    classifier_divide_by_nominal: True
+    validation_loop_over_nuisance_variations: True
+    keep_lnN_if_rate_param: True
+- step: SummaryNuisanceVariations
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    extra_dir_name: "ClosureTestFrozenNuisanceVariations"
+    summary_from: CovarianceWithDMatrix

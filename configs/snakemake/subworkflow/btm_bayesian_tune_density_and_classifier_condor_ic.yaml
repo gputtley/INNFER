@@ -1,14 +1,23 @@
 # Train density models
-- step: "BayesianHyperparameterTuning"
+#- step: "BayesianHyperparameterTuning"
+#  submit: "configs/submit/condor_gpu_long.yaml"
+#  run_options: 
+#    disable_tqdm: True
+#    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
+#    number_of_trials: 15
+#    hyperparameter_metric: "loss_test,min"
+#    density_performance_metrics: "loss"
+#    model_type: "density"
+#    specific_file_name: "ttbar"
+
+- step: "TrainDensity"
   submit: "configs/submit/condor_gpu_long.yaml"
   run_options: 
     disable_tqdm: True
-    density_architecture: "configs/architecture/density_scan_bayesian.yaml"
-    number_of_trials: 15
-    hyperparameter_metric: "loss_test,min"
-    density_performance_metrics: "loss"
+    density_architecture: "configs/architecture/density_default.yaml"
     model_type: "density"
     specific_file_name: "ttbar"
+
 - step: "BayesianHyperparameterTuning"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
@@ -95,10 +104,15 @@
 - step: "ClassifierNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
+    extra_output_dir_name: "TestInf"
+    sim_type: "test_inf"
+    classifier_divide_by_nominal: True
+- step: "ClassifierNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
     extra_output_dir_name: "Val"
     sim_type: "val"
     classifier_divide_by_nominal: True
-
 - step: "ClassifierNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:

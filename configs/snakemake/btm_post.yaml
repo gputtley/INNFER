@@ -1,8 +1,6 @@
 # Inference closure test
-- workflow: configs/snakemake/subworkflow/inference_closure_test_condor_ic.yaml
 - workflow: configs/snakemake/subworkflow/inference_closure_test_frozen_condor_ic.yaml
-- workflow: configs/snakemake/subworkflow/summary_condor_ic.yaml
-- workflow: configs/snakemake/subworkflow/summary_with_frozen_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/inference_closure_test_nuisance_variations_frozen_condor_ic.yaml
 
 # Asimov fit
 - workflow: configs/snakemake/subworkflow/inference_asimov_condor_ic.yaml

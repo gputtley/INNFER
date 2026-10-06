@@ -1,0 +1,195 @@
+# Systematic fit
+- step: "InitialFit"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    no_likelihood_print_out: True
+
+- step: "Covariance"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+
+- step: "ScanPointsFromHessian"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    no_likelihood_print_out: True
+
+- step: "Scan"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+
+- step: "ScanCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+
+- step: "ApproximateImpacts"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+
+- step: "ImpactsPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    binned_observed_from_predicted: True
+
+# Stat only fit
+- step: "InitialFit"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+
+- step: "HessianNumerical"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+    binned_observed_from_predicted: True
+    no_likelihood_print_out: True
+
+- step: "Covariance"
+  submit: "configs/submit/condor_avx.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+
+- step: "ScanPointsFromHessian"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+    binned_observed_from_predicted: True
+    no_likelihood_print_out: True
+
+- step: "Scan"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+    binned_observed_from_predicted: True
+    minimisation_method: "minuit"
+    no_likelihood_print_out: True
+    points_per_job: 10
+
+- step: "ScanCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"    
+    freeze: "all-nuisances"
+    extra_dir_name: "AsimovStatOnly"
+
+# Make combined scan plot
+- step: "ScanPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    extra_dir_name: "Asimov"
+    specific: "file_name=combined"
+    likelihood_type: "binned_extended"
+    scan_plot_breakdown: True
+    other_input: "Stat. Only:ScanCollectAsimovStatOnly:scan_collect"
+    scan_nominal_name: "Stat. + Syst."
+    extra_plot_name: "with_stat"
+
+# Make postfit plots
+- step: "DistributionPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    specific_combined_default_val: True
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    extra_plot_name: "postfit"
+    data_type: "asimov"
+    include_uncertainty: True
+    binned_observed_from_predicted: True
+    ratio_range: "0.8,1.2"
+
+- step: "DistributionPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    specific_combined_default_val: True
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    extra_plot_name: "prefit"
+    data_type: "asimov"
+    include_uncertainty: True
+    prefit_nuisance_values: True
+    prefit_nuisance_constraints: True
+    binned_observed_from_predicted: True
+    ratio_range: "0.8,1.2"
+
+- step: "DistributionPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    specific_combined_default_val: True
+    likelihood_type: "binned_extended"
+    extra_dir_name: "Asimov"
+    extra_plot_name: "postfit_with_prefit_constraints"
+    data_type: "asimov"
+    include_uncertainty: True
+    prefit_nuisance_values: True
+    prefit_nuisance_constraints: False
+    binned_observed_from_predicted: True
+    ratio_range: "0.8,1.2"

@@ -3,8 +3,8 @@
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
@@ -14,8 +14,8 @@
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     integrate_density_with_ratios: True
@@ -25,15 +25,15 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
 
 - step: "ScanPointsFromHessian"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
@@ -45,8 +45,8 @@
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
@@ -58,121 +58,119 @@
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
 
 - step: "ScanPlot"
   submit: "configs/submit/condor.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
 
 - step: "ApproximateImpacts"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
 
 - step: "ImpactsPlot"
   submit: "configs/submit/condor.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
+    data_type: "data"
+    extra_dir_name: "Data"
 
 # Stat only fit
 - step: "InitialFit"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     freeze: "all-nuisances"
-    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
+    load_fit_for_defaults: "Data"
 
 - step: "HessianNumerical"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     freeze: "all-nuisances"
-    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
+    load_fit_for_defaults: "Data"
 
 - step: "Covariance"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     freeze: "all-nuisances"
-    load_fit_for_defaults: "Asimov"
+    load_fit_for_defaults: "Data"
 
 - step: "ScanPointsFromHessian"
   submit: "configs/submit/condor_gpu.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
-    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
+    load_fit_for_defaults: "Data"
 
 - step: "Scan"
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     prune_classifier_models: "q75:1.01"
     prune_from: "ClassifierNuisanceVariationsTestInf"
     number_of_scan_points: 11
     sigma_between_scan_points: 0.4
     freeze: "all-nuisances"
-    load_fit_for_defaults: "Asimov"
     integrate_density_with_ratios: True
     classifier_divide_by_nominal: True
+    load_fit_for_defaults: "Data"
 
 - step: "ScanCollect"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
 
 - step: "ScanPlot"
   submit: "configs/submit/condor.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "AsimovStatOnly"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
 
 # Make combined scan plot
 - step: "ScanPlot"
   submit: "configs/submit/condor.yaml"
   run_options: 
     specific_combined_default_val: True
-    data_type: "asimov"
-    extra_dir_name: "Asimov"
-    prune_classifier_models: "q75:1.01"
-    prune_from: "ClassifierNuisanceVariationsTestInf"
+    data_type: "data"
+    extra_dir_name: "DataStatOnly"
     scan_plot_breakdown: True
-    other_input: "Stat. Only:ScanCollectAsimovStatOnly:scan_collect"
+    other_input: "Stat. Only:ScanCollectDataStatOnly:scan_collect"
     scan_nominal_name: "Stat. + Syst."
     extra_plot_name: "with_stat"
 
