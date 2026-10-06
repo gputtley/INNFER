@@ -75,7 +75,7 @@ class PValueDatasetComparisonPlot():
 
       # get p-values
       all_results = np.array(list(synth_vs_synth_results[metric].values()))
-      p_value = len(all_results[all_results>val]) / len(all_results)
+      p_value = (1 + np.count_nonzero(all_results >= val)) / (len(all_results) + 1)
 
       # Get hypothesis name
       hypothesis_name = ""
@@ -103,7 +103,7 @@ class PValueDatasetComparisonPlot():
         fill_between_step = "pre",
         fill_between_color = "blue",
         fill_between_alpha = 0.3,
-        title_right = f"p-value = {round(p_value,2)}",
+        title_right = f"p-value = {p_value:.3g}",
         legend_loc = "upper right",
         axis_text = hypothesis_name,
       )

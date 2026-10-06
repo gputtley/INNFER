@@ -432,6 +432,9 @@ class MakeAsimov():
       final_count = final_dps.GetFull(method="count")
       print(f"- Total event count in the asimov dataset: {final_count}")
 
+    if self.verbose:
+      print(f"- Finished making the asimov dataset: {asimov_file_name}")
+
 
   def Outputs(self):
 
