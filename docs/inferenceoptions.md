@@ -16,11 +16,13 @@ Likelihood stages share data selection, model selection, parameter freezing and 
 | `--scale-to-eff-events` | Off | Use effective simulation statistics instead of the nominal yield scaling. |
 | `--integrate-density-with-ratios` | Off | Reintegrate the density after likelihood-ratio corrections using generated integration events. |
 | `--classifier-divide-by-nominal` | Off | Express the classifier correction relative to its nominal prediction. |
-| `--no-spline` | Off | Skip saved ratio normalisation splines in supporting model-building paths. |
+| `--use-spline` | Off | Enable saved classifier/regression normalisation splines in generation, calibration and inference. They are skipped by default; the legacy `--no-spline` flag remains accepted. |
 | `--include-per-model-rate`, `--include-per-model-lnN` | Off | Include these terms in individual-process likelihoods as well as the combined setup. |
 | `--keep-lnN-if-rate-param` | Off | Retain the configured lnN effects when a process has a floating rate. |
 
 Use `--specific-file-name=combined` for the combined likelihood when the configuration defines more than one process. Categories can be selected with `--specific-category`. Dataset and model suffixes are described in [common step options](stepoptions.md).
+
+Normalisation splines are skipped unless `--use-spline` is supplied. In a Snakemake step's `run_options`, set `use_spline: True` to enable them. Enabling this option also declares the saved `_norm_spline.pkl` files as dependencies. The legacy `--no-spline` flag remains accepted; it cannot be combined with `--use-spline`.
 
 For numerical comparisons, distinguish simulation sum-of-weights, effective event count and generated Monte Carlo event count. Increasing synthetic statistics does not increase the simulated sample's independent information.
 

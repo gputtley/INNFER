@@ -35,11 +35,13 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
 | `--classifier-divide-by-nominal` | `False` | Divide the classifier by the nominal value |
-| `--no-spline` | `False` | Do not use the normalisaing splines when creating asimov |
+| `--use-spline` | `False` | Opt in to saved classifier/regression normalisation splines. |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
 | `--only-density` | `False` | Build asimov from only the density model |
 | `--skip-weight-variation` | `False` | For double variations skip the weight variation |
 | `--use-asimov-scaling` | `10` | Generate asimov with this scaling up of the predicted yield |
+
+With `--classifier-divide-by-nominal`, classifiers whose resolved evaluation parameter is zero are automatically skipped, including their model, spline and pruning dependencies.
 
 ## Implementation
 

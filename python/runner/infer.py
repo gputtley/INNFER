@@ -1100,7 +1100,7 @@ class Infer():
 
           # Make normalising spline
           spline_name = f"{regression_model_name}_norm_spline.pkl"
-          if os.path.isfile(spline_name):
+          if not self.skip_spline and os.path.isfile(spline_name):
             with open(spline_name, 'rb') as f:
               splines[cat][k][vi["parameter"]] = pickle.load(f)
 
@@ -1174,7 +1174,7 @@ class Infer():
 
           # Make normalising spline
           spline_name = f"{classifier_model_name}_norm_spline.pkl"
-          if os.path.isfile(spline_name):
+          if not self.skip_spline and os.path.isfile(spline_name):
             with open(spline_name, 'rb') as f:
               splines[cat][k][vi["parameter"]] = pickle.load(f)
 

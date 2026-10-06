@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
 import fnmatch
 import os
 import sys
@@ -63,7 +64,7 @@ def parse_args():
   parser.add_argument('--binned-observed-from-predicted', help='Take the binned observed data from the predicted values and not the validation samples', action='store_true')
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
-  parser.add_argument('--calibration-n-bins', help='Number of likelihood ratio bins to use in the Calibration step.', type=int, default=30)
+  parser.add_argument('--calibration-plot-n-bins', '--calibration-n-bins', help='Number of likelihood ratio bins to use in the CalibrationPlot step.', type=int, default=30)
   parser.add_argument('--change-classifier-type-from-parameter', help='comma separated key=val for the parameter and the new type', type=str, default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')
   parser.add_argument('--classifier-performance-metrics', help='Comma separated list of classifier performance metrics', type=str, default='loss,histogram,multidim,chi_squared,kl_divergence')
@@ -130,7 +131,6 @@ def parse_args():
   parser.add_argument('--number-of-trials', help='The number of trials to test for BayesianHyperparameterTuning', type=int, default=10)
   parser.add_argument('--no-constraint', help='Do not use the constraints', action='store_true')
   parser.add_argument('--no-likelihood-print-out', help='Do not print the likelihood values', action='store_true')
-  parser.add_argument('--no-spline', help='Do not use the normalisaing splines when creating asimov', action='store_true')
   parser.add_argument('--no-sweep', help='Do not sweep up jobs in module (internal option)', action='store_true')
   parser.add_argument('--no-sweep-final', help='Do not sweep up jobs in innfer (internal option)', action='store_true')
   parser.add_argument('--only-default-asimov', help='Build asimov for only the default validation indices', action='store_true')
@@ -206,6 +206,9 @@ def parse_args():
   parser.add_argument('--use-expected-data-uncertainty', help='In postfit plots change the data uncertainty to the expected stat uncertainty', action='store_true')
   parser.add_argument('--use-prefit-asimov', help='Use prefit asimov when running DistributionPlot.', action='store_true')
   parser.add_argument('--use-scenario-labels', help='Use Scenario 1, for example, labelling on plots rather than the string name', action='store_true')
+  spline_options = parser.add_mutually_exclusive_group()
+  spline_options.add_argument('--use-spline', help='Use saved classifier/regression normalisation splines in generation and likelihood evaluation', action='store_true', default=False)
+  spline_options.add_argument('--no-spline', help='Legacy option: skip normalisation splines (the default)', dest='use_spline', action='store_false')
   parser.add_argument('--use-wandb', help='Use wandb for logging.', action='store_true')
   parser.add_argument('--val-inds', help='val_inds for summary plots.', type=str, default=None)
   parser.add_argument('--validation-performance-metrics-datasets', help='Comma separated list of types of dataset (validation, nuisance_variations, nuisance_double_variations)', type=str, default='validation')
@@ -1180,7 +1183,7 @@ def main(args, default_args, module_options={}):
               "use_asimov_scaling" : args.use_asimov_scaling,
               "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
               "classifier_pruning_files" : {v["parameter"]: GetPruningFile(eval_data_dir, v, from_step=args.prune_from) for v in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category)},
-              "skip_spline" : args.no_spline,
+              "skip_spline" : not args.use_spline,
               "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
@@ -1215,7 +1218,7 @@ def main(args, default_args, module_options={}):
                 "verbose" : not args.quiet,
                 "file_name" : file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
-                "skip_spline" : args.no_spline,
+                "skip_spline" : not args.use_spline,
                 "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                 "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
                 "classifier_pruning_files" : {v["parameter"]: GetPruningFile(eval_data_dir, v, from_step=args.prune_from) for v in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category)},
@@ -1258,7 +1261,7 @@ def main(args, default_args, module_options={}):
                     "verbose" : not args.quiet,
                     "file_name" : file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
-                    "skip_spline" : args.no_spline,
+                    "skip_spline" : not args.use_spline,
                     "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                   },
                   loop = {"file_name" : file_name, "category" : category, "nuisance_1" : nuisance_1, "nuisance_2" : nuisance_2, "nuisance_1_shift" : nuisance_1_shift, "nuisance_2_shift" : nuisance_2_shift},
@@ -1286,7 +1289,7 @@ def main(args, default_args, module_options={}):
           "only_density" : True,
           "file_name" : model_info['file_name'],
           "model_input" : f"{models_dir}",
-          "skip_spline" : args.no_spline,
+          "skip_spline" : not args.use_spline,
           "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
         },
         loop = {"model_name" : model_info['name'], "category" : model_info['category']},
@@ -1608,32 +1611,45 @@ def main(args, default_args, module_options={}):
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
 
-  # Checking whether the likelihood ratio is calibrated against MC truth
+  # Checking whether the full event likelihood ratio is calibrated against MC truth
   if args.step == "CalibrationPlot":
     print("<< Making likelihood ratio calibration plots >>")
-    for file_name in GetModelFileLoop(cfg, specific_file_name=specific_file_name_list):
-      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)):
-        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=True): continue
+    for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
+      for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name, validation_loop_over_nuisance_variations=args.validation_loop_over_nuisance_variations, specific_category=args.specific_category)):
+        if SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density): continue
         for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
           reference_val_ind = GetValidationDefaultIndex(cfg, file_name, category=category)
-          if val_ind == reference_val_ind: continue
+          defaults = GetDefaultsInModel(file_name, cfg, include_rate=args.include_per_model_rate, include_lnN=args.include_per_model_lnN, category=category)
+          if all(val_info.get(key, value) == value for key, value in defaults.items()): continue
+          calibration_plot_args = copy.copy(args)
+          calibration_plot_args.specific_category = category
+          calibration_plot_args.data_type = "sim"
+          calibration_plot_args.likelihood_type = "unbinned"
+          common_options = CommonInferConfigOptions(calibration_plot_args, cfg, val_info, file_name, val_ind)
+          common_options["data_input"] = {category: common_options["data_input"][category]}
+          # Inference builders use the model name for classifier/regression paths
+          for key, suffix in [("classifier_models", args.extra_classifier_model_name), ("regression_models", args.extra_regression_model_name)]:
+            for models in common_options[key][category].values():
+              for model in models:
+                model["name"] += suffix
           module.Run(
-            module_name = "calibration",
-            class_name = "Calibration",
+            module_name = "calibration_plot",
+            class_name = "CalibrationPlot",
             config = {
+              **common_options,
               "cfg" : args.cfg,
-              "model_input" : f"{models_dir}",
-              "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
-              "data_input" : GetDataInput("sim", cfg, file_name, val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
-              "reference_data_input" : GetDataInput("sim", cfg, file_name, reference_val_ind, prep_data_dir, sim_type=args.sim_type)[category][file_name],
+              "open_cfg" : cfg,
+              "file_name" : file_name,
+              "category" : category,
+              "val_ind" : val_ind,
+              "reference_val_ind" : reference_val_ind,
+              "reference_data_input" : GetDataInput("sim", cfg, file_name, reference_val_ind, prep_data_dir, sim_type=args.sim_type, specific_category=[category]),
               "val_info" : val_info,
-              "n_bins" : args.calibration_n_bins,
-              "data_output" : f"{eval_data_dir}/Calibration{args.extra_output_dir_name}/{file_name}/{category}",
-              "plots_output" : f"{plots_dir}/Calibration{args.extra_output_dir_name}/{file_name}/{category}",
-              "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
-              "sim_type" : args.sim_type,
-              "extra_density_model_name" : args.extra_density_model_name,
-              "verbose" : not args.quiet,
+              "n_bins" : args.calibration_plot_n_bins,
+              "skip_spline" : not args.use_spline,
+              "data_output" : f"{eval_data_dir}/CalibrationPlot{args.extra_output_dir_name}/{file_name}/{category}",
+              "plots_output" : f"{plots_dir}/CalibrationPlot{args.extra_output_dir_name}/{file_name}/{category}",
+              "extra_plot_name" : f"{GetNuisanceVariationName(val_info) if args.validation_loop_over_nuisance_variations else val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else (GetNuisanceVariationName(val_info) if args.validation_loop_over_nuisance_variations else str(val_ind)),
             },
             loop = {"file_name" : file_name, "val_ind" : val_ind, "category" : category},
           )
@@ -2504,7 +2520,8 @@ def main(args, default_args, module_options={}):
                 "only_density" : args.only_density,
                 "file_name" : asimov_file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
-                "skip_spline" : args.no_spline,
+                "skip_spline" : not args.use_spline,
+                "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                 "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
                 "classifier_pruning_files" : {v["parameter"]: GetPruningFile(eval_data_dir, v, from_step=args.prune_from) for v in GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                 "verbose" : not args.quiet,
@@ -2550,7 +2567,8 @@ def main(args, default_args, module_options={}):
                     "only_density" : args.only_density,
                     "file_name" : asimov_file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,
-                    "skip_spline" : args.no_spline,
+                    "skip_spline" : not args.use_spline,
+                    "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
                     "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
                     "classifier_pruning_files" : {v["parameter"]: GetPruningFile(eval_data_dir, v, from_step=args.prune_from) for v in GetModelLoop(cfg, specific_file_name=asimov_file_name, only_classification=True, specific_category=category)},
                     "verbose" : not args.quiet,

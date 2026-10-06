@@ -295,6 +295,7 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
     "prune_lnN": args.prune_lnN,
     "bootstrap_method": args.bootstrap_method,
     "integrate_density_with_ratios": args.integrate_density_with_ratios,
+    "skip_spline": not args.use_spline,
     "no_likelihood_print_out": args.no_likelihood_print_out,
     "merge_binned_nuisances": ({key: value.split(",") for key, value in (v.split(":") for v in args.merge_binned_nuisances.split(";"))} if args.merge_binned_nuisances is not None else {}),
     "n_integral_events": args.number_of_integral_events,

@@ -2672,7 +2672,7 @@ def plot_calibration_curve(
     predicted_ratio,
     mc_estimated_ratio,
     mc_estimated_ratio_uncert,
-    name = "calibration",
+    name = "calibration_plot",
     xlabel = r"Predicted $p(x|\hat{H}_{1})/p(x|\hat{H}_{0})$",
     ylabel = r"Estimate of $p(x|H_{1})/p(x|H_{0})$",
     axis_text = "",

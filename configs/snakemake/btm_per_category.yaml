@@ -26,4 +26,4 @@
 - workflow: configs/snakemake/subworkflow/p_value_condor_ic.yaml
 
 # Add the calibration plots
-- workflow: configs/snakemake/subworkflow/calibration_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/calibration_plot_condor_ic.yaml

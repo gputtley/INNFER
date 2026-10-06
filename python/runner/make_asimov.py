@@ -48,7 +48,7 @@ class MakeAsimov():
     self.prune_classifier_models = None
     self.classifier_pruning_files = {}
     self.verbose = True
-    self.skip_spline = False
+    self.skip_spline = True
     self.classifier_divide_by_nominal = False
     self.scale_up = 1.2
     self.drop_wt = False
@@ -246,14 +246,7 @@ class MakeAsimov():
 
 
       # Do classifier models
-      for classifier_model in self.classifier_models:
-
-        # check model parameter is 0
-        if self.classifier_divide_by_nominal:
-          if classifier_model['parameter'] not in model_parameters:
-            continue
-          if model_parameters[classifier_model['parameter']] == 0:
-            continue
+      for classifier_model in self._GetClassifierModels(model_parameters):
 
         # Check if we need to prune this model
         prune = False
@@ -443,6 +436,20 @@ class MakeAsimov():
 
     return outputs
 
+  def _GetClassifierModels(self, model_parameters=None):
+    """
+    Select classifier models that can change the nominal-divided prediction.
+    """
+    if not self.classifier_divide_by_nominal:
+      return self.classifier_models
+
+    if model_parameters is None:
+      cfg = LoadConfig(self.cfg)
+      model_parameters = {**GetDefaultsInModel(self.file_name, cfg), **self.val_info}
+
+    return [model for model in self.classifier_models if model_parameters.get(model["parameter"], 0.0) != 0.0]
+
+
   def Inputs(self):
 
     # Initiate inputs
@@ -467,7 +474,7 @@ class MakeAsimov():
           inputs += [f"{self.model_input}/{regression_model['name']}/{self.file_name}_norm_spline.pkl"]
 
       # Add classifier models
-      for classifier_model in self.classifier_models:
+      for classifier_model in self._GetClassifierModels():
         inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}_architecture.yaml"]
         inputs += [f"{self.model_input}/{classifier_model['name']}/{self.file_name}.h5"]
         if not self.skip_spline:

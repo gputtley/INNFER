@@ -35,8 +35,10 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `--classifier-divide-by-nominal` | `False` | Divide the classifier by the nominal value |
-| `--no-spline` | `False` | Do not use the normalisaing splines when creating asimov |
+| `--use-spline` | `False` | Opt in to saved classifier/regression normalisation splines. |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
+
+With `--classifier-divide-by-nominal`, classifiers whose resolved evaluation parameter is zero are automatically skipped, including their model, spline and pruning dependencies.
 
 ## Implementation
 

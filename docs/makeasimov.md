@@ -36,7 +36,7 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
 | `--classifier-divide-by-nominal` | `False` | Divide the classifier by the nominal value |
-| `--no-spline` | `False` | Do not use the normalisaing splines when creating asimov |
+| `--use-spline` | `False` | Opt in to saved classifier/regression normalisation splines. |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
 | `--only-default-asimov` | `False` | Build asimov for only the default validation indices |
 | `--only-density` | `False` | Build asimov from only the density model |
@@ -46,7 +46,9 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 ## Behaviour and checks
 
-These are finite Monte Carlo samples with weights, rather than noiseless event-level datasets. The workflow passes yield-based `--use-asimov-scaling` (default 10); the runner uses its fixed event count only when `use_asimov_scaling` is None. The CLI scaling option is integer-valued and takes precedence over the fixed-count option in this dispatch. `--only-density` omits learned nuisance-ratio corrections; `--no-spline` disables their saved normalisation splines. Keep these choices consistent with the validation/inference target.
+These are finite Monte Carlo samples with weights, rather than noiseless event-level datasets. The workflow passes yield-based `--use-asimov-scaling` (default 10); the runner uses its fixed event count only when `use_asimov_scaling` is None. The CLI scaling option is integer-valued and takes precedence over the fixed-count option in this dispatch. `--only-density` omits learned nuisance-ratio corrections; `--use-spline` enables their saved normalisation splines; these are skipped by default. Keep these choices consistent with the validation/inference target.
+
+With `--classifier-divide-by-nominal`, classifiers whose resolved evaluation parameter is zero are automatically skipped, including their model, spline and pruning dependencies.
 
 ## Implementation
 
