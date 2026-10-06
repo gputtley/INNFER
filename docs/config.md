@@ -12,7 +12,7 @@ These instruction describes the structure and purpose of each key within the `co
 ### `name`
 - **Type:** `str`
 - **Description:** A unique identifier for the configuration or training run. This name will be used as the directory name that your data, models and plots are written to.
-- **Example:** `"BTM_241025`
+- **Example:** `"BTM_241025"`
 
 
 ### `variables`
@@ -164,7 +164,8 @@ These instruction describes the structure and purpose of each key within the `co
 | `selection`                | str             | Pre-selection cut applied before applying shifts.                                  |
 | `weight`                   | str             | Name of the event weight column or formula to be calculated after shifts.          |
 | `parameters`               | list            | Parameters defined already in the dataset (not including shifts or pre_calculate). |
-| `pre_calculate`            | dict            | Expressions for derived quantities calculated after shifts.                        |
+| `pre_calculate`            | dict            | Calculations performed once while loading base files, before model variations.                        |
+| `calculate`                | dict            | Derived quantities recalculated after feature/parameter shifts during preprocessing. |
 | `post_calculate_selection` | str             | Additional selection applied after derived variables are computed.                 |
 | `weight_shifts`            | dict            | Expressions defining weight variations.                                            |
 
@@ -181,6 +182,18 @@ These instruction describes the structure and purpose of each key within the `co
   "weight_shifts": {"bw_mass": "(...)"},
 }
 ```
+
+
+## Dataset representation and splitting options
+
+The `preprocess` configuration also supports `stratify_to` for joint split balancing and `dequantisation` for smoothing exact floating-point rounding cells across model, validation and observed-data tables. Their formats and processing order are described in [PreProcess](preprocess.md). `density_dequantisation` is accepted as a legacy fallback, but new configurations should use `dequantisation`.
+
+`data_add_columns` and `data_calculate` provide the observed-data counterparts to metadata/feature calculations; DataCategories applies them before category selection and final dequantisation according to its runner. Make sure the observed and simulated feature definitions agree.
+
+Model training options belong in the architecture selected by `--density-architecture`, `--classifier-architecture` or `--regression-architecture`, rather than under `preprocess`. See [Density architecture](densityarchitecture.md) for summary-network and buffered-shuffling parameters.
+
+Configuration callbacks can depend on external files that are not visible as simple input paths. Declare them with workflow `add_inputs` when their producer or modification must be tracked. See [SnakeMake](snakemake.md).
+
 
 <br>
 

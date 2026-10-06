@@ -30,7 +30,7 @@ $$
 where $y$ is the measured value of the auxiliary observable, $\nu$ is the expected value of the nuisance parameter, and $\sigma_{\nu}$ is the uncertainty on that expectation.
 
 
-Each element of $\vec{x}$ are statistically independent from all other elements of $\vec{x}$. 
+The product over events assumes independent event observations. Components of the observable vector $\vec{x}$ within one event can be correlated; the joint learned density models those correlations.
 For example, each element of $\vec{x}$ could be the event counts in different reconstructed final states of some data set (binned), or a continuous observable such as the invariant mass of a pair of final state particles (unbinned). 
 
 
@@ -136,5 +136,13 @@ $$
 
 This formulation ensures that the interpolated yields, along with their first and second derivatives, are continuous with respect to $\nu$ over the entire domain.
 
+
+## Weighted samples and closure diagnostics
+
+For finite weighted histograms, statistical variances use sums of squared event weights. The simulation effective event count is $(\sum_i w_i)^2/\sum_i w_i^2$; it is not generally the row count. Generated Asimov samples in this framework are finite weighted Monte Carlo samples and also have Monte Carlo fluctuations.
+
+[CovarianceWithDMatrix](covariancewithdmatrix.md) combines the likelihood Hessian and score matrix as $H^{-1} D H^{-1}$. This changes weighted-sample uncertainty estimation, not the fitted density model. Closure bias and covariance calibration should be tested separately.
+
+The [p-value dataset-comparison workflow](pvalueworkflow.md) compares measured statistics against synthetic null toys. Its upper-tail empirical estimate includes a plus-one correction, so finite toy count limits the smallest reportable p-value. The synthetic AUC null need not centre exactly at 0.5.
 
 {% include mathjax.html %}
