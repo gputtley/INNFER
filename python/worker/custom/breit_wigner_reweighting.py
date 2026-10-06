@@ -25,7 +25,7 @@ def bw(m, gen_m):
   return (1/(((gen_m**2)-(m**2))**2 + ((m*width(m))**2)))
 
 
-def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass", mass_from="sim_mass", category="run2", ignore_quantile=0.05, extra_mask=None):
+def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass", mass_from="sim_mass", category="run2", ignore_quantile=0.0, extra_mask=None):
   
   # Load splines (yaml file)
   with open(spline_locations, "r") as f:
@@ -58,7 +58,11 @@ def bw_fractions(df, spline_locations="spline_locations.yaml", mass_to="bw_mass"
     # Cap spline function to a minimum of 0
     def SplineWithMinZero(x, spline_func=spl[k]):
       result = spline_func(x)
-      result[result < ignore_quantile] = 0.0
+      # Retain small positive contributions to avoid a jump at 5%.
+      # An explicit threshold uses a continuous ramp instead of a hard cutoff.
+      result = np.maximum(result, 0.0)
+      if ignore_quantile > 0:
+        result *= np.clip(result / ignore_quantile, 0.0, 1.0)
       return result
     spl[k] = partial(SplineWithMinZero, spline_func=spl[k])
 
