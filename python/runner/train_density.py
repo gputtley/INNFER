@@ -32,6 +32,7 @@ class TrainDensity():
     self.save_model_per_epoch = False
     self.model_type = "BayesFlow"
     self.load_weights_for_training = None
+    self.train_from_nominal = False
 
 
   def Configure(self, options):
@@ -76,6 +77,7 @@ class TrainDensity():
     network = InitiateDensityModel(
       architecture,
       self.data_input,
+      train_name = "train" if not self.train_from_nominal else "train_nominal",
       test_name = self.test_name,
       options = {
         "plot_dir" : self.plots_output,

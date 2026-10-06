@@ -52,6 +52,9 @@ class InnferTrainer(bf.trainers.Trainer):
       active_learning = False,
       active_learning_options = {},
       resample = False,
+      shuffle_training = False,
+      shuffle_buffer_size = 65536,
+      shuffle_seed = 42,
       model_name = "model.h5",
       save_model_per_epoch = False,
       trainable_cl_per_epoch = None,
@@ -88,6 +91,12 @@ class InnferTrainer(bf.trainers.Trainer):
       self.active_learning_options = active_learning_options
       self.resample = resample
       best_val_loss = None
+      if shuffle_training:
+         if not isinstance(shuffle_buffer_size, int) or shuffle_buffer_size < batch_size or shuffle_buffer_size % batch_size != 0:
+            raise ValueError("shuffle_buffer_size must be a positive multiple of batch_size")
+         if any(loader.batch_size != batch_size for loader in [X_train, Y_train, wt_train]):
+            raise ValueError("Training loaders must use batch_size for buffered shuffling")
+         shuffle_rng = np.random.default_rng(shuffle_seed)
 
       # Compile update function, if specified
       if use_autograph:
@@ -123,13 +132,19 @@ class InnferTrainer(bf.trainers.Trainer):
          }
          wandb.log(metrics)
 
+      # Include the starting model in best-model selection
+      if np.isfinite(float(val_loss)):
+         best_val_loss = float(val_loss)
+         MakeDirectories(model_name)
+         self._save_model_weights(model_name)
+
       # Create early stopper, if conditions met, otherwise None returned
       early_stopper = self._config_early_stopping(early_stopping, **kwargs)
 
       # Save model per epoch
       if save_model_per_epoch:
          MakeDirectories(model_name)
-         self.amortizer.inference_net.save_weights(model_name.replace(".h5","_epoch_0.h5"))
+         self._save_model_weights(model_name.replace(".h5","_epoch_0.h5"))
 
       # Loop through epochs
       for ep in range(1, epochs + 1):
@@ -146,13 +161,15 @@ class InnferTrainer(bf.trainers.Trainer):
          else:
             randomise_conditions = False
 
+         training_batches = self._GetTrainingBatches(X_train, Y_train, wt_train, shuffle_buffer_size, shuffle_rng) if shuffle_training else None
+
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
 
             #Loop through dataset
             for bi in range(1,X_train.num_batches+1):
 
                # Perform one training step and obtain current loss value
-               input_dict = self._load_batch(X_train, Y_train, wt_train, ep, randomise_conditions=randomise_conditions)
+               input_dict = self._load_batch(X_train, Y_train, wt_train, ep, randomise_conditions=randomise_conditions, batch_data=next(training_batches) if shuffle_training else None)
                loss = self._train_step(
                   batch_size, 
                   _backprop_step_freeze, 
@@ -199,13 +216,13 @@ class InnferTrainer(bf.trainers.Trainer):
          
          # Save model per epoch
          if save_model_per_epoch:
-            self.amortizer.inference_net.save_weights(model_name.replace(".h5",f"_epoch_{ep}.h5"))
+            self._save_model_weights(model_name.replace(".h5",f"_epoch_{ep}.h5"))
 
          # Save best model
-         if (best_val_loss is None) or (val_loss < best_val_loss):
+         if np.isfinite(float(val_loss)) and ((best_val_loss is None) or (val_loss < best_val_loss)):
             best_val_loss = 1.0*val_loss
             MakeDirectories(model_name)
-            self.amortizer.inference_net.save_weights(model_name)
+            self._save_model_weights(model_name)
 
          # Write metrics to wandb
          if use_wandb:
@@ -226,6 +243,13 @@ class InnferTrainer(bf.trainers.Trainer):
          self.optimizer = None
       
       return self.loss_history.get_plottable()
+
+   def _save_model_weights(self, model_name):
+      save_callback = getattr(self, "save_model_weights", None)
+      if save_callback is not None:
+         save_callback(model_name)
+      else:
+         self.amortizer.inference_net.save_weights(model_name)
    
    def _get_epoch_loss(self, X, Y, wt, ep, without_model=False, **kwargs):        
       """
@@ -253,7 +277,7 @@ class InnferTrainer(bf.trainers.Trainer):
       for _ in range(X.num_batches):
          conf = self._load_batch(X, Y, wt, ep)
          if not without_model:
-            sum_loss += (float(self.amortizer.compute_loss(conf, **kwargs.pop("net_args", {})))*np.sum(conf["loss_weights"]))
+            sum_loss += (float(self.amortizer.compute_loss(conf, **{**kwargs.get("net_args", {}), "clip_negative_weight_loss": False}))*np.sum(conf["loss_weights"]))
          else:
             z = tf.convert_to_tensor(conf["parameters"], dtype=tf.float32)
             sum_loss -= (float(tf.reduce_sum(self.amortizer.latent_dist.log_prob(z) * tf.convert_to_tensor(conf["loss_weights"], dtype=tf.float32))) )
@@ -298,7 +322,30 @@ class InnferTrainer(bf.trainers.Trainer):
          return early_stopper
       return None
    
-   def _load_batch(self, X, Y, wt, ep, randomise_conditions=False):
+   def _GetTrainingBatches(self, X, Y, wt, buffer_size, rng):
+      """
+      Shuffle aligned rows within sequential buffers and yield training batches.
+      """
+      batches_per_buffer = buffer_size // X.batch_size
+      for first_batch in range(0, X.num_batches, batches_per_buffer):
+         buffer = [[], [], []]
+         for _ in range(min(batches_per_buffer, X.num_batches - first_batch)):
+            X_data = X.LoadNextBatch().to_numpy()
+            Y_data = Y.LoadNextBatch().to_numpy()
+            wt_data = wt.LoadNextBatch().to_numpy()
+            if Y_data.shape[1] == 0:
+               Y_data = np.empty((len(X_data), 0))
+            for values, data in zip(buffer, [X_data, Y_data, wt_data]):
+               values.append(data)
+         X_buffer, Y_buffer, wt_buffer = [np.concatenate(values, axis=0) for values in buffer]
+         if not len(X_buffer) == len(Y_buffer) == len(wt_buffer):
+            raise ValueError("Training features, conditions and weights must have matching row counts")
+         indices = rng.permutation(len(X_buffer))
+         for start in range(0, len(indices), X.batch_size):
+            batch_indices = indices[start:start + X.batch_size]
+            yield X_buffer[batch_indices], Y_buffer[batch_indices], wt_buffer[batch_indices].flatten()
+
+   def _load_batch(self, X, Y, wt, ep, randomise_conditions=False, batch_data=None):
       """
       Helper method to resample batches based off weights.
 
@@ -310,9 +357,12 @@ class InnferTrainer(bf.trainers.Trainer):
       Returns:
          dict: Dictionary containing resampled batch data.
       """
-      X_data = X.LoadNextBatch().to_numpy()
-      Y_data = Y.LoadNextBatch().to_numpy()
-      wt_data = wt.LoadNextBatch().to_numpy().flatten()
+      if batch_data is None:
+         X_data = X.LoadNextBatch().to_numpy()
+         Y_data = Y.LoadNextBatch().to_numpy()
+         wt_data = wt.LoadNextBatch().to_numpy().flatten()
+      else:
+         X_data, Y_data, wt_data = batch_data
       if self.fix_1d:
          X_data = np.column_stack((X_data.flatten(), np.random.normal(0.0, 1.0, (len(X_data),))))
       if self.active_learning:
@@ -324,7 +374,8 @@ class InnferTrainer(bf.trainers.Trainer):
       if randomise_conditions:
          Y_data = Y_data[np.random.permutation(Y_data.shape[0]), :]
 
-      return {"parameters" : X_data, "direct_conditions" : Y_data, "loss_weights" : wt_data}
+      condition_key = getattr(self, "condition_key", "direct_conditions")
+      return {"parameters" : X_data, condition_key : Y_data, "loss_weights" : wt_data}
    
    def _convert_lr(self, lr):
       return lr if not isinstance(lr, np.ndarray) else lr[0]
@@ -340,7 +391,7 @@ class InnferTrainer(bf.trainers.Trainer):
             indices = np.random.choice(len_data, size=sample_size, replace=False)
             sum_wt_indices = float(np.sum(wt[indices]))
             data = {
-               "direct_conditions" : Y[indices,:].astype(np.float32)
+               getattr(self, "condition_key", "direct_conditions") : Y[indices,:].astype(np.float32)
             }
             synth = self.amortizer.sample(data, 1)
             if len(synth.shape) > 2:

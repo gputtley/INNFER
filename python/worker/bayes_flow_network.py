@@ -1,6 +1,9 @@
 import time
 
 import copy
+import hashlib
+import pickle
+from collections import OrderedDict
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -83,6 +86,9 @@ class BayesFlowNetwork():
     self.active_learning = False
     self.active_learning_options = {}
     self.resample = False
+    self.shuffle_training = False
+    self.shuffle_buffer_size = 65536
+    self.shuffle_seed = 42
     self.gradient_clipping_norm = None
     self.patience = 3
     self.tolerance = 0.02
@@ -90,6 +96,12 @@ class BayesFlowNetwork():
     self.l2_lambda = 0.0001
     self.trainable_cl_per_epoch = None
     self.turn_conditions_on_at_epoch = None
+
+    # Summary network parameters
+    self.use_summary_network = True
+    self.summary_dim = 4
+    self.summary_hidden_units = (32, 32)
+    self.summary_activation = "relu"
 
     # Other
     self.disable_tqdm = False
@@ -104,6 +116,11 @@ class BayesFlowNetwork():
     # Data parameters
     self.data_parameters = {}
 
+    self.cache_observable_transforms = False
+    self.max_cached_transform_batches = 1024
+    self.prepared_X_cache = OrderedDict()
+    self.probability_transform_cache = {}
+    self.transform_metadata_key = None
     self._SetOptions(options)
 
     # Model and trainer store
@@ -115,7 +132,6 @@ class BayesFlowNetwork():
     # Data parquet files
     if X_train is not None:
       self.X_train = DataLoader(X_train, batch_size=self.batch_size)
-      #self.X_train = DataLoader(X_train.replace("X_","forward_"), batch_size=self.batch_size)
     else:
       self.X_train = None
     if Y_train is not None:
@@ -128,7 +144,6 @@ class BayesFlowNetwork():
       self.wt_train = None
     if X_test is not None:
       self.X_test = DataLoader(X_test, batch_size=self.batch_size)
-      #self.X_test = DataLoader(X_test.replace("X_","forward_"), batch_size=self.batch_size)
     else:
       self.X_test = None
     if Y_test is not None:
@@ -229,7 +244,17 @@ class BayesFlowNetwork():
       )
 
     latent_dist = None
-    self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net, latent_dist=latent_dist)
+
+    if not self.use_summary_network:
+      summary_net = None
+    else:
+      summary_net = DenseSummaryNetwork(
+        summary_dim=self.summary_dim,
+        hidden_units=self.summary_hidden_units,
+        activation=self.summary_activation,
+      )
+
+    self.amortizer = bf.amortizers.AmortizedPosterior(self.inference_net, latent_dist=latent_dist, summary_net = summary_net)
 
 
   def BuildTrainer(self):
@@ -238,7 +263,10 @@ class BayesFlowNetwork():
     """
     def config(forward_dict):
       out_dict = {}
-      out_dict["direct_conditions"] = forward_dict["sim_data"]
+      if self.use_summary_network:
+        out_dict["summary_conditions"] = forward_dict["sim_data"]
+      else:
+        out_dict["direct_conditions"] = forward_dict["sim_data"]
       out_dict["parameters"] = forward_dict["prior_draws"]
       return out_dict
 
@@ -251,6 +279,8 @@ class BayesFlowNetwork():
     self.trainer.fix_1d = self.fix_1d
     self.trainer.active_learning = self.active_learning
     self.trainer.resample = self.resample
+    self.trainer.condition_key = "summary_conditions" if self.use_summary_network else "direct_conditions"
+    self.trainer.save_model_weights = self._SaveWeights
 
     optim = Optimizer()
     self.optimizer, self.lr_scheduler, self.adaptive_lr_scheduler = optim.GetOptimizer(
@@ -282,40 +312,53 @@ class BayesFlowNetwork():
     Y_train_batch = self.Y_train.LoadNextBatch().to_numpy()
     self.X_train.batch_num = 0
     self.Y_train.batch_num = 0
-    _ = self.inference_net(X_train_batch, Y_train_batch)
-    self.inference_net.load_weights(name)
+    if self.fix_1d:
+      X_train_batch = np.column_stack((X_train_batch.flatten(), np.zeros(len(X_train_batch))))
+    inference_conditions = self._GetInferenceConditions(Y_train_batch)
+    _ = self.inference_net(X_train_batch, inference_conditions)
+    self._LoadWeights(name)
 
   def Loss(self, X, Y, wt):
     self.BuildTrainer()
     loss = float(self.trainer._get_epoch_loss(DataLoader(X, batch_size=self.batch_size), DataLoader(Y, batch_size=self.batch_size), DataLoader(wt, batch_size=self.batch_size), 0))
     return loss
 
-  @tf.function(reduce_retracing=True, input_signature=[tf.TensorSpec(shape=[None, None], dtype=tf.float32), tf.TensorSpec(shape=[None, None], dtype=tf.float32)])
-  def _ComputeLogProb(self, parameters, direct_conditions):
-    z, log_det_J = self.amortizer.inference_net.forward(parameters, direct_conditions)
+  def _GetInferenceConditions(self, conditions):
+    if self.use_summary_network:
+      return self.amortizer.summary_net(conditions, training=False)
+    return conditions
+
+  def _ForwardLogProb(self, parameters, conditions):
+    inference_conditions = self._GetInferenceConditions(conditions)
+    z, log_det_J = self.amortizer.inference_net.forward(parameters, inference_conditions)
     log_prob = self.amortizer.latent_dist.log_prob(z) + log_det_J
     return log_prob
 
-  @tf.function(reduce_retracing=True, input_signature=[tf.TensorSpec(shape=[None, None], dtype=tf.float32), tf.TensorSpec(shape=[None, None], dtype=tf.float32)])
-  def _ComputeGradient(self, parameters, direct_conditions):
+  @tf.function(reduce_retracing=True)
+  def _ComputeLogProb(self, parameters, conditions):
+    return self._ForwardLogProb(parameters, conditions)
+
+  @tf.function(reduce_retracing=True)
+  def _ComputeGradient(self, parameters, conditions, differentiate_parameters=False):
+    gradient_target = parameters if differentiate_parameters else conditions
     with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape:
-      tape.watch(direct_conditions)
-      z, log_det_J = self.amortizer.inference_net.forward(parameters, direct_conditions)
-      predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
-    grad = tape.gradient(predictions, direct_conditions)
+      tape.watch(gradient_target)
+      predictions = self._ForwardLogProb(parameters, conditions)
+    grad = tape.gradient(predictions, gradient_target)
     return predictions, grad
 
   @tf.function(reduce_retracing=True)
-  def inverse_fast(self, gaussian, direct_conditions):
+  def inverse_fast(self, gaussian, conditions):
     gaussian = tf.cast(gaussian, tf.float32)
-    direct_conditions = tf.cast(direct_conditions, tf.float32)
-    return self.amortizer.inference_net.inverse(gaussian, direct_conditions)
+    conditions = tf.cast(conditions, tf.float32)
+    inference_conditions = self._GetInferenceConditions(conditions)
+    return self.amortizer.inference_net.inverse(gaussian, inference_conditions)
 
-  def compute_log_prob(self, parameters, direct_conditions):
+  def compute_log_prob(self, parameters, conditions):
       if self._compute_log_prob is None:
           # Get the shape of the first batch
           batch_size, n_params = parameters.shape
-          _, n_conditions = direct_conditions.shape
+          _, n_conditions = conditions.shape
 
           # Create the tf.function with fixed shape
           @tf.function(input_signature=[
@@ -323,13 +366,61 @@ class BayesFlowNetwork():
               tf.TensorSpec(shape=[batch_size, n_conditions], dtype=tf.float32)
           ], reduce_retracing=True)
           def _inner(parameters_tensor, conditions_tensor):
-              z, log_det_J = self.amortizer.inference_net.forward(parameters_tensor, conditions_tensor)
-              log_prob = self.amortizer.latent_dist.log_prob(z) + log_det_J
-              return log_prob
+              return self._ForwardLogProb(parameters_tensor, conditions_tensor)
           
           self._compute_log_prob = _inner
 
-      return self._compute_log_prob(parameters, direct_conditions)
+      return self._compute_log_prob(parameters, conditions)
+
+
+  def _PrepareProbabilityX(self, X, transform_X=True):
+
+    if not self.cache_observable_transforms or not transform_X:
+      return self.PrepareX(X, transform_X=transform_X).to_numpy(np.float32)
+
+    if self.max_cached_transform_batches < 1:
+      raise ValueError("max_cached_transform_batches must be at least 1")
+    metadata_key = hashlib.blake2b(pickle.dumps(self.data_parameters), digest_size=16).digest()
+    if metadata_key != self.transform_metadata_key:
+      self.prepared_X_cache.clear()
+      self.probability_transform_cache.clear()
+      self.transform_metadata_key = metadata_key
+    # Content-based keys remain valid for freshly read batches, changed
+    # selections, reordered rows, and integration samples at different masses.
+    values = np.ascontiguousarray(X.to_numpy())
+    key = (values.shape, values.dtype.str, hashlib.blake2b(values.tobytes(), digest_size=16).digest())
+    if key not in self.prepared_X_cache:
+      prepared = self.PrepareX(X, transform_X=True).to_numpy(np.float32)
+      prepared.setflags(write=False)
+      self.prepared_X_cache[key] = prepared
+      while len(self.prepared_X_cache) > self.max_cached_transform_batches:
+        self.prepared_X_cache.popitem(last=False)
+    else:
+      self.prepared_X_cache.move_to_end(key)
+    return self.prepared_X_cache[key]
+
+
+  def _UnTransformProbability(self, log_probs, transform_X=True):
+
+    columns = list(log_probs.columns)
+    if self.cache_observable_transforms and transform_X:
+      result = log_probs.copy()
+      for column in columns:
+        if column not in self.probability_transform_cache:
+          # Preserve the existing physical-density and derivative conversion.
+          # These output-only conversions depend on preprocessing parameters.
+          dp = DataProcessor([[pd.DataFrame({column: [0., 1.]})]], "dataset", options={"parameters": self.data_parameters})
+          converted = dp.GetFull(method="dataset", functions_to_apply=["untransform"])[column].to_numpy()
+          self.probability_transform_cache[column] = (converted[0], converted[1])
+        zero, one = self.probability_transform_cache[column]
+        if column == "log_prob":
+          result[column] += zero
+        else:
+          result[column] *= one
+      return result
+
+    dp = DataProcessor([[log_probs]], "dataset", options={"parameters": self.data_parameters})
+    return dp.GetFull(method="dataset", functions_to_apply=["untransform"] if transform_X else []).loc[:, columns]
 
 
   def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False, order=0, column_1=None, column_2=None, grad_of="direct_conditions"):
@@ -371,12 +462,13 @@ class BayesFlowNetwork():
 
     # Prepare datasets
     Y = self.PrepareY(X, Y, transform_Y=transform_Y)
-    X = self.PrepareX(X, transform_X=transform_X)
+    prepared_X = self._PrepareProbabilityX(X, transform_X=transform_X)
 
     # Set up inputs for probability
+    condition_key = "summary_conditions" if self.use_summary_network else "direct_conditions"
     data = {
-      "parameters" : X.to_numpy(np.float32).astype(np.float32),
-      "direct_conditions" : Y.to_numpy(np.float32).astype(np.float32),
+      "parameters" : prepared_X,
+      condition_key : Y.to_numpy(np.float32).astype(np.float32),
     }
 
 
@@ -394,22 +486,25 @@ class BayesFlowNetwork():
     if 2 in gradients and not (len(column_1)==1 and len(column_2)==1):
       raise ValueError("The second derivative must be done one column at a time.")
 
-    # Conversion dict
+    # Preserve direct_conditions as the default public name for Y gradients.
+    grad_key = condition_key if grad_of in ["direct_conditions", "summary_conditions"] else grad_of
     conversion = {
       "direct_conditions" : "Y_columns",
-      "parameters" : "X_columns"
+      "summary_conditions" : "Y_columns",
+      "parameters" : "X_columns",
     }
+    grad_columns = conversion[grad_of]
 
     # Check columns
     if column_1 is None:
-      column_1 = self.data_parameters[conversion[grad_of]]
+      column_1 = self.data_parameters[grad_columns]
     if column_2 is None:
-      column_2 = self.data_parameters[conversion[grad_of]]
+      column_2 = self.data_parameters[grad_columns]
 
     # Get indices
-    indices_1 = [self.data_parameters[conversion[grad_of]].index(col) for col in column_1 if col in self.data_parameters[conversion[grad_of]]]
-    indices_2 = [self.data_parameters[conversion[grad_of]].index(col) for col in column_2 if col in self.data_parameters[conversion[grad_of]]]
-    column_to_index_1 = {col : indices_1.index(self.data_parameters[conversion[grad_of]].index(col)) for col in column_1 if col in self.data_parameters[conversion[grad_of]]}
+    indices_1 = [self.data_parameters[grad_columns].index(col) for col in column_1 if col in self.data_parameters[grad_columns]]
+    indices_2 = [self.data_parameters[grad_columns].index(col) for col in column_2 if col in self.data_parameters[grad_columns]]
+    column_to_index_1 = {col : indices_1.index(self.data_parameters[grad_columns].index(col)) for col in column_1 if col in self.data_parameters[grad_columns]}
 
     # Add zeros column onto 1d datasets - need to add integral as well
     if self.fix_1d:
@@ -421,12 +516,12 @@ class BayesFlowNetwork():
 
       if self.graph_mode:
         data["parameters"] = tf.convert_to_tensor(tf.cast(data["parameters"], dtype=tf.float32), dtype=tf.float32)
-        data["direct_conditions"] = tf.convert_to_tensor(tf.cast(data["direct_conditions"], dtype=tf.float32), dtype=tf.float32)
+        data[condition_key] = tf.convert_to_tensor(tf.cast(data[condition_key], dtype=tf.float32), dtype=tf.float32)
 
       #print("Tracing count before step:", self._ComputeLogProb.experimental_get_tracing_count())
       #if self.graph_mode and length_batch == self.length_batch:
       if self.graph_mode:
-        log_probs_model = self._ComputeLogProb(data["parameters"], data["direct_conditions"])
+        log_probs_model = self._ComputeLogProb(data["parameters"], data[condition_key])
         log_probs = [pd.DataFrame(log_probs_model.numpy(), columns=["log_prob"], dtype=np.float64)]
       #if self.graph_mode and length_batch == self.length_batch:
       #  #print("GM")
@@ -442,7 +537,7 @@ class BayesFlowNetwork():
       
       if self.graph_mode:
         data["parameters"] = tf.convert_to_tensor(tf.cast(data["parameters"], dtype=tf.float32), dtype=tf.float32)
-        data["direct_conditions"] = tf.convert_to_tensor(tf.cast(data["direct_conditions"], dtype=tf.float32), dtype=tf.float32)
+        data[condition_key] = tf.convert_to_tensor(tf.cast(data[condition_key], dtype=tf.float32), dtype=tf.float32)
 
       if len(indices_1) == 0:
 
@@ -452,17 +547,16 @@ class BayesFlowNetwork():
       else:
 
         if self.graph_mode:
-          predictions, grad = self._ComputeGradient(data["parameters"], data["direct_conditions"])
+          predictions, grad = self._ComputeGradient(data["parameters"], data[condition_key], grad_key == "parameters")
         else:
           tf.keras.backend.clear_session()
           if not self.graph_mode:
             data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-            data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+            data[condition_key] = tf.convert_to_tensor(data[condition_key], dtype=tf.float32)
           with tf.GradientTape(watch_accessed_variables=False) as tape:
-            tape.watch(data[grad_of])
-            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-            predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
-          grad = tape.gradient(predictions, data[grad_of])
+            tape.watch(data[grad_key])
+            predictions = self._ForwardLogProb(data["parameters"], data[condition_key])
+          grad = tape.gradient(predictions, data[grad_key])
         first_derivative = tf.gather(grad, indices_1, axis=1)
       
       # Make log_probs array
@@ -473,7 +567,7 @@ class BayesFlowNetwork():
       if order == [0,1] or order == 1 or order == [1]:
         first_derivative_for_all_columns = np.zeros((len(data["parameters"]),len(column_1)))
         for ind, col in enumerate(column_1):
-          if col not in self.data_parameters[conversion[grad_of]]: continue
+          if col not in self.data_parameters[grad_columns]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         log_probs += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
 
@@ -481,7 +575,7 @@ class BayesFlowNetwork():
 
       # Get the second derivative
       data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-      data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+      data[condition_key] = tf.convert_to_tensor(data[condition_key], dtype=tf.float32)
 
       if len(indices_1) == 0:
 
@@ -492,17 +586,16 @@ class BayesFlowNetwork():
       elif len(indices_2) == 0:
 
         if self.graph_mode:
-          predictions, grad = self._ComputeGradient(data["parameters"], data["direct_conditions"])
+          predictions, grad = self._ComputeGradient(data["parameters"], data[condition_key], grad_key == "parameters")
         else:
           tf.keras.backend.clear_session()
           if not self.graph_mode:
             data["parameters"] = tf.convert_to_tensor(data["parameters"], dtype=tf.float32)
-            data["direct_conditions"] = tf.convert_to_tensor(data["direct_conditions"], dtype=tf.float32)
+            data[condition_key] = tf.convert_to_tensor(data[condition_key], dtype=tf.float32)
           with tf.GradientTape(watch_accessed_variables=False) as tape:
-            tape.watch(data[grad_of])
-            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-            predictions = tf.reshape(self.amortizer.latent_dist.log_prob(z) + log_det_J, (-1, 1))
-          grad = tape.gradient(predictions, data[grad_of])
+            tape.watch(data[grad_key])
+            predictions = self._ForwardLogProb(data["parameters"], data[condition_key])
+          grad = tape.gradient(predictions, data[grad_key])
 
         first_derivative = tf.gather(grad, indices_1, axis=1)
         second_derivative = tf.zeros((len(data["parameters"]), 1), dtype=tf.float32)
@@ -510,15 +603,14 @@ class BayesFlowNetwork():
       else:
 
         with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_2:
-          tape_2.watch(data[grad_of])
+          tape_2.watch(data[grad_key])
           with tf.GradientTape(persistent=False, watch_accessed_variables=False) as tape_1:
-            tape_1.watch(data[grad_of])
-            z, log_det_J = self.amortizer.inference_net.forward(data["parameters"], data["direct_conditions"])
-            predictions = self.amortizer.latent_dist.log_prob(z) + log_det_J
-          grad = tape_1.gradient(predictions, data[grad_of])
+            tape_1.watch(data[grad_key])
+            predictions = self._ForwardLogProb(data["parameters"], data[condition_key])
+          grad = tape_1.gradient(predictions, data[grad_key])
           first_derivative = tf.gather(grad, indices_1, axis=1)   
 
-        grad_of_grad = tape_2.gradient(first_derivative, data[grad_of])
+        grad_of_grad = tape_2.gradient(first_derivative, data[grad_key])
         second_derivative = tf.gather(grad_of_grad, indices_2, axis=1)
       
       # Make log_probs array
@@ -529,7 +621,7 @@ class BayesFlowNetwork():
       if order == [0,1,2] or order == [1,2]:
         first_derivative_for_all_columns = np.zeros((len(data["parameters"]),len(column_1)))
         for ind, col in enumerate(column_1):
-          if col not in self.data_parameters[conversion[grad_of]]: continue
+          if col not in self.data_parameters[grad_columns]: continue
           first_derivative_for_all_columns[:, ind] = first_derivative.numpy()[:, column_to_index_1[col]]
         log_probs += [pd.DataFrame(first_derivative_for_all_columns, columns=[f"d_log_prob_by_d_{col}" for col in column_1], dtype=np.float64)]
 
@@ -539,19 +631,7 @@ class BayesFlowNetwork():
     # Untransform probabilities
     for ind in range(len(log_probs)):
 
-      columns = list(log_probs[ind].columns)
-
-      prob_dp = DataProcessor(
-        [[log_probs[ind]]],
-        "dataset",
-        options = {
-          "parameters" : self.data_parameters,
-        }
-      )
-      log_probs[ind] = prob_dp.GetFull(
-        method="dataset",
-        functions_to_apply = ["untransform"] if transform_X else []
-      ).loc[:, columns]
+      log_probs[ind] = self._UnTransformProbability(log_probs[ind], transform_X=transform_X)
 
       # Fix 1d probability by ensuring integral is 1
       if self.fix_1d and not no_fix and order[ind] == 0:
@@ -737,7 +817,7 @@ class BayesFlowNetwork():
 
     # Set up bayesflow dictionary
     batch_data = {
-      "direct_conditions" : Y.to_numpy().astype(np.float32)
+      ("summary_conditions" if self.use_summary_network else "direct_conditions") : Y.to_numpy().astype(np.float32)
     }
 
     # Get samples
@@ -773,24 +853,8 @@ class BayesFlowNetwork():
         index = self.gaussian_cache_list.index(cache_dict)
         gaussian = self.gaussian_cache[index]
 
-
-    #print(f"Sampling from latent distribution took {time.time()-st} seconds.")
-    #st = time.time()
-    #synth = self.amortizer.inference_net.inverse(gaussian, batch_data["direct_conditions"])
-    synth = self.inverse_fast(gaussian, batch_data["direct_conditions"])
-    #print(f"Passing through the inverse of the network took {time.time()-st} seconds.")
-
-    #synth = self.amortizer.sample(batch_data, 1, seed=seed)[:,0,:]
-
-    # Not sure what this code was trying to do?
-    #if not self.fix_1d:
-    #  synth_df = pd.DataFrame(synth, columns=self.data_parameters["X_columns"])
-    #else:
-    #  synth_df = pd.DataFrame(synth[:,0], columns=self.data_parameters["X_columns"])
-    #total_nans = synth_df.isna().sum().sum()
-    #print(synth_df)
-    #if total_nans > 0:
-    #  synth[synth_df.isna().any(axis=1)] = self.amortizer.sample({"direct_conditions" : Y[synth_df.isna().any(axis=1)].to_numpy().astype(np.float32)}, 1)
+    condition_key = "summary_conditions" if self.use_summary_network else "direct_conditions"
+    synth = self.inverse_fast(gaussian, batch_data[condition_key])
 
     # Fix 1d couplings
     if self.fix_1d:
@@ -817,6 +881,29 @@ class BayesFlowNetwork():
 
     return synth
 
+  def _SummaryWeightsPath(self, name):
+    root, extension = os.path.splitext(name)
+    return f"{root}_summary{extension}"
+
+  def _SaveWeights(self, name):
+    MakeDirectories(name)
+    self.inference_net.save_weights(name)
+    if self.use_summary_network:
+      summary_name = self._SummaryWeightsPath(name)
+      MakeDirectories(summary_name)
+      self.amortizer.summary_net.save_weights(summary_name)
+
+  def _LoadWeights(self, name):
+    self.inference_net.load_weights(name)
+    if self.use_summary_network:
+      summary_name = self._SummaryWeightsPath(name)
+      if not os.path.isfile(summary_name):
+        raise FileNotFoundError(
+          f"Summary network weights not found: {summary_name}. "
+          "Load this checkpoint with use_summary_network=False if it predates summary-network training."
+        )
+      self.amortizer.summary_net.load_weights(summary_name)
+
   def Save(self, name="model.h5"):
     """
     Save the trained model weights.
@@ -826,8 +913,7 @@ class BayesFlowNetwork():
     name : str, optional
         Name of the file to save the model weights (default is "model.h5").
     """
-    MakeDirectories(name)
-    self.inference_net.save_weights(name)
+    self._SaveWeights(name)
 
   def Train(self, name="model.h5"):
     """
@@ -851,6 +937,9 @@ class BayesFlowNetwork():
       active_learning=self.active_learning,
       active_learning_options=self.active_learning_options,
       resample=self.resample,
+      shuffle_training=self.shuffle_training,
+      shuffle_buffer_size=self.shuffle_buffer_size,
+      shuffle_seed=self.shuffle_seed,
       model_name=name,
       save_model_per_epoch=self.save_model_per_epoch,
       patience=self.patience,
@@ -924,3 +1013,31 @@ class BayesFlowNetwork():
           event_indices,
           #fallback_to_while_loop=False,
       )
+
+
+
+class DenseSummaryNetwork(tf.keras.Model):
+    """Embeds a scalar condition into a fixed-dimensional vector."""
+
+    def __init__(
+        self,
+        summary_dim=8,
+        hidden_units=(32, 32),
+        activation="elu",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        self.summary_dim = summary_dim
+
+        self.network = tf.keras.Sequential([
+            tf.keras.layers.Flatten(),
+            *[
+                tf.keras.layers.Dense(units, activation=activation)
+                for units in hidden_units
+            ],
+            tf.keras.layers.Dense(summary_dim, activation="linear"),
+        ])
+
+    def call(self, x, training=None, **kwargs):
+        return self.network(x, training=training)
