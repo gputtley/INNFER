@@ -4,8 +4,13 @@ type: "BayesFlow"
 coupling_design: "interleaved"
 permutation: "fixed"
 num_coupling_layers: 10
+# summary network (embeds conditions before the flow)
+use_summary_network: False
+summary_dim: 1
+summary_hidden_units: [32, 32]
+summary_activation: "relu"
 # training
-epochs: 20
+epochs: 30
 batch_size: 2048
 learning_rate: 0.01
 optimizer_name: "AdamW"
@@ -17,10 +22,12 @@ lr_scheduler_options:
 active_learning: False
 resample: False
 gradient_clipping_norm: null
-early_stopping: true
+early_stopping: False
 patience: 3
 tolerance: 0.02
 wait_till: 5
+l2_lambda: 0.0001
+turn_conditions_on_at_epoch: ~
 # affine or interleaved only
 affine_units_per_dense_layer: 128
 affine_num_dense_layers: 2
@@ -31,6 +38,11 @@ affine_dropout_prob: 0.0
 spline_units_per_dense_layer: 256
 spline_num_dense_layers: 2
 spline_activation: "relu"
-spline_dropout: False
-spline_dropout_prob: 0.0
+spline_dropout: True
+spline_dropout_prob: 0.02
 spline_bins: 16
+
+# Optional training shuffle within sequential memory buffers
+shuffle_training: True
+shuffle_buffer_size: 65536  # Must be a multiple of batch_size
+shuffle_seed: 42
