@@ -22,6 +22,8 @@ from scipy.interpolate import UnivariateSpline
 from sklearn.model_selection import train_test_split
 
 from data_processor import DataProcessor
+from dequantisation import Dequantisation, get_dequantisation_options
+from shift_distribution import shift_cdf, shift_quantiles, bin_factors
 from write_parquet import WriteParquet
 from weighted_incremental_pca import WeightedIncrementalPCA
 from useful_functions import (
@@ -89,6 +91,9 @@ class PreProcess():
     self.use_pbar = True
     self.sim_to_data_norm = None
     self.sim_to_data_norm_values = None
+
+    # Options
+    self.build_density_nominal = True
 
     # Stores
     self.parameters = {}
@@ -418,17 +423,50 @@ class PreProcess():
     return yields
 
 
-  def _GetStrata(self, df, stratify_to):
-    if stratify_to not in df.columns:
+  def _GetStrata(self, df, stratify_to, minimum_count=2):
+
+    # A string retains the original single-column configuration. A dictionary
+    # allows joint categorical, quantile-binned, and expression-based strata.
+    if isinstance(stratify_to, str):
+      if stratify_to not in df.columns:
+        return None
+      stratify_to = {stratify_to: self.stratify_bins}
+
+    labels = []
+    for column, settings in stratify_to.items():
+      if isinstance(settings, dict):
+        expression = settings.get("expression", column)
+        if settings.get("optional", False) and expression not in df.columns:
+          continue
+        bins = settings.get("bins", self.stratify_bins)
+      else:
+        expression = column
+        bins = settings
+      values = df[expression].to_numpy() if expression in df.columns else df.eval(expression).to_numpy()
+      if not np.all(np.isfinite(values)):
+        raise ValueError(f"Non-finite values in split stratification: {column}")
+      unique_values = np.unique(values)
+      if bins is None or len(unique_values) <= bins:
+        # Factorise discrete values exactly, including both endpoint classes.
+        labels.append(pd.factorize(values, sort=True)[0])
+      else:
+        if not isinstance(bins, int) or bins < 2:
+          raise ValueError(f"Split stratification bins must be an integer >= 2: {column}")
+        edges = np.unique(np.quantile(values, np.linspace(0., 1., bins + 1)))
+        labels.append(np.searchsorted(edges[1:-1], values, side="right"))
+
+    if not labels or len(df) < minimum_count:
       return None
-    #print(f" - Stratifying to {stratify_to}")
-    values = df[stratify_to].values
-    unique_values = np.unique(values)
-    if len(unique_values) < self.stratify_bins:
-      bins = unique_values
-    else:
-      bins = np.quantile(values, np.linspace(0, 1, self.stratify_bins)) 
-    strata = np.digitize(values, bins[1:-1])
+    strata = pd.factorize(pd.MultiIndex.from_arrays(labels), sort=True)[0]
+    counts = np.bincount(strata)
+    sparse = counts < minimum_count
+    if np.any(sparse):
+      # Pool small joint cells so sklearn can allocate both held-out splits.
+      strata[sparse[strata]] = len(counts)
+      pooled_count = np.sum(sparse * counts)
+      if pooled_count < minimum_count and np.any(~sparse):
+        strata[strata == len(counts)] = np.argmax(counts)
+      strata = pd.factorize(strata, sort=True)[0]
     return strata
 
 
@@ -457,7 +495,7 @@ class PreProcess():
         train_test_df = df.copy()
 
       if stratify_to is not None:
-        strata = self._GetStrata(train_test_df, stratify_to)
+        strata = self._GetStrata(train_test_df, stratify_to, minimum_count=int(np.ceil((train_ratio+test_ratio)/min(train_ratio,test_ratio))))
         train_test_df.loc[:,"strata"] = strata
       train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
       
@@ -474,7 +512,7 @@ class PreProcess():
       # make split
       if len(potential_val_df) > 0:
         if stratify_to is not None:
-          strata = self._GetStrata(potential_val_df, stratify_to)
+          strata = self._GetStrata(potential_val_df, stratify_to, minimum_count=int(np.ceil(1./min(val_ratio,1.-val_ratio))))
           potential_val_df.loc[:,"strata"] = strata
         train_test_from_val_df, val_df = train_test_split(potential_val_df, test_size=val_ratio, stratify=strata if stratify_to is not None else None)
 
@@ -501,7 +539,7 @@ class PreProcess():
       # split train and test
       if train_test_df is not None:
         if stratify_to is not None:
-          strata = self._GetStrata(train_test_df, stratify_to)
+          strata = self._GetStrata(train_test_df, stratify_to, minimum_count=int(np.ceil((train_ratio+test_ratio)/min(train_ratio,test_ratio))))
           train_test_df.loc[:,"strata"] = strata
         train_df, test_df = train_test_split(train_test_df, test_size=(test_ratio/(train_ratio+test_ratio)), stratify=strata if stratify_to is not None else None)
         
@@ -700,6 +738,10 @@ class PreProcess():
             nominal_weight=cfg["files"][base_file_name]["weight"],
             post_shifts=value["post_shifts"] if "post_shifts" in value.keys() else {}
           ),
+          Dequantisation(
+            get_dequantisation_options(cfg["preprocess"]),
+            context=f"{self.file_name}/{self.category}/{extra_dir}/{extra_name}",
+          ),
           wp
         ]
       )
@@ -721,25 +763,12 @@ class PreProcess():
       if not v[search_for]:
         continue
 
-      if v["type"] == "continuous":
-        samples = np.random.uniform(v["range"][0], v["range"][1], size=n)   
-      elif v["type"] == "discrete":
+      if v["type"] in ["discrete", "fixed"]:
         continue
-      elif v["type"] == "fixed":
-        continue
-      elif v["type"] == "flat_top":
-        sigma_out = 0.1*(v["range"][1]-v["range"][0])
-        if "other" in v.keys():
-          if "sigma_out" in v["other"].keys():
-            sigma_out = v["other"]["sigma_out"]
-        samples = SampleFlatTop(n, (v["range"][0], v["range"][1]), sigma_out)
-      else:
+      if v["type"] not in ["continuous", "flat_top"]:
         raise ValueError(f"Shift type {v['type']} not recognised")
 
-      ignore_quantile = 0.05
-
-      min_bin = np.quantile(samples, ignore_quantile)
-      max_bin = np.quantile(samples, 1.0 - ignore_quantile)
+      min_bin, max_bin = shift_quantiles([0.05, 0.95], v)
 
       # Central bins plus one overflow bin on either side.
       central_edges = np.linspace(min_bin, max_bin, 40)
@@ -750,10 +779,7 @@ class PreProcess():
       ))
 
       # Use counts, not densities, because the tail bins have infinite width.
-      sample_hist, _ = np.histogram(
-        samples,
-        bins=all_edges,
-      )
+      sample_hist = np.diff(shift_cdf(all_edges, v))
 
       dataset_hist, _ = np.histogram(
         df[k],
@@ -785,52 +811,13 @@ class PreProcess():
         / sample_hist[target_nonzero]
       )
 
-      lower_tail_ratio = ratio_hist[0]
-      central_ratio = ratio_hist[1:-1]
-      upper_tail_ratio = ratio_hist[-1]
-
-      # Fit only the central 90%.
-      central_centers = 0.5 * (
-        central_edges[:-1] + central_edges[1:]
-      )
-
-      ratio_spline = UnivariateSpline(
-        central_centers,
-        central_ratio,
-        s=0,
-        k=1,
-      )
-
-      # Find the global minimum, including both tails.
-      fine_bins = np.linspace(min_bin, max_bin, 1000)
-      fine_ratio = ratio_spline(fine_bins)
-
-      ratio_candidates = np.concatenate((
-        fine_ratio,
-        [lower_tail_ratio, upper_tail_ratio],
-      ))
-
-      ratio_candidates = ratio_candidates[
-        np.isfinite(ratio_candidates)
-        & (ratio_candidates > 0)
-      ]
-
+      # Interpolating histogram ratios does not preserve bin probabilities.
+      # Constant acceptance within each bin matches the target in expectation.
+      ratio_candidates = ratio_hist[np.isfinite(ratio_hist) & (ratio_hist > 0)]
       if len(ratio_candidates) == 0:
         raise ValueError(f"No valid rejection ratios found for {k}")
-
       c = np.min(ratio_candidates)
-
-      # Assign an event-level ratio.
-      values = df[k].to_numpy()
-      ratio = np.empty(n, dtype=float)
-
-      lower_tail = values < min_bin
-      upper_tail = values >= max_bin
-      central = ~(lower_tail | upper_tail)
-
-      ratio[lower_tail] = lower_tail_ratio
-      ratio[upper_tail] = upper_tail_ratio
-      ratio[central] = ratio_spline(values[central])
+      ratio = bin_factors(df[k].to_numpy(), all_edges, ratio_hist)
 
       # Perform independent event rejection.
       acceptance = np.zeros(n, dtype=float)
@@ -873,48 +860,53 @@ class PreProcess():
       if v["type"] not in ["continuous","flat_top"]:
         continue
     
-      #bins = rdp.GetFull(method="bins_with_equal_stats", column=k, bins=n_bins, ignore_quantile=0.0)
+      shift_bins = int(v.get("reweight_bins", n_bins))
+      if shift_bins < 4:
+        raise ValueError("Shift reweighting requires at least four bins")
       if v["type"] == "continuous":
-        bins = np.linspace(v["range"][0], v["range"][1], n_bins+1)
+        bins = np.linspace(v["range"][0], v["range"][1], shift_bins+1)
       elif v["type"] == "flat_top":
         peak_gaussian = 1/(v["other"]["sigma_out"]*np.sqrt(2*np.pi))
         flat_integral = peak_gaussian*(v["range"][1]-v["range"][0])
-        gaussian_bins = n_bins/(flat_integral+1)
-        half_gaussian_bins = int(np.ceil(gaussian_bins/2))
-        flat_bins = n_bins - 2*half_gaussian_bins
+        gaussian_bins = shift_bins/(flat_integral+1)
+        half_gaussian_bins = min(int(np.ceil(gaussian_bins/2)), (shift_bins - 1)//2)
+        flat_bins = shift_bins - 2*half_gaussian_bins
         eps = 1e-6
         lower_gaussian_edges = v["range"][0] + v["other"]["sigma_out"] * norm.ppf(np.linspace(eps, 0.5, half_gaussian_bins+1))
         flat_edges = np.linspace(v["range"][0], v["range"][1], flat_bins+1)
         higher_gaussian_edges = v["range"][1] + v["other"]["sigma_out"] * norm.ppf(np.linspace(0.5, 1-eps, half_gaussian_bins+1))
         bins = np.concatenate([lower_gaussian_edges, flat_edges[1:-1], higher_gaussian_edges])
+        bins[0], bins[-1] = -np.inf, np.inf
 
       if self.verbose:
         print(f"    - Getting histogram")
       hist, _ = rdp.GetFull(method="histogram", column=k, bins=bins, ignore_quantile=0.0, extra_sel=selection)
 
-      # Check what distribution we want to flatten to
-      if v["type"] == "continuous":
-        hist_to = (np.sum(hist)/len(hist))*np.ones(len(hist))
-      elif v["type"] == "flat_top":
-        out_samples = SampleFlatTop(samples, (v["range"][0], v["range"][1]), v["other"]["sigma_out"])
-        hist_to, _ = np.histogram(out_samples, bins=bins)
-        hist_to = hist_to.astype(float)
-        hist_to *= np.sum(hist)/np.sum(hist_to)
-
-      # Cap spline to boundaries
-      spline = CubicSpline((bins[1:]+bins[:-1])/2, hist_to/hist, extrapolate=True, bc_type='clamped')
+      # Analytic probabilities avoid noise from a Monte Carlo target histogram.
+      target_probability = np.diff(shift_cdf(bins, v))
+      if not np.all(np.isfinite(hist)) or np.sum(hist) <= 0:
+        raise ValueError(f"Cannot flatten {k}: non-finite or non-positive total weight")
+      if np.any((target_probability > 0) & (hist <= 0)):
+        raise ValueError(
+          f"Cannot flatten {k}: a target bin has non-positive weight; "
+          "reduce reweight_bins or provide more events"
+        )
+      factors = np.divide(
+        np.sum(hist) * target_probability, hist,
+        out=np.zeros_like(hist, dtype=float), where=hist != 0,
+      )
 
       wt_reweight_name = wt_file.replace(".parquet",f"_{k}_reweight.parquet")
 
       if os.path.isfile(f"{self.data_output}/{wt_reweight_name}"):
         os.system(f"rm {self.data_output}/{wt_reweight_name}")
 
-      def ApplySpline(df, spline, k, selection=None, scale_to=None):
+      def ApplyBinCorrection(df, bins, factors, k, selection=None, scale_to=None):
         if selection is not None:
           mask = df.eval(selection)
         else:
           mask = np.ones(len(df), dtype=bool)
-        df.loc[mask,"wt"] *= spline(df.loc[mask,k])
+        df.loc[mask,"wt"] *= bin_factors(df.loc[mask,k].to_numpy(), bins, factors)
         if scale_to is not None:
           df.loc[mask,"wt"] *= scale_to
         return df[["wt"]]
@@ -931,8 +923,9 @@ class PreProcess():
         method=None,
         functions_to_apply = [
           partial(
-            ApplySpline, 
-            spline=spline, 
+            ApplyBinCorrection,
+            bins=bins,
+            factors=factors,
             k=k,
             selection=selection,
             scale_to=n_eff
@@ -971,6 +964,17 @@ class PreProcess():
               outfile = f"{self.data_output}/density/split_{value['split']}/{k}_{data_split}.parquet"
             if os.path.isfile(outfile):
               os.system(f"rm {outfile}")
+
+        if self.build_density_nominal:
+          if self.model_type is None or self.model_type == "density_models":
+            for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+              value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+              if not split_density_model:
+                outfile = f"{self.data_output}/density/{k}_{data_split}_nominal.parquet"
+              else:
+                outfile = f"{self.data_output}/density/split_{value['split']}/{k}_{data_split}_nominal.parquet"
+              if os.path.isfile(outfile):
+                os.system(f"rm {outfile}")
 
         if self.model_type is None or self.model_type == "regression_models":
           for k in ["X","y","wt","Extra"]:
@@ -1012,6 +1016,28 @@ class PreProcess():
             self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", data_split, split_dict=density_split_model_val)
           else:
             self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"density/split_{value['split']}", data_split, split_dict=density_split_model_val)
+
+      # Do density nominal models
+      if self.build_density_nominal:
+        if self.model_type is None or self.model_type == "density_models":
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+            if self.verbose:
+              print(f" - Processing density model variation for {file_name}, split: {data_split}_nominal, model index: {loop_value['loop_index']}")
+            value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+            value_copy = copy.deepcopy(value)
+            value_copy["shifts"] = {}
+            value_copy["post_shifts"] = value["shifts"]
+            for k, v in defaults.items():
+              value_copy["shifts"][k] = {"type":"fixed","value":v}
+              if k not in value["parameters"]:
+                value_copy["post_shifts"][k] = {"type":"fixed","value":v}
+            density_split_model_val = {"X":self.columns,"Y":sorted(value["parameters"]),"wt":["wt"]}
+            for k, v in density_split_model.items(): density_split_model_val[k] = v
+            if not split_density_model:
+              self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, "density", f"{data_split}_nominal", split_dict=density_split_model_val)
+            else:
+              self._DoWriteModelVariation(value_copy, self.data_output, f"{value['file']}_{data_split}", cfg, f"density/split_{value['split']}", f"{data_split}_nominal", split_dict=density_split_model_val)
+
 
       # Do regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -1082,16 +1108,22 @@ class PreProcess():
 
       # Do density models
       if self.model_type is None or self.model_type == "density_models":
-        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
-          value_copy = copy.deepcopy(value)
-          for k, v in defaults.items():
-            if k not in value["parameters"]:
-              value_copy["shifts"][k] = {"type":"fixed","value":v}
-          if not split_density_model:
-            self._DoReweightToShift([f"density/{i}_{data_split}.parquet" for i in ["X","Y"]], f"density/wt_{data_split}.parquet", value_copy["shifts"])
-          else:
-            self._DoReweightToShift([f"density/split_{value['split']}/{i}_{data_split}.parquet" for i in ["X","Y"]], f"density/split_{value['split']}/wt_{data_split}.parquet", value_copy["shifts"])
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
+        else:
+          data_split_loop = [data_split]
+
+        for ds in data_split_loop:
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+            value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+            value_copy = copy.deepcopy(value)
+            for k, v in defaults.items():
+              if k not in value["parameters"]:
+                value_copy["shifts"][k] = {"type":"fixed","value":v}
+            if not split_density_model:
+              self._DoReweightToShift([f"density/{i}_{ds}.parquet" for i in ["X","Y"]], f"density/wt_{ds}.parquet", value_copy["shifts"])
+            else:
+              self._DoReweightToShift([f"density/split_{value['split']}/{i}_{ds}.parquet" for i in ["X","Y"]], f"density/split_{value['split']}/wt_{ds}.parquet", value_copy["shifts"])
 
       # Do regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -1817,41 +1849,48 @@ class PreProcess():
 
       if self.model_type is None or self.model_type == "density_models":
 
-        # Check if we need to split density models
-        split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
+        else:
+          data_split_loop = [data_split]
 
-        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
-          if not split_density_model:
-            extra_dir = "density"
-          else:
-            extra_dir = f"density/split_{value['split']}"
+        for ds in data_split_loop:
 
-          # density model
-          dp = DataProcessor(
-            [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/Y_{data_split}.parquet"]],
-            "parquet",
-            options = {
-              "parameters" : {"standardisation": standardisation_parameters["density"]},
-            },
-            use_pbar = self.use_pbar,
-            batch_size=self.batch_size,
-          )
+          # Check if we need to split density models
+          split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
 
-          wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_standardised" : self.columns, f"{extra_dir}/Y_{data_split}_standardised" : value["parameters"]},
-            data_output = self.data_output,
-          )
-          dp.GetFull(
-            method=None,
-            functions_to_apply = [
-              "transform",
-              wp
-            ]
-          )
-          wp.collect()
-          for i in ["X","Y"]:
-            os.system(f"mv {self.data_output}/{extra_dir}/{i}_{data_split}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{data_split}.parquet")
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+            value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+            if not split_density_model:
+              extra_dir = "density"
+            else:
+              extra_dir = f"density/split_{value['split']}"
+
+            # density model
+            dp = DataProcessor(
+              [[f"{self.data_output}/{extra_dir}/X_{ds}.parquet", f"{self.data_output}/{extra_dir}/Y_{ds}.parquet"]],
+              "parquet",
+              options = {
+                "parameters" : {"standardisation": standardisation_parameters["density"]},
+              },
+              use_pbar = self.use_pbar,
+              batch_size=self.batch_size,
+            )
+
+            wp = WriteParquet(
+              name = {f"{extra_dir}/X_{ds}_standardised" : self.columns, f"{extra_dir}/Y_{ds}_standardised" : value["parameters"]},
+              data_output = self.data_output,
+            )
+            dp.GetFull(
+              method=None,
+              functions_to_apply = [
+                "transform",
+                wp
+              ]
+            )
+            wp.collect()
+            for i in ["X","Y"]:
+              os.system(f"mv {self.data_output}/{extra_dir}/{i}_{ds}_standardised.parquet {self.data_output}/{extra_dir}/{i}_{ds}.parquet")
 
 
       # regression models
@@ -1939,169 +1978,176 @@ class PreProcess():
 
       if self.model_type is None or self.model_type == "density_models":
 
-        # Check if we need to split density models
-        split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
+        else:
+          data_split_loop = [data_split]
 
-        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
-          if not split_density_model:
-            extra_dir = "density"
-          else:
-            extra_dir = f"density/split_{value['split']}"
+        for ds in data_split_loop:
 
-          dp = DataProcessor(
-            [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/wt_{data_split}.parquet"]],
-            "parquet",
-            options = {},
-            use_pbar = self.use_pbar,
-            batch_size=self.batch_size,
-            wt_name = "wt"
-          )
+          # Check if we need to split density models
+          split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
 
-          # Make splines of training dataset 
-          if data_split == "train":
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+            value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+            if not split_density_model:
+              extra_dir = "density"
+            else:
+              extra_dir = f"density/split_{value['split']}"
 
-            splines = {}
-            inv_splines = {}
-            n_events = dp.GetFull(method="count")
-            xmin = norm.ppf(1 / (n_events + 1))
-            xmax = norm.ppf(n_events / (n_events + 1))
-            tail_area_down = norm.cdf(xmin)
-            tail_area_up = norm.cdf(xmax)
-
-            min_max_vals_train = dp.GetFull(method="min_max", ignore_quantile=0.0)
-            test_dp = DataProcessor(
-              [[f"{self.data_output}/{extra_dir}/X_test.parquet", f"{self.data_output}/{extra_dir}/wt_test.parquet"]],
+            dp = DataProcessor(
+              [[f"{self.data_output}/{extra_dir}/X_{ds}.parquet", f"{self.data_output}/{extra_dir}/wt_{ds}.parquet"]],
               "parquet",
               options = {},
               use_pbar = self.use_pbar,
               batch_size=self.batch_size,
               wt_name = "wt"
             )
-            min_max_vals_test = test_dp.GetFull(method="min_max", ignore_quantile=0.0)
-            min_max_vals = {}
-            for col in columns:
-              min_max_vals[col] = [min(min_max_vals_train[col][0], min_max_vals_test[col][0]), max(min_max_vals_train[col][1], min_max_vals_test[col][1])]
-  
-            for col in columns:
 
-              #bins = np.linspace(min_max_vals[col][0], min_max_vals[col][1], 100)
-              bins = dp.GetFull(method="bins_with_equal_stats", column=col, bins=100, ignore_quantile=0.0)
-              bins[0] = min_max_vals[col][0]
-              bins[-1] = min_max_vals[col][1]
+            # Make splines of training dataset 
+            if ds == "train":
 
-              if self.verbose:
-                print(f"  - Getting histogram for column: {col}")
-              hist, _= dp.GetFull(method="histogram", bins=bins, column=col)
+              splines = {}
+              inv_splines = {}
+              n_events = dp.GetFull(method="count")
+              xmin = norm.ppf(1 / (n_events + 1))
+              xmax = norm.ppf(n_events / (n_events + 1))
+              tail_area_down = norm.cdf(xmin)
+              tail_area_up = norm.cdf(xmax)
 
-              # divide hist by bin width
-              #bin_widths = np.diff(bins)
-              #hist = hist / bin_widths
+              min_max_vals_train = dp.GetFull(method="min_max", ignore_quantile=0.0)
+              test_dp = DataProcessor(
+                [[f"{self.data_output}/{extra_dir}/X_{ds}.parquet", f"{self.data_output}/{extra_dir}/wt_{ds}.parquet"]],
+                "parquet",
+                options = {},
+                use_pbar = self.use_pbar,
+                batch_size=self.batch_size,
+                wt_name = "wt"
+              )
+              min_max_vals_test = test_dp.GetFull(method="min_max", ignore_quantile=0.0)
+              min_max_vals = {}
+              for col in columns:
+                min_max_vals[col] = [min(min_max_vals_train[col][0], min_max_vals_test[col][0]), max(min_max_vals_train[col][1], min_max_vals_test[col][1])]
+    
+              for col in columns:
 
-              # Smooth the histogram
-              hist = gaussian_filter1d(hist, sigma=1.0)
+                #bins = np.linspace(min_max_vals[col][0], min_max_vals[col][1], 100)
+                bins = dp.GetFull(method="bins_with_equal_stats", column=col, bins=100, ignore_quantile=0.0)
+                bins[0] = min_max_vals[col][0]
+                bins[-1] = min_max_vals[col][1]
 
-              cdf = np.cumsum(hist)
+                if self.verbose:
+                  print(f"  - Getting histogram for column: {col}")
+                hist, _= dp.GetFull(method="histogram", bins=bins, column=col)
 
-              # Squueze the CDF to be between the tail areas, so that we do not get infs when transforming to gaussian
-              cdf = np.insert(cdf, 0, 0.0)
-              cdf = cdf * (tail_area_up - tail_area_down) / cdf[-1] + tail_area_down
+                # divide hist by bin width
+                #bin_widths = np.diff(bins)
+                #hist = hist / bin_widths
 
-              # Add a bin miles away that has 0 and 1 CDR
-              bins = np.insert(bins, 0, -1e6)
-              bins = np.append(bins, 1e6)
-              cdf = np.insert(cdf, 0, 0.0)
-              cdf = np.append(cdf, 1.0)
+                # Smooth the histogram
+                hist = gaussian_filter1d(hist, sigma=1.0)
 
-              # if not monotonic, then drop bins until monotonic
-              monontonic_bins = []
-              monontonic_cdf = []
-              for i in range(len(cdf)):
-                if i == 0:
-                  monontonic_bins.append(bins[i])
-                  monontonic_cdf.append(cdf[i])
-                else:
-                  if cdf[i] > monontonic_cdf[-1]:
+                cdf = np.cumsum(hist)
+
+                # Squueze the CDF to be between the tail areas, so that we do not get infs when transforming to gaussian
+                cdf = np.insert(cdf, 0, 0.0)
+                cdf = cdf * (tail_area_up - tail_area_down) / cdf[-1] + tail_area_down
+
+                # Add a bin miles away that has 0 and 1 CDR
+                bins = np.insert(bins, 0, -1e6)
+                bins = np.append(bins, 1e6)
+                cdf = np.insert(cdf, 0, 0.0)
+                cdf = np.append(cdf, 1.0)
+
+                # if not monotonic, then drop bins until monotonic
+                monontonic_bins = []
+                monontonic_cdf = []
+                for i in range(len(cdf)):
+                  if i == 0:
                     monontonic_bins.append(bins[i])
                     monontonic_cdf.append(cdf[i])
-              bins = monontonic_bins
-              cdf = monontonic_cdf
+                  else:
+                    if cdf[i] > monontonic_cdf[-1]:
+                      monontonic_bins.append(bins[i])
+                      monontonic_cdf.append(cdf[i])
+                bins = monontonic_bins
+                cdf = monontonic_cdf
 
-              spline = PchipInterpolator(bins, cdf, extrapolate=True)
-              #fine_bins = np.linspace(bins[0], bins[-1], 10000)
-              fine_point_down = bins[1] - (bins[2] - bins[1])
-              fine_point_up = bins[-2] + (bins[-2] - bins[-3])
-              fine_bins = np.array(list(np.linspace(bins[0], fine_point_down, 1000, endpoint=False)) + list(np.linspace(fine_point_down, fine_point_up, 10000, endpoint=False)) + list(np.linspace(fine_point_up, bins[-1], 1000, endpoint=True)))
-              y = spline(fine_bins)
-              # Make sure the spline is monotonic, if not drop points until it is
-              monontonic_y = []
-              monontonic_x = []
-              for i in range(len(y)):
-                if i == 0:
-                  monontonic_y.append(y[i])
-                  monontonic_x.append(fine_bins[i])
-                else:
-                  if y[i] > monontonic_y[-1]:
+                spline = PchipInterpolator(bins, cdf, extrapolate=True)
+                #fine_bins = np.linspace(bins[0], bins[-1], 10000)
+                fine_point_down = bins[1] - (bins[2] - bins[1])
+                fine_point_up = bins[-2] + (bins[-2] - bins[-3])
+                fine_bins = np.array(list(np.linspace(bins[0], fine_point_down, 1000, endpoint=False)) + list(np.linspace(fine_point_down, fine_point_up, 10000, endpoint=False)) + list(np.linspace(fine_point_up, bins[-1], 1000, endpoint=True)))
+                y = spline(fine_bins)
+                # Make sure the spline is monotonic, if not drop points until it is
+                monontonic_y = []
+                monontonic_x = []
+                for i in range(len(y)):
+                  if i == 0:
                     monontonic_y.append(y[i])
                     monontonic_x.append(fine_bins[i])
+                  else:
+                    if y[i] > monontonic_y[-1]:
+                      monontonic_y.append(y[i])
+                      monontonic_x.append(fine_bins[i])
 
-              inv_spline = PchipInterpolator(monontonic_y, monontonic_x, extrapolate=True)
+                inv_spline = PchipInterpolator(monontonic_y, monontonic_x, extrapolate=True)
 
-              spline_file = f"{self.data_output}/{extra_dir}/X_spline_{col}.pkl"
-              inv_spline_file = f"{self.data_output}/{extra_dir}/X_inv_spline_{col}.pkl"
-              with open(spline_file, "wb") as f:
-                pickle.dump(spline, f)
-              with open(inv_spline_file, "wb") as f:
-                pickle.dump(inv_spline, f)
-              spline_locations["forward"][col] = spline_file
-              spline_locations["inverse"][col] = inv_spline_file
-              splines[col] = spline
-              inv_splines[col] = inv_spline
+                spline_file = f"{self.data_output}/{extra_dir}/X_spline_{col}.pkl"
+                inv_spline_file = f"{self.data_output}/{extra_dir}/X_inv_spline_{col}.pkl"
+                with open(spline_file, "wb") as f:
+                  pickle.dump(spline, f)
+                with open(inv_spline_file, "wb") as f:
+                  pickle.dump(inv_spline, f)
+                spline_locations["forward"][col] = spline_file
+                spline_locations["inverse"][col] = inv_spline_file
+                splines[col] = spline
+                inv_splines[col] = inv_spline
 
-          # Transform datasets
-          def transform_to_gaussian(df, splines):
-            if len(df) == 0: 
+            # Transform datasets
+            def transform_to_gaussian(df, splines):
+              if len(df) == 0: 
+                return df
+              for col, spline in splines.items():              
+                new_vals = norm.ppf(spline(df[col]))
+
+                # Print values where the new value goes outside the xmin and xmax values, just use the global variables
+                #if np.any(new_vals < xmin) or np.any(new_vals > xmax):
+                #  out_of_bounds_indices = np.where((new_vals < xmin) | (new_vals > xmax))[0]
+                #  for idx in out_of_bounds_indices:
+                #    print(f"Value out of bounds in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}, transformed value: {new_vals[idx]}")
+                #    #exit()
+
+                # print inputs that give nans
+                if np.any(np.isnan(new_vals)):
+                  nan_indices = np.where(np.isnan(new_vals))[0]
+                  for idx in nan_indices:
+                    print(f"NaN encountered in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}")
+                    exit()
+
+                # print inputs that give infs
+                if np.any(np.isinf(new_vals)):
+                  inf_indices = np.where(np.isinf(new_vals))[0]
+                  for idx in inf_indices:
+                    print(f"Inf encountered in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}")
+                    exit()
+                df[col] = new_vals
+
               return df
-            for col, spline in splines.items():              
-              new_vals = norm.ppf(spline(df[col]))
 
-              # Print values where the new value goes outside the xmin and xmax values, just use the global variables
-              #if np.any(new_vals < xmin) or np.any(new_vals > xmax):
-              #  out_of_bounds_indices = np.where((new_vals < xmin) | (new_vals > xmax))[0]
-              #  for idx in out_of_bounds_indices:
-              #    print(f"Value out of bounds in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}, transformed value: {new_vals[idx]}")
-              #    #exit()
-
-              # print inputs that give nans
-              if np.any(np.isnan(new_vals)):
-                nan_indices = np.where(np.isnan(new_vals))[0]
-                for idx in nan_indices:
-                  print(f"NaN encountered in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}")
-                  exit()
-
-              # print inputs that give infs
-              if np.any(np.isinf(new_vals)):
-                inf_indices = np.where(np.isinf(new_vals))[0]
-                for idx in inf_indices:
-                  print(f"Inf encountered in column '{col}' at index {idx}. Input value: {df[col].iloc[idx]}, spline output: {spline(df[col].iloc[idx])}")
-                  exit()
-              df[col] = new_vals
-
-            return df
-
-          wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_splinetogaussian" : self.columns},
-            data_output = self.data_output,
-          )
-          dp.GetFull(
-            method=None,
-            functions_to_apply = [
-              partial(transform_to_gaussian, splines=splines),
-              wp
-            ]
-          )
-          wp.collect()
-          os.system(f"mv {self.data_output}/{extra_dir}/X_{data_split}_splinetogaussian.parquet {self.data_output}/{extra_dir}/X_{data_split}.parquet")
+            wp = WriteParquet(
+              name = {f"{extra_dir}/X_{ds}_splinetogaussian" : self.columns},
+              data_output = self.data_output,
+            )
+            dp.GetFull(
+              method=None,
+              functions_to_apply = [
+                partial(transform_to_gaussian, splines=splines),
+                wp
+              ]
+            )
+            wp.collect()
+            os.system(f"mv {self.data_output}/{extra_dir}/X_{ds}_splinetogaussian.parquet {self.data_output}/{extra_dir}/X_{ds}.parquet")
 
     return spline_locations
 
@@ -2119,109 +2165,116 @@ class PreProcess():
 
       if self.model_type is None or self.model_type == "density_models":
 
-        # Check if we need to split density models
-        split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
+        else:
+          data_split_loop = [data_split]
 
-        for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-          value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
-          if not split_density_model:
-            extra_dir = "density"
-          else:
-            extra_dir = f"density/split_{value['split']}"
+        for ds in data_split_loop:
 
-          dp = DataProcessor(
-            [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/wt_{data_split}.parquet"]],
-            "parquet",
-            options = {},
-            #use_pbar = self.use_pbar,
-            batch_size=self.batch_size,
-            wt_name = "wt"
-          )
+          # Check if we need to split density models
+          split_density_model = GetSplitDensityModel(cfg, file_name, category=self.category)
 
-          #def print_corrcoef(df):
-          #  print(np.corrcoef(df[self.columns].values, rowvar=False))
-          #  return df
-          #print("Before")
-          #dp.GetFull(
-          #  method=None,
-          #  functions_to_apply = [
-          #    print_corrcoef
-          #  ]
-          #)
+          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+            value = cfg["models"][file_name]["density_models"][loop_value["loop_index"]]
+            if not split_density_model:
+              extra_dir = "density"
+            else:
+              extra_dir = f"density/split_{value['split']}"
 
-          # Make splines of training dataset 
-          if data_split == "train":
-
-            pca = WeightedIncrementalPCA(
-              n_components=len(self.columns),
-              whiten=True,
-              batch_size=self.batch_size
+            dp = DataProcessor(
+              [[f"{self.data_output}/{extra_dir}/X_{ds}.parquet", f"{self.data_output}/{extra_dir}/wt_{ds}.parquet"]],
+              "parquet",
+              options = {},
+              #use_pbar = self.use_pbar,
+              batch_size=self.batch_size,
+              wt_name = "wt"
             )
 
-            class fit_pca:
-              def __init__(self, pca, columns):
-                self.pca = pca
-                self.pca_columns = columns
-              def __call__(self, df):
-                X = df[self.pca_columns].values
-                wt = df["wt"].values
-                mask = wt > 0
-                X = X[mask]
-                wt = wt[mask]
-                self.pca.partial_fit(X, sample_weight=wt)
+            #def print_corrcoef(df):
+            #  print(np.corrcoef(df[self.columns].values, rowvar=False))
+            #  return df
+            #print("Before")
+            #dp.GetFull(
+            #  method=None,
+            #  functions_to_apply = [
+            #    print_corrcoef
+            #  ]
+            #)
+
+            # Make splines of training dataset 
+            if ds == "train":
+
+              pca = WeightedIncrementalPCA(
+                n_components=len(self.columns),
+                whiten=True,
+                batch_size=self.batch_size
+              )
+
+              class fit_pca:
+                def __init__(self, pca, columns):
+                  self.pca = pca
+                  self.pca_columns = columns
+                def __call__(self, df):
+                  X = df[self.pca_columns].values
+                  wt = df["wt"].values
+                  mask = wt > 0
+                  X = X[mask]
+                  wt = wt[mask]
+                  self.pca.partial_fit(X, sample_weight=wt)
+                  return df
+              fp = fit_pca(pca, self.columns)
+              dp.GetFull(
+                method=None,
+                functions_to_apply = [
+                  fp
+                ]
+              )
+
+              # Save PCA object
+              pca_whitening_locations["location"] = f"{self.data_output}/{extra_dir}/X_pca.joblib"
+              pca_whitening_locations["columns"] = self.columns
+              fp.pca.save(pca_whitening_locations["location"])
+
+            # Transform datasets
+            def transform_from_pca(df, pca):
+              if len(df) == 0: 
                 return df
-            fp = fit_pca(pca, self.columns)
+              X = df[self.columns].values
+              X_transformed = pca.transform(X)
+              for i, col in enumerate(self.columns):
+                df[col] = X_transformed[:, i]
+              return df
+
+            wp = WriteParquet(
+              name = {f"{extra_dir}/X_{ds}_pcawhitening" : self.columns},
+              data_output = self.data_output,
+            )
             dp.GetFull(
               method=None,
               functions_to_apply = [
-                fp
+                partial(transform_from_pca, pca=fp.pca),
+                wp
               ]
             )
+            wp.collect()
+            os.system(f"mv {self.data_output}/{extra_dir}/X_{ds}_pcawhitening.parquet {self.data_output}/{extra_dir}/X_{ds}.parquet")
 
-            # Save PCA object
-            pca_whitening_locations["location"] = f"{self.data_output}/{extra_dir}/X_pca.joblib"
-            pca_whitening_locations["columns"] = self.columns
-            fp.pca.save(pca_whitening_locations["location"])
-
-          # Transform datasets
-          def transform_from_pca(df, pca):
-            if len(df) == 0: 
-              return df
-            X = df[self.columns].values
-            X_transformed = pca.transform(X)
-            for i, col in enumerate(self.columns):
-              df[col] = X_transformed[:, i]
-            return df
-
-          wp = WriteParquet(
-            name = {f"{extra_dir}/X_{data_split}_pcawhitening" : self.columns},
-            data_output = self.data_output,
-          )
-          dp.GetFull(
-            method=None,
-            functions_to_apply = [
-              partial(transform_from_pca, pca=fp.pca),
-              wp
-            ]
-          )
-          wp.collect()
-          os.system(f"mv {self.data_output}/{extra_dir}/X_{data_split}_pcawhitening.parquet {self.data_output}/{extra_dir}/X_{data_split}.parquet")
-
-          #dp = DataProcessor(
-          #  [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/wt_{data_split}.parquet"]],
-          #  "parquet",
-          #  options = {},
-          #  #use_pbar = self.use_pbar,
-          #  batch_size=self.batch_size,
-          #  wt_name = "wt"
-          #)
-          #print("After")
-          #dp.GetFull(
-          #  method=None,
-          #  functions_to_apply = [
-          #    print_corrcoef
-          #  ]
-          #)
+            #dp = DataProcessor(
+            #  [[f"{self.data_output}/{extra_dir}/X_{data_split}.parquet", f"{self.data_output}/{extra_dir}/wt_{data_split}.parquet"]],
+            #  "parquet",
+            #  options = {},
+            #  #use_pbar = self.use_pbar,
+            #  batch_size=self.batch_size,
+            #  wt_name = "wt"
+            #)
+            #print("After")
+            #dp.GetFull(
+            #  method=None,
+            #  functions_to_apply = [
+            #    print_corrcoef
+            #  ]
+            #)
 
     return pca_whitening_locations
 
@@ -2244,10 +2297,18 @@ class PreProcess():
 
       # density model
       if self.model_type is None or self.model_type == "density_models":
-        for extra_dir in density_loop:
-          if self.verbose:
-            print(f" - Shuffling density model variation for {file_name}, split: {data_split}, directory: {extra_dir}")
-          self._DoShuffleDataset([f"{extra_dir}/{i}_{data_split}.parquet" for i in ["X","Y","wt","Extra"]])
+
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
+        else:
+          data_split_loop = [data_split]
+
+        for ds in data_split_loop:
+
+          for extra_dir in density_loop:
+            if self.verbose:
+              print(f" - Shuffling density model variation for {file_name}, split: {ds}, directory: {extra_dir}")
+            self._DoShuffleDataset([f"{extra_dir}/{i}_{ds}.parquet" for i in ["X","Y","wt","Extra"]])
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -2447,6 +2508,10 @@ class PreProcess():
     if pca_whitening_parameters:
       parameters_file["density"]["pca_whitening"] = pca_whitening_parameters
 
+    parameters_file["density"]["dequantisation"] = {
+      col: settings for col, settings in get_dequantisation_options(cfg["preprocess"]).items()
+      if col in self.columns
+    }
     parameters_file["density"]["X_columns"] = self.columns
     parameters_in_density_model = []
     for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
@@ -2530,14 +2595,21 @@ class PreProcess():
 
       # density model
       if self.model_type is None or self.model_type == "density_models":
-        if not split_density_model:
-          load_files.append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
-          edit_files.append(f"density/wt_{data_split}.parquet")
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
         else:
-          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-            ind = loop_value["split"]
-            load_files.append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
-            edit_files.append(f"density/split_{ind}/wt_{data_split}.parquet")
+          data_split_loop = [data_split]
+
+        for ds in data_split_loop:
+
+          if not split_density_model:
+            load_files.append([f"{self.data_output}/density/X_{ds}.parquet", f"{self.data_output}/density/Y_{ds}.parquet", f"{self.data_output}/density/wt_{ds}.parquet"])
+            edit_files.append(f"density/wt_{ds}.parquet")
+          else:
+            for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+              ind = loop_value["split"]
+              load_files.append([f"{self.data_output}/density/split_{ind}/X_{ds}.parquet", f"{self.data_output}/density/split_{ind}/Y_{ds}.parquet", f"{self.data_output}/density/split_{ind}/wt_{ds}.parquet"])
+              edit_files.append(f"density/split_{ind}/wt_{ds}.parquet")
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -2605,14 +2677,22 @@ class PreProcess():
 
       # density model
       if self.model_type is None or self.model_type == "density_models":
-        if not split_density_model:
-          load_files[data_split].append([f"{self.data_output}/density/X_{data_split}.parquet", f"{self.data_output}/density/Y_{data_split}.parquet", f"{self.data_output}/density/wt_{data_split}.parquet"])
-          edit_files[data_split].append(f"density/wt_{data_split}.parquet")
+
+        if self.build_density_nominal:
+          data_split_loop = [data_split, f"{data_split}_nominal"]
         else:
-          for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
-            ind = loop_value["split"]
-            load_files[data_split].append([f"{self.data_output}/density/split_{ind}/X_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/Y_{data_split}.parquet", f"{self.data_output}/density/split_{ind}/wt_{data_split}.parquet"])
-            edit_files[data_split].append(f"density/split_{ind}/wt_{data_split}.parquet")
+          data_split_loop = [data_split]
+
+        for ds in data_split_loop:
+
+          if not split_density_model:
+            load_files[ds].append([f"{self.data_output}/density/X_{ds}.parquet", f"{self.data_output}/density/Y_{ds}.parquet", f"{self.data_output}/density/wt_{ds}.parquet"])
+            edit_files[ds].append(f"density/wt_{ds}.parquet")
+          else:
+            for loop_value in GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=self.category):
+              ind = loop_value["split"]
+              load_files[ds].append([f"{self.data_output}/density/split_{ind}/X_{ds}.parquet", f"{self.data_output}/density/split_{ind}/Y_{ds}.parquet", f"{self.data_output}/density/split_{ind}/wt_{ds}.parquet"])
+              edit_files[ds].append(f"density/split_{ind}/wt_{ds}.parquet")
 
       # regression models
       if self.model_type is None or self.model_type == "regression_models":
@@ -2650,7 +2730,8 @@ class PreProcess():
           normalised_dp.GetFull(method="sum", extra_sel=sel)
         )
 
-    for data_split in ["train","test"]:
+    #for data_split in ["train","test"]:
+    for data_split in load_files.keys():
 
       for file_ind, file_names in enumerate(load_files[data_split]):
 
@@ -2758,6 +2839,7 @@ class PreProcess():
   def _DoMergeParametersFile(self, file_name, cfg):
 
     first = True
+    density_parameters = None
     for parameter_extra_name in self.merge_parameters:
       
       if parameter_extra_name is None:
@@ -2770,6 +2852,10 @@ class PreProcess():
       with open(f"{self.data_output}/parameters{en}.yaml", 'r') as yaml_file:
         temp_parameters_file = yaml.safe_load(yaml_file)
       
+
+      # The model shard owns its transforms and training-file location.
+      if parameter_extra_name == "model_type_density_models":
+        density_parameters = copy.deepcopy(temp_parameters_file["density"])
 
       if first:
         parameters_file = copy.deepcopy(temp_parameters_file)
@@ -2789,6 +2875,10 @@ class PreProcess():
                 for binned_key, binned_val in zip(binned_tmp_keys, binned_tmp_vals):
                   if binned_val is None: continue
                   parameters_file["binned_fit_input"][bin_ind] = MakeDictionaryEntry(copy.deepcopy(parameters_file["binned_fit_input"][bin_ind]), binned_key, binned_val)
+
+    # Copied initial/validation shards must not override model preprocessing.
+    if density_parameters is not None:
+      parameters_file["density"] = density_parameters
 
     # Make sure there are no yield effects in the binned_fit_input
     if "binned_fit_input" in parameters_file.keys():
@@ -3272,13 +3362,21 @@ class PreProcess():
         
         # Add density files
         if self.model_type is None or self.model_type == "density_models":
-          for k in density_loop:
-            if not GetSplitDensityModel(cfg, self.file_name, category=self.category):
-              outputs += [f"{self.data_output}/density/{k}_{data_split}.parquet"]
-            else:
-              for loop_value in GetValidationLoop(cfg, self.file_name, include_rate=True, include_lnN=True):
-                ind = loop_value["split"]
-                outputs += [f"{self.data_output}/density/split_{ind}/{k}_{data_split}.parquet"]
+
+          if self.build_density_nominal:
+            data_split_loop = [data_split, f"{data_split}_nominal"]
+          else:
+            data_split_loop = [data_split]
+
+          for ds in data_split_loop:
+
+            for k in density_loop:
+              if not GetSplitDensityModel(cfg, self.file_name, category=self.category):
+                outputs += [f"{self.data_output}/density/{k}_{ds}.parquet"]
+              else:
+                for loop_value in GetValidationLoop(cfg, self.file_name, include_rate=True, include_lnN=True):
+                  ind = loop_value["split"]
+                  outputs += [f"{self.data_output}/density/split_{ind}/{k}_{ds}.parquet"]
 
         # Add regression files
         if self.model_type is None or self.model_type == "regression_models":

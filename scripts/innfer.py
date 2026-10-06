@@ -7,6 +7,8 @@ import sys
 import time
 import yaml
 
+from dequantisation import get_dequantisation_options
+
 import pyfiglet as pyg
 
 from module import Module
@@ -92,6 +94,8 @@ def parse_args():
   parser.add_argument('--extra-classifier-model-name', help='Add extra name to classifier model name', type=str, default='')
   parser.add_argument('--extra-density-model-name', help='Add extra name to density model name', type=str, default='')
   parser.add_argument('--extra-regression-model-name', help='Add extra name to regression model name', type=str, default='')
+  parser.add_argument('--cache-observable-transforms', help='Cache parameter-independent density observable transforms and physical probability conversions during likelihood evaluation', action='store_true')
+  parser.add_argument('--hold-dataset-in-memory', help='Keep raw likelihood datasets in RAM and serve copies of the requested batches; default is streaming from parquet', action='store_true')
   parser.add_argument('--freeze', help='Other inputs to likelihood and summary plotting', type=str, default=None)
   parser.add_argument('--global-variables', help='Define global variables, dictionary formatted', type=str, default=None)
   parser.add_argument('--hyperparameter-metric', help='Comma separated metric name and whether you want max or min, separated by a comma.', type=str, default='loss_test,min')
@@ -106,7 +110,7 @@ def parse_args():
   parser.add_argument('--keep-lnN-if-rate-param', help='Keep the lnN parameters if it is a rate parameter. Useful for closure tests.', action='store_true')
   parser.add_argument('--likelihood-type', help='Type of likelihood to use for fitting.', type=str, default='unbinned_extended', choices=['unbinned_extended', 'unbinned', 'binned_extended', 'binned', 'poisson'])
   parser.add_argument('--list-steps', help='List the steps available', action='store_true')
-  parser.add_argument('--load-fit-for-defaults', help='The relative location of the fit to load for defaults, this is useful if you want to freeze parameters at a fitted value, for instance for a stat only fit', default=None)
+  parser.add_argument('--load-fit-for-defaults', help='Full-fit directory suffix (e.g. Data) or best-fit YAML path; symbolic freeze options use its fitted values at runtime', default=None)
   parser.add_argument('--load-weights-for-training', help='Path to weights to load to start the training at', default=None)
   parser.add_argument('--loop-over-only-val-parameters', help='Loop over validation varied parameters only', action='store_true')
   parser.add_argument('--loop-over-epochs', help='Loop over epochs for performance metrics', action='store_true')
@@ -149,6 +153,7 @@ def parse_args():
   parser.add_argument('--prune-lnN', help='prune lnN yield to drop nuisance for', type=float, default=0.001)
   parser.add_argument('--prune-from', help='Step to prune from', type=str, default="EvaluateClassifier")
   parser.add_argument('--pvalue-per-val-ind', help='Run the p values per validation index', action='store_true')
+  parser.add_argument('--pvalue-per-val-ind-hypothesis', help='The hypothesis to use for p value calculation per validation index', type=str, default=None)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
   parser.add_argument('--ratio-range', help='Range for ratio plot', type=str, default='0.5,1.5')
   parser.add_argument('--regression-architecture', help='Architecture for regression model', type=str, default='configs/architecture/regression_default.yaml')
@@ -190,6 +195,7 @@ def parse_args():
   parser.add_argument('--summary-show-2sigma', help='Show 2 sigma band on the summary.', action='store_true')
   parser.add_argument('--summary-show-chi-squared', help='Add the chi squared value to the plot', action='store_true')
   parser.add_argument('--summary-subtract', help='Use subtraction instead of division in summary', action='store_true')
+  parser.add_argument('--train-from-nominal', help='Train from the training dataset with the parameters at the nominal value', action='store_true')
   parser.add_argument('--tuning-load-trials', help='Comma separated list of trial indices to load or colon separated range', type=str, default=None)
   parser.add_argument('--tuning-no-copy', help='Do not copy the best model and architecture to the output directory', action='store_true')
   parser.add_argument('--tuning-timeout-duration', help='Duration of the timeout for the Bayesian tuning', type=int, default=9000)
@@ -229,6 +235,7 @@ def main(args, default_args, module_options={}):
       args.extra_input_dir_name += category_suffix
     if not args.extra_output_dir_name.endswith(category_suffix):
       args.extra_output_dir_name += category_suffix
+    args.extra_asimov_input_dir_name += category_suffix
   if args.extra_job_name != "" and args.extra_job_name[0] != "_":
     args.extra_job_name = f"_{args.extra_job_name}"
 
@@ -710,6 +717,8 @@ def main(args, default_args, module_options={}):
           "data_input" : cfg["data_file"],
           "add_columns" : cfg["data_add_columns"] if "data_add_columns" in cfg else {},
           "calculate" : cfg["data_calculate"] if "data_calculate" in cfg else {},
+          "dequantisation" : get_dequantisation_options(cfg.get("preprocess", {})),
+          "dequantisation_context" : f"data/{category}",
           "data_output" : f"{prep_data_dir}/DataCategories/{category}",
           "binned_fit_input" : cfg["inference"]["binned_fit"]["input"][category] if "inference" in cfg and "binned_fit" in cfg["inference"] and "input" in cfg["inference"]["binned_fit"] else None,
           "verbose" : not args.quiet,
@@ -770,7 +779,7 @@ def main(args, default_args, module_options={}):
           "plot_2d_unrolled" : args.plot_2d_unrolled,
           "verbose" : not args.quiet,
         },
-        loop = {"model_name" : model_info['name']},
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']},
       )
 
 
@@ -877,7 +886,7 @@ def main(args, default_args, module_options={}):
           "plots_output" : f"{plots_dir}/PlotDensityTransform{args.extra_output_dir_name}/{model_info['name']}",
           "category" : model_info["category"]
         },
-        loop = {"model_name": model_info['name']}
+        loop = {"model_name": model_info['name'], "category" : model_info['category']},
       )
 
 
@@ -902,9 +911,10 @@ def main(args, default_args, module_options={}):
           "wandb_submit_name" : f"{cfg['name']}_{model_info['name']}{args.extra_density_model_name}",
           "save_model_per_epoch" : args.save_model_per_epoch,
           "load_weights_for_training" : f"{models_dir}/{model_info['name']}/{model_info['file_name']}.h5" if args.load_weights_for_training == "nominal" else args.load_weights_for_training,
+          "train_from_nominal" : args.train_from_nominal,
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -924,7 +934,7 @@ def main(args, default_args, module_options={}):
           "data_output" : f"{eval_data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -945,7 +955,7 @@ def main(args, default_args, module_options={}):
           "plots_output" : f"{plots_dir}/PlotDensity/{model_info['name']}{args.extra_density_model_name}",
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -963,7 +973,7 @@ def main(args, default_args, module_options={}):
           "data_output" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}",
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -990,7 +1000,7 @@ def main(args, default_args, module_options={}):
           "save_model_per_epoch" : args.save_model_per_epoch,
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1012,7 +1022,7 @@ def main(args, default_args, module_options={}):
           "data_output" : f"{eval_data_dir}/EvaluateRegression/{model_info['name']}{args.extra_regression_model_name}",
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1034,7 +1044,7 @@ def main(args, default_args, module_options={}):
           "plots_output" : f"{plots_dir}/PlotRegression/{model_info['name']}{args.extra_regression_model_name}",
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1062,7 +1072,7 @@ def main(args, default_args, module_options={}):
           "change_type" : change_classifier_type_from_parameter_dict.get(model_info["parameter"], None),
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1084,7 +1094,7 @@ def main(args, default_args, module_options={}):
           "data_output" : f"{eval_data_dir}/EvaluateClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "verbose" : not args.quiet,
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1107,7 +1117,7 @@ def main(args, default_args, module_options={}):
           "plots_output" : f"{plots_dir}/PlotClassifier/{model_info['name']}{args.extra_classifier_model_name}",
           "verbose" : not args.quiet,
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
   
   # Plot the classifier models
@@ -1136,7 +1146,7 @@ def main(args, default_args, module_options={}):
               "metrics_save_extra_name": extra_name,
               "verbose": not args.quiet,
               },
-          loop = {"model_name" : model_info['name'], "extra_name" : extra_name},
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "extra_name" : extra_name},
         )
         
   # Make the asimov datasets
@@ -1207,6 +1217,8 @@ def main(args, default_args, module_options={}):
                 "use_asimov_scaling" : args.use_asimov_scaling,
                 "skip_spline" : args.no_spline,
                 "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
+                "prune_classifier_models" : {k.split(":")[0]: float(k.split(":")[1]) for k in args.prune_classifier_models.split(",")} if args.prune_classifier_models is not None else None,
+                "classifier_pruning_files" : {v["parameter"]: GetPruningFile(eval_data_dir, v, from_step=args.prune_from) for v in GetModelLoop(cfg, specific_file_name=file_name, only_classification=True, specific_category=category)},
               },
               loop = {"file_name" : file_name, "category" : category, "nuisance" : nuisance, "shift" : shift},
             )
@@ -1277,7 +1289,7 @@ def main(args, default_args, module_options={}):
           "skip_spline" : args.no_spline,
           "classifier_divide_by_nominal" : args.classifier_divide_by_nominal,
         },
-        loop = {"model_name" : model_info['name']},
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']},
       )
 
 
@@ -1302,7 +1314,7 @@ def main(args, default_args, module_options={}):
           "category" : model_info["category"],
           "verbose" : not args.quiet,
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1326,6 +1338,8 @@ def main(args, default_args, module_options={}):
             "extra_density_model_name" : args.extra_density_model_name,
             "data_output" : f"{eval_data_dir}/DensityPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": "inference" in args.density_performance_metrics,
+            "hold_dataset_in_memory": args.hold_dataset_in_memory,
+            "cache_observable_transforms": args.cache_observable_transforms,
             "do_loss": "loss" in args.density_performance_metrics,
             "do_histogram_metrics": "histogram" in args.density_performance_metrics,
             "do_multidimensional_dataset_metrics": "multidim" in args.density_performance_metrics,
@@ -1339,7 +1353,7 @@ def main(args, default_args, module_options={}):
             "tidy_up_asimov" : True,
             "verbose" : not args.quiet,     
           },
-          loop = {"model_name" : model_info['name'], "extra_name" : extra_name}
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "extra_name" : extra_name}
         )
 
 
@@ -1357,7 +1371,7 @@ def main(args, default_args, module_options={}):
           "merged_plot" : args.other_input.split(",") if args.other_input is not None else None,
           "verbose" : not args.quiet,  
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1393,9 +1407,10 @@ def main(args, default_args, module_options={}):
             "use_eff_events" : False,
             "use_total_events_with_weights" : True,
             "specific_val_ind" : val_dict["index"],
+            "specific_val_ind_hypothesis" : args.pvalue_per_val_ind_hypothesis,
             "verbose" : not args.quiet,     
           },
-          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "val_ind" : val_dict["index"]}
         )
 
 
@@ -1436,9 +1451,10 @@ def main(args, default_args, module_options={}):
               "use_eff_events" : False,
               "use_total_events_with_weights" : True,
               "specific_val_ind" : val_dict["index"],
+              "specific_val_ind_hypothesis" : args.pvalue_per_val_ind_hypothesis,
               "verbose" : not args.quiet,
             },
-            loop = {"model_name" : model_info['name'], "toy" : toy, "val_ind" : val_dict["index"]}
+            loop = {"model_name" : model_info['name'], "category" : model_info['category'], "toy" : toy, "val_ind" : val_dict["index"]}
           )
 
 
@@ -1456,7 +1472,7 @@ def main(args, default_args, module_options={}):
             "number_of_toys" : args.number_of_toys,
             "verbose" : not args.quiet,  
           },
-          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "val_ind" : val_dict["index"]}
         )
 
 
@@ -1475,7 +1491,7 @@ def main(args, default_args, module_options={}):
             "val_info" : val_dict["info"],
             "verbose" : not args.quiet,  
           },
-          loop = {"model_name" : model_info['name'], "val_ind" : val_dict["index"]}
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "val_ind" : val_dict["index"]}
         )
 
 
@@ -1507,7 +1523,7 @@ def main(args, default_args, module_options={}):
             "change_type" : change_classifier_type_from_parameter_dict.get(model_info["parameter"], None),
             "verbose" : not args.quiet,        
           },
-          loop = {"model_name" : model_info['name'], "architecture_ind" : architecture_ind}
+          loop = {"model_name" : model_info['name'], "category" : model_info['category'], "architecture_ind" : architecture_ind}
         )
 
   # Collect a hyperparameter scan
@@ -1525,7 +1541,7 @@ def main(args, default_args, module_options={}):
           "metric" : args.hyperparameter_metric,
           "verbose" : not args.quiet,        
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1566,7 +1582,7 @@ def main(args, default_args, module_options={}):
           "load_weights_for_training" : f"{models_dir}/{model_info['name']}/{model_info['file_name']}.h5" if args.load_weights_for_training == "nominal" else args.load_weights_for_training,
           "verbose" : not args.quiet,     
         },
-        loop = {"model_name" : model_info['name']}
+        loop = {"model_name" : model_info['name'], "category" : model_info['category']}
       )
 
 
@@ -1841,7 +1857,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -1867,7 +1883,7 @@ def main(args, default_args, module_options={}):
                 "val_ind" : val_ind,
                 "bootstrap_ind" : bootstrap_ind,
               },
-              loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "bootstrap_ind" : bootstrap_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "bootstrap_ind" : bootstrap_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
 
@@ -1889,7 +1905,7 @@ def main(args, default_args, module_options={}):
               "number_of_bootstraps" : args.number_of_bootstraps,
               "columns" : [k for k in val_info.keys() if k not in freeze['freeze'].keys()],
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -1911,7 +1927,7 @@ def main(args, default_args, module_options={}):
                 "extra_file_name" : str(val_ind) if not args.validation_loop_over_nuisance_variations else GetNuisanceVariationName(val_info),
                 "column" : column,
               },
-              loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column" : column, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column" : column, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
 
@@ -1938,7 +1954,7 @@ def main(args, default_args, module_options={}):
                 "freeze" : freeze["freeze"],
                 "val_ind" : val_ind,
               },
-              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
   # Run approximate uncertainties
@@ -1964,7 +1980,7 @@ def main(args, default_args, module_options={}):
                 "freeze" : freeze["freeze"],
                 "val_ind" : val_ind,
               },
-              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
 
@@ -1989,7 +2005,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2020,7 +2036,7 @@ def main(args, default_args, module_options={}):
                   "hessian_parallel_column_1" : column_1,
                   "hessian_parallel_column_2" : column_2,
                 },
-                loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column_1" : column_1, "column_2" : column_2, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+                loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column_1" : column_1, "column_2" : column_2, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
               )
 
 
@@ -2046,7 +2062,7 @@ def main(args, default_args, module_options={}):
               "val_ind" : val_ind,
               "collect_skip_diagonal" : args.collect_skip_diagonal,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2071,7 +2087,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2102,7 +2118,7 @@ def main(args, default_args, module_options={}):
                   "hessian_parallel_column_1" : column_1,
                   "hessian_parallel_column_2" : column_2,
                 },
-                loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column_1" : column_1, "column_2" : column_2, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+                loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, "column_1" : column_1, "column_2" : column_2, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
               )
 
 
@@ -2127,7 +2143,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2152,7 +2168,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2177,7 +2193,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2203,7 +2219,7 @@ def main(args, default_args, module_options={}):
               "freeze" : freeze["freeze"],
               "val_ind" : val_ind,
             },
-            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+            loop = {"file_name" : file_name, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2230,7 +2246,7 @@ def main(args, default_args, module_options={}):
                 "val_ind" : val_ind,
                 "other_input_files" : impact_info['files'],
               },
-              loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "impact_name" : impact_info["name"]},
+              loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, "impact_name" : impact_info["name"], **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
 
@@ -2255,7 +2271,7 @@ def main(args, default_args, module_options={}):
               "cfg" : args.cfg,
               "verbose" : not args.quiet,
             },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2277,7 +2293,7 @@ def main(args, default_args, module_options={}):
               "impact_to" : args.impact_to,
               "verbose" : not args.quiet,
             },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2303,7 +2319,7 @@ def main(args, default_args, module_options={}):
               "summary_from" : args.summary_from,
               "verbose" : not args.quiet,
             },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
 
@@ -2328,7 +2344,7 @@ def main(args, default_args, module_options={}):
               "extra_input_name" : f"_{val_ind}",
               "verbose" : not args.quiet,
             },
-            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind},
+            loop = {"file_name" : file_name, "val_ind" : val_ind, "freeze_ind" : freeze_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
           )
 
   # Find sensible scan points
@@ -2359,7 +2375,7 @@ def main(args, default_args, module_options={}):
                 "number_of_scan_points" : args.number_of_scan_points,
                 "scan_points_input" : args.scan_points_input,
               },
-              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )
 
 
@@ -2395,7 +2411,7 @@ def main(args, default_args, module_options={}):
                   "other_input_files": [f"{eval_data_dir}/ScanPoints{args.extra_input_dir_name}{freeze['extra_name']}/{file_name}/scan_ranges_{column}_{val_ind}.yaml"],
                   "skip_initial_fit" : args.skip_initial_fit,
                 },
-                loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+                loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, "scan_ind" : scan_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
                 save_class = not ((scan_ind + 1 == args.number_of_scan_points))
               )
 
@@ -2421,7 +2437,7 @@ def main(args, default_args, module_options={}):
                 "extra_file_name" : str(val_ind) if not args.validation_loop_over_nuisance_variations else GetNuisanceVariationName(val_info),
                 "verbose" : not args.quiet,
               },
-              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             )          
 
 
@@ -2454,7 +2470,7 @@ def main(args, default_args, module_options={}):
                 "scan_no_result_text" : args.scan_no_result_text,
                 "verbose" : not args.quiet,
               },
-              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)})},
+              loop = {"file_name" : file_name, "column" : column, "freeze_ind" : freeze_ind, **({"val_ind" : val_ind} if not args.validation_loop_over_nuisance_variations else {"nuisance" : GetNuisanceVariationName(val_info, only_nuisance=True), "variation" : GetNuisanceVariationName(val_info, only_shift=True)}), **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
             ) 
 
 
@@ -2651,7 +2667,7 @@ def main(args, default_args, module_options={}):
           "column_loop" : column_loop,
           "verbose" : not args.quiet,
         },
-        loop = {"file_name" : file_name},
+        loop = {"file_name" : file_name, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
       )
 
 
@@ -2677,7 +2693,7 @@ def main(args, default_args, module_options={}):
             "summary_from" : summary_from,
             "column_loop" : column_loop,
           },
-          loop = {"file_name" : file_name, "val_ind" : val_ind},
+          loop = {"file_name" : file_name, "val_ind" : val_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
         )
 
 
@@ -2709,7 +2725,7 @@ def main(args, default_args, module_options={}):
           "no_lumi" : (summary_from == "CovarianceWithDMatrix"),
           "verbose" : not args.quiet,
         },
-        loop = {"file_name" : file_name},
+        loop = {"file_name" : file_name, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
       )
 
 
@@ -2741,7 +2757,7 @@ def main(args, default_args, module_options={}):
             "constraints" : cfg["inference"]["nuisance_constraints"],
             "verbose" : not args.quiet,
           },
-          loop = {"file_name" : file_name, "val_ind" : val_ind},
+          loop = {"file_name" : file_name, "val_ind" : val_ind, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
         )
 
 
@@ -2763,7 +2779,7 @@ def main(args, default_args, module_options={}):
           "nominal_result_names" : [f"{eval_data_dir}/{summary_from}{args.extra_input_dir_name}/{file_name}/{args.summary_from.lower()}_results_{parameter_name}_{parameter_name}_nominal.yaml" for parameter_name in parameter_names],
           "verbose" : not args.quiet,
         },
-        loop = {"file_name" : file_name},
+        loop = {"file_name" : file_name, **({"category" : args.specific_category} if args.specific_category is not None and (args.specific_category.count(",") == 0) else {})},
       )
 
 
