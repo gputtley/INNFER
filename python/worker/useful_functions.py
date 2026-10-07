@@ -265,6 +265,14 @@ def CommonInferConfigOptions(args, cfg, val_info, file_name, val_ind, asimov_nam
 
   common_config = {
     "density_models": density_models,
+    "density_correction": args.density_correction,
+    "density_correction_options": {
+      category: {
+        model_file: GetDensityCorrectionOptions(args, model, models_dir, eval_data_dir)
+        for model_file, model in models.items()
+      }
+      for category, models in density_models.items()
+    },
     "regression_models": regression_models,
     "classifier_models": classifier_models,
     "model_input": models_dir,
@@ -1382,6 +1390,19 @@ def InitiateRegressionModel(architecture, file_loc, options={}, test_name=None):
     raise NotImplementedError(f"Regression model type {architecture['type']} not implemented")
 
   return network
+
+
+def GetDensityCorrectionOptions(args, density_model, models_dir, eval_data_dir):
+  """
+  Locate the classifier correction associated with a density checkpoint.
+  """
+  name = f"{density_model['name']}{args.extra_density_model_name}{args.extra_classifier_model_name}"
+  directory = f"DensityCorrectionWithClassifier{args.extra_density_correction_input_dir_name}/{name}"
+  return {
+    "density_correction": args.density_correction,
+    "density_correction_model": f"{models_dir}/{directory}/{density_model['file_name']}",
+    "density_correction_parameters": f"{eval_data_dir}/{directory}/parameters.yaml",
+  }
 
 
 def InitiateClassifierModel(architecture, file_loc, options={}, test_name=None, wt_name=None):

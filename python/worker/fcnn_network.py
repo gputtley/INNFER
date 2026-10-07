@@ -276,6 +276,8 @@ class FCNNNetwork():
 
     if self.only_X_columns is not None:
       input_dim = len(self.only_X_columns)
+    elif self.X_train is None:
+      input_dim = len(self.data_parameters["X_columns"])
     else:
       input_dim = self.X_train.num_columns
 
@@ -472,7 +474,10 @@ class FCNNNetwork():
 
   def Load(self, name="model.h5"):
     self.BuildModel()
-    if self.only_X_columns is not None:
+    if self.X_train is None:
+      columns = self.only_X_columns or self.data_parameters["X_columns"]
+      X_train_batch = np.zeros((1, len(columns)), dtype=np.float32)
+    elif self.only_X_columns is not None:
       X_train_batch = self.X_train.LoadNextBatch().loc[:,self.only_X_columns].to_numpy()
     else:
       X_train_batch = self.X_train.LoadNextBatch().loc[:,self.data_parameters["X_columns"]].to_numpy()
@@ -790,4 +795,3 @@ class FCNNNetwork():
       return preds
     else:
       return preds[0]
-

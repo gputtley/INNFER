@@ -16,6 +16,8 @@ Likelihood stages share data selection, model selection, parameter freezing and 
 | `--scale-to-eff-events` | Off | Use effective simulation statistics instead of the nominal yield scaling. |
 | `--integrate-density-with-ratios` | Off | Reintegrate the density after likelihood-ratio corrections using generated integration events. |
 | `--classifier-divide-by-nominal` | Off | Express the classifier correction relative to its nominal prediction. |
+| `--density-correction` | Off | Apply the trained conditional simulation-to-flow correction in unbinned densities and normalize the full shape. |
+| `--extra-density-correction-input-dir-name` | `''` | Select correction artifacts trained with an output-directory suffix. |
 | `--use-spline` | Off | Enable saved classifier/regression normalisation splines in generation, calibration and inference. They are skipped by default; the legacy `--no-spline` flag remains accepted. |
 | `--include-per-model-rate`, `--include-per-model-lnN` | Off | Include these terms in individual-process likelihoods as well as the combined setup. |
 | `--keep-lnN-if-rate-param` | Off | Retain the configured lnN effects when a process has a floating rate. |
@@ -31,6 +33,10 @@ For numerical comparisons, distinguish simulation sum-of-weights, effective even
 `--minimisation-method` defaults to `scipy`. `--initial-best-fit-guess` changes the starting parameter point, and `--simplex` supplies simplex settings in the supporting likelihood path. These are separate from frozen parameter values. `--no-likelihood-print-out` suppresses likelihood evaluation output.
 
 Ratio reintegration uses `--number-of-integral-events` (default 100,000) and the supporting integral-scaling configuration. Increasing the integration sample improves numerical precision at a computational cost; use identical integration settings when comparing fit stages.
+
+With `--density-correction`, each process/category uses its `DensityCorrectionWithClassifier` checkpoint. The classifier evaluates physical observables and conditions using its saved density transforms. Its simulation-to-flow odds multiply the density together with any nuisance ratios, and the complete shape is normalized by integrating over the original flow. This normalization also runs with `--only-density` and does not require `--integrate-density-with-ratios`. Process yields and their relative mixture weights remain the configured yield predictions.
+
+Pass the same correction and model suffixes to generation, fits, scans, Hessians, DMatrix and calibration. The corrected likelihood observes the same observable range cuts as sampling, and the multidimensional normalizer includes the fraction of flow samples accepted by those cuts. Gradients and Hessians of the corrected density use central differences of the full normalized log density, including the condition-dependent normalizer, with fixed latent seeds for integration and a step of 0.01 in physical parameter units. These evaluations cost more than the original analytical derivative path. Binned and Poisson-only fits use their existing bin/yield predictions rather than the event density, so this flag does not change those predictions.
 
 ## Freezing parameters
 

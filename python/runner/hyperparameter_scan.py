@@ -15,6 +15,9 @@ class HyperparameterScan():
     A template class.
     """
     self.model_type = None
+    self.density_correction = False
+    self.density_correction_model = None
+    self.density_correction_parameters = None
 
     # Required input which is the location of a file
     self.cfg = None
@@ -149,6 +152,11 @@ class HyperparameterScan():
     
     if self.model_type == "density":
       pf = DensityPerformanceMetrics()
+      pf.Configure({
+        "density_correction": self.density_correction,
+        "density_correction_model": self.density_correction_model,
+        "density_correction_parameters": self.density_correction_parameters,
+      })
     elif self.model_type == "classifier":
       pf = ClassifierPerformanceMetrics()
     else:

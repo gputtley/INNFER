@@ -124,6 +124,7 @@ class Likelihood():
     self.time_summary = False
     self.no_dmatrix_for_constant_derivatives = False
     self.skip_spline = True
+    self.density_correction_gradient_step = 0.01
 
 
   def _CheckLogProbsForNaNs(self, log_probs, gradient=[0]):
@@ -592,6 +593,23 @@ class Likelihood():
 
   def _GetLogProbs(self, X, Y, gradient=0, column_1=None, column_2=None, category=None, specific_name=None, extra_cache_name="", skip_density=False, skip_integral=False, add_density_columns_to_cache=False):
 
+    corrections = self.models.get("density_corrections", {}).get(category, {})
+    if corrections and gradient == 0:
+      return {name: values[0] for name, values in self._GetLogProbs(
+        X, Y, gradient=[0], column_1=column_1, column_2=column_2,
+        category=category, specific_name=specific_name, extra_cache_name=extra_cache_name,
+        skip_density=skip_density, skip_integral=skip_integral,
+        add_density_columns_to_cache=add_density_columns_to_cache,
+      ).items()}
+    gradient_loop = [gradient] if isinstance(gradient, int) else gradient
+    if corrections and any(order != 0 for order in gradient_loop):
+      return self._GetCorrectedLogProbDerivatives(
+        X, Y, gradient, column_1, column_2, category,
+        specific_name=specific_name, extra_cache_name=extra_cache_name,
+        skip_density=skip_density, skip_integral=skip_integral,
+        add_density_columns_to_cache=add_density_columns_to_cache,
+      )
+
     # Find X columns
     X_columns = self.X_columns[category] if isinstance(self.X_columns, dict) else self.X_columns
 
@@ -619,7 +637,8 @@ class Likelihood():
       if isinstance(rate_param, (int, float)) and rate_param == 0: continue
 
       # Check if we need to integrate density with ratios
-      integrate_density = self.integrate_density_with_ratios and (gradient == 0 or gradient == [0]) and (len(self.models["pdf_shifts_with_classifier"][category][name]) + len(self.models["pdf_shifts_with_regression"][category][name]) > 0)
+      has_correction = name in corrections
+      integrate_density = (self.integrate_density_with_ratios or has_correction) and (gradient == 0 or gradient == [0]) and (has_correction or len(self.models["pdf_shifts_with_classifier"][category][name]) + len(self.models["pdf_shifts_with_regression"][category][name]) > 0)
 
       # Check if we can load total density from cache
       density_columns = list(pdf.data_parameters["Y_columns"] if "Y_columns" in pdf.data_parameters.keys() else self.Y_columns)
@@ -664,6 +683,16 @@ class Likelihood():
         else:
 
           log_probs[name] = [np.zeros((X.shape[0],1))]
+
+        # Keep the base flow cache separate. Include the correction when
+        # integrating the ratio product over samples from that original flow.
+        if has_correction:
+          ratio = corrections[name].Predict(X, Y.iloc[0].to_dict())
+          if hasattr(corrections[name], "SamplingSupport"):
+            ratio = np.where(corrections[name].SamplingSupport(X), ratio, 0.0)
+          log_ratio = np.full(np.shape(ratio), -np.inf, dtype=np.float64)
+          np.log(ratio, out=log_ratio, where=ratio > 0)
+          log_probs[name][0] = log_probs[name][0] + log_ratio.reshape(-1, 1)
 
 
         if self.time_print or self.time_summary:
@@ -930,6 +959,8 @@ class Likelihood():
               n_integral_events = self.n_integral_events_split[category][name]
             else:
               n_integral_events = self.n_integral_events
+            if n_integral_events < 1:
+              raise ValueError("Density normalisation requires at least one integration event")
 
             integral_events_left = n_integral_events*1.0
             sum_weights = 0.0
@@ -967,9 +998,14 @@ class Likelihood():
               log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
 
               sum_weights += np.sum(np.exp(log_weights))
-              sum_lengths += len(log_weights)
+              # Multi-dimensional flow sampling rejects events outside its
+              # observable ranges. Include that acceptance in the normalizer.
+              # The special 1D density already has its own integral correction.
+              sum_lengths += n_events_this_batch if has_correction and not getattr(pdf, "fix_1d", False) else len(log_weights)
 
             integral = sum_weights / float(sum_lengths)
+            if not np.isfinite(integral) or integral <= 0:
+              raise ValueError(f"Non-finite or non-positive density normalisation for {name}")
 
             self.integral_cache_list.append(integral_cache_dict)
             self.integral_cache_values.append(integral)
@@ -997,6 +1033,66 @@ class Likelihood():
       log_probs = self._CheckLogProbsForNaNs(log_probs, gradient=gradient)
 
     return log_probs
+
+
+  def _GetCorrectedLogProbDerivatives(self, X, Y, gradient, column_1, column_2, category, **options):
+    """
+    Differentiate the full corrected log density, including its condition-
+    dependent normalisation. Fixed latent sampling seeds make these central
+    differences reproducible. Numerical derivatives cover all saved transforms.
+    """
+    gradient_loop = [gradient] if isinstance(gradient, int) else gradient
+    columns_1 = self.Y_columns if column_1 is None else ([column_1] if isinstance(column_1, str) else column_1)
+    columns_2 = columns_1 if column_2 is None else ([column_2] if isinstance(column_2, str) else column_2)
+    if 2 in gradient_loop and (len(columns_1) != 1 or len(columns_2) != 1):
+      raise ValueError("Corrected second derivatives require one column per derivative")
+    step = self.density_correction_gradient_step
+    if step <= 0:
+      raise ValueError("Density correction derivative step must be positive")
+
+    def evaluate(shifts):
+      shifted_Y = Y.copy(deep=True)
+      for column, shift in shifts.items():
+        shifted_Y[column] = shifted_Y[column] + shift
+      return self._GetLogProbs(X, shifted_Y, gradient=[0], category=category, **options)
+
+    base = evaluate({})
+    results = {name: {} for name in base}
+    if 0 in gradient_loop:
+      for name in base:
+        results[name][0] = base[name][0]
+    def difference(name, terms, denominator):
+      # A fixed sampling cut gives a zero PDF and zero probability derivatives
+      # outside support; avoid subtracting negative infinities in log space.
+      valid = ~np.isneginf(base[name][0])
+      out = np.zeros_like(base[name][0])
+      out[valid] = sum(coefficient * values[name][0][valid] for coefficient, values in terms) / denominator
+      return out
+    if 1 in gradient_loop:
+      derivatives = {name: [] for name in base}
+      for column in columns_1:
+        plus, minus = evaluate({column: step}), evaluate({column: -step})
+        for name in base:
+          derivatives[name].append(difference(name, [(1, plus), (-1, minus)], 2 * step))
+      for name in base:
+        results[name][1] = np.concatenate(derivatives[name], axis=1) if columns_1 else np.zeros((len(X), 0))
+    if 2 in gradient_loop:
+      first, second = columns_1[0], columns_2[0]
+      if first == second:
+        plus, minus = evaluate({first: step}), evaluate({first: -step})
+        for name in base:
+          results[name][2] = difference(name, [(1, plus), (-2, base), (1, minus)], step**2)
+      else:
+        pp = evaluate({first: step, second: step})
+        pm = evaluate({first: step, second: -step})
+        mp = evaluate({first: -step, second: step})
+        mm = evaluate({first: -step, second: -step})
+        for name in base:
+          results[name][2] = difference(name, [(1, pp), (-1, pm), (-1, mp), (1, mm)], 4 * step**2)
+    return {
+      name: result[gradient] if isinstance(gradient, int) else [result[order] for order in gradient_loop]
+      for name, result in results.items()
+    }
 
 
   def _GetH1(self, log_probs, Y, log=False, category=None):
@@ -1244,11 +1340,10 @@ class Likelihood():
 
   def _GetYieldGradient(self, file_name, Y, gradient=0, column_1=None, column_2=None, from_spline=False, category=None):
 
+    yield_func = partial(self._GetYield, file_name, category=category)
     if gradient == 0: 
       return self._GetYield(file_name, Y, category=category)
     elif gradient == 1:
-      yield_func = partial(self._GetYield, file_name, category=category)
-
       if not from_spline:
         return self._HelperNumericalGradientFromLinear(yield_func, Y, column_1, file_name, gradient=1)
       else:

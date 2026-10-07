@@ -49,7 +49,7 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--calibration-plot-n-bins` | `30` | Number of likelihood ratio bins to use in the CalibrationPlot step. |
 
-The step shares inference's model settings: `--only-density`, `--classifier-divide-by-nominal`, `--integrate-density-with-ratios`, `--number-of-integral-events`, `--use-integral-scaling`, `--use-spline`, classifier/lnN pruning, per-model rate/lnN inclusion, and density/classifier/regression model suffixes. See [inference options](inferenceoptions.md) and [common step options](stepoptions.md). Both optional evaluation caches are supported.
+The step shares inference's model settings: `--only-density`, `--density-correction`, `--extra-density-correction-input-dir-name`, `--classifier-divide-by-nominal`, `--integrate-density-with-ratios`, `--number-of-integral-events`, `--use-integral-scaling`, `--use-spline`, classifier/lnN pruning, per-model rate/lnN inclusion, and density/classifier/regression model suffixes. See [inference options](inferenceoptions.md) and [common step options](stepoptions.md). Both optional evaluation caches are supported.
 
 Use `--validation-loop-over-nuisance-variations` for the dedicated up/down simulation datasets. Nuisance-only validation hypotheses are included by default; `--skip-non-density` restores the density-only hypothesis filter.
 

@@ -9,6 +9,7 @@ import pandas as pd
 from functools import partial
 from pprint import pprint
 from scipy.interpolate import CubicSpline, UnivariateSpline
+from density_correction import DensityCorrection
 
 from useful_functions import (
   GetBinValuesParallelised,
@@ -27,6 +28,8 @@ class Infer():
     self.parameters = None
     self.model_input = None
     self.density_models = {}
+    self.density_correction = False
+    self.density_correction_options = {}
     self.regression_models = {}
     self.classifier_models = {}
 
@@ -635,6 +638,8 @@ class Infer():
             f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}_architecture.yaml",
             f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{k}.h5",
           ]
+          if self.density_correction:
+            inputs += self._GetDensityCorrection(cat, k).Inputs()
 
       # Add regression model inputs
       if not self.only_density:
@@ -1058,6 +1063,39 @@ class Infer():
     return networks
 
 
+  def _GetDensityCorrection(self, category, file_name):
+    """
+    Set up the correction for one process and category.
+    """
+    options = self.density_correction_options[category][file_name]
+    correction = DensityCorrection()
+    correction.Configure({
+      "model_input": options["density_correction_model"],
+      "parameters": options["density_correction_parameters"],
+    })
+    return correction
+
+
+  def _BuildDensityCorrections(self):
+    """
+    Load the conditional shape correction for each density checkpoint.
+    """
+    corrections = {}
+    for category, models in self.density_models.items():
+      corrections[category] = {}
+      for file_name, model in models.items():
+        with open(model["parameters"], 'r') as file:
+          parameters = yaml.safe_load(file)
+        correction = self._GetDensityCorrection(category, file_name)
+        correction.Configure({
+          "density_model": f"{self.model_input}/{model['name']}{self.extra_density_model_name}/{parameters['file_name']}",
+          "density_parameters": parameters["density"],
+        })
+        correction.Load()
+        corrections[category][file_name] = correction
+    return corrections
+
+
   def _BuildRegressionModels(self):
 
     networks = {}
@@ -1255,6 +1293,8 @@ class Infer():
         "pdfs" : self._BuildDensityModels(),
         "yields" : self.yields,
       }
+      if self.density_correction:
+        likelihood_inputs["density_corrections"] = self._BuildDensityCorrections()
       if not self.only_density:
         likelihood_inputs["pdf_shifts_with_regression"], likelihood_inputs["pdf_shifts_with_regression_norm_spline"] = self._BuildRegressionModels()
         likelihood_inputs["pdf_shifts_with_classifier"], likelihood_inputs["pdf_shifts_with_classifier_norm_spline"] = self._BuildClassifierModels()
@@ -1302,7 +1342,7 @@ class Infer():
     lkld.skip_spline = self.skip_spline
     lkld.no_print_minimisation_step = self.no_likelihood_print_out
     lkld.n_integral_events = self.n_integral_events
-    if self.use_integral_scaling is not None and self.likelihood_type in ["unbinned_extended","unbinned"] and self.integrate_density_with_ratios:
+    if self.use_integral_scaling is not None and self.likelihood_type in ["unbinned_extended","unbinned"] and (self.integrate_density_with_ratios or self.density_correction):
       n_integral_events_split = {}
       for cat, par in self.parameters.items():
         n_integral_events_split[cat] = {}

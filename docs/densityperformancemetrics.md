@@ -36,11 +36,14 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
 | `--cache-observable-transforms` | `False` | Cache parameter-independent density observable transforms and physical probability conversions during likelihood evaluation |
+| `--density-correction` | `False` | Apply the classifier correction to generated comparisons and inference closure. |
+| `--extra-density-correction-input-dir-name` | `''` | Suffix of the correction training output directories. |
 | `--density-performance-metrics` | `'loss,histogram,multidim'` | Comma separated list of density performance metrics |
 | `--density-performance-metrics-multidim` | `'bdt'` | Comma separated list of multidimensional density performance metrics |
 | `--hold-dataset-in-memory` | `False` | Keep raw likelihood datasets in RAM and serve copies of the requested batches; default is streaming from parquet |
 | `--loop-over-epochs` | `False` | Loop over epochs for performance metrics |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
+| `--number-of-integral-events` | `10 ** 5` | Integration events used to normalize the corrected closure-fit density. |
 
 ## Metric selection and generated samples
 
@@ -54,6 +57,8 @@ innfer --cfg="configs/run/your_analysis.py" --step="DensityPerformanceMetrics" \
 ```
 
 The two cache flags affect the inference evaluation path. Generated samples are temporary in this step's default CLI configuration (`tidy_up_asimov` is True). The p-value steps retain their reference/toy samples for subsequent comparisons.
+
+With `--density-correction`, both generation comparisons and inference closure use the correction trained for this density checkpoint. The closure likelihood normalizes the corrected shape at every condition; its integral uses fixed latent seeds. The `loss` metrics remain the original flow's training/test loss, so they can still be compared with its training objective.
 
 Use `--loop-over-epochs` only when the corresponding epoch checkpoints exist; TrainDensity needs `--save-model-per-epoch` to produce them. Keep the saved model architecture and preprocessing metadata with each checkpoint.
 

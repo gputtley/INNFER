@@ -35,6 +35,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
+| `--density-correction` | `False` | Generate null toys with the same density correction as the reference. |
+| `--extra-density-correction-input-dir-name` | `''` | Suffix of the correction training output directories. |
 | `--density-performance-metrics-multidim` | `'bdt'` | Comma separated list of multidimensional density performance metrics |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
 | `--number-of-toys` | `100` | The number of toys for p-value dataset comparisons |
@@ -44,6 +46,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 ## Behaviour and checks
 
 Toys use alternative generation seeds; this is not a bootstrap of the observed simulation sample. Its reference synthetic sample comes from PValueSimVsSynth. Keep the toy model, sample size and hypothesis consistent with that reference.
+
+When using `--density-correction`, first rerun `PValueSimVsSynth` with that flag. Both comparison samples must use the same correction checkpoint, preprocessing transforms and simulation weight source. Cached references without matching correction metadata are rejected.
 
 ## Implementation
 

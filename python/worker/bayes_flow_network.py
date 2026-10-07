@@ -768,7 +768,7 @@ class BayesFlowNetwork():
     return Y[self.data_parameters["Y_columns"]]
 
 
-  def Sample(self, Y, n_events, seed=None, batch_number=None, batch_size=None):
+  def Sample(self, Y, n_events, seed=None, batch_number=None, batch_size=None, transform_Y=True, transform_X=True):
     """
     Generate synthetic data samples based on given conditions.
 
@@ -780,6 +780,11 @@ class BayesFlowNetwork():
         Number of synthetic data samples to generate.
     seed : int or None, optional
         Seed for the random number generator.
+    transform_Y : bool, optional
+        Transform physical conditions before sampling. Set False for training conditions.
+    transform_X : bool, optional
+        Untransform generated observables to physical units. Set False to return
+        every generated row in density training space, without range filtering.
 
     Returns
     -------
@@ -809,7 +814,7 @@ class BayesFlowNetwork():
     if len(Y.columns) != 0:
       Y  = Y_dp.GetFull(
         method="dataset",
-        functions_to_apply = ["transform"]
+        functions_to_apply = ["transform"] if transform_Y else []
       )
 
     Y = Y.loc[:,self.data_parameters["Y_columns"]]
@@ -859,6 +864,9 @@ class BayesFlowNetwork():
     # Fix 1d couplings
     if self.fix_1d:
       synth = synth[:,0].reshape(-1,1)
+
+    if not transform_X:
+      return pd.DataFrame(synth, columns=self.data_parameters["X_columns"], dtype=np.float64)
 
     # Untransform the dataset
     synth_dp = DataProcessor(

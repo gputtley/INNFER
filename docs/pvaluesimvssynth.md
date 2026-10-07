@@ -35,6 +35,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
+| `--density-correction` | `False` | Apply the trained density correction to synthetic event weights. |
+| `--extra-density-correction-input-dir-name` | `''` | Suffix of the correction training output directories. |
 | `--density-performance-metrics-multidim` | `'bdt'` | Comma separated list of multidimensional density performance metrics |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
 | `--pvalue-per-val-ind` | `False` | Run the p values per validation index |
@@ -43,6 +45,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 ## Behaviour and checks
 
 This step measures a test statistic, not a p-value by itself. Use the same hypotheses, metrics, dataset split and model selection throughout the four-stage [p-value workflow](pvalueworkflow.md). Density-only generation is used here; this does not test the complete nuisance-ratio likelihood.
+
+With `--density-correction`, the classifier ratio multiplies the original simulation weights assigned to generated rows. Run `PValueSimVsSynth` and `PValueSynthVsSynth` with the same flag and correction checkpoint; both null samples then use the corrected distribution. The cached reference must contain the matching `density_correction.yaml` sidecar. Rerun the simulation comparison before generating corrected null toys.
 
 ## Implementation
 

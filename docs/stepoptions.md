@@ -51,6 +51,8 @@ Model selection has separate flags: `--extra-density-model-name`, `--extra-class
 
 Synthetic inputs have their own `--extra-asimov-input-dir-name` and `--extra-postfit-asimov-input-dir-name`. Keep them consistent with the generating stage.
 
+`--density-correction` opts Asimov generation, density PValue comparisons and unbinned likelihood evaluations into the classifier ratio trained by `DensityCorrectionWithClassifier`. It defaults to false. Use `--extra-density-correction-input-dir-name` to select correction artifacts trained with an output-directory suffix; density and classifier model suffixes select the checkpoint variant. The correction must match the density checkpoint and its saved transforms. Fits, scans, Hessians, DMatrix, calibration and density inference-closure metrics use the normalized corrected density. Classifier-model PValue comparisons are unaffected. Density tuning metrics also receive the option, but a correction trained for a different trial checkpoint is rejected. See [inference options](inferenceoptions.md) for normalization and derivative settings.
+
 `--add-specific-category-to-dir-name` appends `_{specific_category}` to the input/output directory suffixes and the Asimov input suffix. Use it explicitly when a fit directory otherwise combines categories. In nested workflows, inherited options apply to descendants; sibling workflow overrides do not leak into one another.
 
 ## Batch submission and dependencies

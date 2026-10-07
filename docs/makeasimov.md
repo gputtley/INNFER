@@ -36,6 +36,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--asimov-seed` | `42` | The seed to use the create the asimov |
 | `--classifier-divide-by-nominal` | `False` | Divide the classifier by the nominal value |
+| `--density-correction` | `False` | Multiply generated weights by the trained simulation-to-flow classifier ratio. |
+| `--extra-density-correction-input-dir-name` | `''` | Suffix used when training the correction with `--extra-output-dir-name`. |
 | `--use-spline` | `False` | Opt in to saved classifier/regression normalisation splines. |
 | `--number-of-asimov-events` | `10 ** 6` | The number of asimov events |
 | `--only-default-asimov` | `False` | Build asimov for only the default validation indices |
@@ -49,6 +51,10 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 These are finite Monte Carlo samples with weights, rather than noiseless event-level datasets. The workflow passes yield-based `--use-asimov-scaling` (default 10); the runner uses its fixed event count only when `use_asimov_scaling` is None. The CLI scaling option is integer-valued and takes precedence over the fixed-count option in this dispatch. `--only-density` omits learned nuisance-ratio corrections; `--use-spline` enables their saved normalisation splines; these are skipped by default. Keep these choices consistent with the validation/inference target.
 
 With `--classifier-divide-by-nominal`, classifiers whose resolved evaluation parameter is zero are automatically skipped, including their model, spline and pruning dependencies.
+
+With `--density-correction`, the correction classifier is loaded from `$MODELS_DIR/$CFG_NAME/DensityCorrectionWithClassifier{extra_density_correction_input_dir_name}/{density_model_name}{extra_density_model_name}{extra_classifier_model_name}/{process}.h5`. Its `parameters.yaml` is read from the matching directory under `$EVAL_DATA_DIR/$CFG_NAME`. Train it first using `DensityCorrectionWithClassifier` for the same density checkpoint and preprocessing transforms.
+
+The classifier evaluates observables and conditions in its saved density training space. Its odds `P(simulation)/P(synthetic)` multiply event weights before nuisance-model weights. This also applies with `--only-density`. The final sample is still normalized to the predicted process yield; the correction changes its shape. A `density_correction.yaml` sidecar records the correction inputs. Use the same flag and checkpoint in unbinned inference to evaluate the matching normalized corrected density.
 
 ## Implementation
 

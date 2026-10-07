@@ -7,6 +7,7 @@ import pandas as pd
 from functools import partial
 
 from data_processor import DataProcessor
+from density_correction import DensityCorrection
 from histogram_metrics import HistogramMetrics
 from make_asimov import MakeAsimov
 from multidim_metrics import MultiDimMetrics
@@ -64,11 +65,15 @@ class DensityPerformanceMetrics():
     self.do_inference = True
     self.hold_dataset_in_memory = False
     self.cache_observable_transforms = False
+    self.n_integral_events = 10**5
     self.inference_datasets = ["test_inf","val"]
 
     self.save_extra_name = ""
     self.metrics_save_extra_name = ""
     self.extra_density_model_name = ""
+    self.density_correction = False
+    self.density_correction_model = None
+    self.density_correction_parameters = None
     self.tidy_up_asimov = False
     self.asimov_input = None
     self.synth_vs_synth = False
@@ -134,6 +139,15 @@ class DensityPerformanceMetrics():
       if self.verbose:
         print(f"- Loading the density model {density_model_name}")
       self.network.Load(name=f"{density_model_name}.h5")
+      if self.density_correction and self.do_inference:
+        self.correction_network = DensityCorrection()
+        self.correction_network.Configure({
+          "model_input": self.density_correction_model,
+          "parameters": self.density_correction_parameters,
+          "density_model": density_model_name,
+          "density_parameters": self.open_parameters["density"],
+        })
+        self.correction_network.Load()
 
     # Set up metrics dictionary
     self.metrics = {} 
@@ -181,6 +195,7 @@ class DensityPerformanceMetrics():
             ma = MakeAsimov()
             ma.Configure({
                 "cfg" : self.cfg,
+                "file_name" : self.file_name,
                 "density_model" : GetModelLoop(self.open_cfg, specific_file_name=self.file_name, only_density=True, specific_category=self.category)[0],
                 "model_input" : self.model_input,
                 "model_extra_name" : self.save_extra_name,
@@ -194,7 +209,8 @@ class DensityPerformanceMetrics():
                 "add_truth" : True,
                 "extra_density_model_name" : self.extra_density_model_name,
                 "verbose" : False,
-                "drop_wt" : self.use_total_events_with_weights,
+                "drop_wt" : self.use_total_events_with_weights and not self.density_correction,
+                **self._GetDensityCorrectionOptions(val_ind, data_type),
               }
             )
             ma.Run()
@@ -211,6 +227,7 @@ class DensityPerformanceMetrics():
               ma2 = MakeAsimov()
               ma2.Configure({
                   "cfg" : self.cfg,
+                  "file_name" : self.file_name,
                   "density_model" : GetModelLoop(self.open_cfg, specific_file_name=self.file_name, only_density=True, specific_category=self.category)[0],
                   "model_input" : self.model_input,
                   "model_extra_name" : self.save_extra_name,
@@ -224,7 +241,8 @@ class DensityPerformanceMetrics():
                   "add_truth" : True,
                   "extra_density_model_name" : self.extra_density_model_name,
                   "verbose" : False,
-                  "drop_wt" : self.use_total_events_with_weights,
+                  "drop_wt" : self.use_total_events_with_weights and not self.density_correction,
+                  **self._GetDensityCorrectionOptions(val_ind, data_type),
                 }
               )
               ma2.Run()        
@@ -289,17 +307,47 @@ class DensityPerformanceMetrics():
       sim_file = [f"{self.val_file_loc}/val_ind_{val_ind}/{i}_{data_type}.parquet" for i in ["X","Y","wt"]]
     else:
       sim_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.alternative_asimov_seed}_for_{data_type}/asimov.parquet"]
-      if self.use_total_events_with_weights:
+      if self.use_total_events_with_weights and not self.density_correction:
         sim_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
     if self.asimov_input is None:
       synth_file = [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
     else:
       synth_file = [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
 
-    if self.use_total_events_with_weights:
+    if self.use_total_events_with_weights and not self.density_correction:
       synth_file += [f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"]
 
+    # A corrected SynthVsSynth reference must also have been generated with
+    # this correction; old cached, uncorrected Asimov files are not a null toy.
+    if self.density_correction and self.asimov_input is not None and not force_sim:
+      metadata_file = f"{os.path.dirname(synth_file[0])}/density_correction.yaml"
+      if not os.path.isfile(metadata_file):
+        raise ValueError("Cached Asimov sample has no density correction metadata; rerun PValueSimVsSynth with --density-correction")
+      with open(metadata_file, 'r') as file:
+        metadata = yaml.safe_load(file)
+      expected = {
+        "model": self.density_correction_model,
+        "parameters": self.density_correction_parameters,
+        "asimov_weights": f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet" if self.use_total_events_with_weights else None,
+      }
+      if metadata != expected:
+        raise ValueError("Cached Asimov sample was generated with different density correction settings; rerun PValueSimVsSynth")
+
     return sim_file, synth_file
+
+
+  def _GetDensityCorrectionOptions(self, val_ind=None, data_type=None):
+    """
+    Pass the same correction to both generated samples in a null comparison.
+    """
+    options = {
+      "density_correction": self.density_correction,
+      "density_correction_model": self.density_correction_model,
+      "density_correction_parameters": self.density_correction_parameters,
+    }
+    if self.density_correction and self.use_total_events_with_weights and val_ind is not None:
+      options["asimov_weights"] = f"{self.val_file_loc}/val_ind_{val_ind}/wt_{data_type}.parquet"
+    return options
 
 
   def DoLoss(self):
@@ -499,6 +547,12 @@ class DensityPerformanceMetrics():
         Y_columns_per_model = {self.open_parameters["file_name"] : params_in_model},
         categories = ["inclusive"]
       )
+      if self.density_correction:
+        lkld.models["density_corrections"] = {"inclusive": {
+          self.open_parameters["file_name"]: self.correction_network,
+        }}
+        lkld.n_integral_events = self.n_integral_events
+        lkld.integral_events_per_batch = int(os.getenv("EVENTS_PER_BATCH"))
 
 
       # Loop through validation indices
@@ -626,6 +680,8 @@ class DensityPerformanceMetrics():
           if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
           outputs += [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
+          if self.density_correction:
+            outputs += [f"{self.data_output}/val_ind_{val_ind}{self.metrics_save_extra_name}_seed_{self.asimov_seed}_for_{data_type}/density_correction.yaml"]
 
     return outputs
 
@@ -650,6 +706,11 @@ class DensityPerformanceMetrics():
     density_model_name = density_model_name.replace("//", "/")
     inputs += [f"{density_model_name}.h5"]
     inputs += [f"{density_model_name}_architecture.yaml"]
+
+    if self.density_correction and (self.do_inference or ((self.do_histogram_metrics or self.do_multidimensional_dataset_metrics) and (self.asimov_input is None or self.synth_vs_synth))):
+      ma = MakeAsimov()
+      ma.Configure(self._GetDensityCorrectionOptions())
+      inputs += ma._GetDensityCorrection().Inputs()
 
     # Add data
     if self.do_loss:
@@ -683,5 +744,7 @@ class DensityPerformanceMetrics():
           if SkipNonDensity(cfg, self.file_name, val_info, skip_non_density=True): continue
           if SkipEmptyDataset(cfg, self.file_name, data_type, val_info): continue
           inputs += [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/asimov.parquet"]
+          if self.density_correction:
+            inputs += [f"{self.asimov_input}/val_ind_{val_ind}_seed_{self.asimov_seed}_for_{data_type}/density_correction.yaml"]
 
     return inputs

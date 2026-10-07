@@ -24,6 +24,7 @@ from useful_functions import (
     GetCombinedValdidationIndices,
     GetDataInput,
     GetDefaultsInModel,
+    GetDensityCorrectionOptions,
     GetDictionaryEntryFromYaml,
     GetExtraHypothesisFiles,
     GetFactorisationMetricsPlotInput,
@@ -58,7 +59,7 @@ def parse_args():
   parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
   parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
   parser.add_argument('--add-specific-category-to-dir-name', help='Add the specific category name to the directory name', action='store_true')
-  parser.add_argument('--asimov-seed', help='The seed to use the create the asimov', type=int, default=42)
+  parser.add_argument('--asimov-seed', help='Seed for Asimov generation and density correction sampling', type=int, default=42)
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--binned-observed-from-predicted', help='Take the binned observed data from the predicted values and not the validation samples', action='store_true')
@@ -77,6 +78,8 @@ def parse_args():
   parser.add_argument('--custom-options', help='Semi-colon separated list of options set by an equals sign to custom module', default="")
   parser.add_argument('--data-type', help='The data type to use when running the Generator, Bootstrap or Infer step. Default is sim for Bootstrap, and asimov for Infer.', type=str, default='sim', choices=['data', 'asimov', 'sim'])
   parser.add_argument('--data-vs-simulation', help='For the Generator and DistributionPlot step, show data vs simulation', action='store_true')
+  parser.add_argument('--density-correction', help='Use DensityCorrectionWithClassifier in generation and unbinned likelihood evaluation (including density PValue tests)', action='store_true')
+  parser.add_argument('--extra-density-correction-input-dir-name', help='Suffix of the DensityCorrectionWithClassifier input directories', type=str, default='')
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
@@ -921,6 +924,37 @@ def main(args, default_args, module_options={}):
       )
 
 
+  # Train a conditional simulation-to-flow ratio without applying it
+  if args.step == "DensityCorrectionWithClassifier":
+    print("<< Building and training density correction classifiers >>")
+    for model_info in GetModelLoop(cfg, only_density=True, specific_category=specific_category_list, specific_file_name=specific_file_name_list):
+      correction_name = f"{model_info['name']}{args.extra_density_model_name}{args.extra_classifier_model_name}"
+      module.Run(
+        module_name = "density_correction_with_classifier",
+        class_name = "DensityCorrectionWithClassifier",
+        config = {
+          "parameters" : model_info["parameters"],
+          "architecture" : args.classifier_architecture,
+          "file_name" : model_info["file_name"],
+          "data_input" : model_info["file_loc"],
+          "density_model" : f"{models_dir}/{model_info['name']}{args.extra_density_model_name}/{model_info['file_name']}",
+          "synthetic_input" : f"{eval_data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
+          "data_output" : f"{eval_data_dir}/DensityCorrectionWithClassifier{args.extra_output_dir_name}/{correction_name}",
+          "model_output" : f"{models_dir}/DensityCorrectionWithClassifier{args.extra_output_dir_name}/{correction_name}",
+          "plots_output" : f"{plots_dir}/DensityCorrectionWithClassifier{args.extra_output_dir_name}/{correction_name}",
+          "train_name" : "train_nominal" if args.train_from_nominal else "train",
+          "seed" : args.asimov_seed,
+          "disable_tqdm" : args.disable_tqdm,
+          "use_wandb" : args.use_wandb,
+          "wandb_project_name" : args.wandb_project_name,
+          "wandb_submit_name" : f"{cfg['name']}_density_correction_{correction_name}",
+          "save_model_per_epoch" : args.save_model_per_epoch,
+          "verbose" : not args.quiet,
+        },
+        loop = {"model_name" : model_info["name"], "category" : model_info["category"]},
+      )
+
+
   # Evaluate density network
   if args.step == "EvaluateDensity":
     print("<< Generating samples on the train and test conditions >>")
@@ -935,6 +969,8 @@ def main(args, default_args, module_options={}):
           "model_name" : f"{model_info['name']}{args.extra_density_model_name}",
           "file_name" : model_info["file_name"],
           "data_output" : f"{eval_data_dir}/EvaluateDensity/{model_info['name']}{args.extra_density_model_name}",
+          "train_name" : "train_nominal" if args.train_from_nominal else "train",
+          "seed" : args.asimov_seed,
           "verbose" : not args.quiet,        
         },
         loop = {"model_name" : model_info['name'], "category" : model_info['category']}
@@ -1164,6 +1200,7 @@ def main(args, default_args, module_options={}):
             module_name = "make_asimov",
             class_name = "MakeAsimov",
             config = {
+              **GetDensityCorrectionOptions(args, GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0], models_dir, eval_data_dir),
               "cfg" : args.cfg,
               "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
               "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
@@ -1201,6 +1238,7 @@ def main(args, default_args, module_options={}):
               module_name = "make_asimov",
               class_name = "MakeAsimov",
               config = {
+                **GetDensityCorrectionOptions(args, GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0], models_dir, eval_data_dir),
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
@@ -1244,6 +1282,7 @@ def main(args, default_args, module_options={}):
                   module_name = "make_asimov",
                   class_name = "MakeAsimov",
                   config = {
+                    **GetDensityCorrectionOptions(args, GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0], models_dir, eval_data_dir),
                     "cfg" : args.cfg,
                     "density_model" : GetModelLoop(cfg, specific_file_name=file_name, only_density=True, specific_category=category)[0],
                     "regression_models" : GetModelLoop(cfg, specific_file_name=file_name, only_regression=True, specific_category=category),
@@ -1276,6 +1315,7 @@ def main(args, default_args, module_options={}):
         module_name = "make_asimov",
         class_name = "MakeAsimov",
         config = {
+          **GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir),
           "cfg" : args.cfg,
           "density_model" : model_info,
           "regression_models" : {},
@@ -1330,6 +1370,8 @@ def main(args, default_args, module_options={}):
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
           config = {
+            "n_integral_events": args.number_of_integral_events,
+            **GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir),
             "cfg" : args.cfg,
             "file_name" : model_info["file_name"],
             "parameters" : model_info["parameters"],
@@ -1387,6 +1429,8 @@ def main(args, default_args, module_options={}):
           module_name = "density_performance_metrics",
           class_name = "DensityPerformanceMetrics",
           config = {
+            "n_integral_events": args.number_of_integral_events,
+            **GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir),
             "cfg" : args.cfg,
             "file_name" : model_info["file_name"],
             "category" : model_info["category"],
@@ -1427,6 +1471,8 @@ def main(args, default_args, module_options={}):
             module_name = "density_performance_metrics",
             class_name = "DensityPerformanceMetrics",
             config = {
+              "n_integral_events": args.number_of_integral_events,
+              **GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir),
               "cfg" : args.cfg,
               "file_name" : model_info["file_name"],
               "category" : model_info["category"],
@@ -1507,6 +1553,7 @@ def main(args, default_args, module_options={}):
           module_name = "hyperparameter_scan",
           class_name = "HyperparameterScan",
           config = {
+            **(GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir) if model_info["type"] == "density" else {}),
             "cfg" : args.cfg,
             "model_type": model_info["type"],
             "data_input" : f"{prep_data_dir}/PreProcess{args.extra_input_dir_name}",
@@ -1556,6 +1603,7 @@ def main(args, default_args, module_options={}):
         module_name = "bayesian_hyperparameter_tuning",
         class_name = "BayesianHyperparameterTuning",
         config = {
+          **(GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir) if model_info["type"] == "density" else {}),
           "cfg" : args.cfg,
           "model_type": model_info["type"],
           "data_input" : f"{prep_data_dir}/PreProcess",
@@ -2504,6 +2552,7 @@ def main(args, default_args, module_options={}):
               module_name = "make_asimov",
               class_name = "MakeAsimov",
               config = {
+                **GetDensityCorrectionOptions(args, GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0], models_dir, eval_data_dir),
                 "cfg" : args.cfg,
                 "density_model" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
                 "regression_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_regression=True, specific_category=category),
@@ -2548,6 +2597,7 @@ def main(args, default_args, module_options={}):
                   module_name = "make_asimov",
                   class_name = "MakeAsimov",
                   config = {
+                    **GetDensityCorrectionOptions(args, GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0], models_dir, eval_data_dir),
                     "cfg" : args.cfg,
                     "density_model" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_density=True, specific_category=category)[0],
                     "regression_models" : GetModelLoop(cfg, specific_file_name=asimov_file_name, only_regression=True, specific_category=category),

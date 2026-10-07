@@ -1,5 +1,8 @@
 import yaml
 
+import numpy as np
+import pandas as pd
+
 from data_processor import DataProcessor
 from useful_functions import InitiateDensityModel
 from write_parquet import WriteParquet
@@ -17,6 +20,9 @@ class EvaluateDensity():
     self.model_name = None
     self.file_name = None
     self.data_output = "data/"
+    self.train_name = "train"
+    self.test_name = "test"
+    self.seed = 42
     self.verbose = True     
     
 
@@ -49,6 +55,7 @@ class EvaluateDensity():
     network = InitiateDensityModel(
       architecture,
       self.data_input,
+      train_name = self.train_name,
       options = {
         "data_parameters" : parameters["density"],
         "file_name" : self.file_name,
@@ -59,18 +66,17 @@ class EvaluateDensity():
     if self.verbose:
       print(f"- Loading the density model {density_model_name}")
     network.Load(name=f"{density_model_name}.h5")
+    network.use_gaussian_cache = False
 
-    def pred(df):
-      df = network.Sample(df.loc[:,parameters["density"]["Y_columns"]],n_events=len(df))
-      return df
-
-    for tt in ["train", "test"]:
+    for split_index, (source_split, tt) in enumerate([(self.train_name, "train"), (self.test_name, "test")]):
 
       if self.verbose:
         print(f"- Processing samples for the {tt} conditions")
 
 
-      input_file = [f"{self.data_input}/{i}_{tt}.parquet" for i in ["X","Y"]]
+      input_file = [f"{self.data_input}/X_{source_split}.parquet"]
+      if parameters["density"]["Y_columns"]:
+        input_file += [f"{self.data_input}/Y_{source_split}.parquet"]
       dp = DataProcessor(
         [input_file],
         "parquet",
@@ -78,6 +84,34 @@ class EvaluateDensity():
           "parameters" : parameters["density"]
         }
       )
+
+      if any(loader.num_rows != dp.data_loaders[0][0].num_rows for loader in dp.data_loaders[0]):
+        raise ValueError(f"Misaligned density input tables for {source_split}")
+      batch_index = 0
+
+      def pred(df):
+        nonlocal batch_index
+        Y = df.loc[:, parameters["density"]["Y_columns"]].reset_index(drop=True)
+        if architecture["type"] == "BayesFlow":
+          # Both the source conditions and saved samples are in training space.
+          # Avoid an inverse/forward transform round trip and range filtering,
+          # which can otherwise remove the final one-row batch.
+          synth = network.Sample(
+            Y, n_events=len(df), seed=self.seed + split_index,
+            batch_number=batch_index, batch_size=dp.batch_size,
+            transform_Y=False, transform_X=False,
+          )
+        else:
+          physical_Y = DataProcessor([[Y]], "dataset", options={"parameters": parameters["density"]}).GetFull(method="dataset", functions_to_apply=["untransform"]) if len(Y.columns) else Y
+          synth = network.Sample(physical_Y, n_events=len(df))
+          synth = DataProcessor([[synth]], "dataset", options={"parameters": parameters["density"]}).GetFull(method="dataset", functions_to_apply=["transform"])
+        batch_index += 1
+        if synth is not None:
+          synth = synth.loc[:, parameters["density"]["X_columns"]]
+        if synth is None or len(synth) != len(df) or not np.all(np.isfinite(synth.to_numpy())):
+          raise ValueError("EvaluateDensity must generate one finite row per source condition")
+        # Save the conditions as well, so downstream pairing can verify order.
+        return pd.concat([synth.reset_index(drop=True), Y], axis=1)
   
       wp = WriteParquet(
         name = f"synth_{tt}",
@@ -86,13 +120,11 @@ class EvaluateDensity():
       dp.GetFull(
         method=None,
         functions_to_apply=[
-          "untransform",
           pred,
-          "transform",
           wp
         ]
       )
-      wp.collect()
+      wp.collect(memory_safe=True)
 
 
   def Outputs(self):
@@ -112,17 +144,15 @@ class EvaluateDensity():
     inputs = []
 
     # Add data
-    for tt in ["train", "test"]:
-      inputs.append(f"{self.data_input}/Y_{tt}.parquet")
+    for tt in [self.train_name, self.test_name]:
+      inputs += [f"{self.data_input}/{key}_{tt}.parquet" for key in ["X", "Y"]]
 
     # Add models
-    for tt in ["train", "test"]:
-      inputs.append(f"{self.model_input}/{self.model_name}/{self.file_name}.h5")
-      inputs.append(f"{self.model_input}/{self.model_name}/{self.file_name}_architecture.yaml")
+    inputs.append(f"{self.model_input}/{self.model_name}/{self.file_name}.h5")
+    inputs.append(f"{self.model_input}/{self.model_name}/{self.file_name}_architecture.yaml")
 
     # Add parameters
     inputs.append(self.parameters)
 
     return inputs
 
-        

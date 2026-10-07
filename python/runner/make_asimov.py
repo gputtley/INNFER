@@ -15,6 +15,8 @@ from pandas.errors import PerformanceWarning
 from scipy.interpolate import CubicSpline
 
 from data_processor import DataProcessor
+from data_loader import DataLoader
+from density_correction import DensityCorrection
 from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
 from yields import Yields
 from write_parquet import WriteParquet
@@ -52,6 +54,10 @@ class MakeAsimov():
     self.classifier_divide_by_nominal = False
     self.scale_up = 1.2
     self.drop_wt = False
+    self.density_correction = False
+    self.density_correction_model = None
+    self.density_correction_parameters = None
+    self.asimov_weights = None
 
 
   def Configure(self, options):
@@ -128,6 +134,18 @@ class MakeAsimov():
       print(f"- Loading the density model {density_model_name}")
     network.Load(name=f"{density_model_name}.h5")
 
+    # Correct the nominal density before applying nuisance model weights.
+    correction = None
+    if self.density_correction:
+      if self.drop_wt:
+        raise ValueError("Density correction weights cannot be dropped")
+      correction = self._GetDensityCorrection()
+      correction.Configure({
+        "density_model": density_model_name,
+        "density_parameters": parameters["density"],
+      })
+      correction.Load()
+
     if self.use_asimov_scaling is None:
       n_events_before = self.n_asimov_events
     else:
@@ -155,6 +173,12 @@ class MakeAsimov():
       return df.assign(**Y)
 
     functions_to_apply = []
+
+    if correction is not None:
+      def apply_density_correction(df):
+        df["wt"] = df["wt"] * correction.Predict(df, model_parameters)
+        return df
+      functions_to_apply += [apply_density_correction]
 
     if self.add_truth:
       functions_to_apply += [partial(add_truth, Y=model_parameters)]
@@ -219,9 +243,9 @@ class MakeAsimov():
         def apply_regression(df, func, X_columns, add_columns={}, spl=None, parameter=None):
           cols_in = list(df.columns)
           for k,v in add_columns.items(): df.loc[:,k] = v
-          df.loc[:,"wt"] *= func(df.loc[:,X_columns]).flatten()
+          df["wt"] = df["wt"] * func(df.loc[:,X_columns]).flatten()
           if spl is not None:
-            df.loc[:,"wt"] *= spl(df.loc[:,parameter]).flatten()
+            df["wt"] = df["wt"] * spl(df.loc[:,parameter]).flatten()
           return df.loc[:,cols_in]
 
         wt_shifter_name = f"asimov_wt_shifter_regression_{regression_model['parameter']}"
@@ -390,6 +414,29 @@ class MakeAsimov():
       wp.collect()
       if os.path.isfile(f"{self.data_output}/{trim_name}.parquet"): os.system(f"mv {self.data_output}/{trim_name}.parquet {asimov_file_name}")
 
+    # PValue comparisons retain the original signed simulation weights, with
+    # the learned density ratio multiplying them rather than being replaced.
+    if self.asimov_weights is not None:
+      weighted_dps = DataProcessor([[asimov_file_name]], "parquet")
+      weights = DataLoader(self.asimov_weights, batch_size=weighted_dps.batch_size)
+      if weights.num_rows != n_events_before:
+        raise ValueError("Asimov and simulation weights must have the same number of rows")
+      weighted_name = "asimov_simulation_weights"
+      wp = WriteParquet(name=weighted_name, data_output=self.data_output)
+      def apply_simulation_weights(df):
+        batch_weights = weights.LoadNextBatch()["wt"].to_numpy(dtype=np.float64)
+        if len(batch_weights) != len(df) or not np.all(np.isfinite(batch_weights)):
+          raise ValueError("Misaligned or non-finite simulation weights")
+        df["wt"] = df["wt"] * batch_weights
+        return df
+      try:
+        weighted_dps.GetFull(method=None, functions_to_apply=[apply_simulation_weights, wp])
+        wp.collect(memory_safe=True)
+      finally:
+        if weights.parquet_file is not None:
+          weights.parquet_file.close()
+      os.replace(f"{self.data_output}/{weighted_name}.parquet", asimov_file_name)
+
     # Rescale back to total yield
     if self.verbose:
       print(f"- Rescaling asimov dataset to total yield")
@@ -404,6 +451,8 @@ class MakeAsimov():
       }
     )
     sum_wt = wt_rescaler.GetFull(method="sum")
+    if not np.isfinite(sum_wt) or sum_wt <= 0:
+      raise ValueError("Asimov weights must have a finite positive sum")
     def rescale_wt(df, scale):
       df["wt"] = df["wt"] * scale
       if self.drop_wt:
@@ -415,6 +464,16 @@ class MakeAsimov():
     )
     wp.collect()
     if os.path.isfile(total_wt_rescaler_name): os.system(f"mv {total_wt_rescaler_name} {asimov_file_name}")
+
+    if self.density_correction:
+      with open(f"{self.data_output}/density_correction.yaml", 'w') as file:
+        yaml.safe_dump({
+          "model": self.density_correction_model,
+          "parameters": self.density_correction_parameters,
+          "asimov_weights": self.asimov_weights,
+        }, file)
+    elif os.path.isfile(f"{self.data_output}/density_correction.yaml"):
+      os.remove(f"{self.data_output}/density_correction.yaml")
 
     # print the total event count
     if self.verbose:
@@ -433,8 +492,22 @@ class MakeAsimov():
 
     # Add asimov
     outputs = [f"{self.data_output}/asimov.parquet"]
+    if self.density_correction:
+      outputs += [f"{self.data_output}/density_correction.yaml"]
 
     return outputs
+
+
+  def _GetDensityCorrection(self):
+    """
+    Set up the correction shared by generation and input declarations.
+    """
+    correction = DensityCorrection()
+    correction.Configure({
+      "model_input": self.density_correction_model,
+      "parameters": self.density_correction_parameters,
+    })
+    return correction
 
   def _GetClassifierModels(self, model_parameters=None):
     """
@@ -461,9 +534,14 @@ class MakeAsimov():
     # Add parameters
     inputs += [self.parameters]
 
+    if self.density_correction:
+      inputs += self._GetDensityCorrection().Inputs()
+    if self.asimov_weights is not None:
+      inputs += [self.asimov_weights]
+
     # Add density model
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}_architecture.yaml"]
-    inputs += [f"{self.model_input}/{self.density_model['name']}/{self.file_name}.h5"]
+    density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{self.file_name}{self.model_extra_name}"
+    inputs += [f"{density_model_name}_architecture.yaml", f"{density_model_name}.h5"]
 
     if not self.only_density:
       # Add regression models
