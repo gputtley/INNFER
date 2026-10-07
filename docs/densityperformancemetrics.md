@@ -58,6 +58,8 @@ innfer --cfg="configs/run/your_analysis.py" --step="DensityPerformanceMetrics" \
 
 The two cache flags affect the inference evaluation path. Generated samples are temporary in this step's default CLI configuration (`tidy_up_asimov` is True). The p-value steps retain their reference/toy samples for subsequent comparisons.
 
+Add `--density-performance-metrics-per-val-ind` to evaluate multidimensional metrics separately for every eligible validation index instead of combining the hypotheses. All results are written to the same `metrics.yaml`, with keys such as `bdt_auc_val_val_ind_2` and `bdt_signed_auc_test_inf_val_ind_2`. Each comparison uses that index's effective event count and excludes the fixed condition columns from its classifier inputs. Empty datasets and non-density hypotheses are skipped. Without the flag, the existing merged multidimensional metrics are retained. Histogram and inference closure metrics already include validation indices; training/test losses remain global.
+
 With `--density-correction`, both generation comparisons and inference closure use the correction trained for this density checkpoint. The closure likelihood normalizes the corrected shape at every condition; its integral uses fixed latent seeds. The `loss` metrics remain the original flow's training/test loss, so they can still be compared with its training objective.
 
 Use `--loop-over-epochs` only when the corresponding epoch checkpoints exist; TrainDensity needs `--save-model-per-epoch` to produce them. Keep the saved model architecture and preprocessing metadata with each checkpoint.

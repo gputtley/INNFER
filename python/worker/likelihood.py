@@ -1,6 +1,7 @@
 import copy
 import json
 import hashlib
+import inspect
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
@@ -16,7 +17,7 @@ from functools import partial
 from iminuit import Minuit
 from pprint import pprint
 from scipy.interpolate import UnivariateSpline
-from scipy.optimize import minimize, root_scalar
+from scipy.optimize import minimize, root_scalar, line_search
 
 from minimise import Minimise as CustomMinimise
 from parallel_event_gradient import ParallelEventGradient
@@ -69,6 +70,7 @@ class Likelihood():
     self.constraint_range=[-3.0,3.0]
     self.cap_column_print = False
     self.no_print_minimisation_step = False
+    self.gradient_descent_objective_tolerance = 0.01
     self.classifier_divide_by_nominal = False
     self.selection_after_sampling = None
 
@@ -688,8 +690,6 @@ class Likelihood():
         # integrating the ratio product over samples from that original flow.
         if has_correction:
           ratio = corrections[name].Predict(X, Y.iloc[0].to_dict())
-          if hasattr(corrections[name], "SamplingSupport"):
-            ratio = np.where(corrections[name].SamplingSupport(X), ratio, 0.0)
           log_ratio = np.full(np.shape(ratio), -np.inf, dtype=np.float64)
           np.log(ratio, out=log_ratio, where=ratio > 0)
           log_probs[name][0] = log_probs[name][0] + log_ratio.reshape(-1, 1)
@@ -980,7 +980,10 @@ class Likelihood():
               }
               if not (integral_sample_cache_dict in self.integral_sample_cache_list):
                 #sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, seed=batch_ind+1)
-                sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, batch_number=batch_ind, batch_size=self.integral_events_per_batch, seed=0)
+                sample_options = {}
+                if has_correction and "apply_range_filter" in inspect.signature(pdf.Sample).parameters:
+                  sample_options["apply_range_filter"] = False
+                sampled_events = pdf.Sample(Y[density_columns], n_events=n_events_this_batch, batch_number=batch_ind, batch_size=self.integral_events_per_batch, seed=0, **sample_options)
                 self.integral_sample_cache_list.append(integral_sample_cache_dict)
                 self.integral_sample_cache_values.append(sampled_events)
                 if len(self.integral_sample_cache_list) > self.n_integral_sample_caches:
@@ -998,10 +1001,7 @@ class Likelihood():
               log_weights = self._GetLogProbs(sampled_events, Y, gradient=[0], column_1=column_1, column_2=column_2, category=category, specific_name=name, extra_cache_name=f"for_integral_batch{batch_ind}", skip_density=True, skip_integral=True, add_density_columns_to_cache=True)[name][0]
 
               sum_weights += np.sum(np.exp(log_weights))
-              # Multi-dimensional flow sampling rejects events outside its
-              # observable ranges. Include that acceptance in the normalizer.
-              # The special 1D density already has its own integral correction.
-              sum_lengths += n_events_this_batch if has_correction and not getattr(pdf, "fix_1d", False) else len(log_weights)
+              sum_lengths += len(log_weights)
 
             integral = sum_weights / float(sum_lengths)
             if not np.isfinite(integral) or integral <= 0:
@@ -1983,7 +1983,7 @@ class Likelihood():
     self.print_columns = [col for col in self.Y_columns if col not in freeze.keys()]
 
     # Define function to minimise
-    if method in ["scipy", "one-at-a-time", "scipy-non-nn-profiled"]:
+    if method in ["scipy", "one-at-a-time", "scipy-non-nn-profiled", "gradient-descent"]:
       func_to_minimise = lambda Y: self.Run(X_dps, Y, multiply_by=-2, gradient=0)
       func, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), func_to_minimise)
     elif method in ["minuit"]:
@@ -1995,20 +1995,16 @@ class Likelihood():
       class NLLAndGradient():
         def __init__(self):
           self.jac = 0.0
-          self.prev_nll_calc = False
+          self.point = None
+          self.val = None
         def GetNLL(self, Y):
-          val, jac = func_val_and_jac(Y)
-          self.jac = jac
-          self.prev_nll_calc = True
-          return val
+          if self.point is None or not np.array_equal(self.point, Y):
+            self.val, self.jac = func_val_and_jac(Y)
+            self.point = np.array(Y, copy=True)
+          return self.val
         def GetJac(self,Y):
-          if self.prev_nll_calc:
-            self.prev_nll_calc = False
-            return self.jac
-          else:
-            self.prev_nll_calc = False
-            _, jac = func_val_and_jac(Y)
-            return jac
+          self.GetNLL(Y)
+          return self.jac
       nllgrad = NLLAndGradient()
       if method in ["scipy-with-gradients","custom"]:
         func, jac, initial_guess = self._HelperFreeze(freeze, initial_guess.to_numpy().flatten(), nllgrad.GetNLL, jac=nllgrad.GetJac)
@@ -2047,6 +2043,19 @@ class Likelihood():
       result = self.Minimise(func, initial_guess, method="scipy", initial_simplex=initial_simplex, scipy_method=scipy_method)
     elif method in ["scipy-with-gradients"]:
       result = self.Minimise(func, initial_guess, method="scipy-with-gradients", jac=jac, initial_simplex=initial_simplex)
+    elif method == "gradient-descent":
+      # Use training condition scales where available, so a large mass offset
+      # does not imply a large finite-difference increment.
+      scales = []
+      for ind, column in enumerate(columns_to_minimise):
+        model_scales = []
+        for category_models in self.models.get("pdfs", {}).values():
+          for model in category_models.values():
+            std = getattr(model, "data_parameters", {}).get("standardisation", {}).get(column, {}).get("std")
+            if std is not None and np.isfinite(std) and std > 0:
+              model_scales.append(std)
+        scales.append(min(model_scales) if model_scales else max(1.0, abs(initial_guess[ind])))
+      result = self.Minimise(func, initial_guess, method=method, gradient_scales=scales)
     elif method in ["minuit"]:
       result = self.Minimise(func, initial_guess, method="minuit", errors=errors)
     elif method in ["minuit-with-gradients"]:
@@ -2422,7 +2431,80 @@ class Likelihood():
     return lower_scan_vals + [float(self.best_fit[best_fit_col_index])] + upper_scan_vals
 
 
-  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None, scipy_method="Nelder-Mead"):
+  def _NumericalGradient(self, func, point, scales=None):
+    """
+    Use one central difference per parameter, scaled for float32 model precision.
+    """
+    point = np.asarray(point, dtype=np.float64)
+    scales = np.maximum(1.0, np.abs(point)) if scales is None else np.asarray(scales, dtype=np.float64)
+    if scales.shape != point.shape or np.any(~np.isfinite(scales)) or np.any(scales <= 0):
+      raise ValueError("Numerical gradient scales must be finite, positive and match the free parameters")
+    # Central differences have O(h**2) truncation error. Cube-root epsilon
+    # balances this against roundoff; the flow evaluates its inputs in float32.
+    steps = np.cbrt(np.finfo(np.float32).eps) * scales
+    gradient = np.empty(point.shape, dtype=np.float64)
+    for ind, step in enumerate(steps):
+      plus, minus = point.copy(), point.copy()
+      plus[ind] += step
+      minus[ind] -= step
+      gradient[ind] = (float(func(plus)) - float(func(minus))) / (plus[ind] - minus[ind])
+    return gradient
+
+
+  def _GradientDescent(self, func, jac, initial_guess, max_iterations=1000, gradient_tolerance=1e-6, gradient_scales=None, objective_tolerance=0.01):
+    """
+    Follow the negative gradient using a SciPy line search for the step size.
+    Fall back to Armijo backtracking when the Wolfe search cannot find a step.
+    Stop after two consecutive improvements below the absolute objective tolerance.
+    """
+    if not np.isfinite(objective_tolerance) or objective_tolerance < 0:
+      raise ValueError("The gradient descent objective tolerance must be finite and non-negative")
+    if jac is None:
+      jac = lambda point: self._NumericalGradient(func, point, scales=gradient_scales)
+    point = np.asarray(initial_guess, dtype=np.float64).copy()
+    value = float(func(point))
+    gradient = np.asarray(jac(point), dtype=np.float64)
+    if not np.isfinite(value) or not np.all(np.isfinite(gradient)):
+      raise ValueError("Gradient descent requires a finite initial value and gradient")
+
+    small_improvements = 0
+    for iteration in range(max_iterations):
+      if gradient.size == 0 or np.linalg.norm(gradient, ord=np.inf) <= gradient_tolerance:
+        return point, value
+      direction = -gradient
+      slope = float(gradient @ direction)
+      with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        step = line_search(func, jac, point, direction, gfk=gradient, old_fval=value, maxiter=10)[0]
+      if step is None or not np.isfinite(step) or step <= 0:
+        step = 1.0
+
+      for backtrack in range(40):
+        candidate = point + step * direction
+        candidate_value = float(func(candidate))
+        if np.isfinite(candidate_value) and candidate_value <= value + 1e-4 * step * slope:
+          candidate_gradient = np.asarray(jac(candidate), dtype=np.float64)
+          if np.all(np.isfinite(candidate_gradient)):
+            break
+        step *= 0.5
+      else:
+        warnings.warn("Gradient descent could not find a finite decreasing step; returning the last accepted point.", RuntimeWarning)
+        return point, value
+
+      if np.array_equal(candidate, point):
+        warnings.warn("Gradient descent stalled before meeting the gradient tolerance.", RuntimeWarning)
+        return point, value
+      small_improvements = small_improvements + 1 if value - candidate_value <= objective_tolerance else 0
+      point, value, gradient = candidate, candidate_value, candidate_gradient
+      if small_improvements >= 2:
+        return point, value
+
+    if gradient.size and np.linalg.norm(gradient, ord=np.inf) > gradient_tolerance:
+      warnings.warn("Gradient descent reached its iteration limit before converging.", RuntimeWarning)
+    return point, value
+
+
+  def Minimise(self, func, initial_guess, method="scipy", jac=None, initial_simplex=None, errors=None, scipy_method="Nelder-Mead", gradient_scales=None):
     """
     Minimizes the given function using numerical optimization.
 
@@ -2458,6 +2540,11 @@ class Likelihood():
         options['initial_simplex'] = initial_simplex      
       minimisation = minimize(func, initial_guess, jac=jac, method='L-BFGS-B', tol=0.01, options=options)
       res = minimisation.x, minimisation.fun
+
+    # Pure gradient descent with an adaptive step size
+    elif method == "gradient-descent":
+      res = self._GradientDescent(func, None, initial_guess, gradient_scales=gradient_scales,
+        objective_tolerance=getattr(self, "gradient_descent_objective_tolerance", 0.01))
 
     # minuit
     elif method == "minuit":
@@ -2510,7 +2597,7 @@ class NLLAndGradient():
       res = CustomMinimise(func, jac, initial_guess)
 
     else:
-      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy-with-gradients', 'minuit', 'minuit-with-gradients' or 'custom'.")
+      raise ValueError(f"Method {method} not recognised. Please use 'scipy', 'scipy-with-gradients', 'gradient-descent', 'minuit', 'minuit-with-gradients' or 'custom'.")
 
     # Set minimisation_step
     self.minimisation_step = None

@@ -470,6 +470,23 @@ class Module():
       rules[-1] = rules[-1][:-1]
       rules += ["    ]"]
 
+      retry_runtime = getattr(self.args, "retry_runtime", None)
+      if retry_runtime is not None:
+        if isinstance(retry_runtime, bool) or not isinstance(retry_runtime, int) or retry_runtime <= 0:
+          raise ValueError("retry_runtime must be a positive integer in minutes")
+        rules += ["  resources:",
+          f"    retry_runtime=lambda wildcards, attempt: {retry_runtime} if attempt > 1 else 0"]
+
+      retry_memory = getattr(self.args, "retry_memory", None)
+      if retry_memory is not None:
+        if isinstance(retry_memory, bool) or not isinstance(retry_memory, int) or retry_memory <= 0:
+          raise ValueError("retry_memory must be a positive integer in MB")
+        if retry_runtime is None:
+          rules += ["  resources:"]
+        else:
+          rules[-1] += ","
+        rules += [f"    retry_memory=lambda wildcards, attempt: {retry_memory} if attempt > 1 else 0"]
+
       error_name = job_name.replace('.sh','_error.log')
       output_name = job_name.replace('.sh','_output.log')
       # Write command
@@ -490,4 +507,3 @@ class Module():
     self.extra_names = []
     self.input_store = []
     self.output_store = []
-

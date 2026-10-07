@@ -768,7 +768,7 @@ class BayesFlowNetwork():
     return Y[self.data_parameters["Y_columns"]]
 
 
-  def Sample(self, Y, n_events, seed=None, batch_number=None, batch_size=None, transform_Y=True, transform_X=True):
+  def Sample(self, Y, n_events, seed=None, batch_number=None, batch_size=None, transform_Y=True, transform_X=True, apply_range_filter=True):
     """
     Generate synthetic data samples based on given conditions.
 
@@ -785,6 +785,9 @@ class BayesFlowNetwork():
     transform_X : bool, optional
         Untransform generated observables to physical units. Set False to return
         every generated row in density training space, without range filtering.
+    apply_range_filter : bool, optional
+        Apply empirical training-range cuts to fixed-condition physical samples.
+        Set False when integrating the full flow density.
 
     Returns
     -------
@@ -877,7 +880,7 @@ class BayesFlowNetwork():
       }
     )
     
-    if copies:
+    if copies and apply_range_filter:
       functions_to_apply = ["remove_outside_minmax_from_transformed","untransform","remove_outside_minmax_from_untransformed"]
     else:
       functions_to_apply = ["untransform"]

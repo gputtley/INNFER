@@ -82,6 +82,7 @@ class DensityPerformanceMetrics():
     self.use_eff_events = False
     self.use_total_events_with_weights = False
     self.specific_val_ind = None
+    self.multidimensional_per_val_ind = False
     self.specific_val_ind_hypothesis = None
 
 
@@ -466,6 +467,7 @@ class DensityPerformanceMetrics():
       sim_files = []
       synth_files = []
       scales = []
+      metric_groups = []
       for val_ind, val_info in enumerate(GetValidationLoop(self.open_cfg, self.file_name)):
         if self.specific_val_ind is not None and val_ind != self.specific_val_ind: continue
         if SkipNonDensity(self.open_cfg, self.file_name, val_info, skip_non_density=True): continue
@@ -478,51 +480,61 @@ class DensityPerformanceMetrics():
         synth_files.append(synth_file)
         conditions = {k: val_info[k] for k in self.open_parameters["density"]["Y_columns"]}
         scale = self.open_parameters["eff_events"][data_type][val_ind]
-        scales.append((conditions, scale))
+        point_scales = [(conditions, scale)]
         if self.specific_val_ind is not None and self.specific_val_ind_hypothesis is not None:
           alternative = dict(conditions)
           alternative.update({k.split("=")[0]: float(k.split("=")[1]) for k in self.specific_val_ind_hypothesis.split(",")})
-          scales.append((alternative, scale))
+          point_scales.append((alternative, scale))
+        scales.extend(point_scales)
+        if self.multidimensional_per_val_ind:
+          metric_groups.append((val_ind, [sim_file], [synth_file], point_scales))
 
-      if self.verbose:
-        print("Sim files:", sim_files)
-        print("Synth files:", synth_files)
+      if not self.multidimensional_per_val_ind:
+        metric_groups = [(None, sim_files, synth_files, scales)]
 
-      # Initialise multi metrics
-      mm = MultiDimMetrics(
-        sim_files,
-        synth_files,
-        self.open_parameters['density']["X_columns"] + (self.open_parameters['density']["Y_columns"] if self.specific_val_ind is None else []),
-        functions_to_apply = [partial(scale_down, func=yield_class.GetYield, scales=scales)],
-      )
-      mm.verbose = self.verbose
-
-      # Get BDT separation metric
-      if self.do_bdt_separation:
+      for group_val_ind, sim_files, synth_files, scales in metric_groups:
+        if not sim_files:
+          continue
         if self.verbose:
-          print(" - Adding BDT separation")
-        mm.AddBDTSeparation()
+          print("Sim files:", sim_files)
+          print("Synth files:", synth_files)
+
+        # Initialise multi metrics
+        mm = MultiDimMetrics(
+          sim_files,
+          synth_files,
+          self.open_parameters['density']["X_columns"] + (self.open_parameters['density']["Y_columns"] if self.specific_val_ind is None and group_val_ind is None else []),
+          functions_to_apply = [partial(scale_down, func=yield_class.GetYield, scales=scales)],
+        )
+        mm.verbose = self.verbose
+
+        # Get BDT separation metric
+        if self.do_bdt_separation:
+          if self.verbose:
+            print(" - Adding BDT separation")
+          mm.AddBDTSeparation()
       
-      # Get Wasserstein metric
-      if self.do_wasserstein:
-        if self.verbose:
-          print(" - Adding Wasserstein")
-        mm.AddWassersteinUnbinned()
+        # Get Wasserstein metric
+        if self.do_wasserstein:
+          if self.verbose:
+            print(" - Adding Wasserstein")
+          mm.AddWassersteinUnbinned()
 
-      # Get sliced Wasserstein metric
-      if self.do_sliced_wasserstein:
-        if self.verbose:
-          print(" - Adding sliced Wasserstein")
-        mm.AddWassersteinSliced()
+        # Get sliced Wasserstein metric
+        if self.do_sliced_wasserstein:
+          if self.verbose:
+            print(" - Adding sliced Wasserstein")
+          mm.AddWassersteinSliced()
 
-      if self.do_kmeans_chi_squared:
-        if self.verbose:
-          print(" - Adding kmeans chi squared")
-        mm.AddKMeansChiSquared()
+        if self.do_kmeans_chi_squared:
+          if self.verbose:
+            print(" - Adding kmeans chi squared")
+          mm.AddKMeansChiSquared()
 
-      # Run metrics
-      multidim_metrics = mm.Run(self.alternative_asimov_seed)
-      self.metrics = {**self.metrics, **{f"{k}_{data_type}": v for k, v in multidim_metrics.items()}}
+        # Run metrics
+        multidim_metrics = mm.Run(self.alternative_asimov_seed)
+        suffix = f"_val_ind_{group_val_ind}" if group_val_ind is not None else ""
+        self.metrics.update({f"{k}_{data_type}{suffix}": v for k, v in multidim_metrics.items()})
 
 
   def DoInference(self):

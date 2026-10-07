@@ -1729,7 +1729,7 @@ def GetScanArchitectures(cfg, data_output="data/", write=True):
   return outputs
 
 
-def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None):
+def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None, retry_runtime=None, retry_memory=None):
 
   if output_cfg is None:
     output_cfg = []
@@ -1741,6 +1741,10 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None):
     if "step" in step.keys():
 
       output_step = step.copy()
+      if "retry_runtime" not in output_step and retry_runtime is not None:
+        output_step["retry_runtime"] = retry_runtime
+      if "retry_memory" not in output_step and retry_memory is not None:
+        output_step["retry_memory"] = retry_memory
       if "run_options" in step.keys() or run_options != {}:
         output_step["run_options"] = {**run_options, **step.get("run_options", {})}
       output_cfg.append(output_step)
@@ -1750,7 +1754,7 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None):
       workflow_run_options = {**run_options, **step.get("run_options", {})}
       with open(step["workflow"], 'r') as yaml_file:
         workflow = yaml.load(yaml_file, Loader=yaml.FullLoader)
-      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=workflow_run_options)
+      output_cfg = GetSnakeMakeStepLoop(workflow, output_cfg=output_cfg, run_options=workflow_run_options, retry_runtime=step.get("retry_runtime", retry_runtime), retry_memory=step.get("retry_memory", retry_memory))
 
   return output_cfg
 
@@ -2347,6 +2351,10 @@ def SetupSnakeMakeFile(args, default_args, main):
     args_copy.step = step_info["step"]
     if "submit" in step_info.keys():
       args_copy.submit = step_info["submit"]
+    if "retry_runtime" in step_info:
+      args_copy.retry_runtime = step_info["retry_runtime"]
+    if "retry_memory" in step_info:
+      args_copy.retry_memory = step_info["retry_memory"]
     if "run_options" in step_info.keys():
       for arg_name, arg_val in step_info["run_options"].items():
         if "add_inputs" in arg_name:
@@ -2373,7 +2381,7 @@ def SetupSnakeMakeFile(args, default_args, main):
     for line in file:
       line = line.rstrip()
       all_lines.append(line)
-      if line.startswith("  shell:") or line.startswith("  input:") or line.startswith("  params:") or line.startswith("  threads:") or line == "":
+      if line.startswith("  shell:") or line.startswith("  input:") or line.startswith("  params:") or line.startswith("  resources:") or line.startswith("  threads:") or line == "":
         output_line = False
         continue
       elif line.startswith("  output:"):
@@ -2405,6 +2413,9 @@ def SetupSnakeMakeFile(args, default_args, main):
       output_line = False
       input_line = False
       sweep = True
+    elif line.startswith(("  params:", "  resources:", "  threads:")):
+      output_line = False
+      input_line = False
     elif input_line:
       inputs.append(line.replace(" ","").replace('"','').replace("'","").replace(",",""))
     elif output_line:

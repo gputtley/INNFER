@@ -42,6 +42,7 @@
 # Train classifier models
 - step: "BayesianHyperparameterTuning"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  retry_runtime: 600
   run_options:
     disable_tqdm: True
     classifier_architecture: "configs/architecture/classifier_scan_bayesian.yaml"
@@ -57,6 +58,7 @@
     tuning_timeout_index: 0
 - step: "BayesianHyperparameterTuning"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  retry_runtime: 600
   run_options:
     disable_tqdm: True
     classifier_architecture: "configs/architecture/classifier_scan_bayesian.yaml"
@@ -72,6 +74,7 @@
     tuning_timeout_index: 1
 - step: "BayesianHyperparameterTuning"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  retry_runtime: 600
   run_options:
     disable_tqdm: True
     classifier_architecture: "configs/architecture/classifier_scan_bayesian.yaml"
@@ -87,6 +90,7 @@
 
 - step: "BayesianHyperparameterTuning"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  retry_runtime: 600
   run_options:
     disable_tqdm: True
     classifier_architecture: "configs/architecture/classifier_scan_bayesian.yaml"

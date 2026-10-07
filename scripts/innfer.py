@@ -83,6 +83,7 @@ def parse_args():
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
+  parser.add_argument('--density-performance-metrics-per-val-ind', help='Evaluate multidimensional density metrics separately at each validation index and save all results in one metrics YAML', action='store_true')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt')
   parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
   parser.add_argument('--disable-tqdm', help='Disable tqdm when training.', action='store_true')
@@ -123,7 +124,7 @@ def parse_args():
   parser.add_argument('--loop-over-rates', help='Loop over rate parameters as well as shape parameter', action='store_true')
   parser.add_argument('--make-snakemake-inputs', help='Make the snakemake input file', action='store_true')
   parser.add_argument('--merge-binned-nuisances', help='Merge the binned nuisances. Key and values (comma separated) colon separated, all separated by semicolons', type=str, default=None)
-  parser.add_argument('--minimisation-method', help='Method for minimisation', type=str, default='scipy')
+  parser.add_argument('--minimisation-method', help='Method for minimisation (scipy, scipy-with-gradients, gradient-descent, minuit, minuit-with-gradients, custom)', type=str, default='scipy')
   parser.add_argument('--model-type', help='The model type to run the step for, if applicable.', type=str, default='density')
   parser.add_argument('--number-of-asimov-events', help='The number of asimov events', type=int, default=10**6)
   parser.add_argument('--number-of-bootstraps', help='The number of bootstrap initial fits to run', type=int, default=100)
@@ -192,6 +193,8 @@ def parse_args():
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
+  parser.add_argument('--retry-runtime', help='Runtime in minutes for Snakemake retries; first attempts use the submission YAML', type=int, default=None)
+  parser.add_argument('--retry-memory', help='Memory in MB for Snakemake retries; first attempts use the submission YAML', type=int, default=None)
   parser.add_argument('--submit-in-one-job', help='Will submit all steps in one job', action='store_true')
   parser.add_argument('--summary-from', help='Summary from bootstrap or likelihood scan', type=str, default='Covariance', choices=['Scan', 'Bootstrap','ApproximateUncertainty','Covariance','CovarianceWithDMatrix','UncertaintyFromMinimisation'])
   parser.add_argument('--summary-nominal-name', help='Name of nominal summary points', type=str, default='Nominal')
@@ -1388,6 +1391,7 @@ def main(args, default_args, module_options={}):
             "do_loss": "loss" in args.density_performance_metrics,
             "do_histogram_metrics": "histogram" in args.density_performance_metrics,
             "do_multidimensional_dataset_metrics": "multidim" in args.density_performance_metrics,
+            "multidimensional_per_val_ind": args.density_performance_metrics_per_val_ind,
             "do_bdt_separation" : "bdt" in args.density_performance_metrics_multidim,
             "do_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
             "do_sliced_wasserstein" : "wasserstein" in args.density_performance_metrics_multidim,
