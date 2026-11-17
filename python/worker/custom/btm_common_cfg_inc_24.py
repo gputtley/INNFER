@@ -18,10 +18,12 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
   post_selection = "((CombinedSubJets_pt > 400) & (LeptonicTop_mass < CombinedSubJets_mass) & (MET_pt>50) & (BJetLep_pt>30) & (CombinedSubJets_pt < 800) & (CombinedSubJets_mass > 50) & (CombinedSubJets_mass < 300) & (SubJet1_mass > 5) & (SubJet1_mass < 175) & (SubJet1_pt > 200) & (SubJet1_pt < 700) & (SubJet1_tau21 > 0.01) & (SubJet1_tau21 < 0.99) & (FatJet_tau21 > 0.05) & (FatJet_tau21 < 0.9) & (SubJet2_btagDeepB > 0) & (SubJet2_btagDeepB < 1))"
 
   host = socket.getfqdn()
-  if host.endswith(".cern.ch"):
-    data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # cern
-  else:
-    data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #imperial
+  #if host.endswith(".cern.ch"):
+  #  data_loc = "/eos/user/g/guttley/pc_output/060526_parquet" # cern
+  #else:
+  #  data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/060526_parquet" #imperial
+
+  data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/270726_parquet" #imperial
 
   variables = [
     "CombinedSubJets_mass",
@@ -168,7 +170,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
     ttbar_yield_files[cat] = {}
     for year in years:
       for mass, files in ttbar_names.items():
-        if year == "2024" and mass in [171.5, 173.5]: continue # temporary
+        #if year == "2024" and mass in [171.5, 173.5]: continue # temporary
         for name in files:
           file_path = f"{data_loc}/{name}_{year}.parquet"
           if os.path.exists(file_path):
@@ -274,6 +276,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
     objs = ["SubJet1", "SubJet2", "BJetLep", "MET"]
     jec_inputs += [f"{obj}_corrFactor" for obj in objs if obj not in ["MET"]]
     for nui in jec_nuisances:
+      jec_inputs += [nui]
       no_year_nui = nui.split("_20")[0]
       jec_inputs += [f"{obj}_{var}" for obj in objs for var in ["eta", "pt", "mass", "phi"] if obj not in ["MET"]]
       jec_inputs += ["MET_pt"]
@@ -285,6 +288,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         jec_inputs += [f"{obj}_smearFactor_down" for obj in objs if f"{obj}_smearFactor_down" not in jec_inputs]
       else:
         jec_inputs += [f"{obj}_corrFactor_{no_year_nui}" for obj in objs]
+
 
     common_calculate = {
       "btm_calculate": {
@@ -342,7 +346,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         "type": "function",
         "file": "asym_log_normal",
         "name": "two_weight_variation",
-        "args": {"nuisance_column_name": "fsr", "up_weight_column_name": "GenWeights_isr1fsr2", "down_weight_column_name": "GenWeights_isr1fsr0p5", "wt_name": "wt", "mask": "(top_process == 1)"},
+        "args": {"nuisance_column_name": "fsr", "up_weight_column_name": "GenWeights_isr1fsr2", "down_weight_column_name": "GenWeights_isr1fsr0p5", "wt_name": "wt", "mask": "(top_process == 1)", "log_normal_clip" : (0.1, 10.0)},
         "inputs": ["GenWeights_isr1fsr2", "GenWeights_isr1fsr0p5", "top_process", "fsr"],
       },
       "muF" : {
@@ -372,62 +376,6 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         "name": "two_weight_variation", 
         "args": {"nuisance_column_name": f"btag_weight_correlated_{cat}", "up_weight_column_name": "Extra_BTagWeightCorrection_up_correlated", "down_weight_column_name": "Extra_BTagWeightCorrection_down_correlated", "nominal_weight_column_name": "Extra_BTagWeightCorrection", "wt_name": "wt"},
         "inputs": ["Extra_BTagWeightCorrection_down_correlated", "Extra_BTagWeightCorrection_up_correlated", "Extra_BTagWeightCorrection", f"btag_weight_correlated_{cat}"],      
-      },
-      f"btag_shape_hf_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_hf_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hf", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hf", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hf", f"Extra_BTagShapeCorrectionSubjets_up_hf", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hf_{cat}"],
-      },
-      f"btag_shape_lf_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_lf_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lf", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lf", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lf", f"Extra_BTagShapeCorrectionSubjets_up_lf", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lf_{cat}"],
-      },
-      f"btag_shape_hfstats1_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_hfstats1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hfstats1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hfstats1", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hfstats1", f"Extra_BTagShapeCorrectionSubjets_up_hfstats1", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hfstats1_{cat}"],
-      },
-      f"btag_shape_hfstats2_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_hfstats2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hfstats2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hfstats2", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hfstats2", f"Extra_BTagShapeCorrectionSubjets_up_hfstats2", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hfstats2_{cat}"],
-      },
-      f"btag_shape_lfstats1_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_lfstats1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lfstats1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lfstats1", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lfstats1", f"Extra_BTagShapeCorrectionSubjets_up_lfstats1", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lfstats1_{cat}"],
-      },
-      f"btag_shape_lfstats2_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_lfstats2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lfstats2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lfstats2", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lfstats2", f"Extra_BTagShapeCorrectionSubjets_up_lfstats2", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lfstats2_{cat}"],
-      },
-      f"btag_shape_cferr1_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_cferr1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_cferr1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_cferr1", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_cferr1", f"Extra_BTagShapeCorrectionSubjets_up_cferr1", f"btag_shape_cferr1_{cat}"],
-      },
-      f"btag_shape_cferr2_{cat}" : {
-        "type": "function",
-        "file": "asym_log_normal",
-        "name": "two_weight_variation",
-        "args": {"nuisance_column_name": f"btag_shape_cferr2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_cferr2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_cferr2", "wt_name": "wt"},
-        "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_cferr2", f"Extra_BTagShapeCorrectionSubjets_up_cferr2", f"btag_shape_cferr2_{cat}"],
       },
       "pileup" : {
         "type": "function", 
@@ -478,75 +426,128 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         "args": {"nuisance_column_name": "muon_trigger", "up_weight_column_name": "Extra_sf_mu_trigger_custom_up", "down_weight_column_name": "Extra_sf_mu_trigger_custom_down", "nominal_weight_column_name": "Extra_sf_mu_trigger_custom", "wt_name": "wt"},
         "inputs": ["Extra_sf_mu_trigger_custom_down", "Extra_sf_mu_trigger_custom_up", "Extra_sf_mu_trigger_custom", "muon_trigger"],
       },
-    }
-
-    
-    if cat == "24":
-
-      ttbar_weight_shifts = {
-        "isr_ttbar" : {
-          "type": "function", 
-          "file": "asym_log_normal", 
-          "name": "two_weight_variation", 
-          "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
-          "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
-        },
-      }
-
-    else:
-    
-      common_weight_shifts["electron_trigger"] = {
+      "electron_trigger" : {
         "type": "function",
         "file": "asym_log_normal",
         "name": "two_weight_variation",
         "args": {"nuisance_column_name": "electron_trigger", "up_weight_column_name": "Extra_sf_ele_trigger_custom_up", "down_weight_column_name": "Extra_sf_ele_trigger_custom_down", "nominal_weight_column_name": "Extra_sf_ele_trigger_custom", "wt_name": "wt"},
         "inputs": ["Extra_sf_ele_trigger_custom_down", "Extra_sf_ele_trigger_custom_up", "Extra_sf_ele_trigger_custom", "electron_trigger"],
       }
+    }
 
-      ttbar_weight_shifts = {
-        "hdamp" : {
-          "type": "function",
-          "file": "btm_modelling_systematics",
-          "name": "three_point_variation_weight",
-          "args": {"nuisance_column_name": "hdamp", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 3)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 4)"},
-          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "hdamp"],
-        },
-        "ue" : {
-          "type": "function",
-          "file": "btm_modelling_systematics",
-          "name": "three_point_variation_weight",
-          "args": {"nuisance_column_name": "ue", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 5)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 6)"},
-          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ue"],
-        },
-        "CR1" : {
-          "type": "function",
-          "file": "btm_modelling_systematics",
-          "name" : "two_point_variation_weight",
-          "args": {"nuisance_column_name": "CR1", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 1)"},
-          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR1"],
-        },
-        "CR2" : {
-          "type": "function",
-          "file": "btm_modelling_systematics",
-          "name" : "two_point_variation_weight",
-          "args": {"nuisance_column_name": "CR2", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 2)"},
-          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR2"],
-        },
-        "ERDOn" : {
-          "type": "function",
-          "file": "btm_modelling_systematics",
-          "name" : "two_point_variation_weight",
-          "args": {"nuisance_column_name": "ERDOn", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 7)"},
-          "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ERDOn"],
-        },
-        "isr_ttbar" : {
-          "type": "function", 
-          "file": "asym_log_normal", 
-          "name": "two_weight_variation", 
-          "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
-          "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
-        },
+    if year not in ["2024"]:
+      common_weight_shifts = {
+        **common_weight_shifts,
+        f"btag_shape_hf_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_hf_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hf", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hf", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hf", f"Extra_BTagShapeCorrectionSubjets_up_hf", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hf_{cat}"],
+          },
+          f"btag_shape_lf_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_lf_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lf", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lf", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lf", f"Extra_BTagShapeCorrectionSubjets_up_lf", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lf_{cat}"],
+          },
+          f"btag_shape_hfstats1_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_hfstats1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hfstats1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hfstats1", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hfstats1", f"Extra_BTagShapeCorrectionSubjets_up_hfstats1", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hfstats1_{cat}"],
+          },
+          f"btag_shape_hfstats2_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_hfstats2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_hfstats2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_hfstats2", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_hfstats2", f"Extra_BTagShapeCorrectionSubjets_up_hfstats2", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_hfstats2_{cat}"],
+          },
+          f"btag_shape_lfstats1_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_lfstats1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lfstats1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lfstats1", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lfstats1", f"Extra_BTagShapeCorrectionSubjets_up_lfstats1", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lfstats1_{cat}"],
+          },
+          f"btag_shape_lfstats2_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_lfstats2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_lfstats2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_lfstats2", "nominal_weight_column_name": f"Extra_BTagShapeCorrectionSubjets", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_lfstats2", f"Extra_BTagShapeCorrectionSubjets_up_lfstats2", f"Extra_BTagShapeCorrectionSubjets", f"btag_shape_lfstats2_{cat}"],
+          },
+          f"btag_shape_cferr1_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_cferr1_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_cferr1", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_cferr1", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_cferr1", f"Extra_BTagShapeCorrectionSubjets_up_cferr1", f"btag_shape_cferr1_{cat}"],
+          },
+          f"btag_shape_cferr2_{cat}" : {
+            "type": "function",
+            "file": "asym_log_normal",
+            "name": "two_weight_variation",
+            "args": {"nuisance_column_name": f"btag_shape_cferr2_{cat}", "up_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_up_cferr2", "down_weight_column_name": f"Extra_BTagShapeCorrectionSubjets_down_cferr2", "wt_name": "wt"},
+            "inputs": [f"Extra_BTagShapeCorrectionSubjets_down_cferr2", f"Extra_BTagShapeCorrectionSubjets_up_cferr2", f"btag_shape_cferr2_{cat}"],
+          },
       }
+
+  
+    ttbar_weight_shifts = {
+      "hdamp" : {
+        "type": "function",
+        "file": "btm_modelling_systematics",
+        "name": "three_point_variation_weight",
+        "args": {"nuisance_column_name": "hdamp", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 3)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 4)"},
+        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "hdamp"],
+      },
+      "ue" : {
+        "type": "function",
+        "file": "btm_modelling_systematics",
+        "name": "three_point_variation_weight",
+        "args": {"nuisance_column_name": "ue", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 5)", "mask_sample_m1" : "(TTtoSL_modelling_syst == 6)"},
+        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ue"],
+      },
+      "CR1" : {
+        "type": "function",
+        "file": "btm_modelling_systematics",
+        "name" : "two_point_variation_weight",
+        "args": {"nuisance_column_name": "CR1", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 1)"},
+        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR1"],
+      },
+      "CR2" : {
+        "type": "function",
+        "file": "btm_modelling_systematics",
+        "name" : "two_point_variation_weight",
+        "args": {"nuisance_column_name": "CR2", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 2)"},
+        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "CR2"],
+      },
+      "ERDOn" : {
+        "type": "function",
+        "file": "btm_modelling_systematics",
+        "name" : "two_point_variation_weight",
+        "args": {"nuisance_column_name": "ERDOn", "wt_name": "wt", "total_mask": "((could_be_TTToSL == 1) & (GenTT_count_l == 1))", "mask_sample_nominal" : "(TTtoSL_modelling_syst == 0)", "mask_sample_p1" : "(TTtoSL_modelling_syst == 7)"},
+        "inputs": ["TTtoSL_modelling_syst", "GenTT_count_l", "ERDOn"],
+      },
+      "isr_ttbar" : {
+        "type": "function", 
+        "file": "asym_log_normal", 
+        "name": "two_weight_variation", 
+        "args": {"nuisance_column_name": "isr_ttbar", "up_weight_column_name": "GenWeights_isr2fsr1", "down_weight_column_name": "GenWeights_isr0p5fsr1", "wt_name": "wt", "mask": "(top_process == 1)"},
+        "inputs": ["GenWeights_isr2fsr1", "GenWeights_isr0p5fsr1", "top_process", "isr_ttbar"],
+      },
+      "bfragmentation" : {
+        "type": "function", 
+        "file": "asym_log_normal", 
+        "name": "two_weight_variation",
+        "args": {"nuisance_column_name": "bfragmentation", "up_weight_column_name": "bfrag_weight_up", "down_weight_column_name": "bfrag_weight_down", "nominal_weight_column_name": "bfrag_weight_nominal", "wt_name": "wt", "mask": "(top_process == 1)"},
+        "inputs": ["bfrag_weight_up", "bfrag_weight_down", "bfrag_weight_nominal", "top_process", "bfragmentation"],
+      }
+    }
 
     ttbar_yield_weight_shifts = copy.deepcopy(ttbar_weight_shifts)
 
@@ -710,7 +711,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       if k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "three_point_variation_weight":
         models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "discrete", "values": [-1.0,1.0]}}, "n_copies":3, "categories": categories_per_era[cat]}]
       elif k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "two_point_variation_weight":
-        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "fixed", "value": 1.0}}, "n_copies":3, "categories": categories_per_era[cat]}]
+        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "fixed", "value": 1.0}}, "n_copies":1, "categories": categories_per_era[cat]}]
       else:
         models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]}]
 

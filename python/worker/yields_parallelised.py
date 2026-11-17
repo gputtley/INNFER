@@ -95,9 +95,10 @@ class Yields:
         low = nu3 < -self.q
         mid = ~(high | low)
 
-        alpha = 0.125 * (2 * nu3) * (
-            (6 * nu3**4) - (10 * nu3**2) + 5
-        )
+        # J(x) = (15*x - 10*x**3 + 3*x**5)/8, with x = nu/q.
+        # The log-kappa coefficient is J(x)/2, matching two derivatives at +/-q.
+        scaled_nu = nu3 / self.q
+        alpha = scaled_nu * (15 - 10 * scaled_nu**2 + 3 * scaled_nu**4) / 16
 
         logk = (
             high * log_hi[None, :, :]

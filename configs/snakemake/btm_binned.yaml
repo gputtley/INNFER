@@ -1,4 +1,19 @@
-- workflow: configs/snakemake/btm_pre.yaml
+# Build the new run from raw inputs, including one BW mixture per era.
+- workflow: configs/snakemake/subworkflow/btm_load_data_binned_with_bw_condor_ic.yaml
 - workflow: configs/snakemake/subworkflow/btm_preprocess_binned_with_bw_condor_ic.yaml
 - workflow: configs/snakemake/subworkflow/btm_prefit_data_vs_sim_binned_condor_ic.yaml
+
+# Combined fit and one fit containing every channel within each era.
 - workflow: configs/snakemake/subworkflow/inference_asimov_binned_condor_ic.yaml
+- workflow: configs/snakemake/subworkflow/inference_asimov_binned_condor_ic.yaml
+  run_options:
+    specific_category: "run2_*"
+    extra_extra_dir_name: "_run2"
+- workflow: configs/snakemake/subworkflow/inference_asimov_binned_condor_ic.yaml
+  run_options:
+    specific_category: "2223_*"
+    extra_extra_dir_name: "_2223"
+- workflow: configs/snakemake/subworkflow/inference_asimov_binned_condor_ic.yaml
+  run_options:
+    specific_category: "24_*"
+    extra_extra_dir_name: "_24"

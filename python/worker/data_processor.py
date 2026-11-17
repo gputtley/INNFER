@@ -124,7 +124,7 @@ class DataProcessor():
 
 
   def _ReplaceEqualsWithIsClose(self, selection):
-    pattern = r'(\w+)\s*==\s*([-+]?\d*\.?\d+)'      
+    pattern = r'(\w+)\s*==\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(?![\w.])'
     replacement = r'np.isclose(\1, \2)'   
     shift = 1e-7
     replacement = rf'((\1 > (\2 - {shift})) & (\1 < (\2 + {shift})))'   
@@ -288,6 +288,19 @@ class DataProcessor():
     return df
 
 
+  def _GetDiscreteBins(self, unique):
+    """
+    Get histogram edges for discrete values, including a constant column.
+    """
+    unique = sorted(unique)
+    if len(unique) == 0:
+      raise ValueError("Cannot make histogram bins for an empty column.")
+    if len(unique) == 1:
+      width = max(1.0, abs(unique[0]) * np.finfo(np.float64).eps * 2)
+      return np.array([unique[0] - width, unique[0] + width])
+    return np.array(unique + [2*unique[-1] - unique[-2]])
+
+
   def GetFull(
       self, 
       method = "dataset", 
@@ -349,7 +362,7 @@ class DataProcessor():
           unique = None
         if unique is not None: # Discrete bins
           unique = sorted(unique)
-          bins_out = np.array(unique + [2*unique[-1] - unique[-2]])
+          bins_out = self._GetDiscreteBins(unique)
         else:
           quantiles = self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=[ignore_quantile, 1-ignore_quantile], single_batch=single_batch)
           bins_out = np.linspace(quantiles[0], quantiles[-1], num=bins+1)
@@ -368,7 +381,7 @@ class DataProcessor():
         if len(discrete_columns) > 0:
           for col in discrete_columns:
             unique_col = sorted(unique[col])
-            bins_out_dict[col] = np.array(unique_col + [2*unique_col[-1] - unique_col[-2]])
+            bins_out_dict[col] = self._GetDiscreteBins(unique_col)
 
         if len(continuous_columns) > 0:
           quantiles_for_columns = self.GetFull(method="quantiles_for_columns", extra_sel=extra_sel, functions_to_apply=functions_to_apply, columns=continuous_columns, quantiles=[ignore_quantile, 1-ignore_quantile], single_batch=single_batch)
@@ -384,7 +397,7 @@ class DataProcessor():
       unique = self.GetFull(method="unique", extra_sel=extra_sel, functions_to_apply=functions_to_apply, unique_threshold=bins, columns=[column], single_batch=single_batch)[column]
       if unique is not None and not ignore_discrete: # Discrete bins
         unique = sorted(unique)
-        return np.array(unique + [2*unique[-1] - unique[-2]])
+        return self._GetDiscreteBins(unique)
       else:
         #out_bins = np.array([self.GetFull(method="quantile", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantile=i) for i in np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1)])
         out_bins = np.array(self.GetFull(method="quantiles", extra_sel=extra_sel, functions_to_apply=functions_to_apply, column=column, quantiles=np.linspace(ignore_quantile, 1-ignore_quantile, num=bins+1), single_batch=single_batch))

@@ -81,6 +81,8 @@ class BayesFlowNetwork():
     self.learning_rate = 1e-3
     self.permutation = "learnable"
     self.optimizer_name = "AdamW" 
+    self.use_ema = False
+    self.ema_momentum = 0.999
     self.lr_scheduler_name = "ExponentialDecay"
     self.lr_scheduler_options = {} 
     self.active_learning = False
@@ -94,6 +96,7 @@ class BayesFlowNetwork():
     self.tolerance = 0.02
     self.wait_till = 5
     self.l2_lambda = 0.0001
+    self.log_l2_lambda = None
     self.trainable_cl_per_epoch = None
     self.turn_conditions_on_at_epoch = None
 
@@ -183,6 +186,9 @@ class BayesFlowNetwork():
     """
     for key, value in options.items():
       setattr(self, key, value)
+
+    if self.log_l2_lambda is not None:
+      self.l2_lambda = 10.0**float(self.log_l2_lambda)
 
   def BuildModel(self):
     """
@@ -292,6 +298,8 @@ class BayesFlowNetwork():
       lr_scheduler_options=self.lr_scheduler_options,
       default_lr=self.learning_rate,
       gradient_clipping_norm=self.gradient_clipping_norm,
+      use_ema=self.use_ema,
+      ema_momentum=self.ema_momentum,
     )
 
 

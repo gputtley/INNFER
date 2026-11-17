@@ -35,6 +35,7 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | --- | --- | --- |
 | `--data-vs-simulation` | `False` | For the Generator and DistributionPlot step, show data vs simulation |
 | `--plot-2d-unrolled` | `False` | Make 2D unrolled plots when running generator. |
+| `--plot-hypothesis` | `False` | Show the hypothesis with translated parameter names and units at the top left of the main plotting pad. |
 | `--plot-transformed` | `False` | Plot transformed variables when running generator. |
 | `--plot-var-and-bins` | `None` | For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced. |
 | `--ratio-range` | `'0.5,1.5'` | Range for ratio plot |
@@ -42,6 +43,14 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 ## Behaviour and checks
 
 Generator reads existing synthetic files; run MakeAsimov first. Match `--extra-asimov-input-dir-name` to the producing step. Weighted histogram errors depend on squared weights, so oversampling synthetic events changes their Monte Carlo uncertainty without changing the target yield.
+
+Add `--plot-hypothesis` to label each plot with its validation hypothesis, for
+example the true top mass. Labels use the same `Translate` names and units as
+PValueDatasetComparisonPlot. This applies to all 1D styles, transformed plots
+and 2D-unrolled plots. Multiple parameters appear on separate lines.
+Hypothesis text is hidden unless the flag is supplied;
+plots with an empty hypothesis have no label. In Snakemake `run_options`, use
+`plot_hypothesis: true` on the Generator step.
 
 ## Implementation
 

@@ -1,8 +1,11 @@
 # Type
 type: "FCNN"
 # training
-epochs: 30
-batch_size: [1024, 8192]
+epochs: null
+full_dataset_gradient: [false, true] # Trial minibatches or one accumulated gradient over the full dataset.
+number_of_updates: 60000 # Rounded up to whole epochs for the selected batch size.
+full_dataset_number_of_updates: 2000 # Override when full_dataset_gradient is true.
+batch_size: [1024, 32768]
 early_stopping: true
 patience: 3
 tolerance: 0.02
@@ -16,11 +19,11 @@ lr_scheduler_options:
   step_power: [0.1, 1.0]
 gradient_clipping_norm: null
 # architecture
-dropout: [0.0, 0.1]
+dropout: [0.0, 0.03]
 dense_layers:
   layer_1: [32, 256]
   layer_2: [32, 256]
   layer_3: [32, 256]
-activation: relu
-l2_lambda: [0.0,0.00001]
-normalise_batch_categories: true
+activation: ["relu", "elu"]
+log_l2_lambda: [-7.0, -5.0]
+normalise_batch_categories: false

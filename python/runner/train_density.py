@@ -4,6 +4,7 @@ import yaml
 from random_word import RandomWords
 
 from useful_functions import InitiateDensityModel, MakeDirectories
+from density_ema import RawDensityModelPath
 
 class TrainDensity():
 
@@ -109,9 +110,13 @@ class TrainDensity():
     if self.verbose:
       print("- Saving the model and its architecture")
     architecture_name = f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}_architecture.yaml"
-    MakeDirectories(architecture_name)
-    with open(architecture_name, 'w') as file:
-      yaml.dump(architecture, file)
+    architecture_names = [architecture_name]
+    if architecture.get("use_ema", False):
+      architecture_names.append(RawDensityModelPath(architecture_name))
+    for name in architecture_names:
+      MakeDirectories(name)
+      with open(name, 'w') as file:
+        yaml.dump(architecture, file)
 
   def Outputs(self):
     """
@@ -122,6 +127,11 @@ class TrainDensity():
       f"{self.data_output}/{self.file_name}{self.save_extra_name}.h5",
       f"{self.data_output}/{self.file_name}{self.save_extra_name}_architecture.yaml",
     ]
+    if self.architecture is not None:
+      with open(self.architecture, 'r') as yaml_file:
+        architecture = yaml.safe_load(yaml_file)
+      if architecture.get("use_ema", False):
+        outputs += [RawDensityModelPath(path) for path in outputs]
     return outputs
 
   def Inputs(self):
@@ -145,5 +155,3 @@ class TrainDensity():
       inputs.append(self.load_weights_for_training)
 
     return inputs
-
-        

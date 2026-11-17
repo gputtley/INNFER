@@ -92,7 +92,7 @@ class EvaluateDensity():
       def pred(df):
         nonlocal batch_index
         Y = df.loc[:, parameters["density"]["Y_columns"]].reset_index(drop=True)
-        if architecture["type"] == "BayesFlow":
+        if architecture["type"] in ["BayesFlow", "KerasFlow"]:
           # Both the source conditions and saved samples are in training space.
           # Avoid an inverse/forward transform round trip and range filtering,
           # which can otherwise remove the final one-row batch.
@@ -155,4 +155,3 @@ class EvaluateDensity():
     inputs.append(self.parameters)
 
     return inputs
-

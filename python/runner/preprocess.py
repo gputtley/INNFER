@@ -82,6 +82,7 @@ class PreProcess():
     self.data_output = "data/"
     self.seed = 42
     self.batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_PREPROCESS"))
+    self.shuffle_batch_size = int(os.getenv("EVENTS_PER_BATCH_FOR_SHUFFLE", str(self.batch_size)))
     self.binned_fit_input = None
     self.validation_binned = None
     self.extra_selection = None
@@ -2333,6 +2334,9 @@ class PreProcess():
 
   def _DoShuffleDataset(self, files):
 
+    if self.shuffle_batch_size < 1:
+      raise ValueError("EVENTS_PER_BATCH_FOR_SHUFFLE must be a positive integer")
+
     for name in files:
 
       full_name = f"{self.data_output}/{name}"
@@ -2341,7 +2345,7 @@ class PreProcess():
 
       shuffle_name_iteration = name.replace(".parquet", "_shuffled_iteration.parquet")
       full_shuffle_name_iteration = f"{self.data_output}/{shuffle_name_iteration}"
-      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.shuffle_batch_size, use_pbar=self.use_pbar)
 
       number_of_shuffles = self.number_of_shuffles
 
@@ -2367,7 +2371,7 @@ class PreProcess():
         print(f"   - name={name} shuffle batches")
       shuffle_name_batch = name.replace(".parquet", "_shuffled_batch.parquet")
       full_shuffle_name_batch = f"{self.data_output}/{shuffle_name_batch}"
-      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.shuffle_batch_size, use_pbar=self.use_pbar)
       wp = WriteParquet(
         name = shuffle_name_batch.split(".parquet")[0],
         data_output=self.data_output,
@@ -2389,7 +2393,7 @@ class PreProcess():
         print(f"   - name={name} shuffle moving final batch to first")
       final_batch_name = name.replace(".parquet", "_final_batch_first.parquet")
       full_final_batch_name = f"{self.data_output}/{final_batch_name}"
-      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.shuffle_batch_size, use_pbar=self.use_pbar)
       wp = WriteParquet(
         name = final_batch_name.split(".parquet")[0],
         data_output=self.data_output,
@@ -2397,14 +2401,14 @@ class PreProcess():
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=False),
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.shuffle_batch_size, dataset_name=final_batch_name, do_batch_size=False),
           wp
         ]
       )
       shuffle_dp.GetFull(
         method = None,
         functions_to_apply = [
-          partial(self._DoWriteWhetherBatchSize, batch_size=self.batch_size, dataset_name=final_batch_name, do_batch_size=True),
+          partial(self._DoWriteWhetherBatchSize, batch_size=self.shuffle_batch_size, dataset_name=final_batch_name, do_batch_size=True),
           wp
         ]
       )
@@ -2417,7 +2421,7 @@ class PreProcess():
         print(f"   - name={name} shuffle batches again")
       shuffle_name_batch_final = name.replace(".parquet", "_shuffled_batch_final.parquet")
       full_shuffle_name_batch_final = f"{self.data_output}/{shuffle_name_batch_final}"
-      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.batch_size, use_pbar=self.use_pbar)
+      shuffle_dp = DataProcessor([[full_name]],"parquet", batch_size=self.shuffle_batch_size, use_pbar=self.use_pbar)
       wp = WriteParquet(
         name = shuffle_name_batch_final.split(".parquet")[0],
         data_output=self.data_output,
@@ -2840,6 +2844,7 @@ class PreProcess():
 
     first = True
     density_parameters = None
+    model_parameters = {"classifier": {}, "regression": {}}
     for parameter_extra_name in self.merge_parameters:
       
       if parameter_extra_name is None:
@@ -2856,6 +2861,11 @@ class PreProcess():
       # The model shard owns its transforms and training-file location.
       if parameter_extra_name == "model_type_density_models":
         density_parameters = copy.deepcopy(temp_parameters_file["density"])
+      for model_type in model_parameters:
+        prefix = f"model_type_{model_type}_models_"
+        if parameter_extra_name is not None and parameter_extra_name.startswith(prefix):
+          parameter = parameter_extra_name[len(prefix):]
+          model_parameters[model_type][parameter] = copy.deepcopy(temp_parameters_file[model_type][parameter])
 
       if first:
         parameters_file = copy.deepcopy(temp_parameters_file)
@@ -2879,6 +2889,9 @@ class PreProcess():
     # Copied initial/validation shards must not override model preprocessing.
     if density_parameters is not None:
       parameters_file["density"] = density_parameters
+    for model_type, model_metadata in model_parameters.items():
+      if model_metadata:
+        parameters_file.setdefault(model_type, {}).update(model_metadata)
 
     # Make sure there are no yield effects in the binned_fit_input
     if "binned_fit_input" in parameters_file.keys():

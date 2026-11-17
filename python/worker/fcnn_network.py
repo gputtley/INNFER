@@ -57,12 +57,15 @@ class FCNNNetwork():
     self.dense_layers = {"layer_1": 128, "layer_2": 256, "layer_3": 128}
     self.activation = "relu"
     self.l2_lambda = 0.001
+    self.log_l2_lambda = None
 
     # Training parameters
     self.early_stopping = False
     self.patience = 3
     self.wait_till = 5
     self.epochs = 15
+    self.number_of_updates = None
+    self.full_dataset_number_of_updates = None
     self.batch_size = 2**6
     self.learning_rate = 1e-3
     self.optimizer_name = "Adam" 
@@ -70,11 +73,14 @@ class FCNNNetwork():
     self.lr_scheduler_options = {} 
     self.gradient_clipping_norm = None
     self.normalise_batch_categories = False
+    self.full_dataset_gradient = False
+    self.loss_evaluation_interval = 1
 
     # Other
     self.disable_tqdm = False
     self.use_wandb = False
     self.save_model_per_epoch = False
+    self.checkpoint_interval = 1
     self.only_X_columns = None
     self.transform_batch_size = 10**7
     self.two_point_interpolator = False
@@ -135,6 +141,9 @@ class FCNNNetwork():
     """
     for key, value in options.items():
       setattr(self, key, value)
+
+    if self.log_l2_lambda is not None:
+      self.l2_lambda = 10.0**float(self.log_l2_lambda)
 
   def _GetEpochLoss(self, data_type="train"):
 
@@ -261,8 +270,7 @@ class FCNNNetwork():
 
   def loss(self, predictions, y_data, wt_data=None, training=True):
 
-    #reg_loss = tf.add_n(self.model.losses) if self.model.losses and training else 0.0
-    reg_loss = tf.add_n(self.model.losses) if self.model.losses else 0.0
+    reg_loss = tf.add_n(self.model.losses) if training and self.model.losses else 0.0
 
     if self.task == "regression":
       return self._MSE(predictions, y_data, wt_data) + reg_loss
@@ -301,10 +309,33 @@ class FCNNNetwork():
 
   def BuildTrainer(self):
 
+    if isinstance(self.checkpoint_interval, bool) or not isinstance(self.checkpoint_interval, int) or self.checkpoint_interval < 1:
+      raise ValueError("checkpoint_interval must be a positive integer")
+
+    if self.epochs is None:
+      update_option = "full_dataset_number_of_updates" if self.full_dataset_gradient and self.full_dataset_number_of_updates is not None else "number_of_updates"
+      requested_updates = getattr(self, update_option)
+      if isinstance(requested_updates, bool) or not isinstance(requested_updates, int) or requested_updates < 1:
+        raise ValueError(f"{update_option} must be a positive integer when epochs is null")
+      updates_per_epoch = 1 if self.full_dataset_gradient else self.X_train.num_batches
+      if self.X_train.num_rows < 1 or updates_per_epoch < 1:
+        raise ValueError("Cannot resolve epochs from an empty training dataset")
+      self.epochs = (requested_updates + updates_per_epoch - 1) // updates_per_epoch
+      print(f"Requested {requested_updates} optimizer updates ({update_option}); using {self.epochs} epochs "
+        f"of {updates_per_epoch} updates ({self.epochs * updates_per_epoch} updates in total)", flush=True)
+
+    if self.full_dataset_gradient:
+      if self.task != "classification":
+        raise ValueError("full_dataset_gradient currently supports classifiers only")
+      if self.normalise_batch_categories:
+        raise ValueError("full_dataset_gradient requires normalise_batch_categories=False")
+      if not isinstance(self.loss_evaluation_interval, int) or self.loss_evaluation_interval < 1:
+        raise ValueError("loss_evaluation_interval must be a positive integer")
+
     optim = Optimizer()
     self.optimizer, _, _ = optim.GetOptimizer(
       self.X_train.num_rows,
-      self.batch_size,
+      self.X_train.num_rows if self.full_dataset_gradient else self.batch_size,
       self.epochs,
       optimizer_name=self.optimizer_name, 
       lr_scheduler_name=self.lr_scheduler_name,
@@ -335,6 +366,9 @@ class FCNNNetwork():
 
     tf.config.experimental.enable_op_determinism()
 
+    if self.full_dataset_gradient:
+      return self._TrainFullDatasetGradient(name)
+
     # Get loss before training
     epoch_train_loss = self._GetEpochLoss(data_type="train")
     epoch_test_loss = self._GetEpochLoss(data_type="test")
@@ -346,6 +380,7 @@ class FCNNNetwork():
     lr = lr if not isinstance(lr, np.ndarray) else lr[0]
     self.epoch_lrs = [lr]
     best_epoch_test_loss = None
+    self._SaveCheckpoint(name, 0)
 
     # Write metrics to wandb
     if self.use_wandb:
@@ -415,8 +450,7 @@ class FCNNNetwork():
       self.epoch_lrs.append(lr)
 
       # Save model per epoch
-      if self.save_model_per_epoch:
-        self.model.save_weights(name.replace(".h5",f"_epoch_{ep}.h5"))
+      self._SaveCheckpoint(name, ep)
 
       # Save best model
       if (best_epoch_test_loss is None) or (epoch_test_loss < best_epoch_test_loss):
@@ -440,9 +474,117 @@ class FCNNNetwork():
         print(f"Early stopping triggered.")
         break
 
+    self._PlotTrainingHistory(list(range(len(self.epoch_train_losses))))
+
+
+  def _LoadFullGradientDataset(self, data_type):
+    """Cache the selected columns once in host memory, retaining signed weights."""
+    X = getattr(self, f"X_{data_type}")
+    y = getattr(self, f"y_{data_type}")
+    wt = getattr(self, f"wt_{data_type}")
+    if X.num_rows == 0 or len({X.num_rows, y.num_rows, wt.num_rows}) != 1:
+      raise ValueError("Full-gradient X, y and wt datasets must have matching nonzero row counts")
+    columns = self.only_X_columns or self.data_parameters["X_columns"]
+    data = (np.empty((X.num_rows, len(columns)), dtype=np.float32),
+      np.empty(X.num_rows, dtype=np.int32), np.empty(X.num_rows, dtype=np.float64))
+    for loader in [X, y, wt]:
+      loader.ChangeBatchSize(self.batch_size)
+    start = 0
+    for _ in range(X.num_batches):
+      X_batch = X.LoadNextBatch().loc[:, columns].to_numpy(dtype=np.float32)
+      y_batch = y.LoadNextBatch().to_numpy().reshape(-1)
+      wt_batch = wt.LoadNextBatch().to_numpy(dtype=np.float64).reshape(-1)
+      stop = start + len(X_batch)
+      if not np.all((y_batch == np.floor(y_batch)) & (y_batch >= 0) & (y_batch < self.num_classes)):
+        raise ValueError("Invalid class labels in full-gradient training dataset")
+      data[0][start:stop], data[1][start:stop], data[2][start:stop] = X_batch, y_batch, wt_batch
+      start = stop
+    if not all(np.isfinite(values).all() for values in data):
+      raise ValueError("Non-finite values in full-gradient training dataset")
+    if not np.isfinite(np.sum(data[2])) or np.sum(data[2]) <= 0:
+      raise ValueError("The full dataset must have a finite positive signed weight sum")
+    return data
+
+
+  def _TrainFullDatasetGradient(self, name):
+    """Use one population gradient per epoch, evaluated in memory-sized chunks."""
+    from full_dataset_gradient import FullDatasetGradient
+
+    tf.config.experimental.enable_tensor_float_32_execution(False)
+    data = self._LoadFullGradientDataset("train")
+    test_data = self._LoadFullGradientDataset("test")
+    accumulator = FullDatasetGradient(self, np.sum(data[2], dtype=np.float64))
+    self.epoch_train_losses, self.epoch_test_losses, self.epoch_lrs = [], [], []
+    history_epochs = []
+    best_test_loss = None
+    patience_counter = 0
+    MakeDirectories(name)
+
+    def evaluate_loss(dataset):
+      numerator = 0.0
+      for start in range(0, len(dataset[0]), self.batch_size):
+        numerator += float(accumulator.EvaluateNumerator(*[values[start:start+self.batch_size] for values in dataset]))
+      loss = numerator / np.sum(dataset[2], dtype=np.float64)
+      if not np.isfinite(loss):
+        raise ValueError("Non-finite full-dataset loss")
+      return loss
+
+    print(f"Full-dataset gradient: {len(data[0])} training rows, {data[0].shape[1]} inputs, "
+      f"chunks of {self.batch_size}; one optimizer update per epoch", flush=True)
+    started = time.monotonic()
+    for ep in range(self.epochs + 1):
+      if ep > 0:
+        accumulator.Reset()
+        for start in range(0, len(data[0]), self.batch_size):
+          accumulator.Accumulate(*[values[start:start+self.batch_size] for values in data])
+        gradient_norm = float(accumulator.Apply())
+        elapsed = time.monotonic() - started
+        print(f"Epoch: {ep}/{self.epochs}, Gradient norm: {gradient_norm:.6g}, "
+          f"Elapsed: {elapsed:.1f}s, ETA: {elapsed/ep*(self.epochs-ep)/60:.1f} minutes", flush=True)
+
+      self._SaveCheckpoint(name, ep)
+
+      if ep not in [0, 1, self.epochs] and ep % self.loss_evaluation_interval != 0:
+        continue
+      train_loss, test_loss = evaluate_loss(data), evaluate_loss(test_data)
+      lr = extract_current_lr(self.optimizer)
+      lr = float(np.asarray(lr).reshape(-1)[0])
+      self.epoch_train_losses.append(train_loss)
+      self.epoch_test_losses.append(test_loss)
+      self.epoch_lrs.append(lr)
+      history_epochs.append(ep)
+      print(f"Train, Epoch: {ep}, Loss: {train_loss:.12g}", flush=True)
+      print(f"Test, Epoch: {ep}, Loss: {test_loss:.12g}", flush=True)
+      if self.use_wandb:
+        wandb.log({"train_loss": train_loss, "val_loss": test_loss, "epoch": ep, "lr": lr})
+      if ep == 0:
+        continue
+      if best_test_loss is None or test_loss < best_test_loss:
+        patience_counter = 0
+        best_test_loss = test_loss
+        self.model.save_weights(name)
+        print(f"Saved best Test model at epoch {ep}", flush=True)
+      else:
+        patience_counter += 1
+      if self.early_stopping and patience_counter >= self.patience and ep >= self.wait_till:
+        print("Early stopping triggered.")
+        break
+
+    self._PlotTrainingHistory(history_epochs)
+
+
+  def _SaveCheckpoint(self, name, epoch):
+    """Keep fixed-epoch weights independently of best-Test model selection."""
+    if self.save_model_per_epoch and (epoch % self.checkpoint_interval == 0 or epoch == self.epochs):
+      MakeDirectories(name)
+      self.model.save_weights(name.replace(".h5", f"_epoch_{epoch}.h5"))
+
+
+  def _PlotTrainingHistory(self, epochs):
+
     if self.plot_loss:
       plot_histograms(
-        range(len(self.epoch_train_losses)),
+        epochs,
         [self.epoch_train_losses, self.epoch_test_losses],
         ["Train", "Test"],
         title_right = "",
@@ -452,7 +594,7 @@ class FCNNNetwork():
       )
 
       plot_histograms(
-        range(1,len(self.epoch_train_losses)),
+        epochs[1:],
         [self.epoch_train_losses[1:], self.epoch_test_losses[1:]],
         ["Train", "Test"],
         title_right = "",
@@ -463,7 +605,7 @@ class FCNNNetwork():
 
     if self.plot_lr:
       plot_histograms(
-        range(len(self.epoch_lrs)),
+        epochs,
         [self.epoch_lrs],
         [self.lr_scheduler_name],
         title_right = "",

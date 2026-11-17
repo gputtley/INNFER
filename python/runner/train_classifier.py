@@ -91,10 +91,14 @@ class TrainClassifier():
 
     network.BuildModel()
     network.BuildTrainer()
+    if architecture.get("epochs") is None:
+      # Store the resolved whole-epoch budget for downstream checkpoint loops.
+      architecture["epochs"] = network.epochs
 
     # Do train
     if self.verbose:
       print("- Training the model")
+    network.save_model_per_epoch = self.save_model_per_epoch
     network.Train(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
 
     # Saving model architecture

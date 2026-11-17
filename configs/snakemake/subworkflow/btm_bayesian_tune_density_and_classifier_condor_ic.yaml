@@ -14,7 +14,8 @@
   submit: "configs/submit/condor_gpu_long.yaml"
   run_options: 
     disable_tqdm: True
-    density_architecture: "configs/architecture/density_default.yaml"
+    density_architecture: "configs/architecture/density_btm.yaml"
+    save_model_per_epoch: True
     model_type: "density"
     specific_file_name: "ttbar"
 
@@ -103,6 +104,8 @@
 # Get the classifier performance metrics for the best models
 - step: "ClassifierPerformanceMetrics"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options:
+    points_per_job: 1
 
 # Get the classifier performance metrics for the best models
 - step: "ClassifierNuisanceVariations"
@@ -111,19 +114,24 @@
     extra_output_dir_name: "TestInf"
     sim_type: "test_inf"
     classifier_divide_by_nominal: True
+    points_per_job: 10
 - step: "ClassifierNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
     extra_output_dir_name: "Val"
     sim_type: "val"
     classifier_divide_by_nominal: True
+    points_per_job: 10
 - step: "ClassifierNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
     extra_output_dir_name: "Full"
     sim_type: "full"
     classifier_divide_by_nominal: True
+    points_per_job: 10
 
 # Evaluate the classifier for pruning
 - step: "EvaluateClassifier"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    points_per_job: 10

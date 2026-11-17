@@ -149,7 +149,7 @@
     specific: "file_name=combined"
     likelihood_type: "binned_extended"
     scan_plot_breakdown: True
-    other_input: "Stat. Only:ScanCollectAsimovStatOnly:scan_collect"
+    other_input: "Stat. Only:ScanCollectAsimovStatOnly{extra_extra_dir_name}:scan_collect"
     scan_nominal_name: "Stat. + Syst."
     extra_plot_name: "with_stat"
 

@@ -49,7 +49,19 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 ## Behaviour and checks
 
-Choose `--model-type=density`, `classifier` or `regression`, with the corresponding architecture flag. Bayesian architecture ranges are interpreted by this runner; they are not the grid-scan format. `--tuning-no-copy` leaves trial results without promoting a nominal model. Timeout index zero starts the chain; each later index depends on the previous `tuning_with_timeout_indices_ran_*.yaml`. The final stage should promote the best model if downstream steps expect nominal weights.
+Choose `--model-type=density`, `classifier` or `regression`, with the corresponding architecture flag. Bayesian architecture ranges are interpreted by this runner; they are not the grid-scan format. `--tuning-no-copy` leaves trial results without promoting a nominal model. Timeout index zero starts the chain; each later index depends on the previous `tuning_with_timeout_indices_ran_*.yaml`. The final stage should promote the best model if downstream steps expect nominal weights. BayesFlow models with a summary network also promote the winning `{file_name}_summary.h5` checkpoint alongside the flow weights; both files are needed to load the model.
+
+Both density and FCNN classifier architectures support `log_l2_lambda`. Use
+floating-point bounds to sample a continuous base-10 exponent:
+
+```yaml
+log_l2_lambda: [-8.0, -4.0]
+```
+
+This samples L2 coefficients logarithmically between `1e-8` and `1e-4`.
+When set, `log_l2_lambda` takes precedence over `l2_lambda`; avoid scanning both
+because the linear coefficient is then ignored. Use `log_l2_lambda: null` and
+`l2_lambda: 0` for a separate zero-L2 control.
 
 ## Implementation
 

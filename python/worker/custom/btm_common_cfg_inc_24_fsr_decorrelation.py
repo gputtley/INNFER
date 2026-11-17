@@ -763,9 +763,9 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
         "parameters": ["bw_mass"],
         "file": f"base_ttbar_{cat}",
         "shifts": {
-          "bw_mass": {"type": "flat_top", "range": [ttbar_center - ttbar_radius, ttbar_center + ttbar_radius], "other": {"sigma_out": sigma_out}, "reject_back_to_shift": True}
+          "bw_mass": {"type": "flat_top", "range": [ttbar_center - ttbar_radius, ttbar_center + ttbar_radius], "other": {"sigma_out": sigma_out}, "reject_back_to_shift": True, "reweight_bins": 400}
         },
-        "n_copies": 100,
+        "n_copies": 10,
         "categories": categories_per_era[cat],
       }
     ]
@@ -786,7 +786,7 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
       if k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "three_point_variation_weight":
         models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "discrete", "values": [-1.0,0.0,1.0]}}, "n_copies":3, "categories": categories_per_era[cat]}]
       elif k in ttbar_weight_shifts.keys() and ttbar_weight_shifts[k]["name"] == "two_point_variation_weight":
-        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "fixed", "value": 1.0}}, "n_copies":3, "categories": categories_per_era[cat]}]
+        models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "fixed", "value": 1.0}}, "n_copies":1, "categories": categories_per_era[cat]}]
       else:
         models["ttbar"]["classifier_models"] += [{"parameter":k, "file":f"base_ttbar_{cat}", "shifts":{k: {"type": "flat_top", "range": [-3.0,3.0], "other": {"sigma_out": 0.6}}}, "n_copies":3, "categories": categories_per_era[cat]}]
 

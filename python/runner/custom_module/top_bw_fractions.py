@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 
 from data_processor import DataProcessor
 from plotting import plot_histograms, plot_histograms_with_ratio
-from useful_functions import GetVariables, MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults
+from useful_functions import GetVariables, MakeDirectories, LoadConfig, GetCategoryLoop, GetDefaults, Translate
 from breit_wigner_reweighting import bw_reweight
 
 import warnings
@@ -251,9 +251,6 @@ class top_bw_fractions():
 
     # fit splines for continuous fractioning
     splines = {}
-    if plot:
-      hists = {}
-      bins = np.linspace(min(fi.transformed_to_masses), max(fi.transformed_to_masses), num=1000)
 
     for transformed_from in unique:
 
@@ -296,30 +293,32 @@ class top_bw_fractions():
       else:
         raise ValueError(f"Invalid fit method: {self.fit_method}")
 
-      if plot:
-        hists[transformed_from] = splines[transformed_from](bins)
-
     if plot:
-
-      # Normalise for plot
-      total_hist = np.zeros_like(bins)
-      for transformed_from in unique:
-        total_hist += hists[transformed_from] 
-      for transformed_from in unique:
-        hists[transformed_from] /= total_hist
-        hists[transformed_from][hists[transformed_from] < 0] = 0.0
-
-      plot_histograms(
-        bins,
-        [hist for hist in hists.values()],
-        [f"Transformed From Mass: {transformed_from}" for transformed_from in hists.keys()],
-        name=f"{self.plot_dir}/fractions_spline_{category}",
-        y_label="Fraction",
-        x_label="Transformed To Mass",
-      )
-
+      self._PlotFractions(splines, category, fi.transformed_to_masses)
 
     return normalised_fractions, splines
+
+
+  def _PlotFractions(self, splines, category, transformed_to_masses):
+    """
+    Plot the fitted fractions using either newly fitted or saved splines.
+    """
+    bins = np.linspace(min(transformed_to_masses), max(transformed_to_masses), num=1000)
+    hists = {mass: spline(bins) for mass, spline in splines.items()}
+    total_hist = np.sum(list(hists.values()), axis=0)
+    for mass in hists:
+      hists[mass] = np.divide(hists[mass], total_hist, out=np.zeros_like(total_hist), where=total_hist != 0)
+      hists[mass][hists[mass] < 0] = 0.0
+
+    plot_histograms(
+      bins,
+      list(hists.values()),
+      [f"Transformed From Mass: {mass}" for mass in hists],
+      name=f"{self.plot_dir}/fractions_spline_{category}",
+      y_label="Fraction",
+      x_label="Transformed To Mass",
+      title_right=Translate(category) if category is not None else "",
+    )
 
 
   def _custom_info_apply_wt(self, tmp, out, options={}):
@@ -473,7 +472,7 @@ class top_bw_fractions():
     return out
 
 
-  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[], category=None):
+  def _PlotReweighting(self, normalised_fractions, base_file, wt_func, selection=None, extra_name=None, functions=[], category=None, variables_category=None):
     """
     Plot the reweighting of the samples.
     Args:
@@ -508,7 +507,7 @@ class top_bw_fractions():
     print(f"- Getting unique values of {self.mass_name} for plotting")
     unique = dp.GetFull(method="unique", columns=[self.mass_name])[self.mass_name]
 
-    plot_columns = [self.gen_mass] + GetVariables(LoadConfig(self.cfg), category=category)
+    plot_columns = [self.gen_mass] + GetVariables(LoadConfig(self.cfg), category=variables_category if variables_category is not None else category)
     if self.gen_mass_other is not None:
       plot_columns.append(self.gen_mass_other)
 
@@ -653,7 +652,8 @@ class top_bw_fractions():
         colors=colours, 
         name=plot_name, 
         x_label=col, 
-        y_label="Density"
+        y_label="Density",
+        title_right=Translate(category) if category is not None else "",
       )
 
       plot_histograms_with_ratio(
@@ -666,6 +666,7 @@ class top_bw_fractions():
         name = plot_name + "_ratio",
         ratio_range = [0.9,1.1],
         draw_error_bars = True,
+        title_right=Translate(category) if category is not None else "",
       )
 
 
@@ -802,6 +803,7 @@ class top_bw_fractions():
     self.plot = False if "plot" not in self.options else self.options["plot"].strip() == "True"
     self.plot_dist = False if "plot_dist" not in self.options else self.options["plot_dist"].strip() == "True"
     self.only_plot = False if "only_plot" not in self.options else self.options["only_plot"].strip() == "True"
+    self.group_by_base_file = False if "group_by_base_file" not in self.options else self.options["group_by_base_file"].strip() == "True"
     self.base_file_name = "base_ttbar_$CATEGORY" if "base_file_name" not in self.options else self.options["base_file_name"]
     self.transformed_to_masses = [164.5,165.5,166.5,167.5,168.5,169.5,170.5,171.0,171.25,171.5,171.75,172.0,172.25,172.5,172.75,173.0,173.25,173.5,173.75,174.0,174.5,175.5,176.5,177.5,178.5,179.5,180.5]
     #self.transformed_to_masses = [166.5,169.5,171.5,172.5,173.5,175.5,178.5]
@@ -817,12 +819,53 @@ class top_bw_fractions():
     self.plot_dir = f"{plots_dir}/{cfg['name']}/top_bw_fractions/{self.file_name}"
 
 
+  def _GetCategorySetup(self, cfg):
+    """Resolve fit channels to the base files and spline keys used by preprocessing."""
+    if not self.group_by_base_file:
+      return {
+        category: {
+          "base_file_name": self.base_file_name.replace("$CATEGORY",category).replace("_signal","").replace("_control",""),
+          "selection": cfg["categories"][category],
+          "variables_category": category,
+        }
+        for category in GetCategoryLoop(cfg)
+      }
+
+    binned_files = cfg.get("inference", {}).get("binned_fit", {}).get("files", {})
+    if self.file_name not in binned_files:
+      raise ValueError("group_by_base_file requires binned_fit file/category mappings")
+    groups = {}
+    covered = set()
+    for entry in binned_files[self.file_name]:
+      members = [cat for cat in GetCategoryLoop(cfg) if "categories" not in entry or cat in entry["categories"]]
+      if not members:
+        continue
+      if covered.intersection(members):
+        raise ValueError("A binned channel belongs to multiple BW base-file groups")
+      covered.update(members)
+      base_file_name = entry["file"]
+      category = cfg["files"][base_file_name].get("weight_shifts", {}).get("bw_fractions", {}).get("args", {}).get("category")
+      if category is None:
+        raise ValueError(f"No bw_fractions category configured for {base_file_name}")
+      if category in groups:
+        raise ValueError(f"Multiple BW base files use the same spline category {category}")
+      groups[category] = {
+        "base_file_name": base_file_name,
+        "selection": " | ".join(f"({cfg['categories'][cat]})" for cat in members),
+        "variables_category": members[0],
+      }
+    if covered != set(GetCategoryLoop(cfg)):
+      raise ValueError("Some fit channels have no BW base-file mapping")
+    return groups
+
+
   def Run(self):
     """
     Run the class.
     """
     # Load the config
     cfg = LoadConfig(self.cfg)
+    category_setup = self._GetCategorySetup(cfg)
 
 
     splines = {}
@@ -831,11 +874,9 @@ class top_bw_fractions():
     base_file_names = {}
     functions_per_cat = {}
 
-    for category in GetCategoryLoop(cfg):
+    for category, settings in category_setup.items():
 
-      base_file_name = self.base_file_name.replace("$CATEGORY",category)
-      if "_signal" or "_control" in base_file_name:
-        base_file_name = base_file_name.replace("_signal","").replace("_control","")
+      base_file_name = settings["base_file_name"]
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
       base_files[category] = base_file
       base_file_names[category] = base_file_name
@@ -860,8 +901,8 @@ class top_bw_fractions():
       functions.append(add_defaults)
       for k, v in cfg["files"][base_file_name]["calculate"].items():
         if isinstance(v, str):
-          def apply_func(df, func=v):
-            df.loc[:,k] = df.eval(func)
+          def apply_func(df, func=v, column=k):
+            df.loc[:,column] = df.eval(func)
             return df
           functions.append(apply_func)
         elif isinstance(v, dict):
@@ -870,15 +911,15 @@ class top_bw_fractions():
             func_full = getattr(module, v["name"])
             func = partial(func_full, **v["args"])
             functions.append(func)
-      def apply_postselection(df):
-        df = df.query(cfg["files"][base_file_name]["post_calculate_selection"])
+      def apply_postselection(df, selection=cfg["files"][base_file_name]["post_calculate_selection"]):
+        df = df.query(selection)
         return df
       functions.append(apply_postselection)
       functions_per_cat[category] = functions
 
       # Calculate optimal fractions
       if not self.only_plot:
-        normalised_fractions[category], splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=cfg["categories"][category], functions=functions, plot=self.plot, category=category)
+        normalised_fractions[category], splines[category] = self._CalculateOptimalFractions(base_file, cfg["files"][base_file_name]["weight"], selection=settings["selection"], functions=functions, plot=self.plot, category=category)
 
     if not self.only_plot:
 
@@ -919,10 +960,15 @@ class top_bw_fractions():
           with open(file_name, "rb") as f:
             splines[k1][k2] = pickle.load(f)
 
+      if self.plot:
+        for category in category_setup:
+          masses = sorted({mass for fractions in normalised_fractions[category].values() for mass in fractions})
+          self._PlotFractions(splines[category], category, masses)
+
     # Plot reweighting
     if self.plot_dist:
-      for category in GetCategoryLoop(cfg):
-        self._PlotReweighting(normalised_fractions[category], base_files[category], cfg["files"][base_file_names[category]]["weight"], selection=cfg["categories"][category], extra_name=category, functions=functions_per_cat[category], category=category)
+      for category, settings in category_setup.items():
+        self._PlotReweighting(normalised_fractions[category], base_files[category], cfg["files"][base_file_names[category]]["weight"], selection=settings["selection"], extra_name=category, functions=functions_per_cat[category], category=category, variables_category=settings["variables_category"])
 
 
   def Outputs(self):
@@ -934,19 +980,25 @@ class top_bw_fractions():
 
     # Load config
     cfg = LoadConfig(self.cfg)
+    category_setup = self._GetCategorySetup(cfg)
 
     # Add plots
+    if self.plot:
+      for cat in category_setup:
+        outputs += [f"{self.plot_dir}/fractions_spline_{cat}.pdf"]
+
     if self.plot_dist:
-      for cat in GetCategoryLoop(cfg):
-        plot_columns = [self.gen_mass] + GetVariables(cfg, category=cat)
+      for cat, settings in category_setup.items():
+        plot_columns = [self.gen_mass] + GetVariables(cfg, category=settings["variables_category"])
         if self.gen_mass_other is not None:
           plot_columns.append(self.gen_mass_other)
         for col in plot_columns:
           outputs += [f"{self.plot_dir}/bw_reweighted_{col}_{cat}.pdf"]
 
     # Add yaml file
-    outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"]
-    outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml"]
+    if not self.only_plot:
+      outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"]
+      outputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml"]
 
     return outputs
 
@@ -963,18 +1015,22 @@ class top_bw_fractions():
     # Load config
     cfg = LoadConfig(self.cfg)
 
-    for category in GetCategoryLoop(cfg):
+    for settings in self._GetCategorySetup(cfg).values():
 
-      base_file_name = self.base_file_name.replace("$CATEGORY",category)
-      if "_signal" or "_control" in base_file_name:
-        base_file_name = base_file_name.replace("_signal","").replace("_control","")
+      base_file_name = settings["base_file_name"]
 
       base_file = f"{data_dir}/{cfg['name']}/LoadData/{base_file_name}.parquet"
-      inputs += [base_file]
+      if not self.only_plot or self.plot_dist:
+        inputs += [base_file]
 
-    if self.plot_dist and self.only_plot:
+    if self.only_plot:
       inputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/normalised_fractions.yaml"]
-      inputs += [f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"]
+      locations = f"{data_dir}/{cfg['name']}/top_bw_fractions/top_bw_fraction_locations.yaml"
+      inputs += [locations]
+      if os.path.isfile(locations):
+        with open(locations, "r") as f:
+          for category_splines in yaml.safe_load(f).values():
+            inputs += list(category_splines.values())
 
     return inputs
   

@@ -358,18 +358,24 @@ class Optimizer():
 
     return lr_scheduler, adapt_lr_scheduler
 
-  def _optimizer(self, lr_scheduler, optimizer_name, gradient_clipping_norm):
+  def _optimizer(self, lr_scheduler, optimizer_name, gradient_clipping_norm, use_ema=False, ema_momentum=0.999):
+
+    options = {"clipnorm": gradient_clipping_norm}
+    if use_ema:
+      if not 0.0 <= float(ema_momentum) < 1.0:
+        raise ValueError("ema_momentum must be finite and in [0, 1)")
+      options.update(use_ema=True, ema_momentum=float(ema_momentum), ema_overwrite_frequency=None)
 
     if optimizer_name == "Adam":
-      optimizer = tf.keras.optimizers.Adam(lr_scheduler, clipnorm=gradient_clipping_norm)
+      optimizer = tf.keras.optimizers.Adam(lr_scheduler, **options)
     elif optimizer_name == "AdamW":
-      optimizer = tf.keras.optimizers.AdamW(lr_scheduler, clipnorm=gradient_clipping_norm)
+      optimizer = tf.keras.optimizers.AdamW(lr_scheduler, **options)
     elif optimizer_name == "SGD":
-      optimizer = tf.keras.optimizers.SGD(lr_scheduler, clipnorm=gradient_clipping_norm)
+      optimizer = tf.keras.optimizers.SGD(lr_scheduler, **options)
     elif optimizer_name == "RMSprop":
-      optimizer = tf.keras.optimizers.RMSprop(lr_scheduler, clipnorm=gradient_clipping_norm)
+      optimizer = tf.keras.optimizers.RMSprop(lr_scheduler, **options)
     elif optimizer_name == "Adadelta":
-      optimizer = tf.keras.optimizers.Adadelta(lr_scheduler, clipnorm=gradient_clipping_norm)
+      optimizer = tf.keras.optimizers.Adadelta(lr_scheduler, **options)
     else:
       print("ERROR: optimizer not valid.")
 
@@ -385,6 +391,8 @@ class Optimizer():
       lr_scheduler_options={},
       default_lr=0.001,
       gradient_clipping_norm=None,
+      use_ema=False,
+      ema_momentum=0.999,
       ):
     
     lr_scheduler, adapt_lr_scheduler = self._lr_scheduler(
@@ -400,6 +408,8 @@ class Optimizer():
       lr_scheduler,
       optimizer_name,
       gradient_clipping_norm,
+      use_ema=use_ema,
+      ema_momentum=ema_momentum,
     )
 
     return optimizer, lr_scheduler, adapt_lr_scheduler

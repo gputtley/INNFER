@@ -42,6 +42,7 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | `--no-constraint` | `False` | Do not use the constraints |
 | `--plot-2d-unrolled` | `False` | Make 2D unrolled plots when running generator. |
 | `--plot-extra-hypothesis` | `None` | For Generator steps (and binned postfit), plot extra hypotheses. This is semi colon separated, comma separated key=value inputs |
+| `--plot-hypothesis` | `False` | For unbinned distribution plots, label the validation hypothesis at the top left of the main pad with translated names and units. |
 | `--plot-var-and-bins` | `None` | For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced. |
 | `--prefit-nuisance-constraints` | `False` | Make postfit plots with prefit nuisance constraints |
 | `--prefit-nuisance-values` | `False` | Make postfit plots with prefit nuisance values |
@@ -52,6 +53,11 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 ## Behaviour and checks
 
 This is the implemented CLI step for prefit/postfit distribution comparisons. The old documentation name PostFitPlot is not an implemented step selector. Use `--use-prefit-asimov` for prefit predictions and `--include-uncertainty` for generated uncertainty variations.
+
+For data-versus-simulation comparisons, `--plot-hypothesis` identifies the
+simulation hypothesis selected by the validation index. Multiple parameters
+appear on separate lines. An empty hypothesis has no label. The flag does not
+change which input samples are compared or the binned-distribution annotations.
 
 ## Implementation
 

@@ -41,6 +41,8 @@ export JOBS_DIR="./jobs"
 
 The configuration name is appended to each root. Defaults are set by the environment setup. `EVENTS_PER_BATCH` and `EVENTS_PER_BATCH_FOR_PREPROCESS` control streaming worker batch sizes; architecture `batch_size` controls optimiser batches. They serve different purposes.
 
+`EVENTS_PER_BATCH_FOR_SHUFFLE` controls the preprocessing shuffle batch size independently, including partitioning, row shuffling and handling the final partial batch. `env.sh` sets it to 2,000,000 events on the CPU branch and 10,000,000 on the GPU branch, ten times the corresponding preprocessing size. Larger shuffle batches mix more rows at once and require more memory. For local execution, export a custom value after sourcing `env.sh`, before launching preprocessing. Submitted jobs source `env.sh` themselves, so customize its defaults for those jobs. When the variable is unset, preprocessing falls back to `EVENTS_PER_BATCH_FOR_PREPROCESS`. Each aligned X/label/weight file uses the same shuffle batch size and row permutation. This changes the batch size used by the existing partition-based shuffle; it does not turn it into a global random permutation.
+
 ## Scheduled workflows
 
 Use [SnakeMake](snakemake.md) for dependency-aware execution. Submitting comma-separated steps as independent batch jobs is not a substitute for a dependency graph. A subset workflow expects its omitted upstream outputs to exist.

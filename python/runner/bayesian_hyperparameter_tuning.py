@@ -1,5 +1,6 @@
 import optuna
 import os
+import shutil
 import time
 import wandb
 import yaml
@@ -172,7 +173,10 @@ class BayesianHyperparameterTuning():
       for key, val in zip(keys, vals):
         name = ":".join(key)
         if isinstance(val, list):
-          if isinstance(val[0], float):
+          if isinstance(val[0], bool):
+            params[name] = GetDictionaryEntryFromYaml(trial_architecture_file, key)
+            dists[name] = CategoricalDistribution(val)
+          elif isinstance(val[0], float):
             params[name] = GetDictionaryEntryFromYaml(trial_architecture_file, key)
             dists[name] = FloatDistribution(val[0], val[1])
           elif isinstance(val[0], int):
@@ -213,9 +217,23 @@ class BayesianHyperparameterTuning():
       print(f"  {best_architecture_name}")
 
     if not self.no_copy:
+      with open(best_architecture_name, "r") as yaml_file:
+        best_architecture = yaml.safe_load(yaml_file)
+      copy_summary = (
+        self.model_type == "density"
+        and best_architecture.get("type") == "BayesFlow"
+        and best_architecture.get("use_summary_network", True)
+      )
+      best_summary_name = f"{os.path.splitext(best_model_name)[0]}_summary.h5"
+      if copy_summary and not os.path.isfile(best_summary_name):
+        raise FileNotFoundError(f"Summary network weights not found: {best_summary_name}")
+
       MakeDirectories(model_output_name)
-      os.system(f"cp {best_model_name} {model_output_name}")
-      os.system(f"cp {best_architecture_name} {model_architecture_name}")
+      shutil.copy2(best_model_name, model_output_name)
+      shutil.copy2(best_architecture_name, model_architecture_name)
+      if copy_summary:
+        summary_output_name = f"{os.path.splitext(model_output_name)[0]}_summary.h5"
+        shutil.copy2(best_summary_name, summary_output_name)
       
 
 
@@ -281,7 +299,9 @@ class BayesianHyperparameterTuning():
     run_vals = []
     for ind, val in enumerate(vals):
       if isinstance(val, list):
-        if isinstance(val[0], float):
+        if isinstance(val[0], bool):
+          run_vals.append(trial.suggest_categorical(":".join(keys[ind]), val))
+        elif isinstance(val[0], float):
           run_vals.append(trial.suggest_float(":".join(keys[ind]), val[0], val[1]))
         elif isinstance(val[0], int):
           run_vals.append(trial.suggest_int(":".join(keys[ind]), val[0], val[1]))
@@ -431,6 +451,7 @@ class BayesianHyperparameterTuning():
     if self.model_type == "density":
       pf = DensityPerformanceMetrics()
       pf.Configure({
+        "make_metrics_table": False,
         "density_correction": self.density_correction,
         "density_correction_model": self.density_correction_model,
         "density_correction_parameters": self.density_correction_parameters,

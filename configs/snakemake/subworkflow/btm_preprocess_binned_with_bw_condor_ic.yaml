@@ -19,7 +19,7 @@
 - step: "SimToDataFactors"
   submit: "configs/submit/condor_4_cpus.yaml"
   run_options:
-    sim_to_data_norm_groups: "run2_signal,run2_control;2223_signal,2223_control;24_signal,24_control"
+    sim_to_data_norm_groups: "run2_*;2223_*;24_*"
     sim_to_data_norm_processes: "ttbar"
 
 - step: "PreProcessParallelYieldsCollect"
@@ -53,7 +53,7 @@
   submit: "configs/submit/condor.yaml"
   run_options:
     custom_module: "set_binned_to_nominal"
-    custom_options: "parameters=CR1,CR2,ERDOn,ue,hdamp"
+    custom_options: "parameters:CR1,CR2,ERDOn,ue,hdamp"
 
 - step: "PreProcessParallelValidation"
   submit: "configs/submit/condor_4_cpus.yaml"

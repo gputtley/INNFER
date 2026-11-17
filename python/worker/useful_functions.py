@@ -1,4 +1,5 @@
 import copy
+import fnmatch
 import importlib.util
 import os
 import pickle
@@ -585,6 +586,11 @@ def GetDictionaryEntry(entry, keys):
   return entry
 
 
+def GetModelArchitecturePath(model_name):
+  """Return the shared architecture for a model or its epoch checkpoint."""
+  return f"{re.sub(r'_epoch_[0-9]+$', '', model_name)}_architecture.yaml"
+
+
 def GetVariables(cfg, category=None):
   if category is None:
     return cfg["variables"]
@@ -688,7 +694,9 @@ def GetCategoryLoop(cfg, specific_category=None):
     return ["inclusive"]
   else:
     if specific_category is not None:
-      return [cat for cat in cfg["categories"].keys() if cat in specific_category]
+      if isinstance(specific_category, str):
+        specific_category = specific_category.split(",")
+      return [cat for cat in cfg["categories"].keys() if any(fnmatch.fnmatchcase(cat, pattern) for pattern in specific_category)]
     return list(cfg["categories"].keys())
 
 
@@ -1334,10 +1342,15 @@ def GetPruningFile(data_dir, v, from_step="EvaluateClassifier"):
 
 def InitiateDensityModel(architecture, file_loc, options={}, train_name="train", test_name=None):
 
-  if architecture["type"] == "BayesFlow":
+  if architecture["type"] in ["BayesFlow", "KerasFlow"]:
 
-    from bayes_flow_network import BayesFlowNetwork
-    network = BayesFlowNetwork(
+    if architecture["type"] == "BayesFlow":
+      from bayes_flow_network import BayesFlowNetwork
+      network_class = BayesFlowNetwork
+    else:
+      from keras_flow_network import KerasFlowNetwork
+      network_class = KerasFlowNetwork
+    network = network_class(
       f"{file_loc}/X_{train_name}.parquet",
       f"{file_loc}/Y_{train_name}.parquet", 
       f"{file_loc}/wt_{train_name}.parquet",
@@ -1747,6 +1760,10 @@ def GetSnakeMakeStepLoop(input_cfg, output_cfg=None, run_options=None, retry_run
         output_step["retry_memory"] = retry_memory
       if "run_options" in step.keys() or run_options != {}:
         output_step["run_options"] = {**run_options, **step.get("run_options", {})}
+        # Explicit placeholder keeps comparison inputs in the same fit namespace.
+        options = output_step["run_options"]
+        if options.get("other_input") is not None:
+          options["other_input"] = options["other_input"].replace("{extra_extra_dir_name}", str(options.get("extra_extra_dir_name", "")))
       output_cfg.append(output_step)
 
     elif "workflow" in step.keys():

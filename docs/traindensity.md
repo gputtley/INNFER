@@ -45,6 +45,15 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 See [Density architecture](densityarchitecture.md) for coupling layers, summary networks, optimisers and buffered shuffling. Training saves the lowest finite validation-loss checkpoint, including the starting model at epoch zero. With `--load-weights-for-training`, keep the architecture compatible with the checkpoint; architecture changes generally cannot reuse weights directly. The accompanying preprocessing transforms must also remain compatible.
 
+Epoch-loss evaluation uses a cached TensorFlow graph by default and still evaluates the full training and test datasets every epoch. Loss history is retained with `--disable-tqdm`, while progress formatting and per-batch learning-rate reads are skipped. Visible progress uses an incremental running average.
+
+Set `use_ema: true` and optionally `ema_momentum: 0.999` in the architecture to
+enable exponential moving averages in either density backend. Epoch evaluation
+and ordinary model checkpoints use averaged weights; a sibling model directory
+ending in `_raw` saves the paired non-averaged model and architecture. Both main
+outputs are declared for workflow dependencies. EMA is disabled by default. See
+[EMA settings and checkpoint conventions](densityarchitecture.md#exponential-moving-average-of-weights).
+
 ## Implementation
 
 [CLI dispatch](../scripts/innfer.py), [Runner](../python/runner/train_density.py). Runner `Inputs()` and `Outputs()` declare the files used to construct the Snakemake dependency graph.

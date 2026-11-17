@@ -5,6 +5,10 @@ title: "Step: ClassifierPerformanceMetrics"
 
 Compute the requested loss and distribution metrics for trained classifiers.
 
+Reported `loss_train` and `loss_test` evaluate weighted cross entropy without the
+L2 penalty (`training=False`). The training objective still includes L2. Tuning
+with `loss_test,min` therefore compares held-out data loss across architectures.
+
 ## Run
 
 ```bash

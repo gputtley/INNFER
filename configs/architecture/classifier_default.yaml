@@ -1,7 +1,9 @@
 # Type
 type: "FCNN"
 # training
-epochs: 20
+epochs: null
+number_of_updates: 60000 # Approximately the AbsoluteMPFBias 2223 training; rounded up to whole epochs.
+full_dataset_number_of_updates: 2000 # Override when full_dataset_gradient is true.
 batch_size: 2048
 early_stopping: True
 learning_rate: 0.001
@@ -19,4 +21,5 @@ dense_layers:
   layer_2: 64
 activation: relu
 l2_lambda: 0.0001
-normalise_batch_categories: True
+log_l2_lambda: null # When set, use 10**log_l2_lambda instead of l2_lambda.
+normalise_batch_categories: false

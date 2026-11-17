@@ -35,6 +35,14 @@ A `workflow` entry includes another YAML list recursively. A `step` entry names 
 
 Outer workflow options are inherited by descendants, and a child's own value overrides the inherited value. Child overrides do not affect later siblings. Command-line options provide the initial defaults unless a workflow overrides them. To alter architecture-internal options such as buffered shuffling, edit/select the architecture rather than adding an unsupported CLI option to run_options.
 
+An explicit `{extra_extra_dir_name}` placeholder in a workflow's `other_input`
+is replaced during workflow expansion using that step's resolved suffix (or an
+empty string). For example,
+`Stat. Only:ScanCollectAsimovStatOnly{extra_extra_dir_name}:scan_collect` points
+to the `_run2` statistical-only fit when the included fit workflow inherits
+`extra_extra_dir_name: _run2`. This keeps comparison plots in the same fit
+namespace without placing category wildcard characters in directory names.
+
 ## Dependencies and external files
 
 Include all producer stages needed by your target workflow. A training-only subworkflow assumes final preprocessed parquet files already exist. An existing parameters.yaml or an intermediate shard does not satisfy a missing X_train.parquet.
@@ -89,5 +97,26 @@ Replace the path with the generated namespace. This checks missing producer depe
 `configs/snakemake/btm.yaml` includes upstream data/BW preparation, the per-category workflow for run2, 2223 and 24, and the post-category workflow when those entries are uncommented. Observed-data fitting is a separate included workflow and only runs when enabled. Inspect the current YAML before launching: commented entries are excluded.
 
 `btm_per_category.yaml` covers preprocessing, prefit checks, training/tuning, generated samples, closure, p-values and calibration. For a faster single-category experiment, select the appropriate subworkflow with `--specific-category=2223` and make sure its prerequisite data/models already exist.
+
+## BTM binned example
+
+```bash
+python3 scripts/innfer.py --cfg=configs/run/btm_full_171126_binned.py \
+  --step=SnakeMake --snakemake-cfg=configs/snakemake/btm_binned.yaml
+```
+
+This workflow includes LoadData, grouped era-level BW fractions, observed-data
+categories, yield normalization, binned templates, validation and prefit plots.
+Normalization combines all accepted channels within each era. It then runs the
+existing combined Asimov fit and the Run2, 2223 and 24 fits, including their
+statistical-only comparisons and postfit plots. The era filters are `run2_*`,
+`2223_*`, `24_*`, with output suffixes `_run2`, `_2223`, `_24`.
+
+The BW grouping option is enabled in the binned-specific loading subworkflow;
+ordinary SBI BW preparation keeps its existing per-category behavior. The
+modelling-template mass-dependence override remains enabled for
+`CR1,CR2,ERDOn,ue,hdamp`. Binned preprocessing writes the normal preprocessing
+and binned-fit metadata used by inference; no density/classifier training is
+included. Without `--snakemake-force`, completed up-to-date products are reused.
 
 [Back to all steps](steps.md).

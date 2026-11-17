@@ -1,5 +1,6 @@
 import os
 import yaml
+import numpy as np
 
 from data_processor import DataProcessor
 from plotting import plot_histograms_with_ratio
@@ -77,31 +78,46 @@ class PlotClassifier():
       if self.verbose:
         print(f"- Making distributions of reweighted samples")
 
-      for col in parameters["classifier"][self.parameter]["X_columns"]:
-
-        # Get bins of conditional variables
-        cond_bins = pred_df.GetFull(method="bins_with_equal_stats", column=self.parameter, bins=self.n_plots, ignore_quantile=0.00, extra_sel="(classifier_truth == 0)")
-
-        sels = {"Inclusive": "1==1"}
-        names = {"Inclusive": "inclusive"}
-        for i in range(len(cond_bins)-1):
-          name = rf"{RoundToSF(cond_bins[i],2)} $\leq$ {Translate(self.parameter, only_val=True)} < {RoundToSF(cond_bins[i+1],2)}{Translate(self.parameter, only_unit=True)}"
-          sels[name] = f"(({self.parameter} >= {cond_bins[i]}) & ({self.parameter} < {cond_bins[i+1]}))"
+      # Discrete nuisance models can have a single condition in these datasets.
+      unique = pred_df.GetFull(method="unique", columns=[self.parameter], unique_threshold=self.n_plots, extra_sel="(classifier_truth == 0)")[self.parameter]
+      sels = {"Inclusive": "1==1"}
+      names = {"Inclusive": "inclusive"}
+      if unique is not None:
+        for i, value in enumerate(sorted(unique)):
+          name = rf"{Translate(self.parameter, only_val=True)} = {RoundToSF(value,2)}{Translate(self.parameter, only_unit=True)}"
+          sels[name] = f"({self.parameter} == {value})"
           names[name] = f"bin_{i}"
+      else:
+        cond_bins = pred_df.GetFull(method="bins_with_equal_stats", column=self.parameter, bins=self.n_plots, ignore_quantile=0.00, extra_sel="(classifier_truth == 0)")
+        for i in range(len(cond_bins)-1):
+          if cond_bins[i] == cond_bins[i+1]: continue
+          upper_comparison = "<=" if i == len(cond_bins)-2 else "<"
+          upper_label = r"\leq" if upper_comparison == "<=" else "<"
+          name = rf"{RoundToSF(cond_bins[i],2)} $\leq$ {Translate(self.parameter, only_val=True)} ${upper_label}$ {RoundToSF(cond_bins[i+1],2)}{Translate(self.parameter, only_unit=True)}"
+          sels[name] = f"(({self.parameter} >= {cond_bins[i]}) & ({self.parameter} {upper_comparison} {cond_bins[i+1]}))"
+          names[name] = f"bin_{i}"
+
+      # Plot the observables, rather than the nuisance condition itself.
+      cfg = LoadConfig(self.cfg)
+      columns = GetVariables(cfg, category=self.category)
+      bins_by_selection = {}
+      for sel_name, sel in sels.items():
+        bins_by_selection[sel_name] = dict(zip(columns, pred_df.GetFull(
+          method="bins_with_equal_spacing",
+          columns=columns,
+          bins=20,
+          ignore_quantile=0.01,
+          extra_sel=f"((classifier_truth == 0) & ({sel}))",
+        )))
+
+      # Fill every observable and condition histogram in one streaming pass.
+      histograms = self._GetHistograms(pred_df, columns, sels, bins_by_selection)
+      for col in columns:
 
         for sel_name, sel in sels.items():
 
-          # get nominal sums
-          bins = pred_df.GetFull(method="bins_with_equal_spacing", column=col, bins=20, ignore_quantile=0.01, extra_sel=f"((classifier_truth == 0) & ({sel}))")
-          nom_hist, nom_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, extra_sel=f"((classifier_truth == 0) & ({sel}))")
-
-          # get shift applied histogram
-          def change_weight(df):
-            df.loc[:,"wt"] *= df.loc[:,"wt_shift"]
-            return df
-
-          pred_hist, pred_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, functions_to_apply=[change_weight], extra_sel=f"((classifier_truth == 0) & ({sel}))")
-          target_hist, target_hist_uncerts, _ = pred_df.GetFull(method="histogram_and_uncert", column=col, bins=bins, extra_sel=f"((classifier_truth == 1) & ({sel}))")
+          bins = bins_by_selection[sel_name][col]
+          (nom_hist, nom_hist_uncerts), (pred_hist, pred_hist_uncerts), (target_hist, target_hist_uncerts) = histograms[sel_name][col]
 
           plot_histograms_with_ratio(
             [[pred_hist, target_hist], [nom_hist, target_hist]],
@@ -117,6 +133,39 @@ class PlotClassifier():
           )
 
 
+  def _GetHistograms(self, data_processor, columns, selections, bins):
+    """Accumulate nominal, reweighted and target histograms in one pass."""
+    histograms = {
+      name: {
+        col: [[np.zeros(len(bins[name][col])-1), np.zeros(len(bins[name][col])-1)] for _ in range(3)]
+        for col in columns
+      }
+      for name in selections
+    }
+
+    def fill_histograms(df, out, options):
+      if out is None:
+        out = histograms
+      for name, selection in selections.items():
+        selected = df if selection == "1==1" else data_processor.ApplySelection(df, extra_sel=selection)
+        nominal = data_processor.ApplySelection(selected, extra_sel="classifier_truth == 0")
+        target = data_processor.ApplySelection(selected, extra_sel="classifier_truth == 1")
+        weights = [nominal["wt"].to_numpy(), (nominal["wt"] * nominal["wt_shift"]).to_numpy(), target["wt"].to_numpy()]
+        for col in columns:
+          values = [nominal[col].to_numpy(), nominal[col].to_numpy(), target[col].to_numpy()]
+          for i, (value, weight) in enumerate(zip(values, weights)):
+            out[name][col][i][0] += np.histogram(value, bins=bins[name][col], weights=weight)[0]
+            out[name][col][i][1] += np.histogram(value, bins=bins[name][col], weights=weight**2)[0]
+      return out
+
+    data_processor.GetFull(method="custom", custom=fill_histograms)
+    for selection in histograms.values():
+      for hist in selection.values():
+        for entry in hist:
+          entry[1] = np.sqrt(entry[1])
+    return histograms
+
+
   def Outputs(self):
     """
     Return a list of outputs given by class
@@ -128,11 +177,14 @@ class PlotClassifier():
     cfg = LoadConfig(self.cfg)
 
     # Add plots
-    for data_split in ["train", self.test_name]:
+    # Conditional-bin counts depend on the data. Declare the inclusive plots
+    # which are always produced; Run also writes all available condition bins.
+    loop = ["train"]
+    if self.test_name is not None:
+      loop.append(self.test_name)
+    for data_split in loop:
       for col in GetVariables(cfg, category=self.category):
         outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_inclusive.pdf"]
-        for i in range(self.n_plots):
-          outputs += [f"{self.plots_output}/reweighted_{col}_{data_split}_bin_{i}.pdf"]
 
     return outputs
 
@@ -147,15 +199,13 @@ class PlotClassifier():
     inputs += [self.parameters]
 
     # Add pred input
-    inputs += [
-      f"{self.evaluate_input}/pred_train.parquet", 
-      f"{self.evaluate_input}/pred_{self.test_name}.parquet",
-    ]
+    inputs += [f"{self.evaluate_input}/pred_train.parquet"]
+    if self.test_name is not None:
+      inputs += [f"{self.evaluate_input}/pred_{self.test_name}.parquet"]
   
     # Add data input
-    inputs += [f"{self.data_input}/{i}_{self.test_name}.parquet" for i in ["X","y","wt"]]
+    if self.test_name is not None:
+      inputs += [f"{self.data_input}/{i}_{self.test_name}.parquet" for i in ["X","y","wt"]]
     inputs += [f"{self.data_input}/{i}_train.parquet" for i in ["X","y","wt"]]
 
     return inputs
-
-        

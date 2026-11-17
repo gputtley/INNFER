@@ -10,6 +10,7 @@
     classifier_divide_by_nominal: True
     validation_loop_over_nuisance_variations: True
     keep_lnN_if_rate_param: True
+    points_per_job: 20
 - step: "HessianNumerical"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options: 
@@ -22,6 +23,7 @@
     classifier_divide_by_nominal: True
     validation_loop_over_nuisance_variations: True
     keep_lnN_if_rate_param: True
+    points_per_job: 20
 - step: "DMatrixNumerical"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
   run_options: 
@@ -34,6 +36,7 @@
     classifier_divide_by_nominal: True
     validation_loop_over_nuisance_variations: True
     keep_lnN_if_rate_param: True
+    points_per_job: 20
 - step: "CovarianceWithDMatrix"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 
@@ -46,8 +49,10 @@
     classifier_divide_by_nominal: True
     validation_loop_over_nuisance_variations: True
     keep_lnN_if_rate_param: True
+    points_per_job: 20
 - step: SummaryNuisanceVariations
   submit: "configs/submit/condor.yaml"
   run_options: 
     extra_dir_name: "ClosureTestFrozenNuisanceVariations"
     summary_from: CovarianceWithDMatrix
+    points_per_job: 20

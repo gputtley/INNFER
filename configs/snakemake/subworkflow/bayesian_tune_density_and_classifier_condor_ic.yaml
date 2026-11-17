@@ -27,6 +27,8 @@
 # Get the classifier performance metrics for the best models
 - step: "ClassifierPerformanceMetrics"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options:
+    points_per_job: 10
 
 # Get the classifier performance metrics for the best models
 - step: "ClassifierNuisanceVariations"
@@ -34,13 +36,26 @@
   run_options:
     extra_output_dir_name: "Val"
     sim_type: "val"
+    points_per_job: 10
+
+# Get the classifier performance metrics for the best models
+- step: "ClassifierNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options:
+    extra_output_dir_name: "TestInf"
+    sim_type: "test_inf"
+    points_per_job: 10
 
 - step: "ClassifierNuisanceVariations"
   submit: "configs/submit/condor_2_cpus_avx.yaml"
   run_options:
     extra_output_dir_name: "Full"
     sim_type: "full"
+    points_per_job: 10
 
 # Evaluate the classifier for pruning
 - step: "EvaluateClassifier"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
+  run_options:
+    points_per_job: 10
+

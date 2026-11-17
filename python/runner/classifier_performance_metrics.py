@@ -115,6 +115,7 @@ class ClassifierPerformanceMetrics():
         pred_df.GetFull(
           method=None,
           functions_to_apply=[
+            "untransform",
             partial(
               self._ApplyClassifier,
               func=self.network.Predict,
@@ -303,8 +304,9 @@ class ClassifierPerformanceMetrics():
 
     inputs = []
 
-    # Add config
+    # Add config and preprocessing metadata
     inputs += [self.cfg]
+    inputs += [self.parameters]
 
     # Add classifer model
     classifier_model_name = f"{self.model_input}/{self.extra_model_dir}/{self.file_name}{self.save_extra_name}"

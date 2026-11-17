@@ -143,7 +143,9 @@ class ClassifierNuisanceVariations():
           apply_classifier,
           func = network.Predict,
           X_columns = parameters['classifier'][self.classifier_model['parameter']]["X_columns"],
-          add_columns = {self.classifier_model['parameter']: -1.0}
+          add_columns = {self.classifier_model['parameter']: -1.0},
+          divide_by_nominal = self.divide_by_nominal,
+          nominal_columns = {self.classifier_model['parameter']: 0.0}
         ),
         wp
       ]
@@ -406,6 +408,9 @@ class ClassifierNuisanceVariations():
     out_name = f"{self.data_output}/nuisance_variations_performance_metrics_{self.classifier_model['parameter']}{self.extra_plot_name}.yaml"
     outputs += [out_name]
 
+    if self.get_separation:
+      outputs += [f"{self.data_output}/metrics_{self.classifier_model['parameter']}.yaml"]
+
     return outputs
 
   def Inputs(self):
@@ -424,5 +429,3 @@ class ClassifierNuisanceVariations():
     inputs += [f"{classifier_model_name}_architecture.yaml", f"{classifier_model_name}.h5"]
 
     return inputs
-
-        

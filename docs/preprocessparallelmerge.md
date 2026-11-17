@@ -42,6 +42,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 Merge collects YAML metadata; model writers collect their own parquet shards. Re-run the failed producer when final training files are missing. Validation metadata must not replace the authoritative transforms fitted on model-training data.
 
+The density model fragment owns the density metadata. Each classifier or regression model fragment owns the metadata for its named parameter, including its training-file location and standardisation. These entries override copied initial/validation metadata regardless of merge order; a model fragment does not replace another model's metadata.
+
 ## Implementation
 
 [CLI dispatch](../scripts/innfer.py), [Runner](../python/runner/preprocess.py). Runner `Inputs()` and `Outputs()` declare the files used to construct the Snakemake dependency graph.

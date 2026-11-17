@@ -34,7 +34,10 @@ class Yields():
     log_asym_kappa[nu_low_indices] = -log_kappa_low
 
     avg = 0.5 * (log_kappa_high - log_kappa_low)
-    alpha = 0.125 * (2 * nu[nu_middle_indices]) * ((6 * nu[nu_middle_indices]**4) - (10 * nu[nu_middle_indices]**2) + 5)
+    # J(x) = (15*x - 10*x**3 + 3*x**5)/8, with x = nu/q.
+    # The log-kappa coefficient is J(x)/2, matching two derivatives at +/-q.
+    scaled_nu = nu[nu_middle_indices] / self.q
+    alpha = scaled_nu * (15 - 10 * scaled_nu**2 + 3 * scaled_nu**4) / 16
     log_asym_kappa[nu_middle_indices] = avg + alpha * (log_kappa_high + log_kappa_low)
 
     return log_asym_kappa

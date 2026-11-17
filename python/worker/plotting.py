@@ -184,7 +184,8 @@ def plot_histograms_with_ratio(
   draw_error_bars = False,
   draw_error_bar_caps = True,
   draw_error_bars_first = False,
-  ignore_error_in_ratio = False
+  ignore_error_in_ratio = False,
+  title_right = None
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -194,7 +195,7 @@ def plot_histograms_with_ratio(
 
   hep.cms.text(cms_label,ax=ax[0],fontsize=22)
 
-  ax[0].text(1.0, 1.0, lumi_label,
+  ax[0].text(1.0, 1.0, lumi_label if title_right is None else title_right,
       verticalalignment='bottom', horizontalalignment='right',
       transform=ax[0].transAxes, fontsize=22)
 
@@ -575,6 +576,7 @@ def plot_many_comparisons(
   ylabel="Events",
   name="generation_non_stack",  
   ratio_range = [0.5,1.5],     
+  axis_text = None,
 ):
 
   cms_label = str(os.getenv("PLOTTING_CMS_LABEL")) if os.getenv("PLOTTING_CMS_LABEL") is not None else ""
@@ -584,6 +586,9 @@ def plot_many_comparisons(
   fig, ax= plt.subplots(n_models+1, 1, sharex=True, gridspec_kw={'height_ratios': [3]*n_models+[2]})
 
   hep.cms.text(cms_label,ax=ax[0])
+
+  if axis_text is not None:
+    ax[0].text(0.03, 0.96, axis_text, transform=ax[0].transAxes, va='top', ha='left', fontsize=18)
 
   rgb_palette = sns.color_palette("Set2", 8)
 

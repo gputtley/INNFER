@@ -32,6 +32,25 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 The module must expose the runner class expected by the dispatch code and implement Configure, Run, Inputs and Outputs. The current dispatcher splits options on a colon (despite the equals-sign parser help). Pass options as a semicolon-separated string, for example `--custom-options="name:value;other:value"`. See the [step template](step_template.md).
 
+## Redrawing Breit–Wigner fraction plots
+
+For `--custom-module=top_bw_fractions`, set
+`--custom-options="only_plot:True;plot:True;plot_dist:False"` to regenerate the
+fraction-spline plots from the saved YAML and spline pickle files. This mode
+requires no event parquet files and does not refit or overwrite the fractions.
+Set `plot_dist:True` as well to regenerate the reweighted distributions and ratio
+plots; these additionally require the original event parquet files and matching
+selection options. All plots include the translated category label.
+
+For binned fits with multiple channels per era, add `group_by_base_file:True`
+to the custom options. The runner groups channels using
+`inference.binned_fit.files.ttbar`, applies the union of their selections, and
+reads each era-level base file once per fraction calculation. Spline keys come
+from each base file's `bw_fractions.args.category`, so the generated locations
+match the preprocessing consumer. Plot labels and output names use those era
+keys. Use the same grouping option when redrawing the saved plots. The default
+remains one calculation per configured category.
+
 ## Implementation
 
 [CLI dispatch](../scripts/innfer.py). Runner `Inputs()` and `Outputs()` declare the files used to construct the Snakemake dependency graph.

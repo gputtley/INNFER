@@ -15,6 +15,8 @@ from functools import partial
 from bayesflow.helper_functions import extract_current_lr, format_loss_string, loss_to_string
 from bayesflow.helper_classes import EarlyStopper
 from tqdm.autonotebook import tqdm
+from data_loader import DataLoader
+from density_ema import RawDensityModelPath, UseEMAWeights
 from useful_functions import Resample, MakeDirectories
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
@@ -101,8 +103,10 @@ class InnferTrainer(bf.trainers.Trainer):
       # Compile update function, if specified
       if use_autograph:
          _backprop_step = tf.function(backprop_step, reduce_retracing=True)
+         self._epoch_loss_function = tf.function(self.amortizer.compute_loss, reduce_retracing=True)
       else:
          _backprop_step = backprop_step
+         self._epoch_loss_function = self.amortizer.compute_loss
 
       self._setup_optimizer(optimizer, epochs, X_train.num_batches)
       self.loss_history.start_new_run()
@@ -117,6 +121,9 @@ class InnferTrainer(bf.trainers.Trainer):
       loss = self._get_epoch_loss(X_train, Y_train, wt_train, 0, **kwargs)
       self.loss_history._total_train_loss.append(float(loss))
       val_loss = self._get_epoch_loss(X_test, Y_test, wt_test, 0, **kwargs)
+      if getattr(self.optimizer, "use_ema", False):
+         # Initial evaluation builds the amortizer, including its condition encoder.
+         self.optimizer.build(self.amortizer.trainable_variables)
       self.loss_history.add_val_entry(0, val_loss)
       self.lr_history = [extract_current_lr(self.optimizer)]
 
@@ -137,6 +144,8 @@ class InnferTrainer(bf.trainers.Trainer):
          best_val_loss = float(val_loss)
          MakeDirectories(model_name)
          self._save_model_weights(model_name)
+         if getattr(self.optimizer, "use_ema", False):
+            self._save_model_weights(RawDensityModelPath(model_name))
 
       # Create early stopper, if conditions met, otherwise None returned
       early_stopper = self._config_early_stopping(early_stopping, **kwargs)
@@ -145,6 +154,8 @@ class InnferTrainer(bf.trainers.Trainer):
       if save_model_per_epoch:
          MakeDirectories(model_name)
          self._save_model_weights(model_name.replace(".h5","_epoch_0.h5"))
+         if getattr(self.optimizer, "use_ema", False):
+            self._save_model_weights(RawDensityModelPath(model_name.replace(".h5","_epoch_0.h5")))
 
       # Loop through epochs
       for ep in range(1, epochs + 1):
@@ -162,6 +173,7 @@ class InnferTrainer(bf.trainers.Trainer):
             randomise_conditions = False
 
          training_batches = self._GetTrainingBatches(X_train, Y_train, wt_train, shuffle_buffer_size, shuffle_rng) if shuffle_training else None
+         running_loss_sum = None
 
          with tqdm(total=X_train.num_batches, desc="Training epoch {}".format(ep), disable=disable_tqdm) as p_bar:
 
@@ -186,43 +198,57 @@ class InnferTrainer(bf.trainers.Trainer):
                   self.optimizer.learning_rate.assign(new_lr)
 
                self.loss_history.add_entry(ep, loss)
-               avg_dict = self.loss_history.get_running_losses(ep)
-               lr = self._convert_lr(extract_current_lr(self.optimizer))
+               if not disable_tqdm:
+                  entry = np.atleast_1d(self.loss_history.history[f"Run {self.loss_history._current_run}"][f"Epoch {ep}"][-1])
+                  if running_loss_sum is None:
+                     running_loss_sum = np.zeros(len(entry), dtype=np.float64)
+                  running_loss_sum += entry
+                  means = running_loss_sum / bi
+                  if len(means) == 1:
+                     avg_dict = {"Avg.Loss": means[0]}
+                  else:
+                     avg_dict = {"Avg." + k: v for k, v in zip(self.loss_history.loss_names, means)}
+                  lr = self._convert_lr(extract_current_lr(self.optimizer))
 
-               disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
-               p_bar.set_postfix_str(disp_str)
-               p_bar.update(1)
+                  disp_str = format_loss_string(ep, bi, loss, avg_dict, lr=lr, it_str="Batch")
+                  p_bar.set_postfix_str(disp_str)
+                  p_bar.update(1)
 
          # Store and compute validation loss, if specified
          self._save_trainer(save_checkpoint)
-         loss = self._get_epoch_loss(X_train, Y_train, wt_train, ep, **kwargs)
-         if np.isnan(loss):
-            print("ERROR: Loss in NaN")
-            break
-         print(f"INFO:root:Train, Epoch: {ep}, Loss: {round(float(loss),3)}")
-         self.loss_history._total_train_loss.append(float(loss))
-         val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
+         saved_best = False
+         with UseEMAWeights(self.optimizer, self.amortizer.trainable_variables):
+            loss = self._get_epoch_loss(X_train, Y_train, wt_train, ep, **kwargs)
+            if np.isnan(loss):
+               print("ERROR: Loss in NaN")
+               break
+            print(f"INFO:root:Train, Epoch: {ep}, Loss: {round(float(loss),3)}")
+            self.loss_history._total_train_loss.append(float(loss))
+            val_loss = self._validation(ep, X_test, Y_test, wt_test, **kwargs)
 
-         if adaptive_lr_scheduler is not None and getattr(adaptive_lr_scheduler, "update_on", "batch") == "epoch":
-            current_lr = float(self.optimizer.learning_rate.numpy())
-            new_lr = adaptive_lr_scheduler.update(
-               current_lr,
-               float(val_loss),
-            )
-            self.optimizer.learning_rate.assign(new_lr)
+            if adaptive_lr_scheduler is not None and getattr(adaptive_lr_scheduler, "update_on", "batch") == "epoch":
+               current_lr = float(self.optimizer.learning_rate.numpy())
+               new_lr = adaptive_lr_scheduler.update(current_lr, float(val_loss))
+               self.optimizer.learning_rate.assign(new_lr)
 
-         lr = self._convert_lr(extract_current_lr(self.optimizer))
-         self.lr_history.append(lr)
-         
-         # Save model per epoch
-         if save_model_per_epoch:
-            self._save_model_weights(model_name.replace(".h5",f"_epoch_{ep}.h5"))
+            lr = self._convert_lr(extract_current_lr(self.optimizer))
+            self.lr_history.append(lr)
 
-         # Save best model
-         if np.isfinite(float(val_loss)) and ((best_val_loss is None) or (val_loss < best_val_loss)):
-            best_val_loss = 1.0*val_loss
-            MakeDirectories(model_name)
-            self._save_model_weights(model_name)
+            if save_model_per_epoch:
+               self._save_model_weights(model_name.replace(".h5",f"_epoch_{ep}.h5"))
+
+            if np.isfinite(float(val_loss)) and ((best_val_loss is None) or (val_loss < best_val_loss)):
+               best_val_loss = 1.0*val_loss
+               MakeDirectories(model_name)
+               self._save_model_weights(model_name)
+               saved_best = True
+
+         # These are paired with the EMA-selected epoch, not independently selected.
+         if getattr(self.optimizer, "use_ema", False):
+            if save_model_per_epoch:
+               self._save_model_weights(RawDensityModelPath(model_name.replace(".h5",f"_epoch_{ep}.h5")))
+            if saved_best:
+               self._save_model_weights(RawDensityModelPath(model_name))
 
          # Write metrics to wandb
          if use_wandb:
@@ -245,6 +271,7 @@ class InnferTrainer(bf.trainers.Trainer):
       return self.loss_history.get_plottable()
 
    def _save_model_weights(self, model_name):
+      MakeDirectories(model_name)
       save_callback = getattr(self, "save_model_weights", None)
       if save_callback is not None:
          save_callback(model_name)
@@ -272,12 +299,14 @@ class InnferTrainer(bf.trainers.Trainer):
       X.ChangeBatchSize(batch_size)
       Y.ChangeBatchSize(batch_size)
       wt.ChangeBatchSize(batch_size)
+      if not without_model and getattr(self, "_epoch_loss_function", None) is None:
+         self._epoch_loss_function = tf.function(self.amortizer.compute_loss, reduce_retracing=True)
       sum_loss = 0
       sum_wts = 0
       for _ in range(X.num_batches):
          conf = self._load_batch(X, Y, wt, ep)
          if not without_model:
-            sum_loss += (float(self.amortizer.compute_loss(conf, **{**kwargs.get("net_args", {}), "clip_negative_weight_loss": False}))*np.sum(conf["loss_weights"]))
+            sum_loss += (float(self._epoch_loss_function(conf, **{**kwargs.get("net_args", {}), "clip_negative_weight_loss": False}))*np.sum(conf["loss_weights"]))
          else:
             z = tf.convert_to_tensor(conf["parameters"], dtype=tf.float32)
             sum_loss -= (float(tf.reduce_sum(self.amortizer.latent_dist.log_prob(z) * tf.convert_to_tensor(conf["loss_weights"], dtype=tf.float32))) )
@@ -318,7 +347,9 @@ class InnferTrainer(bf.trainers.Trainer):
          EarlyStopper or None: EarlyStopper instance if early stopping is enabled, else None.
       """
       if early_stopping:
-         early_stopper = EarlyStopper(**kwargs.pop("early_stopping_args", {}))
+         early_stopping_args = {key: kwargs[key] for key in ["patience", "tolerance", "wait_till"] if key in kwargs}
+         early_stopping_args.update(kwargs.get("early_stopping_args", {}))
+         early_stopper = EarlyStopper(**early_stopping_args)
          return early_stopper
       return None
    
@@ -326,24 +357,23 @@ class InnferTrainer(bf.trainers.Trainer):
       """
       Shuffle aligned rows within sequential buffers and yield training batches.
       """
-      batches_per_buffer = buffer_size // X.batch_size
-      for first_batch in range(0, X.num_batches, batches_per_buffer):
-         buffer = [[], [], []]
-         for _ in range(min(batches_per_buffer, X.num_batches - first_batch)):
-            X_data = X.LoadNextBatch().to_numpy()
-            Y_data = Y.LoadNextBatch().to_numpy()
-            wt_data = wt.LoadNextBatch().to_numpy()
-            if Y_data.shape[1] == 0:
-               Y_data = np.empty((len(X_data), 0))
-            for values, data in zip(buffer, [X_data, Y_data, wt_data]):
-               values.append(data)
-         X_buffer, Y_buffer, wt_buffer = [np.concatenate(values, axis=0) for values in buffer]
-         if not len(X_buffer) == len(Y_buffer) == len(wt_buffer):
-            raise ValueError("Training features, conditions and weights must have matching row counts")
-         indices = rng.permutation(len(X_buffer))
-         for start in range(0, len(indices), X.batch_size):
-            batch_indices = indices[start:start + X.batch_size]
-            yield X_buffer[batch_indices], Y_buffer[batch_indices], wt_buffer[batch_indices].flatten()
+      batch_size = X.batch_size
+      loaders = [DataLoader(loader.parquet_file_name, batch_size=buffer_size) for loader in [X, Y, wt]]
+      try:
+         for _ in range(loaders[0].num_batches):
+            X_buffer, Y_buffer, wt_buffer = [loader.LoadNextBatch().to_numpy() for loader in loaders]
+            if Y_buffer.shape[1] == 0:
+               Y_buffer = np.empty((len(X_buffer), 0))
+            if not len(X_buffer) == len(Y_buffer) == len(wt_buffer):
+               raise ValueError("Training features, conditions and weights must have matching row counts")
+            indices = rng.permutation(len(X_buffer))
+            for start in range(0, len(indices), batch_size):
+               batch_indices = indices[start:start + batch_size]
+               yield X_buffer[batch_indices], Y_buffer[batch_indices], wt_buffer[batch_indices].flatten()
+      finally:
+         for loader in loaders:
+            if loader.parquet_file is not None:
+               loader.parquet_file.close()
 
    def _load_batch(self, X, Y, wt, ep, randomise_conditions=False, batch_data=None):
       """

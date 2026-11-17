@@ -90,6 +90,7 @@ class TrainRegression():
     # Do train
     if self.verbose:
       print("- Training the model")
+    network.save_model_per_epoch = self.save_model_per_epoch
     network.Train(name=f"{self.data_output}/{parameters['file_name']}{self.save_extra_name}.h5")
 
     # Saving model architecture

@@ -83,6 +83,7 @@ def parse_args():
   parser.add_argument('--density-architecture', help='Architecture for density model', type=str, default='configs/architecture/density_default.yaml')
   parser.add_argument('--debug-input', help='The conditions for the LikelihoodDebug step. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
   parser.add_argument('--density-performance-metrics', help='Comma separated list of density performance metrics', type=str, default='loss,histogram,multidim')
+  parser.add_argument('--density-performance-metrics-inference-datasets', help='Comma separated closure-fit datasets for DensityPerformanceMetrics: train_inf,test_inf,val,full. Does not change loss, histogram or multidimensional datasets.', type=str, default='test_inf,val')
   parser.add_argument('--density-performance-metrics-per-val-ind', help='Evaluate multidimensional density metrics separately at each validation index and save all results in one metrics YAML', action='store_true')
   parser.add_argument('--density-performance-metrics-multidim', help='Comma separated list of multidimensional density performance metrics', type=str, default='bdt')
   parser.add_argument('--describe', help='Describe the step being run.', action='store_true')
@@ -145,6 +146,7 @@ def parse_args():
   parser.add_argument('--overwrite-regression-architecture', help='Comma separated list of key=values to overwrite regression architecture parameters', type=str, default='')
   parser.add_argument('--plot-2d-unrolled', help='Make 2D unrolled plots when running generator.', action='store_true')
   parser.add_argument('--plot-extra-hypothesis', help='For Generator steps (and binned postfit), plot extra hypotheses. This is semi colon separated, comma separated key=value inputs', type=str, default=None)
+  parser.add_argument('--plot-hypothesis', help='Show the translated hypothesis at the top left of Generator and unbinned DistributionPlot plots.', action='store_true')
   parser.add_argument('--plot-metric', help='Metric for factorisation plots, colon separated in many keys', type=str, default='chi_squared_per_dof:mean')
   parser.add_argument('--plot-transformed', help='Plot transformed variables when running generator.', action='store_true')
   parser.add_argument('--plot-var-and-bins', help='For Generator steps, variable name and string of bins with () or [] depending on if you want equally spaced.', type=str, default=None)
@@ -155,7 +157,7 @@ def parse_args():
   parser.add_argument('--preprocess-merge', help='Comma separated list of steps to merge in preprocess', type=str, default='initial,model,validation')
   parser.add_argument('--prune-classifier-models', help='Comma separated list of key>values keep shape effects for', type=str, default=None)
   parser.add_argument('--prune-lnN', help='prune lnN yield to drop nuisance for', type=float, default=0.001)
-  parser.add_argument('--prune-from', help='Step to prune from', type=str, default="EvaluateClassifier")
+  parser.add_argument('--prune-from', help='Step to prune from', type=str, default="ClassifierNuisanceVariations")
   parser.add_argument('--pvalue-per-val-ind', help='Run the p values per validation index', action='store_true')
   parser.add_argument('--pvalue-per-val-ind-hypothesis', help='The hypothesis to use for p value calculation per validation index', type=str, default=None)
   parser.add_argument('--quiet', help='No verbose output.', action='store_true')
@@ -188,7 +190,7 @@ def parse_args():
   parser.add_argument('--snakemake-rerun-incomplete', help='Rerun incomplete steps in snakemake', action='store_true')
   parser.add_argument('--snakemake-use-file', help='Use already created snakemake file', action='store_true')
   parser.add_argument('--specific', help='Specific part of a step to run.', type=str, default='')
-  parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated list.', type=str, default=None)
+  parser.add_argument('--specific-category', help='Run for only a subset of categories, comma separated exact names or wildcard patterns.', type=str, default=None)
   parser.add_argument('--specific-file-name', help='Run for only a subset of files, comma separated list.', type=str, default=None)
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
@@ -235,9 +237,13 @@ def main(args, default_args, module_options={}):
   if args.extra_dir_name != "":
     args.extra_input_dir_name = args.extra_dir_name
     args.extra_output_dir_name = args.extra_dir_name
+    args.extra_dir_name = ""
   if args.extra_extra_dir_name != "":
     args.extra_input_dir_name += f"{args.extra_extra_dir_name}"
     args.extra_output_dir_name += f"{args.extra_extra_dir_name}"
+    # Generated commands carry the resolved input/output paths. Consume the
+    # shorthand so the worker does not append its suffix a second time.
+    args.extra_extra_dir_name = ""
   if args.specific_category is not None and args.add_specific_category_to_dir_name:
     category_suffix = f"_{args.specific_category}"
     if not args.extra_input_dir_name.endswith(category_suffix):
@@ -1386,6 +1392,7 @@ def main(args, default_args, module_options={}):
             "extra_density_model_name" : args.extra_density_model_name,
             "data_output" : f"{eval_data_dir}/DensityPerformanceMetrics{args.extra_output_dir_name}/{model_info['name']}{args.extra_density_model_name}",
             "do_inference": "inference" in args.density_performance_metrics,
+            "inference_datasets": args.density_performance_metrics_inference_datasets.split(","),
             "hold_dataset_in_memory": args.hold_dataset_in_memory,
             "cache_observable_transforms": args.cache_observable_transforms,
             "do_loss": "loss" in args.density_performance_metrics,
@@ -1733,7 +1740,7 @@ def main(args, default_args, module_options={}):
               "sim_type" : args.sim_type,
               "val_info" : val_info,
               "plot_styles" : [5] if file_name != "combined" else [1],
-              "no_text" : args.data_type == "data",
+              "no_text" : not args.plot_hypothesis,
               "data_label" : "Simulated" if (args.data_type != "data" and not args.data_vs_simulation) else "Data",
               "stack_label" : "Synthetic" if not args.data_vs_simulation else "Simulated",
               "plot_var_and_bins" : args.plot_var_and_bins,
@@ -1748,7 +1755,7 @@ def main(args, default_args, module_options={}):
   if args.step == "GeneratorSummary":
     print("<< Making plots using the network as a generator summarising all Y values >>")
     for file_name in GetModelFileLoop(cfg, with_combined=True, specific_file_name=specific_file_name_list):
-      validation_loop = [val_info for val_info in GetValidationLoop(cfg, file_name) if not SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density) or not SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data"))]
+      validation_loop = [(val_ind, val_info) for val_ind, val_info in enumerate(GetValidationLoop(cfg, file_name)) if not SkipNonDensity(cfg, file_name, val_info, skip_non_density=args.skip_non_density) and not SkipNonDefault(cfg, file_name, val_info, specific_combined_default_val=(args.specific_combined_default_val or args.data_type=="data"))]
       for category in GetCategoryLoop(cfg, specific_category=specific_category_list):
         module.Run(
           module_name = "generator_summary",
@@ -1757,9 +1764,9 @@ def main(args, default_args, module_options={}):
             "cfg" : args.cfg,
             "open_cfg" : cfg,
             "category" : category,
-            "val_loop" : validation_loop,
-            "data_input" : [{k:f"{prep_data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
-            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_asimov_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind in range(len(validation_loop))],
+            "val_loop" : [val_info for val_ind, val_info in validation_loop],
+            "data_input" : [{k:f"{prep_data_dir}/PreProcess/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind, val_info in validation_loop],
+            "asimov_input": [{k:f"{eval_data_dir}/MakeAsimov{args.extra_asimov_input_dir_name}/{k}/{category}/val_ind_{v}" for k,v in GetCombinedValdidationIndices(cfg, file_name, val_ind).items()} for val_ind, val_info in validation_loop],
             "sim_type" : args.sim_type,
             "plots_output" : f"{plots_dir}/GeneratorSummary{args.extra_output_dir_name}/{file_name}/{category}",
             "extra_plot_name" : args.extra_plot_name,
@@ -2653,7 +2660,8 @@ def main(args, default_args, module_options={}):
                 "do_2d_unrolled" : args.plot_2d_unrolled,
                 "extra_plot_name" : f"{val_ind}_{args.extra_plot_name}" if args.extra_plot_name != "" else str(val_ind),
                 "sim_type" : args.sim_type if not args.data_vs_simulation else "full",
-                "val_info" : {},
+                "val_info" : val_info,
+                "no_text" : not args.plot_hypothesis,
                 "plot_styles" : [1],
                 "data_label" : {"data":"Data", "sim":"Simulated", "asimov":"Asimov"}[args.data_type if not args.data_vs_simulation else "data"],
                 "stack_label" : "",

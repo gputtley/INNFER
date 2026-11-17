@@ -17,7 +17,7 @@ from scipy.interpolate import CubicSpline
 from data_processor import DataProcessor
 from data_loader import DataLoader
 from density_correction import DensityCorrection
-from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel
+from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel, GetModelArchitecturePath
 from yields import Yields
 from write_parquet import WriteParquet
 
@@ -117,7 +117,7 @@ class MakeAsimov():
 
     density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{parameters['file_name']}{self.model_extra_name}"
 
-    with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
+    with open(GetModelArchitecturePath(density_model_name), 'r') as yaml_file:
       architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
     network = InitiateDensityModel(
@@ -541,7 +541,7 @@ class MakeAsimov():
 
     # Add density model
     density_model_name = f"{self.model_input}/{self.density_model['name']}{self.extra_density_model_name}/{self.file_name}{self.model_extra_name}"
-    inputs += [f"{density_model_name}_architecture.yaml", f"{density_model_name}.h5"]
+    inputs += [GetModelArchitecturePath(density_model_name), f"{density_model_name}.h5"]
 
     if not self.only_density:
       # Add regression models

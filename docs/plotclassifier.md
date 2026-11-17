@@ -21,6 +21,12 @@ The dispatch exposes these loop filters where applicable: `model_name`, `categor
 
 **Produces:** reweighted_{column}_{split}_inclusive.pdf and conditional-bin plots.
 
+The runner computes bin edges for all observables together within each condition,
+then fills the original, reweighted and target histograms in one batched pass per
+dataset split. It keeps histogram accumulators in memory rather than the full
+dataset. Reweighted uncertainties use the squared corrected event weights,
+including events with negative weights.
+
 | Location | Path pattern |
 | --- | --- |
 | Models read | `$MODELS_DIR/$CFG_NAME` |

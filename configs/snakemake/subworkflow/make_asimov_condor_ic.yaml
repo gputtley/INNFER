@@ -16,3 +16,4 @@
     prune_from: "ClassifierNuisanceVariationsTestInf"
     use_asimov_scaling: 100
     classifier_divide_by_nominal: True
+    points_per_job: 10

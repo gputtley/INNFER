@@ -67,7 +67,7 @@ class Generator():
     if self.no_text:
       val_ind_text = ""
     else:
-      val_ind_text = ", ".join([f"{Translate(k, only_val=True)}={round(v,2)}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
+      val_ind_text = "\n".join([f"{Translate(k, only_val=True)}={v}{Translate(k, only_unit=True)}" for k, v in self.val_info.items()])
 
 
     params = {}
@@ -497,6 +497,7 @@ class Generator():
           ylabel="Events" if not density else "Density",
           name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_2",    
           ratio_range=self.ratio_range,
+          axis_text=axis_text,
         )
 
       if 3 in self.plot_styles:
@@ -510,6 +511,7 @@ class Generator():
           ylabel="Events" if not density else "Density",
           name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_3",      
           ratio_range=self.ratio_range, 
+          axis_text=axis_text,
           )
 
 
@@ -531,6 +533,7 @@ class Generator():
             ylabel="Events" if not density else "Density",
             name=f"{self.plots_output}/{extra_dir}generation_{col}{extra_name}_plot_style_4",      
             ratio_range=self.ratio_range, 
+            axis_text=axis_text,
             )
 
       if 5 in self.plot_styles:
@@ -546,6 +549,7 @@ class Generator():
           draw_error_bars = True,
           draw_error_bar_caps = False,
           ratio_range=self.ratio_range,
+          axis_text=axis_text,
         )
 
 
