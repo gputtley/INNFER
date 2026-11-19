@@ -1,0 +1,10 @@
+# Translate site settings while retaining configs/snakemake/btm_binned.yaml.
+configs/submit/condor.yaml: configs/submit/cern_1_cpu.yaml
+configs/submit/condor_1_cpus.yaml: configs/submit/cern_1_cpu.yaml
+configs/submit/condor_2_cpus.yaml: configs/submit/cern_2_cpus.yaml
+configs/submit/condor_4_cpus.yaml: configs/submit/cern_4_cpus.yaml
+configs/submit/condor_avx.yaml: configs/submit/cern_1_cpu.yaml
+configs/submit/condor_1_cpus_avx.yaml: configs/submit/cern_1_cpu.yaml
+configs/submit/condor_2_cpus_avx.yaml: configs/submit/cern_2_cpus.yaml
+# Only the CPU dataset split uses this GPU config in the binned workflow.
+configs/submit/condor_gpu.yaml: configs/submit/cern_4_cpus.yaml

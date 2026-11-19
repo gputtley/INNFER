@@ -16,7 +16,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIRS = ['python/worker', 'python/runner', 'python/BayesFlow/bayesflow',
-               'scripts', 'configs', 'tests', 'containers']
+               'scripts', 'configs', 'tests', 'containers', 'profiles']
 SOURCE_FILES = ['env.sh', 'README.md', 'LICENSE', 'python/BayesFlow/setup.py',
                 'python/BayesFlow/setup.cfg', 'python/BayesFlow/pyproject.toml']
 SOURCE_SUFFIXES = {'.py', '.sh', '.yaml', '.yml', '.json', '.txt', '.md', '.def', '.toml', '.cfg', '.ini'}

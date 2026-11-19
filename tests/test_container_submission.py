@@ -182,12 +182,16 @@ sys.exit(7 if '--fail' in args else 0)
     submission = self.base/'submit.yaml'
     submission.write_text(yaml.safe_dump({'name': 'condor', 'options': {
       'extra_lines': ['RequestGpus = 1', '+MaxRuntime = 36000']}}))
+    mapping = self.base/'map.yaml'
+    original_submission = self.base/'old_site.yaml'
+    mapping.write_text(yaml.safe_dump({str(original_submission): str(submission)}))
     dangerous = 'mass=$(touch SHOULD_NOT_EXIST);literal=`echo untouched`'
     for snake in [False, True]:
       directory = self.jobs/('snake' if snake else 'direct')
       directory.mkdir()
       args, default_args = parse('--cfg='+str(self.cfg), '--step=LikelihoodDebug',
-        '--container-image='+str(self.image), '--submit='+str(submission),
+        '--container-image='+str(self.image), '--submit='+str(original_submission),
+        '--submit-config-map='+str(mapping), '--snakemake-profile=profiles/cern',
         '--debug-input='+dangerous, '--dry-run')
       args.make_snakemake_inputs = snake
       with working_directory(self.project):
@@ -196,7 +200,8 @@ sys.exit(7 if '--fail' in args else 0)
         arguments = shlex.split(command)
         self.assertIn('--debug-input='+dangerous, arguments)
         self.assertEqual(arguments[0], 'innfer_container')
-        self.assertFalse(any(arg.startswith(('--container-image', '--submit=', '--make-snakemake-inputs')) for arg in arguments))
+        self.assertFalse(any(arg.startswith(('--container-image', '--submit=', '--make-snakemake-inputs',
+          '--submit-config-map', '--snakemake-profile', '--snakemake-shared-fs-usage')) for arg in arguments))
         module.cmd_store, module.extra_names = [command], ['_combined']
         module.input_store = ['events.parquet']
         module.output_store = [] if snake else ['result.yaml']
@@ -227,6 +232,17 @@ sys.exit(7 if '--fail' in args else 0)
       self.prepare()
     self.assertFalse(RequestsGPU({'extra_lines': ['RequestGpus = 0']}))
     self.assertTrue(RequestsGPU({'extra_lines': ['request_gpus = 1']}))
+
+  def test_external_raw_input_path_is_forwarded_and_bound(self):
+    raw = self.base/'raw input'
+    raw.mkdir()
+    with patch.dict(os.environ, {'TOP_RECO_DIR': str(raw)}):
+      job, options = self.job()
+    content = job.read_text()
+    self.assertIn(shlex.quote('TOP_RECO_DIR='+str(raw)), content)
+    self.assertIn(shlex.quote(str(raw)+':'+str(raw)), content)
+    metadata = json.loads(job.with_suffix('.container.json').read_text())
+    self.assertEqual(metadata['directories']['TOP_RECO_DIR'], str(raw))
 
   def test_disabled_container_keeps_host_environment_setup(self):
     job = self.jobs/'legacy.sh'

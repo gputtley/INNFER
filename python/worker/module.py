@@ -7,6 +7,7 @@ import yaml
 from pathlib import Path
 
 from batch import Batch
+from submission_config import ResolveSubmitConfig
 from useful_functions import StringToFile, CamelToSnake
 
 class Module():
@@ -194,7 +195,8 @@ class Module():
       # The image may predate the host submission option. Only worker arguments
       # are forwarded, and shell metacharacters in their values stay literal.
       excluded = {"container_image", "specific", "submit", "points_per_job", "dry_run",
-        "make_snakemake_inputs", "snakemake_cfg", "snakemake_force", "add_inputs", "add_outputs"}
+        "make_snakemake_inputs", "snakemake_cfg", "snakemake_force", "add_inputs", "add_outputs",
+        "snakemake_profile", "snakemake_shared_fs_usage", "submit_config_map"}
       argv = ["innfer_container"]
       for attr, value in vars(self.args).items():
         if attr in excluded or value == getattr(self.default_args, attr) or value is None or value is False:
@@ -207,7 +209,7 @@ class Module():
       return shlex.join(argv)
 
     argv = self._MakeCommandOptions(self.args)
-    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--snakemake-force", "--add-inputs", "--add-outputs"]
+    to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--snakemake-force", "--add-inputs", "--add-outputs", "--snakemake-profile", "--snakemake-shared-fs-usage", "--submit-config-map"]
     for remove in to_remove:
       remove_str = None
       for string in argv:
@@ -406,7 +408,7 @@ class Module():
     if self.args.submit is not None and (not self.snakemake):
 
       # Open config
-      with open(self.args.submit, 'r') as yaml_file:
+      with open(ResolveSubmitConfig(self.args.submit, getattr(self.args, "submit_config_map", None)), 'r') as yaml_file:
         submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
 
       # Make job name
@@ -466,7 +468,7 @@ class Module():
         rule_name += f"_{index}"
         
       job_name += ".sh"
-      with open(self.args.submit, 'r') as yaml_file:
+      with open(ResolveSubmitConfig(self.args.submit, getattr(self.args, "submit_config_map", None)), 'r') as yaml_file:
         submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
       container_options = self._ContainerOptions()
       b = Batch(options={"job_name":job_name, "options": submit_cfg.get("options", {}),
@@ -491,17 +493,16 @@ class Module():
       # Write batch settings
       if submit_cfg["name"] != "condor":
         raise ValueError("Currently only condor snakemake submission supported")
-      if "options" in submit_cfg.keys():
-        if "extra_lines" in submit_cfg["options"].keys():
-          rules += ["  params:"]
-          rules += ["    submit_options=["]
-          for extra_line in submit_cfg["options"]["extra_lines"]:
-            key = extra_line.split("=")[0].replace(" ","")
-            if not key.startswith("+"):
-              key = CamelToSnake(key)
-            val = extra_line.split("=")[1].replace(" ","")
-            rules += [f"      '{key}={val}',"]
-      rules[-1] = rules[-1][:-1]
+      rules += ["  params:", "    submit_options=["]
+      for extra_line in submit_cfg.get("options", {}).get("extra_lines", []):
+        key, separator, val = extra_line.partition("=")
+        if not separator or not key.strip():
+          raise ValueError(f"Invalid Condor submission option: {extra_line}")
+        key = key.strip()
+        if not key.startswith("+"):
+          key = CamelToSnake(key)
+        option = f"{key}={val.strip()}"
+        rules += [f"      {option!r},"]
       rules += ["    ]"]
 
       retry_runtime = getattr(self.args, "retry_runtime", None)

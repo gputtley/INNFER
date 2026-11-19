@@ -4,6 +4,8 @@ import argparse
 import copy
 import fnmatch
 import os
+import shlex
+import subprocess
 import sys
 import time
 import yaml
@@ -13,6 +15,7 @@ from dequantisation import get_dequantisation_options
 import pyfiglet as pyg
 
 from module import Module
+from submission_config import SnakeMakeCommand
 from useful_functions import (
     AdjustArgs,
     CommonInferConfigOptions,
@@ -184,6 +187,8 @@ def parse_args():
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--skip-weight-variation', help='For double variations skip the weight variation', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
+  parser.add_argument('--snakemake-profile', help='Snakemake submission profile name or path', default='htcondor')
+  parser.add_argument('--snakemake-shared-fs-usage', help='Shared filesystem roles passed to Snakemake', nargs='+', default=['input-output'])
   parser.add_argument('--snakemake-directory', help='Directory for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')
   parser.add_argument('--snakemake-force', help='Force snakemake to execute all steps', action='store_true')
@@ -197,6 +202,7 @@ def parse_args():
   parser.add_argument('--specific-combined-default-val', help='Run only the combined model for the validation index corresponding to the default parameters', action='store_true')
   parser.add_argument('--step', help='Step to run.', type=str, default=None)
   parser.add_argument('--submit', help='Batch to submit to', type=str, default=None)
+  parser.add_argument('--submit-config-map', help='YAML mapping of workflow submission configs to site-specific configs', default=None)
   parser.add_argument('--retry-runtime', help='Runtime in minutes for Snakemake retries; first attempts use the submission YAML', type=int, default=None)
   parser.add_argument('--retry-memory', help='Memory in MB for Snakemake retries; first attempts use the submission YAML', type=int, default=None)
   parser.add_argument('--submit-in-one-job', help='Will submit all steps in one job', action='store_true')
@@ -2952,29 +2958,15 @@ if __name__ == "__main__":
         snakemake_file = f"{jobs_dir}/{cfg['name']}/innfer_SnakeMake.txt"
 
       if not args.snakemake_dry_run: # Run snakemake
-        if args.snakemake_directory is None:
-          snakemake_directory_option = ""
-        else:
-          snakemake_directory_option = f"--directory {args.snakemake_directory}"
-        if args.snakemake_local:
-          profile_executor = "--executor local"
-        else:
-          profile_executor = "--profile htcondor"
-        if args.snakemake_rerun_incomplete:
-          snakemake_extra = " --rerun-incomplete"
-        else:
-          snakemake_extra = ""
-
         if not args.snakemake_use_file:
-          cmd = f"snakemake{snakemake_extra} --cores all {profile_executor} -s '{snakemake_file}' --unlock {snakemake_directory_option} &> /dev/null"
-          print(f"<< Unlocking snakemake file with command:>>")
-          print(cmd)
-          os.system(cmd)
-        snakemake_extra = " --forceall" if args.snakemake_force else ""
-        cmd = f"snakemake{snakemake_extra} --cores all {profile_executor} -s '{snakemake_file}' --shared-fs-usage='input-output' {snakemake_directory_option}"
-        print(f"<< Running snakemake with command:>>")
-        print(cmd)
-        os.system(cmd)
+          cmd = SnakeMakeCommand(args, snakemake_file, unlock=True)
+          print('<< Unlocking snakemake file with command:>>')
+          print(shlex.join(cmd))
+          subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        cmd = SnakeMakeCommand(args, snakemake_file)
+        print('<< Running snakemake with command:>>')
+        print(shlex.join(cmd))
+        subprocess.run(cmd, check=True)
 
   # Print the time elapsed
   print("<< Finished running without error >>")

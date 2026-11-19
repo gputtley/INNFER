@@ -76,6 +76,21 @@ class BinnedWorkflowTests(unittest.TestCase):
     self.assertEqual(len(cfg['files']), 12)
     self.assertTrue(cfg['data_file'])
 
+  def test_cern_config_uses_copied_raw_inputs_without_hostname_guard(self):
+    module = 'btm_common_cfg_inc_24_fsr_decorrelation_smaller_range'
+    paths = []
+    def exists(path):
+      paths.append(str(path))
+      return True
+    with patch.dict(os.environ, {'TOP_RECO_DIR': '/eos/toy/copied_inputs'}), \
+        patch(module+'.os.path.exists', side_effect=exists), \
+        patch(module+'.glob.glob', side_effect=lambda pattern: [pattern.replace('*', 'part0')]), \
+        patch(module+'.socket.getfqdn', return_value='lxplus.cern.ch'):
+      cfg = runpy.run_path(str(ROOT/'configs/run/btm_full_171126_binned.py'))['config']
+    self.assertEqual(cfg['name'], 'BTM_Full_171126_Binned')
+    self.assertTrue(any(path.startswith('/eos/toy/copied_inputs/') for path in paths))
+    self.assertFalse(any(path.startswith('/vols/') for path in paths))
+
 
 class BWGroupingTests(unittest.TestCase):
   def config(self):

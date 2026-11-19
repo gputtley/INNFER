@@ -27,7 +27,7 @@ class ApptainerBuildTests(unittest.TestCase):
       root = Path(directory)
       included = ['scripts/innfer.py', 'python/worker/current.py',
         'python/BayesFlow/bayesflow/amortizers.py', 'configs/run/ignored.py',
-        'containers/innfer', 'containers/innfer.def']
+        'containers/innfer', 'containers/innfer.def', 'profiles/cern/config.yaml']
       excluded = ['data/events.py', 'models/model.py', 'miniconda/secret.py',
         '.aws/credentials', 'python/worker/__pycache__/module.py',
         'python/runner/archive/obsolete.py', 'configs/setup/tmp/cache.json']

@@ -1,0 +1,6 @@
+name: condor
+options:
+  extra_lines:
+    - '+JobFlavour = "workday"'
+    - "RequestCpus = 4"
+    - "RequestMemory = 16000"

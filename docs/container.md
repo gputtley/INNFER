@@ -5,6 +5,8 @@ title: "Building the Apptainer image"
 
 The image contains **both the current software environment and a frozen source/configuration snapshot**. It does not contain datasets, trained models, job outputs, credentials, the host checkout's `.git` directory, or the live conda package cache. Building an image does not change existing jobs. Opt-in batch submission is described below; dataset staging remains separate.
 
+For the CERN lxplus binned workflow, see [CERN Condor submission](cern_submission.md).
+
 ## Build
 
 Run from the repository, with the working environment selected explicitly:

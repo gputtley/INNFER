@@ -19,9 +19,10 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
 
   host = socket.getfqdn()
   if host.endswith(".cern.ch"):
-    raise NotImplementedError("This data is not currently stored on eos.")
+    default_data_loc = "data/top_reco/270726_parquet_with_psweights"
   else:
-    data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/270726_parquet_with_psweights"
+    default_data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/270726_parquet_with_psweights"
+  data_loc = os.getenv("TOP_RECO_DIR") or default_data_loc
 
   variables = [
     "CombinedSubJets_mass",

@@ -1,0 +1,5 @@
+# Use --snakemake-profile profiles/cern and --container-image /path/to/innfer.sif.
+- workflow: configs/snakemake/btm_binned.yaml
+  retry_runtime: 1440
+  run_options:
+    submit_config_map: configs/submit/cern_binned_map.yaml

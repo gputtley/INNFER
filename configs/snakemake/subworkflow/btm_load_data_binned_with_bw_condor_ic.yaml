@@ -1,0 +1,9 @@
+# Load era-level base files, then optimize BW mixtures over each era's accepted channels.
+- step: LoadData
+  submit: configs/submit/condor_4_cpus.yaml
+
+- step: Custom
+  submit: configs/submit/condor_4_cpus.yaml
+  run_options:
+    custom_module: top_bw_fractions
+    custom_options: "gen_mass:GenTop1_mass;gen_mass_other:GenTop2_mass;mass_name:sim_mass;plot:True;plot_dist:True;selection:(TTtoSL_modelling_syst<0.5);group_by_base_file:True"

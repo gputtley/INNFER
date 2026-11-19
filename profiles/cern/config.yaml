@@ -1,0 +1,14 @@
+# Run from the project root on lxplus.
+executor: cluster-generic
+jobscript: jobscript.sh
+cluster-generic-submit-cmd: python3 profiles/cern/condor.py submit
+cluster-generic-status-cmd: python3 profiles/cern/condor.py status
+cluster-generic-cancel-cmd: condor_rm
+cluster-generic-cancel-nargs: 20
+jobs: 500
+local-cores: 2
+max-jobs-per-second: 5
+max-status-checks-per-second: 5
+restart-times: 2
+latency-wait: 90
+verbose: false
