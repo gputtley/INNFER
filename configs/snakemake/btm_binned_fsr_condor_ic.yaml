@@ -1,0 +1,107 @@
+# Load data
+- step: "LoadData"
+  submit: "configs/submit/condor_2_cpus.yaml"
+
+# Categorise data
+- step: "DataCategories"
+  submit: "configs/submit/condor_2_cpus.yaml"
+
+# Preprocess dataset
+- step: "PreProcessParallelYieldsNominal"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelYieldsParameters"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "SimToDataFactors"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    sim_to_data_norm_groups: "run2_*;2223_*;24_*"
+    sim_to_data_norm_processes: "ttbar"
+
+- step: "PreProcessParallelYieldsCollect"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+    sim_to_data_norm: True
+
+- step: "PreProcessParallelTrainTestValSplit"
+  submit: "configs/submit/condor_2_cpus_avx.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelBinnedFitInputsNominal"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    disable_tqdm: True
+
+- step: "PreProcessParallelBinnedFitInputsParameters"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options:
+    disable_tqdm: True
+
+- step: "PreProcessParallelValidation"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelNuisanceVariations"
+  submit: "configs/submit/condor_2_cpus.yaml"
+  run_options: 
+    disable_tqdm: True
+
+- step: "PreProcessParallelMerge"
+  submit: "configs/submit/condor.yaml"
+  run_options: 
+    disable_tqdm: True
+    preprocess_merge: "initial,validation,binned_fit_inputs"
+
+# Make plots of preprocessed data
+- step: InputPlotValidation
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    sim_type: "full"
+    ratio_range: "0.9,1.1"
+    likelihood_type: "binned"
+
+- step: InputPlotNuisanceVariations
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    sim_type: "full"
+    ratio_range: "0.9,1.1"
+    likelihood_type: "binned"
+
+
+# Stat only before fit
+- step: "DistributionPlot"
+  submit: "configs/submit/condor.yaml"
+  run_options:
+    data_vs_simulation: true
+    extra_output_dir_name: "PreFit"
+    ratio_range: "0.5,1.5"
+    sim_type: "full"
+    likelihood_type: "binned_extended"
+
+# Fit all eras together, retaining the existing output paths.
+- workflow: configs/snakemake/subworkflow/btm_binned_fsr_fit_condor_ic.yaml
+
+# Fit each era using all of its tau21 categories. Keep fit inputs and outputs
+# under matching suffixes; post-fit plots become DistributionPlotPostFit_<era>.
+- workflow: configs/snakemake/subworkflow/btm_binned_fsr_fit_condor_ic.yaml
+  run_options:
+    specific_category: "run2_*"
+    extra_extra_dir_name: "_run2"
+
+- workflow: configs/snakemake/subworkflow/btm_binned_fsr_fit_condor_ic.yaml
+  run_options:
+    specific_category: "2223_*"
+    extra_extra_dir_name: "_2223"
+
+- workflow: configs/snakemake/subworkflow/btm_binned_fsr_fit_condor_ic.yaml
+  run_options:
+    specific_category: "24_*"
+    extra_extra_dir_name: "_24"
