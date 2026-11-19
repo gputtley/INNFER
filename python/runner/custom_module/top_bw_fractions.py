@@ -491,7 +491,7 @@ class top_bw_fractions():
       options = {
         "wt_name" : "wt",
         "selection" : selection,
-        "functions" : functions
+        "functions" : functions + ["selection"]
       },
       use_pbar = True
     )
