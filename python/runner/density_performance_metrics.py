@@ -24,8 +24,7 @@ from useful_functions import (
   LoadConfig, 
   MakeDirectories,
   SkipEmptyDataset,
-  SkipNonDensity,
-  UniqueFromTwo
+  SkipNonDensity
 )
 
 class DensityPerformanceMetrics():
@@ -47,6 +46,7 @@ class DensityPerformanceMetrics():
     self.make_metrics_table = True
     self.n_asimov_events = 10**6
     self.asimov_seed = 0
+    self.apply_range_filter = False
     self.file_loc = None
     self.val_file_loc = None
     
@@ -215,7 +215,8 @@ class DensityPerformanceMetrics():
                 "parameters" : self.parameters,
                 "data_output" : self._GetAsimovDirectory(val_ind, data_type, self.asimov_seed),
                 "n_asimov_events" : n_events,
-                "seed" : UniqueFromTwo(self.asimov_seed, val_ind),
+                "seed" : self.asimov_seed,
+                "apply_range_filter" : self.apply_range_filter,
                 "val_info" : val_info,
                 "val_ind" : val_ind,
                 "only_density" : True,
@@ -247,7 +248,8 @@ class DensityPerformanceMetrics():
                   "parameters" : self.parameters,
                   "data_output" : self._GetAsimovDirectory(val_ind, data_type, self.alternative_asimov_seed),
                   "n_asimov_events" : n_events,
-                  "seed" : UniqueFromTwo(self.alternative_asimov_seed, val_ind),
+                  "seed" : self.alternative_asimov_seed,
+                  "apply_range_filter" : self.apply_range_filter,
                   "val_info" : val_info,
                   "val_ind" : val_ind,
                   "only_density" : True,

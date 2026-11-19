@@ -16,6 +16,7 @@ class HyperparameterScan():
     """
     self.model_type = None
     self.density_correction = False
+    self.apply_range_filter = False
     self.density_correction_model = None
     self.density_correction_parameters = None
 
@@ -153,6 +154,7 @@ class HyperparameterScan():
     if self.model_type == "density":
       pf = DensityPerformanceMetrics()
       pf.Configure({
+        "apply_range_filter": self.apply_range_filter,
         "density_correction": self.density_correction,
         "density_correction_model": self.density_correction_model,
         "density_correction_parameters": self.density_correction_parameters,

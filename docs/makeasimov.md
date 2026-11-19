@@ -34,7 +34,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `--asimov-seed` | `42` | The seed to use the create the asimov |
+| `--asimov-seed` | `42` | Base seed, combined with process, category and validation indices. |
+| `--asimov-apply-range-filter` | `False` | Reject generated events outside saved empirical training min/max bounds. |
 | `--classifier-divide-by-nominal` | `False` | Divide the classifier by the nominal value |
 | `--density-correction` | `False` | Multiply generated weights by the trained simulation-to-flow classifier ratio. |
 | `--extra-density-correction-input-dir-name` | `''` | Suffix used when training the correction with `--extra-output-dir-name`. |
@@ -47,6 +48,10 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 | `--use-asimov-scaling` | `10` | Generate asimov with this scaling up of the predicted yield |
 
 ## Behaviour and checks
+
+Generation leaves empirical range cuts off by default. Use `--asimov-apply-range-filter` to apply the saved transformed-space bounds before untransforming and the physical-space bounds afterwards. Rejecting events changes the sampled density and requires matching support normalization for a precise likelihood closure test; the flag does not add that normalization to the likelihood. Disabling the cuts retains the learned flow tails. Preprocessing transforms and their mathematical support are unchanged. Regenerate samples to change their filtering; fitting an existing Asimov file does not change its events.
+
+Sampling seeds combine the base seed with process, category and validation indices using `UniqueFromTwo`, then map the result to a supported 32-bit seed with NumPy `SeedSequence`. Process and category indices follow the full configuration order, so selecting a subset of jobs does not change their samples. The effective seed is printed during generation. Callers without a validation index use index zero; nuisance variations of the same process/category retain common random numbers. This changes newly generated samples; existing Asimov files are unaffected.
 
 These are finite Monte Carlo samples with weights, rather than noiseless event-level datasets. The workflow passes yield-based `--use-asimov-scaling` (default 10); the runner uses its fixed event count only when `use_asimov_scaling` is None. The CLI scaling option is integer-valued and takes precedence over the fixed-count option in this dispatch. `--only-density` omits learned nuisance-ratio corrections; `--use-spline` enables their saved normalisation splines; these are skipped by default. Keep these choices consistent with the validation/inference target.
 

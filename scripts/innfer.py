@@ -59,7 +59,8 @@ def parse_args():
   parser.add_argument('--add-inputs', help='Comma separated inputs to add to the step', type=str, default=None)
   parser.add_argument('--add-outputs', help='Comma separated outputs to add to the step', type=str, default=None)
   parser.add_argument('--add-specific-category-to-dir-name', help='Add the specific category name to the directory name', action='store_true')
-  parser.add_argument('--asimov-seed', help='Seed for Asimov generation and density correction sampling', type=int, default=42)
+  parser.add_argument('--asimov-seed', help='Base seed for Asimov generation (combined with process, category and validation indices) and density correction sampling', type=int, default=42)
+  parser.add_argument('--asimov-apply-range-filter', help='Apply empirical training min/max cuts to generated Asimov samples. Disabled by default.', action='store_true')
   parser.add_argument('--benchmark', help='Run from benchmark scenario', default=None)
   parser.add_argument('--binned-fit-input', help='The inputs to do a binned fit either just bins ("X1[0,50,100,200]" or categories and bins "(X2<100):X1[0,50,100,200];(X2>100):X1[0,50,200]")', default=None)
   parser.add_argument('--binned-observed-from-predicted', help='Take the binned observed data from the predicted values and not the validation samples', action='store_true')
@@ -1224,6 +1225,8 @@ def main(args, default_args, module_options={}):
               "n_asimov_events" : args.number_of_asimov_events,
               "seed" : args.asimov_seed,
               "val_info" : val_info,
+              "val_ind" : val_ind,
+              "apply_range_filter" : args.asimov_apply_range_filter,
               "only_density" : args.only_density,
               "verbose" : not args.quiet,
               "file_name" : file_name,
@@ -1262,6 +1265,7 @@ def main(args, default_args, module_options={}):
                 "n_asimov_events" : args.number_of_asimov_events,
                 "seed" : args.asimov_seed,
                 "val_info" : {nuisance: 1.0 if shift=="up" else -1.0},
+                "apply_range_filter" : args.asimov_apply_range_filter,
                 "only_density" : args.only_density,
                 "verbose" : not args.quiet,
                 "file_name" : file_name,
@@ -1306,6 +1310,7 @@ def main(args, default_args, module_options={}):
                     "n_asimov_events" : args.number_of_asimov_events,
                     "seed" : args.asimov_seed,
                     "val_info" : {nuisances[0]: 1.0 if nuisance_1_shift=="up" else -1.0, nuisances[1]: 1.0 if nuisance_2_shift=="up" else -1.0},
+                    "apply_range_filter" : args.asimov_apply_range_filter,
                     "only_density" : args.only_density,
                     "verbose" : not args.quiet,
                     "file_name" : file_name,
@@ -1336,7 +1341,9 @@ def main(args, default_args, module_options={}):
           "val_info" : GetDefaultsInModel(model_info['file_name'], cfg),
           "use_asimov_scaling" : None,
           "n_asimov_events" : args.number_of_asimov_events,
+          "seed" : args.asimov_seed,
           "only_density" : True,
+          "apply_range_filter" : args.asimov_apply_range_filter,
           "file_name" : model_info['file_name'],
           "model_input" : f"{models_dir}",
           "skip_spline" : not args.use_spline,
@@ -1408,6 +1415,7 @@ def main(args, default_args, module_options={}):
             "n_asimov_events" : args.number_of_asimov_events,
             "asimov_seed" : args.asimov_seed,
             "tidy_up_asimov" : True,
+            "apply_range_filter" : args.asimov_apply_range_filter,
             "verbose" : not args.quiet,     
           },
           loop = {"model_name" : model_info['name'], "category" : model_info['category'], "extra_name" : extra_name}
@@ -1464,6 +1472,7 @@ def main(args, default_args, module_options={}):
             "n_asimov_events" : args.number_of_asimov_events,
             "asimov_seed" : args.asimov_seed,
             "use_eff_events" : False,
+            "apply_range_filter" : args.asimov_apply_range_filter,
             "use_total_events_with_weights" : True,
             "specific_val_ind" : val_dict["index"],
             "specific_val_ind_hypothesis" : args.pvalue_per_val_ind_hypothesis,
@@ -1506,6 +1515,7 @@ def main(args, default_args, module_options={}):
               "n_asimov_events" : args.number_of_asimov_events,
               "asimov_seed" : args.asimov_seed,
               "synth_vs_synth" : True,
+              "apply_range_filter" : args.asimov_apply_range_filter,
               "alternative_asimov_seed_shift" : toy,
               "metrics_save_extra_name" : f"_toy_{toy}",
               "asimov_input" : f"{eval_data_dir}/PValueSimVsSynth{args.extra_input_dir_name}{val_dict['extra_name']}/{model_info['name']}{args.extra_density_model_name}",
@@ -1566,6 +1576,7 @@ def main(args, default_args, module_options={}):
           class_name = "HyperparameterScan",
           config = {
             **(GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir) if model_info["type"] == "density" else {}),
+            "apply_range_filter" : args.asimov_apply_range_filter,
             "cfg" : args.cfg,
             "model_type": model_info["type"],
             "data_input" : f"{prep_data_dir}/PreProcess{args.extra_input_dir_name}",
@@ -1616,6 +1627,7 @@ def main(args, default_args, module_options={}):
         class_name = "BayesianHyperparameterTuning",
         config = {
           **(GetDensityCorrectionOptions(args, model_info, models_dir, eval_data_dir) if model_info["type"] == "density" else {}),
+          "apply_range_filter" : args.asimov_apply_range_filter,
           "cfg" : args.cfg,
           "model_type": model_info["type"],
           "data_input" : f"{prep_data_dir}/PreProcess",
@@ -2578,6 +2590,7 @@ def main(args, default_args, module_options={}):
                 "seed" : args.asimov_seed,
                 "val_info" : best_fit,
                 "val_ind" : asimov_val_ind,
+                "apply_range_filter" : args.asimov_apply_range_filter,
                 "only_density" : args.only_density,
                 "file_name" : asimov_file_name,
                 "use_asimov_scaling" : args.use_asimov_scaling,
@@ -2626,6 +2639,7 @@ def main(args, default_args, module_options={}):
                     "seed" : args.asimov_seed,
                     "val_info" : val_info,
                     "val_ind" : asimov_val_ind,
+                    "apply_range_filter" : args.asimov_apply_range_filter,
                     "only_density" : args.only_density,
                     "file_name" : asimov_file_name,
                     "use_asimov_scaling" : args.use_asimov_scaling,

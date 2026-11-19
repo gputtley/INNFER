@@ -17,7 +17,7 @@ from scipy.interpolate import CubicSpline
 from data_processor import DataProcessor
 from data_loader import DataLoader
 from density_correction import DensityCorrection
-from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel, GetModelArchitecturePath
+from useful_functions import InitiateClassifierModel, InitiateDensityModel, InitiateRegressionModel, MakeDirectories, LoadConfig, GetDefaultsInModel, GetModelArchitecturePath, GetModelFileLoop, GetCategoryLoop, UniqueFromTwo
 from yields import Yields
 from write_parquet import WriteParquet
 
@@ -39,6 +39,8 @@ class MakeAsimov():
     self.data_output = "data/"
     self.n_asimov_events = 10**7
     self.seed = 42
+    self.val_ind = 0
+    self.apply_range_filter = False
     self.val_info = {}
     self.only_density = False
     self.add_truth = False
@@ -80,6 +82,7 @@ class MakeAsimov():
     if self.verbose:
       print("- Loading in config")
     cfg = LoadConfig(self.cfg)
+    generation_seed = self._GetSeed(cfg)
 
     # Open parameters
     if self.verbose:
@@ -155,11 +158,11 @@ class MakeAsimov():
 
     # Sample from density model
     if self.verbose:
-      print(f"- Sampling from density network")
+      print(f"- Sampling from density network with seed {generation_seed}")
     Y = pd.DataFrame({k:[v] for k,v in model_parameters.items() if k in parameters["density"]["Y_columns"]})
 
     asimov_writer = DataProcessor(
-      [[partial(network.Sample, Y)]],
+      [[partial(network.Sample, Y, apply_range_filter=self.apply_range_filter)]],
       "generator",
       n_events = n_events,
       wt_name = "wt",
@@ -187,8 +190,8 @@ class MakeAsimov():
     functions_to_apply += [wp]
     asimov_file_name = f"{self.data_output}/asimov.parquet"
 
-    tf.random.set_seed(self.seed)
-    tf.keras.utils.set_random_seed(self.seed)
+    tf.random.set_seed(generation_seed)
+    tf.keras.utils.set_random_seed(generation_seed)
     asimov_writer.GetFull(
       method = None,
       functions_to_apply = functions_to_apply
@@ -496,6 +499,22 @@ class MakeAsimov():
       outputs += [f"{self.data_output}/density_correction.yaml"]
 
     return outputs
+
+
+  def _GetSeed(self, cfg):
+    """
+    Derive a reproducible sampling seed for this process, category and hypothesis.
+    """
+    if self.seed < 0 or self.val_ind < 0:
+      raise ValueError("Asimov seed and validation index must be non-negative")
+
+    file_ind = GetModelFileLoop(cfg).index(self.file_name)
+    category_ind = GetCategoryLoop(cfg).index(self.density_model["category"])
+    stream_ind = UniqueFromTwo(UniqueFromTwo(file_ind, category_ind), self.val_ind)
+    seed = UniqueFromTwo(self.seed, stream_ind)
+
+    # Cantor pairing can exceed the seed range accepted by NumPy/TensorFlow.
+    return int(np.random.SeedSequence(seed).generate_state(1)[0])
 
 
   def _GetDensityCorrection(self):

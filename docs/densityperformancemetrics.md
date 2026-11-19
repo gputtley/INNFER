@@ -49,7 +49,8 @@ Defaults below are CLI defaults; architecture and run-configuration values are s
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `--asimov-seed` | `42` | The seed to use the create the asimov |
+| `--asimov-seed` | `42` | Base generation seed; MakeAsimov also incorporates process, category and validation indices. |
+| `--asimov-apply-range-filter` | `False` | Apply empirical training min/max cuts to generated comparisons, including both PValue sampling paths. Does not alter simulation closure inputs or existing synthetic files. |
 | `--cache-observable-transforms` | `False` | Cache parameter-independent density observable transforms and physical probability conversions during likelihood evaluation |
 | `--density-correction` | `False` | Apply the classifier correction to generated comparisons and inference closure. |
 | `--extra-density-correction-input-dir-name` | `''` | Suffix of the correction training output directories. |
