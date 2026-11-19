@@ -13,8 +13,9 @@ scratch before starting Apptainer, as in the existing container launcher.
 
 Copy the updated checkout and a newly built SIF, its `.sha256` and `.json`
 sidecars to CERN. Rebuild the image after these changes: the old image's common
-BTM configuration explicitly rejects `.cern.ch` hosts. The image now includes
-the portable common configuration and the versioned profile.
+BTM configuration explicitly rejects `.cern.ch` hosts. The rebuilt image must
+also include the common helper's `data_loc` argument used by the binned run
+config, together with the versioned profiles.
 
 For example, build on the machine with the existing environment archive:
 
@@ -54,11 +55,15 @@ snakemake --help | grep cluster-generic-submit-cmd
 command -v condor_submit condor_q condor_history condor_rm apptainer
 ```
 
-Copy the raw inputs yourself. Either retain the project layout
-`data/top_reco/270726_parquet_with_psweights`, or set `TOP_RECO_DIR` to their
-new location, e.g. an absolute mounted EOS directory. This value is captured
-when the jobs are generated and is forwarded through the container's clean
-environment. External absolute input roots are also bound into the container.
+Copy the raw inputs yourself. Set `data_loc` near the top of
+`configs/run/btm_full_171126_binned.py` to their location. The default is
+`data/top_reco/270726_parquet_with_psweights`, relative to the project root.
+An absolute mounted EOS path can be used instead. The path is passed to the
+common config helper and the selected run config is snapshotted for jobs.
+The container launcher has no dataset-specific path settings. External paths
+must be visible inside the container; use the site's mounts or Apptainer's
+standard [bind settings](https://apptainer.org/docs/user/main/bind_paths_and_mounts.html),
+such as `APPTAINER_BINDPATH=/eos`, when an extra mount is needed.
 Leave the auxiliary BDT files in the project at:
 
 ```text
@@ -71,7 +76,8 @@ data/merged_ttbar_bdt/ttbar_bdt_working_points_<era>.yaml
 
 From the project root on lxplus, activate the controller environment and source
 `env.sh` (use `source env.sh no_conda` if your environment is already active).
-If the raw inputs are elsewhere, set `TOP_RECO_DIR` after sourcing it.
+If the raw inputs are elsewhere, edit `data_loc` in the run config before
+generating the workflow.
 
 ```bash
 python3 scripts/innfer.py \

@@ -1,6 +1,7 @@
 from btm_common_cfg_inc_24_fsr_decorrelation_smaller_range import make_common_config
 
 run_name = "BTM_Full_171126_Binned"
+data_loc = "data/top_reco/270726_parquet_with_psweights"
 
 signal_cat_run2 = {
     'SubJet1_mass_10_60': {
@@ -194,6 +195,6 @@ binned_fit_input = {
 category_keys = list(categories.keys())
 for cat in category_keys:
   categories[cat] = f"(({categories[cat]}) & ({binned_fit_input['input'][cat]['variable']} >= {min(binned_fit_input['input'][cat]['binning'])}) & ({binned_fit_input['input'][cat]['variable']} < {max(binned_fit_input['input'][cat]['binning'])}))"
-config = make_common_config(run_name, categories, categories_per_era, add_classifier=True)
+config = make_common_config(run_name, categories, categories_per_era, add_classifier=True, data_loc=data_loc)
 config["name"] = run_name
 config["inference"]["binned_fit"] = binned_fit_input

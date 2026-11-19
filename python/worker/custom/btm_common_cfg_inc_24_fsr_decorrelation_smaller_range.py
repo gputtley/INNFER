@@ -1,7 +1,6 @@
 import os
 import copy
 import glob
-import socket
 
 import numpy as np
 
@@ -9,7 +8,7 @@ from btm_experimental_systematics import get_jec_nuisances
 
 prep_data_dir = os.getenv('PREP_DATA_DIR')
 
-def make_common_config(run_name, categories, categories_per_era, add_classifier=False):
+def make_common_config(run_name, categories, categories_per_era, add_classifier=False, data_loc=None):
 
   ### Define core variables for config ###
 
@@ -17,12 +16,8 @@ def make_common_config(run_name, categories, categories_per_era, add_classifier=
   pre_selection = "((ClosestJetWithLeptonRemoved_deltaR>0.25) | (ClosestJetWithLeptonRemoved_ptrel>30)) & (Extra_pileup<10)"
   post_selection = "((CombinedSubJets_pt > 400) & (LeptonicTop_mass < CombinedSubJets_mass) & (MET_pt>50) & (BJetLep_pt>30) & (CombinedSubJets_pt < 800) & (CombinedSubJets_mass > 50) & (CombinedSubJets_mass < 300) & (SubJet1_mass > 5) & (SubJet1_mass < 175) & (SubJet1_pt > 200) & (SubJet1_pt < 700) & (SubJet1_tau21 > 0.01) & (SubJet1_tau21 < 0.99) & (FatJet_tau21 > 0.05) & (FatJet_tau21 < 0.9) & (SubJet2_btagDeepB > 0) & (SubJet2_btagDeepB < 1))"
 
-  host = socket.getfqdn()
-  if host.endswith(".cern.ch"):
-    default_data_loc = "data/top_reco/270726_parquet_with_psweights"
-  else:
-    default_data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/270726_parquet_with_psweights"
-  data_loc = os.getenv("TOP_RECO_DIR") or default_data_loc
+  if data_loc is None:
+    data_loc = "/vols/cms/gu18/innfer_v1/data/top_reco/270726_parquet_with_psweights"
 
   variables = [
     "CombinedSubJets_mass",

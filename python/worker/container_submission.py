@@ -187,8 +187,6 @@ def ContainerJob(options, commands, job_name, submit_options):
   directories = {name: os.environ.get(name) or default for name, default in {
     'PREP_DATA_DIR': 'data', 'EVAL_DATA_DIR': 'data', 'MODELS_DIR': 'models',
     'PLOTS_DIR': 'plots', 'JOBS_DIR': 'jobs'}.items()}
-  if os.environ.get('TOP_RECO_DIR'):
-    directories['TOP_RECO_DIR'] = os.environ['TOP_RECO_DIR']
   gpu = RequestsGPU(submit_options)
   metadata = {**options, 'gpu': gpu, 'commands': commands, 'directories': directories}
   manifest = Path(str(Path(job_name).with_suffix(''))+'.container.json')

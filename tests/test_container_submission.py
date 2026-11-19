@@ -233,16 +233,16 @@ sys.exit(7 if '--fail' in args else 0)
     self.assertFalse(RequestsGPU({'extra_lines': ['RequestGpus = 0']}))
     self.assertTrue(RequestsGPU({'extra_lines': ['request_gpus = 1']}))
 
-  def test_external_raw_input_path_is_forwarded_and_bound(self):
+  def test_external_data_root_is_forwarded_and_bound(self):
     raw = self.base/'raw input'
     raw.mkdir()
-    with patch.dict(os.environ, {'TOP_RECO_DIR': str(raw)}):
+    with patch.dict(os.environ, {'PREP_DATA_DIR': str(raw)}):
       job, options = self.job()
     content = job.read_text()
-    self.assertIn(shlex.quote('TOP_RECO_DIR='+str(raw)), content)
+    self.assertIn(shlex.quote('PREP_DATA_DIR='+str(raw)), content)
     self.assertIn(shlex.quote(str(raw)+':'+str(raw)), content)
     metadata = json.loads(job.with_suffix('.container.json').read_text())
-    self.assertEqual(metadata['directories']['TOP_RECO_DIR'], str(raw))
+    self.assertEqual(metadata['directories']['PREP_DATA_DIR'], str(raw))
 
   def test_disabled_container_keeps_host_environment_setup(self):
     job = self.jobs/'legacy.sh'
