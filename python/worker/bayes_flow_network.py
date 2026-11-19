@@ -15,6 +15,7 @@ import tensorflow as tf
 from data_loader import DataLoader
 
 from data_processor import DataProcessor
+from density_probability import UnTransformDensityProbability
 from innfer_trainer import InnferTrainer
 from optimizer import Optimizer
 from plotting import plot_histograms
@@ -408,27 +409,13 @@ class BayesFlowNetwork():
     return self.prepared_X_cache[key]
 
 
-  def _UnTransformProbability(self, log_probs, transform_X=True):
+  def _UnTransformProbability(self, log_probs, transform_X=True, X=None):
 
-    columns = list(log_probs.columns)
-    if self.cache_observable_transforms and transform_X:
-      result = log_probs.copy()
-      for column in columns:
-        if column not in self.probability_transform_cache:
-          # Preserve the existing physical-density and derivative conversion.
-          # These output-only conversions depend on preprocessing parameters.
-          dp = DataProcessor([[pd.DataFrame({column: [0., 1.]})]], "dataset", options={"parameters": self.data_parameters})
-          converted = dp.GetFull(method="dataset", functions_to_apply=["untransform"])[column].to_numpy()
-          self.probability_transform_cache[column] = (converted[0], converted[1])
-        zero, one = self.probability_transform_cache[column]
-        if column == "log_prob":
-          result[column] += zero
-        else:
-          result[column] *= one
-      return result
-
-    dp = DataProcessor([[log_probs]], "dataset", options={"parameters": self.data_parameters})
-    return dp.GetFull(method="dataset", functions_to_apply=["untransform"] if transform_X else []).loc[:, columns]
+    return UnTransformDensityProbability(
+      log_probs, X, self.data_parameters, transform_X=transform_X,
+      cache=self.probability_transform_cache if self.cache_observable_transforms else None,
+      max_cached_batches=self.max_cached_transform_batches,
+    )
 
 
   def Probability(self, X, Y, return_log_prob=True, transform_X=True, transform_Y=True, no_fix=False, order=0, column_1=None, column_2=None, grad_of="direct_conditions"):
@@ -639,7 +626,7 @@ class BayesFlowNetwork():
     # Untransform probabilities
     for ind in range(len(log_probs)):
 
-      log_probs[ind] = self._UnTransformProbability(log_probs[ind], transform_X=transform_X)
+      log_probs[ind] = self._UnTransformProbability(log_probs[ind], transform_X=transform_X, X=X)
 
       # Fix 1d probability by ensuring integral is 1
       if self.fix_1d and not no_fix and order[ind] == 0:

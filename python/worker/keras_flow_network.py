@@ -10,6 +10,7 @@ import tensorflow as tf
 
 from data_loader import DataLoader
 from data_processor import DataProcessor
+from density_probability import UnTransformDensityProbability
 from optimizer import Optimizer
 from density_ema import RawDensityModelPath, UseEMAWeights
 from useful_functions import MakeDirectories
@@ -453,7 +454,7 @@ class KerasFlowNetwork():
         frame = pd.DataFrame({f"d2_log_prob_by_d_{first[0]}_and_{second[0]}": derivative})
       # Density Jacobian concerns X; gradients concern the differentiated input.
       convert = transform_X if derivative_order == 0 or grad_of == "parameters" else transform_Y
-      frame = self._UnTransformProbability(frame, transform_X=convert)
+      frame = self._UnTransformProbability(frame, transform_X=convert, X=X)
       array = frame.to_numpy(np.float64)
       output.append(array if return_log_prob else np.exp(array))
     return output if isinstance(order, list) else output[0]
@@ -510,27 +511,13 @@ class KerasFlowNetwork():
     return self.prepared_X_cache[key]
 
 
-  def _UnTransformProbability(self, log_probs, transform_X=True):
+  def _UnTransformProbability(self, log_probs, transform_X=True, X=None):
 
-    columns = list(log_probs.columns)
-    if self.cache_observable_transforms and transform_X:
-      result = log_probs.copy()
-      for column in columns:
-        if column not in self.probability_transform_cache:
-          # Preserve the existing physical-density and derivative conversion.
-          # These output-only conversions depend on preprocessing parameters.
-          dp = DataProcessor([[pd.DataFrame({column: [0., 1.]})]], "dataset", options={"parameters": self.data_parameters})
-          converted = dp.GetFull(method="dataset", functions_to_apply=["untransform"])[column].to_numpy()
-          self.probability_transform_cache[column] = (converted[0], converted[1])
-        zero, one = self.probability_transform_cache[column]
-        if column == "log_prob":
-          result[column] += zero
-        else:
-          result[column] *= one
-      return result
-
-    dp = DataProcessor([[log_probs]], "dataset", options={"parameters": self.data_parameters})
-    return dp.GetFull(method="dataset", functions_to_apply=["untransform"] if transform_X else []).loc[:, columns]
+    return UnTransformDensityProbability(
+      log_probs, X, self.data_parameters, transform_X=transform_X,
+      cache=self.probability_transform_cache if self.cache_observable_transforms else None,
+      max_cached_batches=self.max_cached_transform_batches,
+    )
 
 
   def PrepareX(self, X, transform_X=True):
