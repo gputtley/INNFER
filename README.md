@@ -8,6 +8,8 @@ INNFER (Invertible Neural Networks for Extracting Results) is a framework for pe
 
 All documentation, including setup instructions, example commands, and the statistical methods available is available at [https://gputtley.github.io/INNFER/](https://gputtley.github.io/INNFER/).
 
+To package the working environment together with a frozen code/configuration snapshot, see [Building the Apptainer image](docs/container.md).
+
 
 ## Help and Credits
 

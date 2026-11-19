@@ -55,11 +55,11 @@ if [ $# -eq 0 ] || [ "$1" == "snakemake_condor" ]; then
 fi
 
 if [ $# -eq 0 ] || [ "$1" == "container" ]; then
-  echo "Making container of conda environment"
-  #conda install -c conda-forge conda-pack
-  conda activate ${MINICONDA_BASE}/files/envs/innfer_env
-  conda-pack -n ${MINICONDA_BASE}/files/envs/innfer_env -o innfer_env_container.tar.gz
+  echo "Building Apptainer image of the environment and current code"
+  python3 scripts/build_apptainer.py \
+    --env-prefix "${CONDA_PREFIX:-${MINICONDA_BASE:-./miniconda}/files/envs/innfer_env}" \
+    --work-dir "${INNFER_CONTAINER_BUILD_DIR:-./tmp/apptainer-build}"
 fi
 
 
-rm -rf tmp/*
+#rm -rf tmp/*

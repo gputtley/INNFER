@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+. /opt/innfer/app/containers/environment.sh
+exec /opt/innfer/env/bin/python /opt/innfer/app/scripts/innfer.py "$@"

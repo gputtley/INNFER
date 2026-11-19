@@ -1,0 +1,47 @@
+Bootstrap: docker
+From: {{ BASE_IMAGE }}
+
+%files
+    {{ ENV_ARCHIVE }} /opt/innfer/environment.tar.gz
+    {{ CODE_ARCHIVE }} /opt/innfer/code.tar.gz
+
+%post
+    set -eu
+    dnf -y install ca-certificates tar gzip which findutils procps-ng \
+        fontconfig dejavu-sans-fonts libgomp glib2 libXext libXrender mesa-libGL \
+        texlive-collection-latexrecommended
+    dnf clean all
+    # Runtime images are read-only: prepare TeX's format while the rootfs is writable.
+    fmtutil-sys --byfmt pdflatex
+    mktexlsr /var/lib/texmf
+    test -n "$(kpsewhich -engine=pdftex -progname=pdflatex -format=fmt pdflatex.fmt)"
+    mkdir -p /opt/innfer/env /opt/innfer/app /opt/innfer/bin
+    tar -xzf /opt/innfer/environment.tar.gz -C /opt/innfer/env
+    tar -xzf /opt/innfer/code.tar.gz -C /opt/innfer/app
+    rm /opt/innfer/environment.tar.gz /opt/innfer/code.tar.gz
+    cp /opt/innfer/app/containers/innfer /opt/innfer/bin/innfer
+    chmod 755 /opt/innfer/bin/innfer
+    # Conda-pack preserves the environment; imports use the frozen BayesFlow source.
+    find /opt/innfer/env/lib -type f \( -name '*bayesflow*.pth' -o \
+        -name '*bayesflow*_finder.py' -o -iname 'bayesflow.egg-link' \) -delete
+    rpm -qa | sort > /opt/innfer/app/container-os-packages.txt
+
+%environment
+    . /opt/innfer/app/containers/environment.sh
+
+%runscript
+    exec /opt/innfer/bin/innfer "$@"
+
+%test
+    . /opt/innfer/app/containers/environment.sh
+    python /opt/innfer/app/containers/smoke_test.py
+
+%labels
+    org.opencontainers.image.title INNFER
+    org.opencontainers.image.description "Frozen INNFER environment, code and configuration; external datasets and models"
+
+%help
+    INNFER environment and source snapshot live under /opt/innfer.
+    Run: apptainer run [--nv] image.sif --cfg /opt/innfer/app/configs/run/example.py --step ...
+    Smoke test: apptainer exec --cleanenv image.sif python /opt/innfer/app/containers/smoke_test.py
+    Input/output staging and batch integration are separate from this image.

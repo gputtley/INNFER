@@ -35,6 +35,8 @@ A `workflow` entry includes another YAML list recursively. A `step` entry names 
 
 Outer workflow options are inherited by descendants, and a child's own value overrides the inherited value. Child overrides do not affect later siblings. Command-line options provide the initial defaults unless a workflow overrides them. To alter architecture-internal options such as buffered shuffling, edit/select the architecture rather than adding an unsupported CLI option to run_options.
 
+Set `container_image: images/innfer-20261118.sif` in `run_options`, or pass `--container-image` to the SnakeMake command, to run submitted jobs with Apptainer. A child can use `container_image: null` to disable it. The image and config archive become rule inputs; GPU requests and retry resources retain their existing definitions. See [container submission](container.md#submit-jobs-with-an-image).
+
 An explicit `{extra_extra_dir_name}` placeholder in a workflow's `other_input`
 is replaced during workflow expansion using that step's resolved suffix (or an
 empty string). For example,

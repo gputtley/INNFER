@@ -3,8 +3,6 @@ import stat
 
 from pathlib import Path
 
-from useful_functions import MakeDirectories
-
 class Batch():
   """
   Batch class for creating and running batch jobs on a cluster.
@@ -26,6 +24,8 @@ class Batch():
     self.job_name = "job.sh"
     self.dry_run = False
     self.use_environment_container = False
+    self.container_image = None
+    self.container_options = None
     self._SetOptions(options)
 
   def _SetOptions(self, options):
@@ -42,11 +42,7 @@ class Batch():
     """
     Run the batch job based on the specified submission system.
     """
-    split_directory = self.job_name.split("/")
-    for ind in range(len(split_directory)-1):
-      directory = "/".join(split_directory[:ind+1])
-      if not os.path.isdir(directory):
-        os.system(f"mkdir {directory}")
+    Path(self.job_name).parent.mkdir(parents=True, exist_ok=True)
 
     if self.submit_to == "SGE":
       self.RunSGE()
@@ -100,8 +96,7 @@ class Batch():
         "when_to_transfer_output  = ON_EXIT",
       ]
 
-    if "extra_lines" in self.options.keys():
-      extra_lines = self.options["extra_lines"]
+    extra_lines = self.options.get("extra_lines", [])
 
     sub_options = []
     if cern and "running_hours" in self.options.keys():
@@ -155,8 +150,8 @@ class Batch():
     """
     Create or append to a job script with the specified command list.
     """
-    MakeDirectories(job_name)
     path = Path(job_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
     mode = "w" if delete_job else "a"
     with path.open(mode, encoding="utf-8") as f:
       f.write("\n".join(cmd_list))
@@ -172,6 +167,16 @@ class Batch():
     Args:
         cmd_list (list): List of commands to be included in the batch job script.
     """
+
+    if self.container_image:
+      if self.use_environment_container:
+        raise ValueError("Apptainer cannot be combined with the legacy environment archive")
+      from container_submission import PrepareContainer, ContainerJob, ContainerSubmitOptions
+      if self.container_options is None:
+        self.container_options = PrepareContainer(self.container_image, os.getcwd(), Path(self.job_name).parent)
+      self.options = ContainerSubmitOptions(self.options, self.container_options)
+      self._CreateJob(ContainerJob(self.container_options, cmd_list, self.job_name, self.options), self.job_name)
+      return
 
     #data_dir = os.getenv('DATA_DIR')
     prep_data_dir = os.getenv('PREP_DATA_DIR')

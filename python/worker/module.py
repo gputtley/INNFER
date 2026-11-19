@@ -1,7 +1,10 @@
 import copy
 import importlib
 import os
+import shlex
 import yaml
+
+from pathlib import Path
 
 from batch import Batch
 from useful_functions import StringToFile, CamelToSnake
@@ -47,6 +50,7 @@ class Module():
     self.saved_class = None
     self.use_number_for_jobs = True
     self.jobs_inds = {}
+    self.container_options = None
 
     # Set up options
     for key, value in options.items():
@@ -186,6 +190,22 @@ class Module():
         Batch command string.
     """
 
+    if getattr(self.args, "container_image", None):
+      # The image may predate the host submission option. Only worker arguments
+      # are forwarded, and shell metacharacters in their values stay literal.
+      excluded = {"container_image", "specific", "submit", "points_per_job", "dry_run",
+        "make_snakemake_inputs", "snakemake_cfg", "snakemake_force", "add_inputs", "add_outputs"}
+      argv = ["innfer_container"]
+      for attr, value in vars(self.args).items():
+        if attr in excluded or value == getattr(self.default_args, attr) or value is None or value is False:
+          continue
+        name = attr.replace("_", "-")
+        argv.append(f"--{name}" if value is True else f"--{name}={value}")
+      specific = self._MakeSpecificString(loop)
+      if specific:
+        argv.append(f"--specific={specific}")
+      return shlex.join(argv)
+
     argv = self._MakeCommandOptions(self.args)
     to_remove = ["--specific=", "--submit=", "--points-per-job=", "--dry-run", "--make-snakemake-inputs", "--snakemake-cfg", "--snakemake-force", "--add-inputs", "--add-outputs"]
     for remove in to_remove:
@@ -201,6 +221,17 @@ class Module():
       specific_sub_string = f' --specific="{specific_sub_string}"'
 
     return f"python3 {self.argv[0]} {' '.join(argv)} {specific_sub_string}"
+
+
+  def _ContainerOptions(self):
+    """Share one config snapshot across all jobs generated for this step."""
+    image = getattr(self.args, "container_image", None)
+    if image and self.container_options is None:
+      from container_submission import PrepareContainer
+      config_files = [getattr(self.args, key, None) for key in
+        ["cfg", "density_architecture", "classifier_architecture", "regression_architecture"]]
+      self.container_options = PrepareContainer(image, os.getcwd(), Path(self.job_name).parent, config_files)
+    return self.container_options
 
 
   def _SetupGlobal(self, loop):
@@ -399,7 +430,8 @@ class Module():
         job_name += f"_{index}"
 
       # Submit job
-      options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run}
+      options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run,
+        "container_image": getattr(self.args, "container_image", None), "container_options": self._ContainerOptions()}
       sub = Batch(options=options)
       sub.Run()
 
@@ -434,27 +466,29 @@ class Module():
         rule_name += f"_{index}"
         
       job_name += ".sh"
-      b = Batch(options={"job_name":job_name})
+      with open(self.args.submit, 'r') as yaml_file:
+        submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
+      container_options = self._ContainerOptions()
+      b = Batch(options={"job_name":job_name, "options": submit_cfg.get("options", {}),
+        "container_image": getattr(self.args, "container_image", None), "container_options": container_options})
       b._CreateBatchJob(self.cmd_store)
+
+      if container_options is not None:
+        submit_cfg["options"] = b.options
+        self.input_store = sorted(set(self.input_store + [container_options["image"], container_options["config_archive"]]))
 
       # Begin writting rules
       rules = [f"rule {rule_name}:"]
 
-      # Write inputs
-      rules += ["  input:"]
-      for inputs in self.input_store:
-        rules += [f"    '{inputs}',"]
-      rules[-1] = rules[-1][:-1]
-
-      # Write outputs
-      rules += ["  output:"]
-      for outputs in self.output_store:
-        rules += [f"    '{outputs}',"]
-      rules[-1] = rules[-1][:-1]
+      # Empty dependencies still need a valid Snakemake declaration.
+      for name, files in [("input", self.input_store), ("output", self.output_store)]:
+        if files:
+          rules += [f"  {name}:"] + [f"    {path!r}," for path in files]
+          rules[-1] = rules[-1][:-1]
+        else:
+          rules += [f"  {name}: []"]
 
       # Write batch settings
-      with open(self.args.submit, 'r') as yaml_file:
-        submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
       if submit_cfg["name"] != "condor":
         raise ValueError("Currently only condor snakemake submission supported")
       if "options" in submit_cfg.keys():

@@ -33,3 +33,7 @@ wandb/*
 .snakemake/*configs/setup/tmp/
 configs/setup/tmp/
 *.log
+images/*.sif
+images/*.sif.partial
+images/*.sif.sha256
+images/*.sif.json

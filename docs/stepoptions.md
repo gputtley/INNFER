@@ -59,6 +59,8 @@ Synthetic inputs have their own `--extra-asimov-input-dir-name` and `--extra-pos
 
 `--submit=configs/submit/condor_4_cpus.yaml` submits the selected work using that batch configuration. `--points-per-job` groups loop iterations into one job; its default is 1. `--dry-run` prepares batch submission without submitting it. For a dependency graph and restartable workflow, use [SnakeMake](snakemake.md).
 
+`--container-image=images/innfer-20261118.sif` opts submitted jobs into Apptainer, including Snakemake jobs. It uses a verified local image copy and a submission-time config snapshot while data/models remain on shared storage. It is disabled by default. See [container submission](container.md#submit-jobs-with-an-image).
+
 Each runner declares `Inputs()` and `Outputs()`. Missing inputs prevent execution or workflow construction. Running a training-only subworkflow does not automatically add preprocessing jobs: either produce those inputs first or include their producer subworkflow.
 
 `--add-inputs` and `--add-outputs` add comma-separated dependency paths. This is useful for external correction files referenced by configuration callbacks. `--ignore-inputs-and-outputs` bypasses existence checks; it does not create missing datasets.
