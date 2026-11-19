@@ -1,0 +1,13 @@
+# Run from the INNFER repository root on Imperial College HTCondor.
+jobscript: jobscript.sh
+executor: cluster-generic
+cluster-generic-submit-cmd: python3 profiles/ic/condor.py submit
+cluster-generic-status-cmd: python3 profiles/ic/condor.py status
+cluster-generic-cancel-cmd: python3 profiles/ic/condor.py cancel
+cluster-generic-cancel-nargs: 20
+max-jobs-per-second: 100
+max-status-checks-per-second: 100
+restart-times: 5
+local-cores: 10
+jobs: 5000
+verbose: false

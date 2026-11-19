@@ -25,11 +25,51 @@ source setup.sh env
 
 ## Setup SnakeMake
 
-The framework is set up to work with the SnakeMake workflow manager. Firstly, this needs to be setup for the local batch service. To do this for HTCondor run through the following steps.
+After creating the environment, choose the setup target for your batch service.
+Run it from the repository root. Both targets activate `innfer_env` and ensure
+the shared Snakemake executor plugin is installed.
+
+For Imperial College HTCondor:
+
 ```bash
-source setup.sh snakemake_condor
+bash setup.sh snakemake_ic
 ```
-You should call the profile `htcondor` and if you wish to looks at the condor submission logs then set this directory to somewhere accessible. Note, this is only setup for use on HTCondor batch systems.
+
+This validates the bundled `profiles/ic` profile and ensures the HTCondor
+Python bindings are available. Select it with `--snakemake-profile=profiles/ic`,
+which is also INNFER's default. The old `snakemake_condor` setup target remains
+an alias for IC setup. Running setup with no target retains the IC default.
+No cookiecutter installation or external profile repository is required.
+
+The IC profile preserves the existing limits (5000 jobs, 100 submissions and
+status checks per second, and five Snakemake retries). Scheduler logs default
+to `${JOBS_DIR:-jobs}/condor`; set `INNFER_CONDOR_LOG_DIR` to use another
+location. Workflow `retry_runtime` remains minutes, converted to IC's
+`+MaxRuntime` in seconds; `retry_memory` remains MB. Snakemake manages retries
+so that each attempt receives its requested resources. Status polling reads
+available log events without waiting, and held jobs are removed before a
+replacement is submitted.
+
+Existing personal profiles are left untouched. To keep using one, explicitly
+pass its name or path, for example `--snakemake-profile=htcondor`. Already
+running Snakemake controllers continue using the profile with which they
+were launched.
+
+For CERN lxplus:
+
+```bash
+bash setup.sh snakemake_cern
+```
+
+This checks the Condor commands and Apptainer, and validates the bundled CERN
+profile in `profiles/cern`. Select it with
+`--snakemake-profile=profiles/cern`. See [CERN submission](cern_submission.md)
+for the binned workflow command and container requirements.
+
+Both setup targets print the profile argument to use. They also work with
+`source setup.sh <target>` when you want to retain environment activation in
+your current terminal. Otherwise, run `source env.sh` after setup to activate
+the environment for subsequent INNFER commands.
 
 <br>
 

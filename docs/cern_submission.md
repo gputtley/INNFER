@@ -34,7 +34,19 @@ and its `cluster-generic` executor plugin. The controller runs outside the
 container and must have `condor_submit`, `condor_q`, `condor_history`, and
 `condor_rm` available. Workers need Apptainer and access to the shared paths;
 they use Python and dependencies from the SIF. No Python `htcondor` binding is
-required by the new profile. Check the installation with:
+required by the new profile. After creating the environment, run the CERN
+setup target from the repository root:
+
+```bash
+bash setup.sh snakemake_cern
+source env.sh
+```
+
+This ensures the shared executor plugin is installed, checks the Condor
+commands and Apptainer, validates `profiles/cern`, and prints the profile
+argument to use. No separate pip command or IC profile installation is
+needed. Full installation instructions are in [Setup](setup.md).
+You can also check the installation with:
 
 ```bash
 snakemake --version
@@ -116,7 +128,7 @@ workflow if needed. Application logs retain the usual `jobs/<run>/` paths.
 The profile launches Apptainer through INNFER; it does not request a second
 container layer from Condor.
 
-The generic controller flags are `--snakemake-profile` (default `htcondor`),
+The generic controller flags are `--snakemake-profile` (default `profiles/ic`),
 `--snakemake-shared-fs-usage` (default `input-output`) and `--submit-config-map`.
 They are not forwarded to worker INNFER commands. The profile's helper can
 write an individual submit file without sending it to Condor:

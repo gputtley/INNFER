@@ -6,7 +6,7 @@ import yaml
 
 
 @lru_cache(maxsize=16)
-def _ReadSubmitMap(path, modified):
+def _ReadSubmitMap(path, signature):
   mapping = yaml.safe_load(Path(path).read_text())
   if not isinstance(mapping, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()):
     raise ValueError(f'Submission map must contain submission YAML path pairs: {path}')
@@ -18,7 +18,8 @@ def ResolveSubmitConfig(path, mapping_path=None):
   if mapping_path is None:
     return path
   mapping_file = Path(mapping_path).resolve()
-  mapping = _ReadSubmitMap(str(mapping_file), mapping_file.stat().st_mtime_ns)
+  info = mapping_file.stat()
+  mapping = _ReadSubmitMap(str(mapping_file), (info.st_mtime_ns, info.st_ctime_ns, info.st_size))
   key = str(Path(path).resolve())
   if key not in mapping:
     raise ValueError(f'No submission mapping for {path} in {mapping_path}')

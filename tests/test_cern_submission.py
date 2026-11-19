@@ -73,7 +73,9 @@ class CERNSubmissionTests(unittest.TestCase):
       mapping.write_text('unrelated: other.yaml\n')
       with self.assertRaisesRegex(ValueError, 'No submission mapping'):
         ResolveSubmitConfig('unmapped.yaml', mapping)
+      original = mapping.stat()
       mapping.write_text('- not a mapping\n')
+      os.utime(mapping, ns=(original.st_atime_ns, original.st_mtime_ns))
       with self.assertRaisesRegex(ValueError, 'path pairs'):
         ResolveSubmitConfig('unmapped.yaml', mapping)
     self.assertEqual(ResolveSubmitConfig('ic.yaml'), 'ic.yaml')
@@ -91,7 +93,7 @@ class CERNSubmissionTests(unittest.TestCase):
     self.assertNotIn('--forceall', SnakeMakeCommand(args, 'file.smk', unlock=True))
     args.snakemake_local = True
     self.assertNotIn('--profile', SnakeMakeCommand(args, 'file.smk'))
-    self.assertEqual(parse()[0].snakemake_profile, 'htcondor')
+    self.assertEqual(parse()[0].snakemake_profile, 'profiles/ic')
 
   def test_condor_options_preserve_expressions_and_retry_overrides(self):
     properties = {'params': {'submit_options': ['request_cpus=4', 'request_memory=12000',

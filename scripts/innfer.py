@@ -187,7 +187,7 @@ def parse_args():
   parser.add_argument('--skip-non-density', help='Skip the validation points that are not in the validation model', action='store_true')
   parser.add_argument('--skip-weight-variation', help='For double variations skip the weight variation', action='store_true')
   parser.add_argument('--snakemake-cfg', help='Config for running with snakemake', default=None)
-  parser.add_argument('--snakemake-profile', help='Snakemake submission profile name or path', default='htcondor')
+  parser.add_argument('--snakemake-profile', help='Snakemake submission profile name or path', default='profiles/ic')
   parser.add_argument('--snakemake-shared-fs-usage', help='Shared filesystem roles passed to Snakemake', nargs='+', default=['input-output'])
   parser.add_argument('--snakemake-directory', help='Directory for running with snakemake', default=None)
   parser.add_argument('--snakemake-dry-run', help='Dry run snakemake', action='store_true')

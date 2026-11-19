@@ -83,7 +83,6 @@ dependencies:
       - connection-pool==0.0.3
       - cons==0.4.6
       - contourpy==1.2.1
-      - cookiecutter==2.6.0
       - cramjam==2.8.3
       - cycler==0.12.1
       - datrie==0.8.2
