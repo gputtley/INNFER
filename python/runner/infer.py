@@ -103,6 +103,7 @@ class Infer():
     self.classifier_divide_by_nominal = False
     self.use_integral_scaling = None
     self.skip_spline = True
+    self._yaml_cache = {}
 
 
   def Configure(self, options):
@@ -117,6 +118,21 @@ class Infer():
 
     if self.extra_file_name != "":
       self.extra_file_name = f"_{self.extra_file_name}"
+
+
+  def _LoadYaml(self, path):
+    """
+    Read model metadata once per file version, returning an independent copy.
+    """
+    path = os.path.abspath(path)
+    stat = os.stat(path)
+    signature = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    cached = self._yaml_cache.get(path)
+    if cached is None or cached[0] != signature:
+      with open(path, 'r') as yaml_file:
+        data = yaml.load(yaml_file, Loader=getattr(yaml, "CFullLoader", yaml.FullLoader))
+      self._yaml_cache[path] = (signature, data)
+    return copy.deepcopy(self._yaml_cache[path][1])
 
 
   def _LoadFreezeDefaults(self):
@@ -721,9 +737,7 @@ class Infer():
     for cat, par in self.parameters.items():
       all_parameters[cat] = {}
       for file_name, v in par.items():
-        with open(v, 'r') as yaml_file:
-          parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
-        all_parameters[cat][file_name] = copy.deepcopy(parameters)
+        all_parameters[cat][file_name] = self._LoadYaml(v)
 
     # Remove total rate of nuisances if remove_lnN_if_rate_param is True and this file is a rate parameter, as the total rate will be floating and the lnN will not make sense
     if "rate_parameters" in self.inference_options:
@@ -928,8 +942,7 @@ class Infer():
         for k, v in par.items():
 
           # Open data parameters
-          with open(v, 'r') as yaml_file:
-            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          parameters = self._LoadYaml(v)
 
           if self.scale_to_eff_events:
             scale = parameters["eff_events"][self.sim_type][self.val_ind] / parameters["yields"]["nominal"]
@@ -976,8 +989,7 @@ class Infer():
       parameters[cat] = {}
 
       for k, v in par.items():
-        with open(v, 'r') as yaml_file:
-          parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        parameters[cat][k] = self._LoadYaml(v)
 
       # If scale to effective events, recalculate effective events for combined models
       if self.scale_to_eff_events:
@@ -1035,13 +1047,11 @@ class Infer():
       for k, v in models.items():
 
         # Open parameters
-        with open(v["parameters"], 'r') as yaml_file:
-          parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        parameters[cat][k] = self._LoadYaml(v["parameters"])
 
         # Open architecture
         density_model_name = f"{self.model_input}/{v['name']}{self.extra_density_model_name}/{parameters[cat][k]['file_name']}"
-        with open(f"{density_model_name}_architecture.yaml", 'r') as yaml_file:
-          architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+        architecture = self._LoadYaml(f"{density_model_name}_architecture.yaml")
 
         # Make model
         networks[cat][k] = InitiateDensityModel(
@@ -1117,13 +1127,11 @@ class Infer():
         for vi in v:
 
           # Open parameters
-          with open(vi["parameters"], 'r') as yaml_file:
-            parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          parameters[cat][k] = self._LoadYaml(vi["parameters"])
 
           # Open architecture
           regression_model_name = f"{self.model_input}/{vi['name']}/{parameters[cat][k]['file_name']}"
-          with open(f"{regression_model_name}_architecture.yaml", 'r') as yaml_file:
-            architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          architecture = self._LoadYaml(f"{regression_model_name}_architecture.yaml")
 
           # Make model
           networks[cat][k][vi["parameter"]] = InitiateRegressionModel(
@@ -1179,8 +1187,7 @@ class Infer():
           # Check if we need to prune this model
           prune = False
           if self.prune_classifier_models is not None:
-            with open(self.classifier_pruning_files[cat][k][vi['parameter']], 'r') as yaml_file:
-              pruning_info = yaml.load(yaml_file, Loader=yaml.FullLoader)
+            pruning_info = self._LoadYaml(self.classifier_pruning_files[cat][k][vi['parameter']])
             prune = True
             for pruning_key, pruning_val in self.prune_classifier_models.items():
               if pruning_info[pruning_key] > pruning_val:
@@ -1191,13 +1198,11 @@ class Infer():
             continue
 
           # Open parameters
-          with open(vi["parameters"], 'r') as yaml_file:
-            parameters[cat][k] = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          parameters[cat][k] = self._LoadYaml(vi["parameters"])
 
           # Open architecture
           classifier_model_name = f"{self.model_input}/{vi['name']}/{parameters[cat][k]['file_name']}"
-          with open(f"{classifier_model_name}_architecture.yaml", 'r') as yaml_file:
-            architecture = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          architecture = self._LoadYaml(f"{classifier_model_name}_architecture.yaml")
 
           # Make model
           networks[cat][k][vi["parameter"]] = InitiateClassifierModel(
@@ -1347,8 +1352,7 @@ class Infer():
       for cat, par in self.parameters.items():
         n_integral_events_split[cat] = {}
         for k, v in par.items():
-          with open(v, 'r') as yaml_file:
-            parameters = yaml.load(yaml_file, Loader=yaml.FullLoader)
+          parameters = self._LoadYaml(v)
           n_integral_events_split[cat][k] = int(parameters["yields"]["nominal"] * self.use_integral_scaling)
       lkld.n_integral_events_split = n_integral_events_split
 

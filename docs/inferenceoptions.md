@@ -28,6 +28,8 @@ Normalisation splines are skipped unless `--use-spline` is supplied. In a Snakem
 
 For numerical comparisons, distinguish simulation sum-of-weights, effective event count and generated Monte Carlo event count. Increasing synthetic statistics does not increase the simulated sample's independent information.
 
+Inference automatically caches parsed model metadata, architectures and classifier pruning metrics within each `Infer` instance. It uses PyYAML's compiled full loader when available, with the Python full loader as a fallback. Repeated classifier setup reuses the shared `parameters.yaml`; changed files are reloaded, and callers receive independent copies. No command-line option is needed, and pruning thresholds are unchanged.
+
 ## Minimisation and integration
 
 `--minimisation-method` defaults to `scipy`. `--initial-best-fit-guess` changes the starting parameter point, and `--simplex` supplies simplex settings in the supporting likelihood path. These are separate from frozen parameter values. `--no-likelihood-print-out` suppresses likelihood evaluation output.
