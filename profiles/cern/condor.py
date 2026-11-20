@@ -101,7 +101,18 @@ def submit(jobscript, dry_run=False):
 
 def query(command):
     result = subprocess.run(command, check=True, text=True, capture_output=True)
-    return json.loads(result.stdout)
+    output = result.stdout.strip()
+    # Some Condor clients print nothing, rather than [], for a successful
+    # query with no matches. Let status() fall back to the job history.
+    if not output:
+        return []
+    try:
+        jobs = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise ValueError(f'{command[0]} returned invalid JSON: {error}; output starts {output[:160]!r}') from error
+    if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
+        raise ValueError(f'{command[0]} returned an unexpected JSON structure; expected a list of job records')
+    return jobs
 
 
 def status(job_id):
@@ -112,7 +123,7 @@ def status(job_id):
         jobs = query(['condor_q', job_id, '-json', '-attributes', attributes])
         if not jobs:
             jobs = query(['condor_history', job_id, '-match', '1', '-json', '-attributes', attributes])
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+    except (subprocess.CalledProcessError, ValueError) as error:
         print(f'Condor status temporarily unavailable for {job_id}: {error}', file=sys.stderr)
         return 'running'
     if not jobs:

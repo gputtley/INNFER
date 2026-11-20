@@ -144,6 +144,36 @@ class CERNSubmissionTests(unittest.TestCase):
     with patch.object(cern, 'query', side_effect=subprocess.CalledProcessError(1, 'condor_q')):
       self.assertEqual(cern.status('123.0'), 'running')
 
+  def test_empty_successful_queue_output_falls_back_to_history(self):
+    for empty in ['', ' \n\t']:
+      with self.subTest(output=repr(empty)):
+        results = [subprocess.CompletedProcess([], 0, empty, ''),
+          subprocess.CompletedProcess([], 0, json.dumps([
+            {'JobStatus': 4, 'ExitCode': 0, 'ExitBySignal': False}]), '')]
+        with patch.object(cern.subprocess, 'run', side_effect=results) as run:
+          self.assertEqual(cern.status('123.0'), 'success')
+        self.assertEqual([call.args[0][0] for call in run.call_args_list],
+          ['condor_q', 'condor_history'])
+
+  def test_empty_queue_and_history_remain_running_without_parse_warnings(self):
+    results = [subprocess.CompletedProcess([], 0, '', ''),
+      subprocess.CompletedProcess([], 0, '\n', '')]
+    with patch.object(cern.subprocess, 'run', side_effect=results), \
+        patch('builtins.print') as output:
+      self.assertEqual(cern.status('123.0'), 'running')
+      output.assert_not_called()
+
+  def test_invalid_nonempty_condor_output_remains_unknown_with_command_context(self):
+    for stdout in ['not JSON', '{}', 'null', '[1]']:
+      with self.subTest(output=stdout), \
+          patch.object(cern.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout, '')) as run, \
+          patch('builtins.print') as output:
+        self.assertEqual(cern.status('123.0'), 'running')
+        self.assertEqual(run.call_count, 1)
+        message = output.call_args.args[0]
+        self.assertIn('Condor status temporarily unavailable', message)
+        self.assertIn('condor_q', message)
+
   def test_held_job_is_removed_before_retry_and_reason_is_printed(self):
     with patch.object(cern, 'query', return_value=[{'JobStatus': 5, 'HoldReason': 'runtime limit'}]), \
         patch.object(cern.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as remove:

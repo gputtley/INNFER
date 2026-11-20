@@ -166,6 +166,14 @@ have zero exit status and no terminating signal to count as successful.
 Temporary query failures and the queue-to-history visibility gap remain
 `running`, rather than triggering duplicate submissions.
 
+A successful Condor query may return blank output when there are no matching
+jobs. The status checker treats this as an empty result and checks history
+when the queue no longer contains the job. If both are empty, it waits for the
+next poll. Nonempty malformed responses still produce a warning identifying
+which Condor command failed to return job records. This checker runs on the
+host for each poll, so updating `profiles/cern/condor.py` takes effect in an
+existing workflow without rebuilding the image or regenerating the Snakefile.
+
 Condor submit files, scheduler output/error logs and submission records go to
 `$HOME/.cache/innfer/condor/job-*` by default. Set `INNFER_CONDOR_LOG_DIR` to
 another suitable shared controller/worker log directory before starting the
