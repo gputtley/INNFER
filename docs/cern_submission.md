@@ -3,32 +3,43 @@ layout: page
 title: "CERN Condor submission"
 ---
 
-The CERN profile runs the existing binned physics workflow through lxplus
-Condor and the Apptainer launcher. Inputs, models and outputs remain on shared
-POSIX filesystems, including your mounted EOS paths. No dataset transfers or
+The CERN profile runs INNFER workflows through lxplus Condor and the Apptainer
+launcher. It can be used with any run config and workflow. Inputs, models and
+outputs remain on shared POSIX filesystems, including your mounted EOS paths. No dataset transfers or
 staging are added. Jobs copy the SIF and frozen job configuration to local
 scratch before starting Apptainer, as in the existing container launcher.
 
 ## Prepare the checkout and image
 
-Copy the updated checkout and a newly built SIF, its `.sha256` and `.json`
-sidecars to CERN. Rebuild the image after these changes: the old image's common
-BTM configuration explicitly rejects `.cern.ch` hosts. The rebuilt image must
-also include the common helper's `data_loc` argument used by the binned run
-config, together with the versioned profiles.
+You can build the image directly on lxplus, or copy an image built at IC.
+In either case, keep the checkout and a current SIF accessible at CERN. The
+image must include the Python modules and dependencies used by your config.
+When copying an image, include its `.sif.sha256` and `.sif.json`
+sidecars. When building at CERN, no image transfer is needed.
 
-For example, build on the machine with the existing environment archive:
+To build on lxplus, run from the checkout with the INNFER environment installed:
 
 ```bash
+source env.sh
+container_build_dir=$(mktemp -d /tmp/innfer-apptainer.XXXXXX)
+
 python3 scripts/build_apptainer.py \
   --env-prefix "$PWD/miniconda/files/envs/innfer_env" \
-  --work-dir /dev/shm/innfer-apptainer-$USER \
-  --reuse-environment-from "$PWD/tmp/apptainer-build/innfer-20261118T113737Z-jgd0y1rw" \
-  --output "$PWD/images/innfer-20261119-cern.sif"
+  --work-dir "$container_build_dir" \
+  --base-image quay.io/rockylinux/rockylinux:9 \
+  --output "$PWD/images/innfer-20261120-cern-local.sif"
 ```
 
-Omit `--reuse-environment-from` if that archive is unavailable. Choose a local
-build directory with adequate space; see [the container instructions](container.md).
+Use a local filesystem with at least 30 GiB free for `--work-dir`. The checkout
+and final SIF may stay on AFS, but extracting the base image beneath AFS failed
+with `invalid cross-device link`. Quay avoids the Docker Hub HTTP 429 error
+encountered on the first CERN build.
+
+If an earlier attempt already produced `environment.tar.gz`, add
+`--reuse-environment-from /absolute/path/to/previous-build-directory` to reuse
+it. Keep the old archive available and select a new output name if a previous
+`.sif` or `.partial` file exists. See [IC/CERN container builds and troubleshooting](container.md)
+for the full retry command and an explanation of the fakeroot messages.
 
 On lxplus, the controller needs the normal INNFER Python environment, Snakemake
 and its `cluster-generic` executor plugin. The controller runs outside the
@@ -55,72 +66,100 @@ snakemake --help | grep cluster-generic-submit-cmd
 command -v condor_submit condor_q condor_history condor_rm apptainer
 ```
 
-Copy the raw inputs yourself. Set `data_loc` near the top of
-`configs/run/btm_full_171126_binned.py` to their location. The default is
-`data/top_reco/270726_parquet_with_psweights`, relative to the project root.
-An absolute mounted EOS path can be used instead. The path is passed to the
-common config helper and the selected run config is snapshotted for jobs.
-The container launcher has no dataset-specific path settings. External paths
+## Configure inputs and submission resources
+
+Copy or make available the inputs required by your analysis: raw files, models,
+calibrations and other auxiliary files. Configure their CERN paths in your run
+config and any supporting configs before generating the workflow. Relative
+paths resolve against the project working directory; absolute mounted EOS paths
+can also be used. The selected run config is snapshotted for submitted jobs.
+
+The container launcher has no analysis-specific path settings. External paths
 must be visible inside the container; use the site's mounts or Apptainer's
 standard [bind settings](https://apptainer.org/docs/user/main/bind_paths_and_mounts.html),
 such as `APPTAINER_BINDPATH=/eos`, when an extra mount is needed.
-Leave the auxiliary BDT files in the project at:
 
-```text
-data/merged_ttbar_bdt/ttbar_bdt_model_<era>.json
-data/merged_ttbar_bdt/ttbar_bdt_features_<era>.yaml
-data/merged_ttbar_bdt/ttbar_bdt_working_points_<era>.yaml
+Each selected workflow step needs CERN submission settings. You can set its
+`submit` entry directly to a suitable submission YAML, or retain an existing
+workflow and provide `--submit-config-map`. For example, save this mapping as
+`configs/submit/cern_map.yaml`, extending it for every submission YAML used by
+your workflow:
+
+```yaml
+configs/submit/condor.yaml: configs/submit/cern_1_cpu.yaml
+configs/submit/condor_2_cpus_avx.yaml: configs/submit/cern_2_cpus.yaml
+configs/submit/condor_4_cpus_avx.yaml: configs/submit/cern_4_cpus.yaml
 ```
 
-## Run the full binned workflow
+The bundled `cern_1_cpu.yaml`, `cern_2_cpus.yaml` and `cern_4_cpus.yaml` are CPU
+examples. For a GPU step, create a CERN submission YAML with `RequestGpus` and
+the queue, CPU, memory and disk settings needed by that step, then select it
+directly or add it to the map. Preserve the resource needs of the computation
+when translating between sites.
+
+Missing map entries fail during workflow generation; unmapped steps do not
+silently retain their IC settings. Paths in the map are resolved from the
+project working directory. The profile alone does not translate IC submission
+settings into CERN settings.
+
+## Run your workflow
 
 From the project root on lxplus, activate the controller environment and source
 `env.sh` (use `source env.sh no_conda` if your environment is already active).
-If the raw inputs are elsewhere, edit `data_loc` in the run config before
-generating the workflow.
+Replace `your_analysis.py` and `your_workflow.yaml` with your run config and
+workflow, and create the submission map described above. These placeholder
+paths and `cern_map.yaml` are examples to adapt, not generated setup files.
 
 ```bash
 python3 scripts/innfer.py \
-  --cfg=configs/run/btm_full_171126_binned.py \
+  --cfg=configs/run/your_analysis.py \
   --step=SnakeMake \
-  --snakemake-cfg=configs/snakemake/btm_binned_cern.yaml \
+  --snakemake-cfg=configs/snakemake/your_workflow.yaml \
   --snakemake-profile=profiles/cern \
-  --container-image="$PWD/images/innfer-20261119-cern.sif" \
+  --submit-config-map=configs/submit/cern_map.yaml \
+  --container-image="$PWD/images/innfer-20261120-cern-local.sif" \
   --snakemake-rerun-incomplete
 ```
 
-Keep this controller running in tmux. The workflow includes preprocessing,
-input validation, prefit plots, and the combined and per-era Asimov fits,
-scans, impacts and postfit plots already defined by `btm_binned.yaml`.
+Omit `--submit-config-map` if your workflow already selects CERN submission
+YAMLs directly. Keep the controller running in tmux. The selected workflow
+determines which processing, training, fitting or plotting steps run; choosing
+the CERN profile does not add analysis steps.
 
 To generate the job files without submitting, append `--snakemake-dry-run`.
 This INNFER flag generates files only; it is not a Snakemake DAG dry run. Then
-check dependencies with:
+check dependencies with the generated Snakefile path printed by INNFER. For
+the default `JOBS_DIR=jobs` and a config whose `name` is `your_run_name`:
 
 ```bash
 snakemake --profile profiles/cern \
-  -s jobs/BTM_Full_171126_Binned/innfer_SnakeMake.txt \
+  -s jobs/your_run_name/innfer_SnakeMake.txt \
   --shared-fs-usage input-output --dry-run
 ```
 
 ## Settings and retries
 
-`configs/snakemake/btm_binned_cern.yaml` includes the existing workflow and
-adds `submit_config_map`. The map in `configs/submit/cern_binned_map.yaml`
-replaces every selected IC submission config with a CERN config. Missing map
-entries fail during generation rather than silently inheriting IC settings.
-The GPU submission used by the dataset split is mapped to four CPUs; no GPU
-is requested anywhere in this binned workflow. IC workflows remain unchanged.
-
-The CERN configs request 1, 2 or 4 CPUs, respectively 4000, 8000 or 16000 MB
-of memory, and `+JobFlavour = "workday"` (eight hours). Adjust these resource
+The bundled CPU submission configs request 1, 2 or 4 CPUs, respectively 4000,
+8000 or 16000 MB of memory, and `+JobFlavour = "workday"` (eight hours). Adjust these resource
 settings after observing usage. Library thread pools are limited to the
 requested CPU count. The container launcher adds its existing scratch disk
 request based on the SIF size when no explicit disk request is present.
 
-The profile allows two retries. The wrapper's `retry_runtime: 1440` requests
-`tomorrow` (one day) on retries. Existing `retry_memory` settings are also
-supported; the workflow does not add one. Held jobs are removed before being
+The profile allows two retries. To request more runtime on retries, set
+`retry_runtime` in minutes on the relevant step or workflow wrapper. For example,
+save a wrapper selecting your existing workflow and map:
+
+```yaml
+- workflow: configs/snakemake/your_workflow.yaml
+  retry_runtime: 1440
+  run_options:
+    submit_config_map: configs/submit/cern_map.yaml
+```
+
+Select that wrapper with `--snakemake-cfg`. Here `retry_runtime: 1440` requests
+`tomorrow` (one day) on retries, while first attempts use the original submission
+YAML. `retry_memory` can similarly request memory in MB on retries; it is not
+enabled by the profile automatically. Held jobs are removed before being
 reported as failed so that a later release cannot duplicate the replacement.
 The hold reason is printed to the controller's stderr. Completed jobs must
 have zero exit status and no terminating signal to count as successful.
@@ -130,7 +169,11 @@ Temporary query failures and the queue-to-history visibility gap remain
 Condor submit files, scheduler output/error logs and submission records go to
 `$HOME/.cache/innfer/condor/job-*` by default. Set `INNFER_CONDOR_LOG_DIR` to
 another suitable shared controller/worker log directory before starting the
-workflow if needed. Application logs retain the usual `jobs/<run>/` paths.
+workflow if needed. Job scripts, container manifests and application logs are
+distributed under `jobs/<run>/<step>/<group>/`, for both container and ordinary
+submissions. Each group holds up to 500 numbered jobs, avoiding AFS
+per-directory entry limits within large steps. The generated Snakefile remains
+at `jobs/<run>/innfer_SnakeMake.txt`.
 The profile launches Apptainer through INNFER; it does not request a second
 container layer from Condor.
 

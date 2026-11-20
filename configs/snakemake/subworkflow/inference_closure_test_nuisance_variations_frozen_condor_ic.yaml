@@ -26,6 +26,7 @@
     points_per_job: 20
 - step: "DMatrixNumerical"
   submit: "configs/submit/condor_4_cpus_avx.yaml"
+  retry_runtime: 600
   run_options: 
     data_type: "sim"
     extra_dir_name: "ClosureTestFrozenNuisanceVariations"
@@ -36,7 +37,7 @@
     classifier_divide_by_nominal: True
     validation_loop_over_nuisance_variations: True
     keep_lnN_if_rate_param: True
-    points_per_job: 20
+    points_per_job: 5
 - step: "CovarianceWithDMatrix"
   submit: "configs/submit/condor_avx.yaml"
   run_options: 

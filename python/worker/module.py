@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib
 import os
 import shlex
@@ -236,6 +237,19 @@ class Module():
     return self.container_options
 
 
+  def _JobPath(self, job_name):
+    """Group all submitted job files by step, with up to 500 numbered jobs per group."""
+    path = Path(job_name)
+    step = getattr(self.args, "step", None) or Path(self.job_name).name
+    step = Path(StringToFile(step)).name
+    if self.use_number_for_jobs:
+      index = int(path.name.rsplit("_", 1)[1])
+      group = f"{index//500:05d}"
+    else:
+      group = "named_" + hashlib.sha256(path.name.encode()).hexdigest()[:2]
+    return str(path.parent/step/group/path.name)
+
+
   def _SetupGlobal(self, loop):
     """
     Sets up global variables for the job.
@@ -431,6 +445,8 @@ class Module():
         self.jobs_inds[job_name] += 1
         job_name += f"_{index}"
 
+      job_name = self._JobPath(job_name)
+
       # Submit job
       options = {"submit_to": submit_cfg["name"], "options": submit_cfg["options"],"cmds": self.cmd_store, "job_name": f"{job_name}.sh", "dry_run": self.args.dry_run,
         "container_image": getattr(self.args, "container_image", None), "container_options": self._ContainerOptions()}
@@ -467,7 +483,7 @@ class Module():
         job_name += f"_{index}"
         rule_name += f"_{index}"
         
-      job_name += ".sh"
+      job_name = self._JobPath(job_name) + ".sh"
       with open(ResolveSubmitConfig(self.args.submit, getattr(self.args, "submit_config_map", None)), 'r') as yaml_file:
         submit_cfg = yaml.load(yaml_file, Loader=yaml.FullLoader)
       container_options = self._ContainerOptions()

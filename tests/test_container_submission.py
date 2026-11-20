@@ -208,7 +208,9 @@ sys.exit(7 if '--fail' in args else 0)
         with patch('batch.os.system') as system:
           module.Sweep()
         self.assertFalse(any('condor_submit' in str(call) for call in system.call_args_list))
-      job = directory/'innfer_Debug_0.sh'
+      jobs = list((directory/'LikelihoodDebug').glob('*/innfer_Debug_0.sh'))
+      self.assertEqual(len(jobs), 1)
+      job = jobs[0]
       self.assertIn('innfer_options+=(--nv)', job.read_text())
       subprocess.run(['bash', '-n', str(job)], check=True)
       if snake:
@@ -219,10 +221,72 @@ sys.exit(7 if '--fail' in args else 0)
         self.assertIn('request_disk=', rule)
         self.assertIn('  output: []', rule)
         self.assertIn('+MaxRuntime=36000', rule)
+        self.assertIn(str(job), rule)
+        self.assertIn('rule innfer_Debug_0:', rule)
       else:
         self.assertIn('RequestGpus = 1', job.with_suffix('.sub').read_text())
         self.assertIn('RequestDisk = ', job.with_suffix('.sub').read_text())
     self.assertFalse((self.project/'SHOULD_NOT_EXIST').exists())
+
+  def test_many_container_jobs_fit_small_directory_entry_limits(self):
+    args, defaults = parse('--container-image='+str(self.image),
+      '--step=PreProcessParallelBinnedFitInputsParameters')
+    module = Module([], args, defaults)
+    parent = self.jobs/'many'
+    parent.mkdir()
+    original_open = Path.open
+
+    def limited_open(path, mode='r', *arguments, **keywords):
+      # AFS can reject creation in a full directory with EFBIG even for tiny files.
+      if any(flag in mode for flag in ['w', 'a', 'x']) and not path.exists():
+        if sum(1 for _ in path.parent.iterdir()) >= 6:
+          raise OSError(27, 'File too large', str(path))
+      return original_open(path, mode, *arguments, **keywords)
+
+    generated = []
+    options = self.prepare()
+    for index in [0, 499, 500, 6114]:
+      name = str(parent/f'innfer_PreProcessParallelBinnedFitInputsParameters_{index}')
+      name = module._JobPath(name)
+      self.assertEqual(name, module._JobPath(str(parent/Path(name).name)))
+      generated.append(name)
+      with patch.object(Path, 'open', limited_open):
+        Batch({'container_image': str(self.image), 'container_options': options,
+          'job_name': name+'.sh', 'dry_run': True}).RunCondor()
+    self.assertEqual(len(set(generated)), 4)
+    self.assertEqual(len(list(parent.rglob('*.container.json'))), 4)
+    self.assertGreater(len({Path(name).parent for name in generated}), 1)
+
+  def test_non_container_jobs_use_step_directories_in_both_submission_paths(self):
+    submission = self.base/'submit.yaml'
+    submission.write_text(yaml.safe_dump({'name': 'condor', 'options': {}}))
+    for snake in [False, True]:
+      directory = self.jobs/('snake' if snake else 'direct')
+      args, defaults = parse('--step=TrainDensity', '--submit='+str(submission), '--dry-run')
+      args.make_snakemake_inputs = snake
+      module = Module(['scripts/innfer.py'], args, defaults,
+        job_name=str(directory/'innfer_TrainDensity'))
+      module.cmd_store, module.extra_names = ['python3 scripts/innfer.py --help'], ['_test']
+      module.Sweep()
+      job = directory/'TrainDensity/00000/innfer_TrainDensity_0.sh'
+      self.assertIn('source env.sh', job.read_text())
+      if snake:
+        rule = (directory/'innfer_SnakeMake.txt').read_text()
+        self.assertIn(str(job), rule)
+        self.assertIn('rule innfer_TrainDensity_0:', rule)
+      else:
+        self.assertIn(str(job), job.with_suffix('.sub').read_text())
+
+  def test_named_jobs_keep_distinct_stable_paths_within_the_step(self):
+    args, defaults = parse('--step=TrainDensity')
+    module = Module([], args, defaults, options={'use_number_for_jobs': False})
+    names = [str(self.jobs/f'innfer_TrainDensity_{suffix}') for suffix in ['sample_a', 'sample_b']]
+    paths = [module._JobPath(name) for name in names]
+    self.assertEqual(len(set(paths)), 2)
+    self.assertEqual(paths, [module._JobPath(name) for name in names])
+    for path, name in zip(paths, names):
+      self.assertEqual(Path(path).relative_to(self.jobs).parts[0], 'TrainDensity')
+      self.assertEqual(Path(path).name, Path(name).name)
 
   def test_missing_image_invalid_checksum_and_gpu_request_zero(self):
     with self.assertRaises(FileNotFoundError):

@@ -64,12 +64,24 @@ bash setup.sh snakemake_cern
 This checks the Condor commands and Apptainer, and validates the bundled CERN
 profile in `profiles/cern`. Select it with
 `--snakemake-profile=profiles/cern`. See [CERN submission](cern_submission.md)
-for the binned workflow command and container requirements.
+for workflow submission examples and container requirements.
 
 Both setup targets print the profile argument to use. They also work with
 `source setup.sh <target>` when you want to retain environment activation in
 your current terminal. Otherwise, run `source env.sh` after setup to activate
 the environment for subsequent INNFER commands.
+
+## Apptainer at IC and CERN
+
+See [Apptainer at IC and CERN](container.md) for the image contents, separate
+build commands, submission examples and failed-build recovery. Set `--work-dir`
+to local scratch with sufficient space for the unpacked image and temporary
+build files. You can run the command from an AFS checkout and save the finished
+SIF on AFS, as in the CERN example.
+
+The controller still needs the host INNFER environment and the appropriate
+Snakemake profile above. Submitted workers use the image's environment and code.
+For CERN workflow setup and submission, follow [CERN Condor submission](cern_submission.md).
 
 <br>
 

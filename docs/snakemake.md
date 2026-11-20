@@ -15,6 +15,16 @@ innfer --cfg="configs/run/your_analysis.py" --step="SnakeMake" \
 
 The generated file is `$JOBS_DIR/$CFG_NAME/innfer_SnakeMake.txt`. Generation replaces the previous file in that namespace. Use a persistent terminal session for long workflows.
 
+Submitted job files use `$JOBS_DIR/$CFG_NAME/<step>/<group>/`, for both ordinary
+and container jobs. Each numbered group contains up to 500 jobs: `00000` holds
+indices 0--499, `00001` holds 500--999, and so on. Scripts, application logs,
+direct-submission files and container manifests for a job stay together.
+Descriptive job names use stable `named_*` subdirectories. This keeps large
+steps within AFS directory-entry limits. The Snakefile stays at the path above
+and rule names do not change. Regenerate to use the new layout; existing
+running workflows keep their recorded job paths. If an old flat jobs directory
+is already full, select a fresh shared `JOBS_DIR` before regenerating.
+
 ## Workflow format
 
 ```yaml
