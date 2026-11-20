@@ -70,6 +70,7 @@ def parse_args():
   parser.add_argument('--bootstrap-method', help='Method to use for bootstrapping. Can be oversample_to_eff_events, oversample_to_length or undersample_to_eff_events', type=str, default='undersample_to_eff_events')
   parser.add_argument('--cfg', help='Config for running', default=None)
   parser.add_argument('--container-image', help='Run submitted jobs with this Apptainer image; disabled by default. Also accepted in Snakemake run_options.', type=str, default=None)
+  parser.add_argument('--container-image-mode', help='Run the image directly from its path (default), or copy it to worker scratch. Also accepted in Snakemake run_options.', choices=['copy', 'direct'], default='direct')
   parser.add_argument('--calibration-plot-n-bins', '--calibration-n-bins', help='Number of likelihood ratio bins to use in the CalibrationPlot step.', type=int, default=30)
   parser.add_argument('--change-classifier-type-from-parameter', help='comma separated key=val for the parameter and the new type', type=str, default=None)
   parser.add_argument('--classifier-architecture', help='Architecture for classifier model', type=str, default='configs/architecture/classifier_default.yaml')

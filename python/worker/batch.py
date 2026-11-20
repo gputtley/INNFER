@@ -25,6 +25,7 @@ class Batch():
     self.dry_run = False
     self.use_environment_container = False
     self.container_image = None
+    self.container_image_mode = "direct"
     self.container_options = None
     self._SetOptions(options)
 
@@ -173,7 +174,8 @@ class Batch():
         raise ValueError("Apptainer cannot be combined with the legacy environment archive")
       from container_submission import PrepareContainer, ContainerJob, ContainerSubmitOptions
       if self.container_options is None:
-        self.container_options = PrepareContainer(self.container_image, os.getcwd(), Path(self.job_name).parent)
+        self.container_options = PrepareContainer(self.container_image, os.getcwd(), Path(self.job_name).parent,
+          image_mode=self.container_image_mode)
       self.options = ContainerSubmitOptions(self.options, self.container_options)
       self._CreateJob(ContainerJob(self.container_options, cmd_list, self.job_name, self.options), self.job_name)
       return

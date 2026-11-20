@@ -1,4 +1,4 @@
-"""Both submission paths use frozen configs, local verified images and image code."""
+"""Both submission paths use frozen configs and copied or shared container images."""
 import argparse
 import ast
 from contextlib import contextmanager
@@ -19,7 +19,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'python/worker'))
 from batch import Batch
-from container_submission import PrepareContainer, RequestsGPU, ContainerSubmitOptions
+from container_submission import PrepareContainer, RequestsGPU, ContainerSubmitOptions, _Sha256
 from module import Module
 from useful_functions import GetSnakeMakeStepLoop
 
@@ -77,19 +77,21 @@ config = None
 for index, arg in enumerate(args[:-1]):
   if arg == '--bind' and '/snapshot/configs:' in args[index+1]:
     source = args[index+1].split(':')[0]
-    config = (pathlib.Path(source)/'run/test.py').read_text()
+    path = pathlib.Path(source)/'run/test.py'
+    config = path.read_text() if path.is_file() else None
 with open(os.environ['FAKE_APPTAINER_LOG'], 'a') as stream:
   stream.write(json.dumps({'args': args, 'config': config})+'\\n')
 sys.exit(7 if '--fail' in args else 0)
 ''')
     app.chmod(0o755)
 
-  def prepare(self):
+  # Copy-specific runtime tests explicitly retain the original staging fixture.
+  def prepare(self, image_mode='copy'):
     with working_directory(self.project):
-      return PrepareContainer(self.image, self.project, self.jobs, [str(self.cfg)])
+      return PrepareContainer(self.image, self.project, self.jobs, [str(self.cfg)], image_mode=image_mode)
 
-  def job(self, commands=None, gpu=False):
-    options = self.prepare()
+  def job(self, commands=None, gpu=False, image_mode='copy'):
+    options = self.prepare(image_mode=image_mode)
     path = self.jobs/('gpu.sh' if gpu else 'cpu.sh')
     batch = Batch({'container_image': str(self.image), 'container_options': options,
       'job_name': str(path), 'options': {'extra_lines': ['RequestGpus = 1']} if gpu else {}})
@@ -120,6 +122,61 @@ sys.exit(7 if '--fail' in args else 0)
     metadata = json.loads(job.with_suffix('.container.json').read_text())
     self.assertEqual(metadata['image_sha256'], self.digest)
     self.assertEqual(metadata['config_sha256'], options['config_sha256'])
+
+  def test_direct_mode_uses_shared_image_without_worker_copy_or_full_hash(self):
+    job, options = self.job(image_mode='direct')
+    # A broken image-cache location proves direct mode never touches that cache.
+    cache = self.base/'not a cache directory'
+    cache.write_text('unavailable')
+    self.environment['INNFER_CONTAINER_CACHE'] = str(cache)
+    original = job.read_text()
+    # No worker image hash is requested, even if a cached source subsequently changes.
+    # Direct mode requires the user to keep the submitted image immutable.
+    self.image.write_bytes(b'changed after submission')
+    result = self.run_job(job)
+    self.assertEqual(result.returncode, 0, result.stdout)
+    call = self.calls()[0]
+    self.assertIn(str(self.image), call['args'])
+    self.assertEqual(call['config'], 'config = {"name": "original"}\n')
+    self.assertFalse((self.base/'cache').exists())
+    self.assertIn('Image mode: direct', result.stdout)
+    self.assertIn('innfer_image_mode=direct', original)
+    self.assertEqual(options['image_mode'], 'direct')
+    metadata = json.loads(job.with_suffix('.container.json').read_text())
+    self.assertEqual(metadata['image_mode'], 'direct')
+    self.assertEqual(metadata['image_sha256'], self.digest)
+    self.assertFalse(list(Path(self.environment['_CONDOR_SCRATCH_DIR']).glob('innfer-runtime.*')))
+
+  def test_direct_mode_verifies_image_once_during_generation_and_rejects_mismatch(self):
+    with patch('container_submission._Sha256', wraps=_Sha256) as checksum:
+      self.prepare(image_mode='direct')
+      self.prepare(image_mode='direct')
+    image_reads = [call for call in checksum.call_args_list if Path(call.args[0]) == self.image]
+    self.assertEqual(len(image_reads), 1)
+    self.image.write_bytes(b'wrong image')
+    with self.assertRaisesRegex(ValueError, 'Container image checksum mismatch'):
+      self.prepare(image_mode='direct')
+
+  def test_direct_mode_missing_worker_image_fails_before_execution(self):
+    job, _ = self.job(image_mode='direct')
+    self.image.unlink()
+    result = self.run_job(job)
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn('Container image is not readable:', result.stdout)
+    self.assertFalse(Path(self.environment['FAKE_APPTAINER_LOG']).exists())
+
+  def test_preparation_and_batch_default_to_direct_image_mode(self):
+    job = self.jobs/'fallback.sh'
+    with working_directory(self.project):
+      options = PrepareContainer(self.image, self.project, self.jobs)
+      self.assertEqual(options['image_mode'], 'direct')
+      batch = Batch({'container_image': str(self.image), 'job_name': str(job)})
+      self.assertEqual(batch.container_image_mode, 'direct')
+      batch._CreateBatchJob(['innfer_container --help'])
+    result = self.run_job(job)
+    self.assertEqual(result.returncode, 0, result.stdout)
+    self.assertIn(str(self.image), self.calls()[0]['args'])
+    self.assertEqual(batch.container_options['image_mode'], 'direct')
 
   def test_gpu_allocation_and_worker_failure_are_preserved(self):
     job, _ = self.job(['innfer_container --fail', 'innfer_container --must-not-run'], gpu=True)
@@ -203,12 +260,14 @@ sys.exit(7 if '--fail' in args else 0)
   def test_cli_and_workflow_inheritance_and_both_submission_paths(self):
     defaults, _ = parse()
     self.assertIsNone(defaults.container_image)
-    workflow = [{'workflow': 'child.yaml', 'run_options': {'container_image': str(self.image)}}]
+    self.assertEqual(defaults.container_image_mode, "direct")
+    workflow = [{'workflow': 'child.yaml', 'run_options': {'container_image': str(self.image), 'container_image_mode': 'direct'}}]
     child = [{'step': 'LikelihoodDebug', 'submit': 'submit.yaml'}]
     nested = self.base/'workflow.yaml'
     nested.write_text(yaml.safe_dump(child))
     workflow[0]['workflow'] = str(nested)
     self.assertEqual(GetSnakeMakeStepLoop(workflow)[0]['run_options']['container_image'], str(self.image))
+    self.assertEqual(GetSnakeMakeStepLoop(workflow)[0]['run_options']['container_image_mode'], 'direct')
 
     submission = self.base/'submit.yaml'
     submission.write_text(yaml.safe_dump({'name': 'condor', 'options': {
@@ -217,46 +276,52 @@ sys.exit(7 if '--fail' in args else 0)
     original_submission = self.base/'old_site.yaml'
     mapping.write_text(yaml.safe_dump({str(original_submission): str(submission)}))
     dangerous = 'mass=$(touch SHOULD_NOT_EXIST);literal=`echo untouched`'
-    for snake in [False, True]:
-      directory = self.jobs/('snake' if snake else 'direct')
-      directory.mkdir()
-      args, default_args = parse('--cfg='+str(self.cfg), '--step=LikelihoodDebug',
-        '--container-image='+str(self.image), '--submit='+str(original_submission),
-        '--submit-config-map='+str(mapping), '--snakemake-profile=profiles/cern',
-        '--debug-input='+dangerous, '--dry-run')
-      args.make_snakemake_inputs = snake
-      with working_directory(self.project):
-        module = Module(['scripts/innfer.py'], args, default_args, job_name=str(directory/'innfer_Debug'))
-        command = module._SetupBatchCommand({'file_name': 'combined', 'val_ind': 2})
-        arguments = shlex.split(command)
-        self.assertIn('--debug-input='+dangerous, arguments)
-        self.assertEqual(arguments[0], 'innfer_container')
-        self.assertFalse(any(arg.startswith(('--container-image', '--submit=', '--make-snakemake-inputs',
-          '--submit-config-map', '--snakemake-profile', '--snakemake-shared-fs-usage')) for arg in arguments))
-        module.cmd_store, module.extra_names = [command], ['_combined']
-        module.input_store = ['events.parquet']
-        module.output_store = [] if snake else ['result.yaml']
-        with patch('batch.os.system') as system:
-          module.Sweep()
-        self.assertFalse(any('condor_submit' in str(call) for call in system.call_args_list))
-      jobs = list((directory/'LikelihoodDebug').glob('*/innfer_Debug_0.sh'))
-      self.assertEqual(len(jobs), 1)
-      job = jobs[0]
-      self.assertIn('innfer_options+=(--nv)', job.read_text())
-      subprocess.run(['bash', '-n', str(job)], check=True)
-      if snake:
-        rule = (directory/'innfer_SnakeMake.txt').read_text()
-        self.assertIn(str(self.image), rule)
-        self.assertIn('configs-', rule)
-        self.assertIn('request_gpus=1', rule)
-        self.assertIn('request_disk=', rule)
-        self.assertIn('  output: []', rule)
-        self.assertIn('+MaxRuntime=36000', rule)
-        self.assertIn(str(job), rule)
-        self.assertIn('rule innfer_Debug_0:', rule)
-      else:
-        self.assertIn('RequestGpus = 1', job.with_suffix('.sub').read_text())
-        self.assertIn('RequestDisk = ', job.with_suffix('.sub').read_text())
+    for image_mode in ['copy', 'direct']:
+      for snake in [False, True]:
+        directory = self.jobs/(image_mode+('_snake' if snake else '_batch'))
+        directory.mkdir()
+        args, default_args = parse('--cfg='+str(self.cfg), '--step=LikelihoodDebug',
+          '--container-image='+str(self.image),
+          *(['--container-image-mode=copy'] if image_mode == 'copy' else []),
+          '--submit='+str(original_submission),
+          '--submit-config-map='+str(mapping), '--snakemake-profile=profiles/cern',
+          '--debug-input='+dangerous, '--dry-run')
+        args.make_snakemake_inputs = snake
+        with working_directory(self.project):
+          module = Module(['scripts/innfer.py'], args, default_args, job_name=str(directory/'innfer_Debug'))
+          command = module._SetupBatchCommand({'file_name': 'combined', 'val_ind': 2})
+          arguments = shlex.split(command)
+          self.assertIn('--debug-input='+dangerous, arguments)
+          self.assertEqual(arguments[0], 'innfer_container')
+          self.assertFalse(any(arg.startswith(('--container-image', '--submit=', '--make-snakemake-inputs',
+            '--submit-config-map', '--snakemake-profile', '--snakemake-shared-fs-usage')) for arg in arguments))
+          module.cmd_store, module.extra_names = [command], ['_combined']
+          module.input_store = ['events.parquet']
+          module.output_store = [] if snake else ['result.yaml']
+          with patch('batch.os.system') as system:
+            module.Sweep()
+          self.assertFalse(any('condor_submit' in str(call) for call in system.call_args_list))
+        jobs = list((directory/'LikelihoodDebug').glob('*/innfer_Debug_0.sh'))
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertIn('innfer_options+=(--nv)', job.read_text())
+        self.assertIn('innfer_image_mode='+image_mode, job.read_text())
+        metadata = json.loads(job.with_suffix('.container.json').read_text())
+        self.assertEqual(metadata['image_mode'], image_mode)
+        subprocess.run(['bash', '-n', str(job)], check=True)
+        if snake:
+          rule = (directory/'innfer_SnakeMake.txt').read_text()
+          self.assertIn(str(self.image), rule)
+          self.assertIn('configs-', rule)
+          self.assertIn('request_gpus=1', rule)
+          self.assertIn('request_disk=', rule)
+          self.assertIn('  output: []', rule)
+          self.assertIn('+MaxRuntime=36000', rule)
+          self.assertIn(str(job), rule)
+          self.assertIn('rule innfer_Debug_0:', rule)
+        else:
+          self.assertIn('RequestGpus = 1', job.with_suffix('.sub').read_text())
+          self.assertIn('RequestDisk = ', job.with_suffix('.sub').read_text())
     self.assertFalse((self.project/'SHOULD_NOT_EXIST').exists())
 
   def test_many_container_jobs_fit_small_directory_entry_limits(self):
@@ -320,6 +385,8 @@ sys.exit(7 if '--fail' in args else 0)
       self.assertEqual(Path(path).name, Path(name).name)
 
   def test_missing_image_invalid_checksum_and_gpu_request_zero(self):
+    with self.assertRaisesRegex(ValueError, 'Invalid container image mode'):
+      self.prepare(image_mode='unknown')
     with self.assertRaises(FileNotFoundError):
       PrepareContainer(self.base/'missing.sif', self.project, self.jobs)
     Path(str(self.image)+'.sha256').write_text('invalid')
@@ -346,13 +413,18 @@ sys.exit(7 if '--fail' in args else 0)
     self.assertNotIn('apptainer', job.read_text())
 
   def test_scratch_request_accounts_for_image_and_preserves_explicit_disk(self):
-    container = {'image_size_bytes': 3*1024**3, 'config_size_bytes': 1024}
+    container = {'image_size_bytes': 3*1024**3, 'config_size_bytes': 1024, 'image_mode': 'copy'}
     original = {'extra_lines': ['RequestGpus = 1']}
     options = ContainerSubmitOptions(original, container)
     self.assertIn('RequestDisk = 4194305', options['extra_lines'])
     self.assertEqual(original['extra_lines'], ['RequestGpus = 1'])
+    direct = {**container, 'image_mode': 'direct'}
+    self.assertIn('RequestDisk = 1048577', ContainerSubmitOptions(original, direct)['extra_lines'])
+    unconfigured = {key: value for key, value in container.items() if key != 'image_mode'}
+    self.assertEqual(ContainerSubmitOptions(original, unconfigured), ContainerSubmitOptions(original, direct))
     explicit = {'extra_lines': ['RequestDisk = 20GB', 'RequestGpus = 1']}
     self.assertEqual(ContainerSubmitOptions(explicit, container), explicit)
+    self.assertEqual(ContainerSubmitOptions(explicit, direct), explicit)
 
 
 if __name__ == '__main__':

@@ -89,6 +89,16 @@ equivalent when no other extra bindings are needed. The EOS path must also be
 accessible on the host worker. Existing queued jobs retain their submission-time
 environment; editing this variable in another terminal does not update them.
 
+To run an image stored on EOS without first copying it to worker scratch,
+pass `--container-image=/eos/user/u/username/images/innfer-version.sif`.
+The default mode is `direct`; keeping the image under the checkout
+(e.g. `--container-image=images/innfer-version.sif`) works the same way.
+Use `--container-image-mode=copy` to request worker scratch staging. The shared
+image must be readable on each worker and remain unchanged for the lifetime of
+the workflow. Direct mode verifies the checksum at submission, not on every
+worker; see [image execution modes](container.md#direct-jobs-and-launcher-behaviour).
+The EOS bind and authentication requirements below still apply.
+
 ### EOS authentication inside the container
 
 If the EOS path is accessible directly on lxplus but gives `PermissionError`

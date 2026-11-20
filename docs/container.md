@@ -196,7 +196,7 @@ submission command.
 
 ### Direct jobs and launcher behaviour
 
-Add `--container-image` to the normal host-side submission command. It is disabled by default and works for direct Condor submission and generated Snakemake jobs. The host removes this submission-only option from worker arguments, so the existing image can be used without rebuilding it for the launcher.
+Add `--container-image` to the normal host-side submission command. It is disabled by default and works for direct Condor submission and generated Snakemake jobs. The host removes container submission options from worker arguments, so the existing image can be used without rebuilding it for the launcher.
 
 For example, prepare density training jobs without submitting them. Select a
 different step and its usual options as needed for your config:
@@ -231,17 +231,48 @@ For a workflow, pass `--container-image` alongside `--step=SnakeMake` and `--sna
 - workflow: configs/snakemake/your_workflow.yaml
   run_options:
     container_image: images/innfer-20261120-ic.sif
+    container_image_mode: direct  # Default; use copy for worker scratch staging.
 ```
 
 A child can use `container_image: null` to retain ordinary host execution. Regenerate the Snakefile and scripts for changes to take effect; existing running workflows are not modified.
 
-The launcher copies the image to a checksum-verified cache in worker scratch, using a lock and atomic publication for concurrent jobs. Its default location is under `_CONDOR_SCRATCH_DIR`, then `TMPDIR`, then `/tmp`. `INNFER_CONTAINER_CACHE` in the worker environment can select a persistent node-local cache. Local space must accommodate the image and runtime files.
+With `--container-image-mode=copy`, the launcher copies the image to a checksum-verified cache in worker scratch, using a lock and atomic publication for concurrent jobs. Its default location is under `_CONDOR_SCRATCH_DIR`, then `TMPDIR`, then `/tmp`. `INNFER_CONTAINER_CACHE` in the worker environment can select a persistent node-local cache. Local space must accommodate the image and runtime files.
+
+By default (`--container-image-mode=direct`), the launcher runs the SIF directly
+from the path supplied by `--container-image`. Keep it in the checkout
+(e.g. `--container-image=images/innfer-version.sif`) or select another shared
+location, including AFS or EOS. There is no worker image copy. For example:
+
+```bash
+python3 scripts/innfer.py \
+  --cfg=configs/run/your_analysis.py \
+  --step=SnakeMake \
+  --snakemake-cfg=configs/snakemake/your_workflow.yaml \
+  --snakemake-profile=profiles/cern \
+  --container-image=/eos/user/u/username/images/innfer-version.sif
+```
+
+The mode is also accepted as `container_image_mode: direct` in Snakemake
+`run_options`. It applies to ordinary batch submissions and Snakemake at both
+sites. Direct mode verifies the image checksum on the submitting machine;
+verification is reused across steps while the image and provenance file
+metadata remain unchanged. Workers check that the SIF is readable and use the
+shared path without a full image checksum read. Keep each submitted SIF at a
+versioned path and do not replace or edit it while jobs are queued or running.
+Workers still copy and verify the small config archive in scratch.
+
+EOS must be accessible on the host worker to open an EOS image, and datasets
+inside the container still require the appropriate mounts and credentials.
+See [CERN authentication](cern_submission.md#eos-authentication-inside-the-container).
+Direct mode avoids full image copies; its runtime performance depends on the
+shared filesystem. Updating the host generator and regenerating jobs is enough
+to enable this mode; the existing image does not need rebuilding.
 
 The selected run/architecture files, supporting architecture configs and `configs/other` are archived at job generation. Each worker checks and extracts a private copy. Thus jobs use submission-time configs with the image's code. Private config copies permit runtime architecture overrides without editing the archived snapshot. Rebuild the image when changing Python worker code that jobs need.
 
-GPU requests in the submission YAML automatically enable `--nv`; the worker's GPU visibility allocation is preserved. CPU jobs disable CUDA visibility. Existing GPU counts, memory, runtime and retry settings are retained. If the submit file has no disk request, the generated submission requests space for the image/config archive plus 1 GiB of runtime scratch; an explicit `RequestDisk` takes precedence. The launcher invokes image code without activating host conda. Its normal home mount remains available. For Kerberos access it forwards the worker's current `KRB5CCNAME` and `KRB5_CONFIG`, binding readable file-based caches and selected configuration files read-only at runtime. Credentials are not packaged into the image or config archive. See [CERN authentication](cern_submission.md#eos-authentication-inside-the-container) for EOS checks and local testing.
+GPU requests in the submission YAML automatically enable `--nv`; the worker's GPU visibility allocation is preserved. CPU jobs disable CUDA visibility. Existing GPU counts, memory, runtime and retry settings are retained. If the submit file has no disk request, the generated submission requests space for the config archive plus 1 GiB of runtime scratch, and adds the image size in copy mode; an explicit `RequestDisk` takes precedence. The launcher invokes image code without activating host conda. Its normal home mount remains available. For Kerberos access it forwards the worker's current `KRB5CCNAME` and `KRB5_CONFIG`, binding readable file-based caches and selected configuration files read-only at runtime. Credentials are not packaged into the image or config archive. See [CERN authentication](cern_submission.md#eos-authentication-inside-the-container) for EOS checks and local testing.
 
-Each job gets a `.container.json` recording the image/config hashes, commands, directory settings and GPU mode. Snakemake declares the image and config archive as inputs. Worker failures stop grouped commands and propagate to the scheduler.
+Each job gets a `.container.json` recording the image/config hashes, commands, directory settings, image execution mode and GPU mode. Snakemake declares the image and config archive as inputs. Worker failures stop grouped commands and propagate to the scheduler.
 
 If workflow generation on AFS raises `OSError: [Errno 27] File too large` while
 opening a small new job file, the containing directory may have reached its

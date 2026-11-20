@@ -195,7 +195,7 @@ class Module():
     if getattr(self.args, "container_image", None):
       # The image may predate the host submission option. Only worker arguments
       # are forwarded, and shell metacharacters in their values stay literal.
-      excluded = {"container_image", "specific", "submit", "points_per_job", "dry_run",
+      excluded = {"container_image", "container_image_mode", "specific", "submit", "points_per_job", "dry_run",
         "make_snakemake_inputs", "snakemake_cfg", "snakemake_force", "add_inputs", "add_outputs",
         "snakemake_profile", "snakemake_shared_fs_usage", "submit_config_map"}
       argv = ["innfer_container"]
@@ -233,7 +233,8 @@ class Module():
       from container_submission import PrepareContainer
       config_files = [getattr(self.args, key, None) for key in
         ["cfg", "density_architecture", "classifier_architecture", "regression_architecture"]]
-      self.container_options = PrepareContainer(image, os.getcwd(), Path(self.job_name).parent, config_files)
+      self.container_options = PrepareContainer(image, os.getcwd(), Path(self.job_name).parent, config_files,
+        image_mode=getattr(self.args, "container_image_mode", "direct"))
     return self.container_options
 
 
