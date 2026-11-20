@@ -31,7 +31,8 @@ if [ $# -eq 0 ] || [ "$1" == "env" ]; then
   conda config --set channel_priority flexible
   conda env create --file=configs/setup/environment.yaml
   conda activate innfer_env
-  # Need to do this because of wrapt version conflict between tensorflow and snakemake
+  # Keep TensorFlow's wrapt pin and install Snakemake interfaces without resolving it.
+  # containers/smoke_test.py validates this exact version combination and both runtimes.
   pip3 install tensorflow[and-cuda]==2.15.1 wrapt==1.14.1
   pip3 install --no-deps snakemake==9.9.0
   pip3 install --no-deps snakemake-interface-common==1.21.0 snakemake-interface-executor-plugins==9.3.9 snakemake-interface-report-plugins==1.2.0 yte==1.9.0 snakemake-interface-storage-plugins==4.2.3 snakemake-interface-logger-plugins==1.2.4

@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import redirect_stderr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,8 +111,51 @@ class ApptainerBuildTests(unittest.TestCase):
       'PREP_DATA_DIR': '/work/inputs'}, text=True, check=True, stdout=subprocess.PIPE)
     lines = result.stdout.splitlines()
     self.assertIn('/opt/innfer/app/python/BayesFlow', lines[0])
+    self.assertEqual(lines[0].split(':')[0], '/opt/innfer/app')
     self.assertNotIn('/live/checkout', lines[0])
     self.assertEqual(lines[1:], ['/work/inputs', '1', '1'])
+
+  @unittest.skipUnless(importlib.util.find_spec('packaging'), 'Requires runtime packaging dependency')
+  def test_runtime_check_rejects_incompatible_protobuf_before_inference(self):
+    with patch('importlib.metadata.requires', return_value=['protobuf>=4.25.8']), \
+        patch('importlib.metadata.version', return_value='4.25.3'):
+      with self.assertRaisesRegex(RuntimeError, 'onnxruntime requires protobuf>=4.25.8'):
+        smoke.check_runtime_dependencies()
+
+  @unittest.skipUnless(importlib.util.find_spec('packaging'), 'Requires runtime packaging dependency')
+  def test_setup_wrapt_exception_is_narrow_and_keeps_other_dependencies_strict(self):
+    versions = {'tensorflow': '2.15.1', 'snakemake': '9.9.0',
+      'snakemake-interface-storage-plugins': '4.2.3', 'wrapt': '1.14.1', 'protobuf': '4.25.3'}
+    requirements = {'tensorflow': ['wrapt<1.15'],
+      'snakemake-interface-storage-plugins': ['wrapt>=1.15.0'], 'onnxruntime': ['protobuf>=4.25.8']}
+    packages = ['tensorflow', 'snakemake', 'snakemake-interface-storage-plugins']
+    with patch('importlib.metadata.requires', side_effect=lambda name: requirements.get(name, [])), \
+        patch('importlib.metadata.version', side_effect=lambda name: versions[name]):
+      accepted = smoke.check_package_requirements(packages)
+      self.assertEqual(len(accepted), 1)
+      self.assertIn('setup.sh workaround', accepted[0])
+      with self.assertRaisesRegex(RuntimeError, 'onnxruntime requires protobuf'):
+        smoke.check_package_requirements(packages+['onnxruntime'])
+      versions['snakemake'] = '9.10.0'
+      with self.assertRaisesRegex(RuntimeError, 'snakemake-interface-storage-plugins requires wrapt'):
+        smoke.check_package_requirements(packages)
+      versions['snakemake'] = '9.9.0'
+      versions['wrapt'] = '1.15.0'
+      with self.assertRaisesRegex(RuntimeError, 'tensorflow requires wrapt'):
+        smoke.check_package_requirements(packages)
+
+  def test_missing_runtime_dependency_fails_before_packing_with_repair_details(self):
+    prefix = Path('/environment to package')
+    failure = subprocess.CompletedProcess([], 1, "ModuleNotFoundError: No module named 'onnxruntime'\n")
+    with patch.object(builder.subprocess, 'run', return_value=failure) as run:
+      with self.assertRaisesRegex(RuntimeError, 'No module named.*onnxruntime'):
+        builder.check_runtime_dependencies(prefix)
+    arguments, options = run.call_args
+    self.assertEqual(arguments[0][0], str(prefix/'bin/python'))
+    self.assertEqual(arguments[0][-1], '--dependencies-only')
+    self.assertEqual(options['env']['PYTHONNOUSERSITE'], '1')
+    self.assertEqual(options['env']['PYTHONDONTWRITEBYTECODE'], '1')
+    self.assertEqual(options['env']['CUDA_VISIBLE_DEVICES'], '-1')
 
   def test_environment_reuse_requires_saved_matching_inventory_and_archive(self):
     with tempfile.TemporaryDirectory() as directory:

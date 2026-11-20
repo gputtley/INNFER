@@ -120,6 +120,47 @@ Do not delete a local context while its build is running. Temporary directories
 can be removed by site cleanup policies, so preserve the packaged environment
 and manifests on shared storage if they will be needed for future rebuilds.
 
+### Runtime dependency checks and environment repairs
+
+The builder checks CPU ONNX inference and numerical differentiation using the
+selected environment before packing it. These checks also run inside the image
+as part of `%test` and the isolated smoke test. They catch missing
+`onnxruntime`/`numdifftools` packages, incompatible dependency versions and ONNX shared-library failures without
+external datasets or model downloads. The image smoke test also checks that
+`python.worker` imports resolve inside the frozen source tree.
+
+Both setup environment files declare `onnxruntime==1.28.0` and
+`numdifftools==0.9.42`. The ONNX Runtime pin matches the working IC image;
+`protobuf==4.25.8` satisfies its dependency while retaining the protobuf 4 series
+used with TensorFlow 2.15. Existing environments need an explicit repair before
+rebuilding, since editing the YAML does not install packages into them:
+
+```bash
+python3 -m pip install \
+  onnxruntime==1.28.0 protobuf==4.25.8 numdifftools==0.9.42
+python3 containers/smoke_test.py --dependencies-only
+```
+
+Run this with the environment you intend to package active. Build a new,
+versioned SIF after the checks pass and select its path for the regenerated
+workflow. Existing SIF files do not change when their source environment is
+repaired. Package the updated environment afresh; do not reuse an archive made
+before the dependency repair.
+
+The combined controller/training environment retains the workaround in
+`setup.sh`: TensorFlow 2.15.1 uses `wrapt==1.14.1`; Snakemake 9.9.0 and its
+storage-interface package 4.2.3 are installed with `--no-deps`. The dependency
+validator accepts that exact combination, reports the exception, and records
+the pre-build check output in the image manifest. Other dependency mismatches,
+including incompatible protobuf versions or a different wrapt combination,
+still fail validation. No metadata in installed third-party packages is edited.
+
+The image smoke tests run both flow implementations and a small local Snakemake
+workflow to check the combined environment works in practice. `pip check` will
+still report the storage-interface package's declared `wrapt>=1.15` requirement;
+this is the explicitly accepted setup workaround. Changing these pinned
+versions requires revisiting the exception and rerunning the runtime tests.
+
 ### Build failures seen at CERN
 
 | Message | Meaning and next action |
@@ -137,7 +178,7 @@ and [Docker Hub throttling documentation](https://docs.docker.com/docker-hub/tro
 
 ## Validation and image contents
 
-The build installs the OS libraries, fonts and LaTeX packages needed by the application. It runs a CPU smoke test that checks imports from the image, both BayesFlow and KerasFlow checkpoint round trips/density evaluation/sampling, parquet I/O, PDF table compilation and `innfer --help`. A second test disables host home/current-directory/site bind mounts, so missing dependencies cannot be satisfied accidentally by the original checkout.
+The build installs the OS libraries, fonts and LaTeX packages needed by the application. It runs a CPU smoke test that checks ONNX inference, numerical differentiation, frozen source imports from the image, both BayesFlow and KerasFlow checkpoint round trips/density evaluation/sampling, parquet I/O, a local Snakemake workflow, PDF table compilation and `innfer --help`. A second test disables host home/current-directory/site bind mounts, so missing dependencies cannot be satisfied accidentally by the original checkout.
 
 The recipe creates the system `pdflatex.fmt` during the writable build phase. Generating it on first use would fail when the finished image is read-only, especially under fakeroot where TeX tries to write beneath `/root`.
 

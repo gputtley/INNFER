@@ -137,6 +137,21 @@ def run(command, env):
   subprocess.run(command, check=True, env=env)
 
 
+def check_runtime_dependencies(prefix):
+  """Reject incomplete environments before spending time packing or building."""
+  command = [str(prefix/'bin/python'), str(ROOT/'containers/smoke_test.py'), '--dependencies-only']
+  result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    env={**os.environ, 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1',
+      'CUDA_VISIBLE_DEVICES': '-1'})
+  if result.returncode:
+    raise RuntimeError(f'Runtime dependency check failed for {prefix}:\n{result.stdout}\n'
+      'Repair this environment before building, then package it afresh. Required packages include '
+      'onnxruntime==1.28.0, protobuf==4.25.8 and numdifftools==0.9.42; '
+      'see configs/setup/environment.yaml.')
+  print(result.stdout, end='', flush=True)
+  return result.stdout
+
+
 def reusable_environment(context, inventory):
   """Reuse a completed package only with its matching environment inventory."""
   manifest = json.loads((context/'container-manifest.json').read_text())
@@ -166,6 +181,7 @@ def main():
   prefix, parent = args.env_prefix.resolve(), args.work_dir.resolve()
   inventory = environment_inventory(prefix)
   inventory['replaced_conda_metadata'] = replaced_conda_metadata(prefix, inventory)
+  runtime_checks = check_runtime_dependencies(prefix)
   reused_archive = reusable_environment(args.reuse_environment_from.resolve(), inventory) if args.reuse_environment_from else None
   required = ['scripts/innfer.py', 'python/BayesFlow/bayesflow/amortizers.py', 'containers/innfer.def']
   for name in required:
@@ -180,7 +196,7 @@ def main():
   metadata = {'created_utc': timestamp, 'git_commit': git_value(ROOT, 'rev-parse', 'HEAD'),
     'git_tracked_changes': git_value(ROOT, 'status', '--porcelain', '--untracked-files=no'),
     'bayesflow_commit': git_value(ROOT/'python/BayesFlow', 'rev-parse', 'HEAD'),
-    'environment': inventory, 'base_image': args.base_image}
+    'environment': inventory, 'runtime_dependency_check': runtime_checks, 'base_image': args.base_image}
   if reused_archive is not None:
     metadata['environment_reused_from'] = str(reused_archive)
   manifest = snapshot(ROOT, context/'code.tar.gz', metadata)

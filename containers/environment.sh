@@ -2,7 +2,7 @@
 export INNFER_ROOT=/opt/innfer/app
 export INNFER_ENV=/opt/innfer/env
 export PATH="/opt/innfer/bin:$INNFER_ENV/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export PYTHONPATH="$INNFER_ROOT/python/worker:$INNFER_ROOT/python/worker/benchmarks:$INNFER_ROOT/python/runner:$INNFER_ROOT/python/BayesFlow:$INNFER_ROOT/python/runner/custom_module:$INNFER_ROOT/python/worker/custom"
+export PYTHONPATH="$INNFER_ROOT:$INNFER_ROOT/python/worker:$INNFER_ROOT/python/worker/benchmarks:$INNFER_ROOT/python/runner:$INNFER_ROOT/python/BayesFlow:$INNFER_ROOT/python/runner/custom_module:$INNFER_ROOT/python/worker/custom"
 export PYTHONNOUSERSITE=1
 export PYTHONDONTWRITEBYTECODE=1
 export MPLBACKEND=Agg

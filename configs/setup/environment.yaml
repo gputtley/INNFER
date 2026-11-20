@@ -134,7 +134,9 @@ dependencies:
       - mplhep-data==0.0.3
       - multipledispatch==1.0.0
       - nbformat==5.10.4
+      - numdifftools==0.9.42
       - oauthlib==3.2.2
+      - onnxruntime==1.28.0
       - opt-einsum==3.3.0
       - optuna==3.6.1
       - packaging==24.0
@@ -144,7 +146,7 @@ dependencies:
       - platformdirs==4.2.2
       - pluggy==1.5.0
       - prettytable==3.10.0
-      - protobuf==4.25.3
+      - protobuf==4.25.8
       - psutil==5.9.8
       - pulp==2.8.0
       - pyarrow==16.1.0
