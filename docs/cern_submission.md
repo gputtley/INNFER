@@ -77,7 +77,54 @@ can also be used. The selected run config is snapshotted for submitted jobs.
 The container launcher has no analysis-specific path settings. External paths
 must be visible inside the container; use the site's mounts or Apptainer's
 standard [bind settings](https://apptainer.org/docs/user/main/bind_paths_and_mounts.html),
-such as `APPTAINER_BINDPATH=/eos`, when an extra mount is needed.
+when an extra mount is needed. For input files on EOS, set this before starting
+the controller so the setting is passed to newly submitted jobs:
+
+```bash
+export APPTAINER_BINDPATH="${APPTAINER_BINDPATH:+${APPTAINER_BINDPATH},}/eos:/eos"
+```
+
+Use a literal colon, with no backslash before it. `APPTAINER_BINDPATH=/eos` is
+equivalent when no other extra bindings are needed. The EOS path must also be
+accessible on the host worker. Existing queued jobs retain their submission-time
+environment; editing this variable in another terminal does not update them.
+
+### EOS authentication inside the container
+
+If the EOS path is accessible directly on lxplus but gives `PermissionError`
+inside the image, check the Kerberos cache on the same machine:
+
+```bash
+klist
+printf 'KRB5CCNAME=%s\n' "${KRB5CCNAME:-unset}"
+```
+
+EOS can use `KRB5CCNAME` from the process accessing its FUSE mount. The
+container's `--cleanenv` removes host variables unless they are passed
+explicitly, and a cache under `/run/user/...` needs a bind mount to be visible.
+The generated launcher forwards the current worker's `KRB5CCNAME` and
+`KRB5_CONFIG`, and mounts readable file-based caches and explicitly selected
+configuration files read-only at their original paths. Credentials are read
+at runtime and are not included in the SIF, config archive or job manifest.
+
+Regenerate job scripts after updating `python/worker/container_submission.py`
+to pick up this behaviour; rebuilding the SIF is unnecessary. For an existing
+script, a local test with a `FILE:` cache can use:
+
+```bash
+APPTAINERENV_KRB5CCNAME="$KRB5CCNAME" \
+APPTAINER_BINDPATH="/eos,${KRB5CCNAME#FILE:}:${KRB5CCNAME#FILE:}:ro" \
+bash /path/to/generated/job.sh
+```
+
+Use these command-scoped settings for the local test. Batch workers need their
+own usable credentials; binding the cache from a login node does not delegate
+its tickets to another machine. If EOS access also fails outside the container,
+check the host ticket and EOS permissions first.
+See the [EOS authentication explanation](https://eos-community.web.cern.ch/t/fusex-kerberos-authentication-inside-docker-for-version-v4-4-18/326)
+and [Apptainer environment controls](https://apptainer.org/docs/user/main/environment_and_metadata.html).
+
+### Submission resources
 
 Each selected workflow step needs CERN submission settings. You can set its
 `submit` entry directly to a suitable submission YAML, or retain an existing
@@ -111,6 +158,8 @@ workflow, and create the submission map described above. These placeholder
 paths and `cern_map.yaml` are examples to adapt, not generated setup files.
 
 ```bash
+export APPTAINER_BINDPATH="${APPTAINER_BINDPATH:+${APPTAINER_BINDPATH},}/eos:/eos"
+
 python3 scripts/innfer.py \
   --cfg=configs/run/your_analysis.py \
   --step=SnakeMake \

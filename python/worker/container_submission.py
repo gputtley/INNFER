@@ -167,14 +167,30 @@ innfer_options=(--cleanenv --bind "$innfer_project:$innfer_project" --bind "$inn
 
 _RUN = r'''
 innfer_container() {
-  local innfer_name
+  local innfer_name innfer_ticket_file='' innfer_krb_config
   local -a innfer_environment=()
-  for innfer_name in CUDA_VISIBLE_DEVICES NVIDIA_VISIBLE_DEVICES OMP_NUM_THREADS TF_NUM_INTEROP_THREADS TF_NUM_INTRAOP_THREADS WANDB_MODE WANDB_API_KEY WANDB_PROJECT WANDB_ENTITY; do
+  local -a innfer_auth_bindings=() innfer_krb_configs=()
+  for innfer_name in CUDA_VISIBLE_DEVICES NVIDIA_VISIBLE_DEVICES OMP_NUM_THREADS TF_NUM_INTEROP_THREADS TF_NUM_INTRAOP_THREADS WANDB_MODE WANDB_API_KEY WANDB_PROJECT WANDB_ENTITY KRB5CCNAME KRB5_CONFIG; do
     if [[ -v "$innfer_name" ]]; then
       innfer_environment+=(--env "$innfer_name=${!innfer_name}")
     fi
   done
-  apptainer run "${innfer_environment[@]}" "${innfer_options[@]}" "$innfer_local_image" "$@"
+  # Use credentials available on this worker, not a login-node path captured
+  # during submission. In particular, /run/user caches are not default mounts.
+  case "${KRB5CCNAME:-}" in
+    FILE:/*) innfer_ticket_file="${KRB5CCNAME#FILE:}" ;;
+    /*) innfer_ticket_file="$KRB5CCNAME" ;;
+  esac
+  if [[ -n "$innfer_ticket_file" && -f "$innfer_ticket_file" && -r "$innfer_ticket_file" ]]; then
+    innfer_auth_bindings+=(--bind "$innfer_ticket_file:$innfer_ticket_file:ro")
+  fi
+  IFS=: read -r -a innfer_krb_configs <<< "${KRB5_CONFIG:-}"
+  for innfer_krb_config in "${innfer_krb_configs[@]}"; do
+    if [[ "$innfer_krb_config" = /* && -f "$innfer_krb_config" && -r "$innfer_krb_config" ]]; then
+      innfer_auth_bindings+=(--bind "$innfer_krb_config:$innfer_krb_config:ro")
+    fi
+  done
+  apptainer run "${innfer_environment[@]}" "${innfer_options[@]}" "${innfer_auth_bindings[@]}" "$innfer_local_image" "$@"
 }
 printf 'INNFER container: %s\nImage SHA256: %s\nConfig SHA256: %s\n' "$innfer_image_source" "$innfer_image_sha" "$innfer_config_sha"
 cd "$innfer_project"

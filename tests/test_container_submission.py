@@ -131,6 +131,37 @@ sys.exit(7 if '--fail' in args else 0)
     self.assertIn('CUDA_VISIBLE_DEVICES=GPU-allocated', self.calls()[0]['args'])
     self.assertFalse(list(Path(self.environment['_CONDOR_SCRATCH_DIR']).glob('innfer-runtime.*')))
 
+  def test_runtime_kerberos_cache_and_configuration_are_forwarded_without_packaging(self):
+    job, options = self.job()
+    tickets = self.base/'worker ticket cache'
+    tickets.mkdir()
+    cache = tickets/'krb5cc'
+    cache.write_bytes(b'test ticket cache')
+    config = tickets/'krb5.conf'
+    config.write_text('[libdefaults]\n default_realm = EXAMPLE.INVALID\n')
+    self.environment['KRB5CCNAME'] = 'FILE:'+str(cache)
+    self.environment['KRB5_CONFIG'] = str(config)
+    result = self.run_job(job)
+    self.assertEqual(result.returncode, 0, result.stdout)
+    arguments = self.calls()[0]['args']
+    self.assertIn('KRB5CCNAME=FILE:'+str(cache), arguments)
+    self.assertIn('KRB5_CONFIG='+str(config), arguments)
+    self.assertIn(f'{cache}:{cache}:ro', arguments)
+    self.assertIn(f'{config}:{config}:ro', arguments)
+    self.assertNotIn(str(cache), job.read_text())
+    self.assertNotIn(str(cache), job.with_suffix('.container.json').read_text())
+    with tarfile.open(options['config_archive']) as archive:
+      self.assertFalse(any('krb5cc' in name or 'krb5.conf' in name for name in archive.getnames()))
+
+  def test_non_file_kerberos_cache_is_forwarded_without_a_file_binding(self):
+    job, _ = self.job()
+    self.environment['KRB5CCNAME'] = 'KEYRING:persistent:12345'
+    result = self.run_job(job)
+    self.assertEqual(result.returncode, 0, result.stdout)
+    arguments = self.calls()[0]['args']
+    self.assertIn('KRB5CCNAME=KEYRING:persistent:12345', arguments)
+    self.assertFalse(any(arg.endswith(':12345:ro') for arg in arguments))
+
   def test_concurrent_cache_population_and_reuse(self):
     job, _ = self.job()
     processes = [subprocess.Popen(['bash', str(job)], env=self.environment,
